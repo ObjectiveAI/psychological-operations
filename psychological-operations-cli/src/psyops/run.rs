@@ -8,7 +8,7 @@
 use std::collections::HashSet;
 
 use crate::db::UnscoredEntry;
-use super::{valid_for_filter, Filter, PsyOp};
+use super::PsyOp;
 
 pub async fn run_all(name_filter: Option<&str>, commit_filter: Option<&str>) -> Result<crate::Output, crate::error::Error> {
     let cfg = crate::config::load();

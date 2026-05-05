@@ -4,10 +4,12 @@ pub mod run;
 pub mod psyop;
 pub mod query;
 pub mod for_you;
+pub mod sort;
 
 pub use psyop::*;
 pub use query::*;
 pub use for_you::*;
+pub use sort::*;
 
 use clap::{Args, Subcommand};
 use serde::Serialize;

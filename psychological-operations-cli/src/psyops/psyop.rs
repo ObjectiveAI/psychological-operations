@@ -10,6 +10,7 @@ use objectiveai::functions::executions::request::Strategy;
 
 use super::for_you::ForYou;
 use super::query::Query;
+use super::sort::SortBy;
 
 /// A psyop scores tweets pulled from one or more X v2 sources. Output
 /// scores get persisted with `tags` so external consumers can select
@@ -57,36 +58,6 @@ pub struct PsyOp {
     /// descending; `None` ranks below every `Some(_)`. `sort` is the
     /// tiebreak among equal-priority items).
     pub sort: SortBy,
-}
-
-/// Per-tweet eligibility filter. Applied AFTER ingestion, BEFORE the
-/// scoring function runs. Shared by `Query` and `ForYou`.
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
-pub struct Filter {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub min_likes: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub min_retweets: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub min_replies: Option<u64>,
-    /// Reject tweets whose `created` is older than this many seconds.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub max_age: Option<u64>,
-    /// Reject tweets whose `created` is younger than this many seconds.
-    /// Useful for letting engagement settle before scoring.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub min_age: Option<u64>,
-}
-
-/// Tiebreak order applied across the deduped candidate union.
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum SortBy {
-    Likes,
-    Retweets,
-    Replies,
-    Newest,
-    Oldest,
 }
 
 fn default_true() -> bool { true }
@@ -140,51 +111,6 @@ impl PsyOp {
         }
         Ok(())
     }
-}
-
-pub struct ValidationResult {
-    pub valid: bool,
-    pub reason: Option<&'static str>,
-}
-
-/// Per-tweet score-time eligibility check against a `Filter`.
-pub fn valid_for_filter(
-    filter: &Filter,
-    created: &str,
-    likes: u64,
-    retweets: u64,
-    replies: u64,
-    now: &chrono::DateTime<chrono::Utc>,
-) -> ValidationResult {
-    if let Ok(created_time) = chrono::DateTime::parse_from_rfc3339(created) {
-        let age_seconds = (*now - created_time.with_timezone(&chrono::Utc)).num_seconds();
-        if let Some(max_age) = filter.max_age {
-            if age_seconds > max_age as i64 {
-                return ValidationResult { valid: false, reason: Some("max_age") };
-            }
-        }
-        if let Some(min_age) = filter.min_age {
-            if age_seconds < min_age as i64 {
-                return ValidationResult { valid: false, reason: Some("min_age") };
-            }
-        }
-    }
-    if let Some(min_likes) = filter.min_likes {
-        if likes < min_likes {
-            return ValidationResult { valid: false, reason: Some("min_likes") };
-        }
-    }
-    if let Some(min_retweets) = filter.min_retweets {
-        if retweets < min_retweets {
-            return ValidationResult { valid: false, reason: Some("min_retweets") };
-        }
-    }
-    if let Some(min_replies) = filter.min_replies {
-        if replies < min_replies {
-            return ValidationResult { valid: false, reason: Some("min_replies") };
-        }
-    }
-    ValidationResult { valid: true, reason: None }
 }
 
 /// Determine if a function is a vector function.
