@@ -10,7 +10,7 @@ use objectiveai::functions::executions::request::Strategy;
 
 use super::for_you::ForYou;
 use super::query::Query;
-use super::sort::SortBy;
+use super::sort_by::SortBy;
 
 /// A psyop scores tweets pulled from one or more X v2 sources.
 #[derive(Debug, Serialize, Deserialize)]
