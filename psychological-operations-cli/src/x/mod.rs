@@ -6,6 +6,10 @@
 pub mod serde_helpers;
 pub mod types;
 pub mod params;
+pub mod error;
+pub mod http;
+
+pub use error::Error;
 pub mod account_activity;
 pub mod activity;
 pub mod chat;

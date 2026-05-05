@@ -754,6 +754,10 @@ class Codegen:
             f.write("pub mod serde_helpers;\n")
             f.write("pub mod types;\n")
             f.write("pub mod params;\n")
+            f.write("pub mod error;\n")
+            f.write("pub mod http;\n")
+            f.write("\n")
+            f.write("pub use error::Error;\n")
             for entry in sorted(OUT_DIR.iterdir()):
                 if not entry.is_dir():
                     continue
