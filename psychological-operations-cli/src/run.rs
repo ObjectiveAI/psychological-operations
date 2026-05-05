@@ -31,7 +31,7 @@ enum Commands {
         command: invent::Commands,
     },
     /// Chrome native-messaging host. Reads framed JSON on stdin
-    /// (from the psyop-extension) and writes captured tweets into
+    /// (from psychological-operations-chrome-extension) and writes captured tweets into
     /// the local DB. Identity (psyop + commit) is resolved from the
     /// PSYOP_NAME / PSYOP_COMMIT_SHA env vars set by the launcher
     /// when Chrome was spawned with this profile.

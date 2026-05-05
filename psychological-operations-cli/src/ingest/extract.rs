@@ -5,7 +5,8 @@ use serde::Deserialize;
 
 use crate::db::{MediaUrl, Post};
 
-/// One tweet as serialized by `psyop-extension/content_script.js`.
+/// One tweet as serialized by
+/// `psychological-operations-chrome-extension/content_script.js`.
 #[derive(Debug, Deserialize)]
 pub struct IncomingTweet {
     pub id: String,

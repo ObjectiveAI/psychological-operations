@@ -1,4 +1,4 @@
-# psyop-extension
+# psychological-operations-chrome-extension
 
 Chrome MV3 extension that captures the tweets currently rendered on
 an X feed and writes them into the local `posts` table with
@@ -77,7 +77,7 @@ Windows — save as `%USERPROFILE%\bin\psychological-operations-native-host.cmd`
 ### 3. Load the extension and copy its ID
 
 In Chrome → `chrome://extensions` → Developer mode on →
-"Load unpacked" → select `psyop-extension/`. Copy the generated
+"Load unpacked" → select `psychological-operations-chrome-extension/`. Copy the generated
 extension ID (looks like `abcd1234efgh…`).
 
 ### 4. Drop the native-messaging manifest
