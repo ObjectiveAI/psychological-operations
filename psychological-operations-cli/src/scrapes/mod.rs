@@ -1,7 +1,6 @@
 pub mod notifications;
 pub mod agent_timeout;
 pub mod agent_max_attempts;
-pub mod run;
 
 use clap::{Args, Subcommand};
 use serde::Serialize;
@@ -41,16 +40,6 @@ pub enum Commands {
     Publish {
         #[command(flatten)]
         args: PublishArgs,
-    },
-    /// Run enabled scrapes concurrently. With no flags, runs all enabled
-    /// scrapes. `--name X` narrows the run to a single scrape; `--commit Y`
-    /// additionally requires the scrape's HEAD to match Y. `--commit`
-    /// without `--name` is rejected.
-    Run {
-        #[arg(long)]
-        name: Option<String>,
-        #[arg(long, requires = "name")]
-        commit: Option<String>,
     },
     /// Manage per-scrape notification destinations.
     Notifications {
@@ -107,7 +96,6 @@ impl Commands {
             Commands::Enable { name, commit } => set_disabled(&name, commit.as_deref(), false),
             Commands::Disable { name, commit } => set_disabled(&name, commit.as_deref(), true),
             Commands::Publish { args } => publish(args),
-            Commands::Run { name, commit } => run::run_all(name.as_deref(), commit.as_deref()).await,
             Commands::Notifications { command } => command.handle(),
             Commands::AgentTimeout { command } => command.handle(),
             Commands::AgentMaxAttempts { command } => command.handle(),

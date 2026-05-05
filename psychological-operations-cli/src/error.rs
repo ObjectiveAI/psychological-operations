@@ -2,8 +2,6 @@
 pub enum Error {
     #[error("psyop not found: {0}")]
     PsyopNotFound(String),
-    #[error("playwright error: {0}")]
-    Playwright(String),
     #[error("objectiveai cli error: {0}")]
     ObjectiveAiCli(String),
     #[error("database error: {0}")]

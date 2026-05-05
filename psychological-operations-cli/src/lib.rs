@@ -4,8 +4,6 @@ pub mod db;
 pub mod psyop;
 pub mod scrape;
 pub mod input;
-pub mod playwright;
-pub mod playwright_binary;
 pub mod score;
 pub mod notifications;
 pub mod agent_timeout;
