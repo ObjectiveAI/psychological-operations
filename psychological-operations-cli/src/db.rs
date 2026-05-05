@@ -20,26 +20,18 @@ const SCHEMA: &str = "
     );
     CREATE INDEX IF NOT EXISTS posts_by_psyop ON posts(psyop, psyop_commit_sha);
 
-    -- A post can be ingested via multiple sources (showed up in for_you
-    -- AND in one or more query results). Each distinct source-of-arrival
-    -- gets a row keyed by (post_id, psyop, psyop_commit_sha, query) —
-    -- where query IS NULL means the for_you input. Uniqueness is
-    -- enforced via a UNIQUE INDEX with COALESCE(query,'') because
-    -- SQLite's PRIMARY KEY treats NULLs as distinct.
     CREATE TABLE IF NOT EXISTS sources (
-        post_id           TEXT    NOT NULL,
-        psyop             TEXT    NOT NULL,
-        psyop_commit_sha  TEXT    NOT NULL,
-        for_you           INTEGER NOT NULL,
-        query             TEXT,
-        sourced_at        TEXT    NOT NULL DEFAULT (datetime('now')),
+        post_id     TEXT    NOT NULL,
+        for_you     INTEGER NOT NULL,
+        query       TEXT,
+        sourced_at  TEXT    NOT NULL DEFAULT (datetime('now')),
         CHECK (
             (for_you = 1 AND query IS NULL)
          OR (for_you = 0 AND query IS NOT NULL)
         )
     );
     CREATE UNIQUE INDEX IF NOT EXISTS sources_unique
-        ON sources(post_id, psyop, psyop_commit_sha, COALESCE(query, ''));
+        ON sources(post_id, COALESCE(query, ''));
 
     CREATE TABLE IF NOT EXISTS contents (
         post_id  TEXT PRIMARY KEY,
@@ -145,10 +137,9 @@ impl Db {
         )?;
 
         let source_inserted = tx.execute(
-            "INSERT OR IGNORE INTO sources
-                (post_id, psyop, psyop_commit_sha, for_you, query)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![post.id, psyop, psyop_commit_sha, for_you, query],
+            "INSERT OR IGNORE INTO sources (post_id, for_you, query)
+             VALUES (?1, ?2, ?3)",
+            params![post.id, for_you, query],
         )? > 0;
 
         let images_json = serde_json::to_string(&post.images)?;
