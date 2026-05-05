@@ -748,23 +748,26 @@ class Codegen:
                 f.write(f"pub mod {c};\n")
 
     def emit_root(self) -> None:
-        with (OUT_DIR / "mod.rs").open("w", encoding="utf-8", newline="\n") as f:
+        # mod.rs is hand-written (lives next to this codegen.rs) and is
+        # NOT generated. We only emit codegen.rs, which `mod.rs` privately
+        # imports and glob-re-exports.
+        #
+        # `#[path = "<group>/mod.rs"]` is required because non-`mod.rs`
+        # files create their own module namespace by default; without
+        # the override Rust would look for `codegen/<group>/mod.rs`
+        # rather than `<group>/mod.rs`.
+        groups: list[str] = []
+        for entry in sorted(OUT_DIR.iterdir()):
+            if not entry.is_dir():
+                continue
+            if entry.name in ("types", "params"):
+                continue
+            if any(entry.rglob("*.rs")):
+                groups.append(entry.name)
+        with (OUT_DIR / "codegen.rs").open("w", encoding="utf-8", newline="\n") as f:
             f.write(self._header())
-            f.write("#![allow(non_camel_case_types, non_snake_case, dead_code)]\n\n")
-            f.write("pub mod serde_helpers;\n")
-            f.write("pub mod types;\n")
-            f.write("pub mod params;\n")
-            f.write("pub mod error;\n")
-            f.write("pub mod http;\n")
-            f.write("\n")
-            f.write("pub use error::Error;\n")
-            for entry in sorted(OUT_DIR.iterdir()):
-                if not entry.is_dir():
-                    continue
-                if entry.name in ("types", "params"):
-                    continue
-                if any(entry.rglob("*.rs")):
-                    f.write(f"pub mod {entry.name};\n")
+            for g in groups:
+                f.write(f'#[path = "{g}/mod.rs"]\npub mod {g};\n')
 
     def emit_serde_helpers(self) -> None:
         path = OUT_DIR / "serde_helpers.rs"
