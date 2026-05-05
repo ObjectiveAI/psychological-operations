@@ -23,10 +23,6 @@ pub fn psyops_dir() -> PathBuf {
     base_dir().join("psyops")
 }
 
-pub fn scrapes_dir() -> PathBuf {
-    base_dir().join("scrapes")
-}
-
 pub fn db_path() -> PathBuf {
     base_dir().join("data.db")
 }
@@ -49,30 +45,9 @@ pub struct PsyopConfig {
     pub disabled: Option<bool>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Default, Clone)]
-pub struct ScrapeConfig {
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub notifications: Vec<Destination>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub disabled: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub agent_timeout: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub agent_max_attempts: Option<u64>,
-}
-
 impl PsyopConfig {
     pub fn is_empty(&self) -> bool {
         self.notifications.is_empty() && self.disabled.is_none()
-    }
-}
-
-impl ScrapeConfig {
-    pub fn is_empty(&self) -> bool {
-        self.notifications.is_empty()
-            && self.disabled.is_none()
-            && self.agent_timeout.is_none()
-            && self.agent_max_attempts.is_none()
     }
 }
 
@@ -87,14 +62,6 @@ pub struct PsyopOverrides {
     pub base: PsyopConfig,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub commits: BTreeMap<String, PsyopConfig>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Default, Clone)]
-pub struct ScrapeOverrides {
-    #[serde(default, skip_serializing_if = "ScrapeConfig::is_empty")]
-    pub base: ScrapeConfig,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub commits: BTreeMap<String, ScrapeConfig>,
 }
 
 impl PsyopOverrides {
@@ -122,52 +89,12 @@ impl PsyopOverrides {
     }
 }
 
-impl ScrapeOverrides {
-    pub fn is_empty(&self) -> bool {
-        self.base.is_empty() && self.commits.is_empty()
-    }
-
-    pub fn notifications_for(&self, commit_sha: &str) -> &[Destination] {
-        if let Some(c) = self.commits.get(commit_sha) {
-            if !c.notifications.is_empty() {
-                return &c.notifications;
-            }
-        }
-        &self.base.notifications
-    }
-
-    pub fn disabled_for(&self, commit_sha: &str) -> bool {
-        if let Some(c) = self.commits.get(commit_sha) {
-            if let Some(d) = c.disabled { return d; }
-        }
-        self.base.disabled.unwrap_or(false)
-    }
-
-    pub fn agent_timeout_for(&self, commit_sha: &str) -> Option<u64> {
-        if let Some(c) = self.commits.get(commit_sha) {
-            if let Some(v) = c.agent_timeout { return Some(v); }
-        }
-        self.base.agent_timeout
-    }
-
-    pub fn agent_max_attempts_for(&self, commit_sha: &str) -> Option<u64> {
-        if let Some(c) = self.commits.get(commit_sha) {
-            if let Some(v) = c.agent_max_attempts { return Some(v); }
-        }
-        self.base.agent_max_attempts
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Config root
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub struct Config {
-    #[serde(default = "default_agent_timeout")]
-    pub agent_timeout: u64,
-    #[serde(default = "default_agent_max_attempts")]
-    pub agent_max_attempts: u64,
     /// Global notification destinations — fire on every psyop run.
     #[serde(default)]
     pub notifications: Vec<Destination>,
@@ -176,24 +103,6 @@ pub struct Config {
     /// shadow base values for a specific SHA.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub psyops: BTreeMap<String, PsyopOverrides>,
-    /// Per-scrape overrides keyed by scrape name. Same shape as `psyops`.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub scrapes: BTreeMap<String, ScrapeOverrides>,
-}
-
-fn default_agent_timeout() -> u64 { 180 }
-fn default_agent_max_attempts() -> u64 { 3 }
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            agent_timeout: default_agent_timeout(),
-            agent_max_attempts: default_agent_max_attempts(),
-            notifications: Vec::new(),
-            psyops: BTreeMap::new(),
-            scrapes: BTreeMap::new(),
-        }
-    }
 }
 
 pub fn load() -> Config {
