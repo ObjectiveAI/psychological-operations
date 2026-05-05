@@ -12,9 +12,7 @@ use super::for_you::ForYou;
 use super::query::Query;
 use super::sort::SortBy;
 
-/// A psyop scores tweets pulled from one or more X v2 sources. Output
-/// scores get persisted with `tags` so external consumers can select
-/// them by tag. At least one of `queries` or `for_you` must be set.
+/// A psyop scores tweets pulled from one or more X v2 sources.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PsyOp {
     /// Live X v2 search-query inputs. `None` means no query-driven
@@ -23,18 +21,14 @@ pub struct PsyOp {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub queries: Option<Vec<Query>>,
     /// Personalized "For You" timeline input.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub for_you: Option<ForYou>,
-
-    /// Tags applied to every score row this psyop produces.
-    pub tags: Vec<String>,
+    pub for_you: ForYou,
 
     pub function: FullInlineFunctionOrRemoteCommitOptional,
     pub profile: InlineProfileOrRemoteCommitOptional,
     pub strategy: Strategy,
-
     #[serde(default)]
     pub invert: bool,
+    
     /// If `false`, scored posts are sent to the function with an empty
     /// `images` array regardless of what was ingested. Defaults to `true`.
     #[serde(default = "default_true")]
@@ -82,16 +76,6 @@ pub fn save(name: &str, psyop: &PsyOp) -> Result<(), crate::error::Error> {
 
 impl PsyOp {
     pub fn validate(&self) -> Result<(), crate::error::Error> {
-        let has_queries = self.queries.as_ref().is_some_and(|v| !v.is_empty());
-        let has_for_you = self.for_you.is_some();
-        if !has_queries && !has_for_you {
-            return Err(crate::error::Error::InvalidPsyop(
-                "psyop must have at least one of `queries` or `for_you`".into(),
-            ));
-        }
-        if self.tags.is_empty() {
-            return Err(crate::error::Error::InvalidPsyop("tags must not be empty".into()));
-        }
         if self.max_posts == 0 {
             return Err(crate::error::Error::InvalidPsyop("max_posts must be > 0".into()));
         }
