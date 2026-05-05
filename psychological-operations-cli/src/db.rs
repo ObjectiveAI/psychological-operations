@@ -127,9 +127,12 @@ impl Db {
         Ok(inserted)
     }
 
-    /// Upsert score rows keyed by `post_id`. The (psyop, commit)
-    /// context isn't repeated here — it's recoverable via the matching
-    /// `posts` row. `ids` and `scores` must be the same length.
+    /// Upsert score rows keyed by `post_id` and drop the matching
+    /// `contents` row in the same transaction — once a post has a
+    /// score, its raw text/media is no longer needed. The (psyop,
+    /// commit) context isn't repeated on the scores row; it's
+    /// recoverable via the matching `posts` row. `ids` and `scores`
+    /// must be the same length.
     pub fn set_scores(
         &self,
         ids: &[String],
@@ -145,6 +148,10 @@ impl Db {
                      score     = excluded.score,
                      scored_at = datetime('now')",
                 params![id, score],
+            )?;
+            tx.execute(
+                "DELETE FROM contents WHERE post_id = ?1",
+                params![id],
             )?;
         }
         tx.commit()?;
