@@ -1,3 +1,0 @@
-objectiveai==2.0.1
-cocoindex
-objectiveai-cocoindex==2.0.1
