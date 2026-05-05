@@ -26,7 +26,7 @@ const SCHEMA: &str = "
     );
     CREATE INDEX IF NOT EXISTS posts_by_psyop ON posts(psyop, psyop_commit_sha);
 
-    CREATE TABLE IF NOT EXISTS post_contents (
+    CREATE TABLE IF NOT EXISTS contents (
         post_id  TEXT PRIMARY KEY,
         text     TEXT NOT NULL,
         images   TEXT NOT NULL DEFAULT '[]',
@@ -34,14 +34,10 @@ const SCHEMA: &str = "
     );
 
     CREATE TABLE IF NOT EXISTS scores (
-        post_id           TEXT NOT NULL,
-        psyop             TEXT NOT NULL,
-        psyop_commit_sha  TEXT NOT NULL,
-        score             REAL NOT NULL,
-        scored_at         TEXT NOT NULL DEFAULT (datetime('now')),
-        PRIMARY KEY (post_id, psyop, psyop_commit_sha)
+        post_id    TEXT PRIMARY KEY,
+        score      REAL NOT NULL,
+        scored_at  TEXT NOT NULL DEFAULT (datetime('now'))
     );
-    CREATE INDEX IF NOT EXISTS scores_by_psyop ON scores(psyop, psyop_commit_sha);
 ";
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -119,7 +115,7 @@ impl Db {
         let images_json = serde_json::to_string(&post.images)?;
         let videos_json = serde_json::to_string(&post.videos)?;
         tx.execute(
-            "INSERT INTO post_contents (post_id, text, images, videos)
+            "INSERT INTO contents (post_id, text, images, videos)
              VALUES (?1, ?2, ?3, ?4)
              ON CONFLICT(post_id) DO UPDATE SET
                  text = excluded.text,
@@ -131,12 +127,11 @@ impl Db {
         Ok(inserted)
     }
 
-    /// Upsert score rows for `(post_id, psyop, psyop_commit_sha)`.
-    /// `ids` and `scores` must be the same length.
+    /// Upsert score rows keyed by `post_id`. The (psyop, commit)
+    /// context isn't repeated here — it's recoverable via the matching
+    /// `posts` row. `ids` and `scores` must be the same length.
     pub fn set_scores(
         &self,
-        psyop: &str,
-        psyop_commit_sha: &str,
         ids: &[String],
         scores: &[f64],
     ) -> Result<(), crate::error::Error> {
@@ -144,12 +139,12 @@ impl Db {
         let tx = self.conn.unchecked_transaction()?;
         for (id, score) in ids.iter().zip(scores.iter()) {
             tx.execute(
-                "INSERT INTO scores (post_id, psyop, psyop_commit_sha, score)
-                 VALUES (?1, ?2, ?3, ?4)
-                 ON CONFLICT(post_id, psyop, psyop_commit_sha) DO UPDATE SET
+                "INSERT INTO scores (post_id, score)
+                 VALUES (?1, ?2)
+                 ON CONFLICT(post_id) DO UPDATE SET
                      score     = excluded.score,
                      scored_at = datetime('now')",
-                params![id, psyop, psyop_commit_sha, score],
+                params![id, score],
             )?;
         }
         tx.commit()?;
