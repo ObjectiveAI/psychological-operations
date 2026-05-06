@@ -36,11 +36,20 @@ run() {
   CHROME_BYTES=$(wc -c < "$CHROME_ZIP" | tr -d ' ')
   echo "  -> $CHROME_BYTES bytes"
 
-  # ── stage extension dir (extension.crx packing is a follow-up commit) ──
-  STAGE_DIR="$EMBED_DIR/extension"
-  rm -rf "$STAGE_DIR"
-  mkdir -p "$STAGE_DIR"
-  cp -r "$EXT_DIR"/. "$STAGE_DIR"/
+  # ── pack extension into a signed CRX3 ──────────────────────────────────
+  # crx-pack generates extension-key.pem on first run if it's missing
+  # (commit the result so every build derives the same extension ID).
+  echo "Packing extension into signed CRX3 ..."
+  if [ ! -x "$REPO_ROOT/target/release/crx-pack" ] && [ ! -x "$REPO_ROOT/target/release/crx-pack.exe" ]; then
+    (cd "$REPO_ROOT" && cargo build -p crx-pack --release --quiet)
+  fi
+  CRX_PACK="$REPO_ROOT/target/release/crx-pack"
+  [ -x "$CRX_PACK.exe" ] && CRX_PACK="$CRX_PACK.exe"
+  "$CRX_PACK" \
+    --extension-dir "$EXT_DIR" \
+    --key "$SCRIPT_DIR/extension-key.pem" \
+    --out "$EMBED_DIR/extension.crx" \
+    --id-out "$EMBED_DIR/extension-id.txt"
 
   # ── write the launch entry path so the Rust side knows what to exec ────
   printf '%s\n' "$CHROME_LAUNCH_REL" > "$EMBED_DIR/launch-entry.txt"

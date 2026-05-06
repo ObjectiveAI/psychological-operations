@@ -1,0 +1,19 @@
+[package]
+name = "crx-pack"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Build-time tool: pack a Chrome MV3 extension dir into a signed CRX3."
+
+[[bin]]
+name = "crx-pack"
+path = "src/main.rs"
+
+[dependencies]
+rsa = { version = "0.9", features = ["pem", "pkcs5", "sha2"] }
+sha2 = { version = "0.10", default-features = false }
+zip = { version = "2", default-features = false, features = ["deflate"] }
+rand = "0.8"
+base64 = "0.22"
+walkdir = "2"
+clap = { version = "4", features = ["derive"] }

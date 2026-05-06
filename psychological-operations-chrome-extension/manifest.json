@@ -3,6 +3,7 @@
   "name": "Psychological Operations Capture",
   "version": "0.1.0",
   "description": "Capture For-You tweets into the local psyop DB.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA4ZWRtVw5KxSSw0/iEPxVYOJVAsWTs8B1S63ZRa5bBTN3n3cqJzwZCrzJPlOFdmtdeFb1MzKTkJqwyiP/bQAsQGeRUdsPGzTwHA9ulXx0EG5KGULoq+X4J+eJWas1iu4B0WPniDszBhL3+OYBHsW2KgjWXrpMPfzzU6/hld2mtT2GDyyQw2jfj3gFJwPnHRzpu5BQBZiZviXS0+RsseXVYQTETdhZuhaGCwiLIDBVLMrR2umN11N12eEj07gp/byNTmKPZFVR+SCpwwNjfIyKPOJ0v1M03r+sq50u1m7jOc/KKAFriIh3lWrm+ldqSwGRd/I7xqSZuqbBtUG+e/sFvwIDAQAB",
   "permissions": ["activeTab", "scripting", "storage", "nativeMessaging"],
   "host_permissions": ["https://x.com/*", "https://twitter.com/*"],
   "background": { "service_worker": "background.js" },
