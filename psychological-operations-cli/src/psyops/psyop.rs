@@ -17,8 +17,9 @@ use super::sort_by::SortBy;
 pub struct PsyOp {
     /// Live X v2 search-query inputs. `None` means no query-driven
     /// ingestion for this psyop. An empty `Some(vec![])` is equivalent
-    /// to `None` for ingestion purposes.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// to `None` for ingestion purposes; both round-trip out as
+    /// "field absent" via `skip_queries`.
+    #[serde(default, skip_serializing_if = "skip_queries")]
     pub queries: Option<Vec<Query>>,
     /// Personalized "For You" timeline input.
     pub for_you: ForYou,
@@ -64,6 +65,16 @@ pub struct PsyOp {
 }
 
 fn default_true() -> bool { true }
+
+/// Skip-serializing predicate for `queries`: omit the field when
+/// it's `None` OR `Some(empty)`. Both shapes mean "no query-driven
+/// ingestion" so emitting `"queries": []` would just be noise.
+fn skip_queries(q: &Option<Vec<Query>>) -> bool {
+    match q {
+        None => true,
+        Some(v) => v.is_empty(),
+    }
+}
 
 /// Read a psyop's JSON definition from disk.
 pub fn load(name: &str) -> Result<PsyOp, crate::error::Error> {
