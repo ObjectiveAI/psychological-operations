@@ -1,0 +1,43 @@
+//! Per-OS path helpers for the embedded Chrome subsystem.
+
+use std::path::PathBuf;
+
+fn home() -> PathBuf {
+    dirs::home_dir().expect("could not determine home directory")
+}
+
+fn base_dir() -> PathBuf {
+    home().join(".psychological-operations")
+}
+
+/// Cache root for the extracted Chrome zip + extension. Each unique
+/// embedded payload (content-hashed) gets its own subdirectory.
+pub fn chrome_cache_root() -> PathBuf {
+    base_dir().join("chrome")
+}
+
+/// Per-psyop Chromium profile dir. Persists logins / cookies between runs.
+pub fn profile_dir(psyop: &str) -> PathBuf {
+    base_dir().join("chrome-profiles").join(psyop)
+}
+
+/// Where the wrapper script that Chromium invokes for native messaging
+/// lives. Generated lazily; one-time write per OS user.
+pub fn native_host_wrapper() -> PathBuf {
+    let bin = base_dir().join("bin");
+    if cfg!(windows) {
+        bin.join("psychological-operations-native-host.cmd")
+    } else {
+        bin.join("psychological-operations-native-host.sh")
+    }
+}
+
+/// Native-messaging-host manifest path for a given Chromium profile.
+/// On Windows this isn't actually used at runtime (Chromium reads the
+/// manifest path from HKCU registry instead) — kept here only for
+/// consistency / debugging.
+pub fn native_host_manifest_for_profile(profile: &std::path::Path) -> PathBuf {
+    profile.join("NativeMessagingHosts").join(
+        format!("{}.json", crate::chrome::bundles::NATIVE_HOST_NAME),
+    )
+}

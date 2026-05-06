@@ -7,6 +7,7 @@ pub mod notifications;
 pub mod psyops;
 pub mod x;
 pub mod ingest;
+pub mod chrome;
 mod publish;
 mod invent;
 

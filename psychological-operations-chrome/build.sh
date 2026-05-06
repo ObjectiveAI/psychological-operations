@@ -51,6 +51,14 @@ run() {
     --out "$EMBED_DIR/extension.crx" \
     --id-out "$EMBED_DIR/extension-id.txt"
 
+  # ── also stage the unpacked extension as a tar ─────────────────────────
+  # `--load-extension` (v1) requires an unpacked dir at runtime; the
+  # tar gets include_bytes!'d into the Rust binary and extracted on
+  # first launch alongside the chrome zip.
+  EXT_TAR="$EMBED_DIR/extension.tar"
+  rm -f "$EXT_TAR"
+  (cd "$EXT_DIR" && tar -cf "$EXT_TAR" .)
+
   # ── write the launch entry path so the Rust side knows what to exec ────
   printf '%s\n' "$CHROME_LAUNCH_REL" > "$EMBED_DIR/launch-entry.txt"
 
