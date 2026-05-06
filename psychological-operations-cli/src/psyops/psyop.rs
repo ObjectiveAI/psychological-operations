@@ -85,38 +85,23 @@ pub fn save(name: &str, psyop: &PsyOp) -> Result<(), crate::error::Error> {
 
 impl PsyOp {
     pub fn validate(&self) -> Result<(), crate::error::Error> {
+        let bad = |s: String| crate::error::Error::InvalidPsyop(s);
+
         if self.max_posts == 0 {
-            return Err(crate::error::Error::InvalidPsyop("max_posts must be > 0".into()));
+            return Err(bad("max_posts must be > 0".into()));
         }
         if self.min_posts > self.max_posts {
-            return Err(crate::error::Error::InvalidPsyop(
-                "min_posts must be <= max_posts".into(),
-            ));
+            return Err(bad("min_posts must be <= max_posts".into()));
         }
+
         if let Some(qs) = &self.queries {
             for (i, q) in qs.iter().enumerate() {
-                if q.query.trim().is_empty() {
-                    return Err(crate::error::Error::InvalidPsyop(
-                        format!("queries[{i}]: query string must not be empty"),
-                    ));
-                }
-                if let Some(f) = &q.filter {
-                    f.validate().map_err(|e| {
-                        crate::error::Error::InvalidPsyop(
-                            format!("queries[{i}].filter: {e}"),
-                        )
-                    })?;
-                }
+                q.validate().map_err(|e| bad(format!("queries[{i}]: {e}")))?;
             }
         }
-        if let Some(f) = &self.for_you.filter {
-            f.validate().map_err(|e| {
-                crate::error::Error::InvalidPsyop(format!("for_you.filter: {e}"))
-            })?;
-        }
-        self.sort.validate().map_err(|e| {
-            crate::error::Error::InvalidPsyop(format!("sort: {e}"))
-        })?;
+        self.for_you.validate().map_err(|e| bad(format!("for_you: {e}")))?;
+        self.sort.validate().map_err(|e| bad(format!("sort: {e}")))?;
+
         Ok(())
     }
 }

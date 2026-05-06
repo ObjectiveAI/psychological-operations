@@ -18,3 +18,14 @@ pub struct ForYou {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub filter: Option<Filter>,
 }
+
+impl ForYou {
+    /// Publish-time validation: the filter (if present) must be
+    /// internally consistent.
+    pub fn validate(&self) -> Result<(), String> {
+        if let Some(f) = &self.filter {
+            f.validate().map_err(|e| format!("filter: {e}"))?;
+        }
+        Ok(())
+    }
+}

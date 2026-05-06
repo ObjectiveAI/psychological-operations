@@ -20,6 +20,21 @@ pub struct Query {
     pub filter: Option<Filter>,
 }
 
+impl Query {
+    /// Publish-time validation: the search query string must be
+    /// non-empty after trim, and the filter (if present) must be
+    /// internally consistent.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.query.trim().is_empty() {
+            return Err("query string must not be empty".into());
+        }
+        if let Some(f) = &self.filter {
+            f.validate().map_err(|e| format!("filter: {e}"))?;
+        }
+        Ok(())
+    }
+}
+
 /// Which X v2 search endpoint a `Query` should hit.
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
