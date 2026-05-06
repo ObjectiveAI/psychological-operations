@@ -102,8 +102,11 @@ impl Db {
     ///      post + origin if one isn't already present, so a tweet
     ///      that arrives via multiple inputs (for_you AND a query, or
     ///      via two distinct queries) is tagged with each source.
-    ///   3. **contents** — upsert. Body text and media URLs are
-    ///      replaced with the latest observation.
+    ///   3. **contents** — insert-or-ignore. If the row is already
+    ///      present, the existing text/media wins (first observation).
+    ///      If it's missing — most commonly because `set_scores` ran
+    ///      and dropped the contents after scoring — this re-ingestion
+    ///      re-adds the contents alongside the new source row.
     ///
     /// Returns `true` if a *new source* row was created, `false` if
     /// the post had already been ingested via this same origin under
@@ -145,12 +148,8 @@ impl Db {
         let images_json = serde_json::to_string(&post.images)?;
         let videos_json = serde_json::to_string(&post.videos)?;
         tx.execute(
-            "INSERT INTO contents (post_id, text, images, videos)
-             VALUES (?1, ?2, ?3, ?4)
-             ON CONFLICT(post_id) DO UPDATE SET
-                 text = excluded.text,
-                 images = excluded.images,
-                 videos = excluded.videos",
+            "INSERT OR IGNORE INTO contents (post_id, text, images, videos)
+             VALUES (?1, ?2, ?3, ?4)",
             params![post.id, post.text, images_json, videos_json],
         )?;
 
