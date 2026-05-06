@@ -21,6 +21,8 @@ pub struct ForYou {
     pub min_retweets: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub min_replies: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_impressions: Option<u64>,
     /// Reject tweets whose `created` is older than this many seconds.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_age: Option<u64>,

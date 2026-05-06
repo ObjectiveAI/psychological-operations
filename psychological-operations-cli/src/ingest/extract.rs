@@ -22,6 +22,8 @@ pub struct IncomingTweet {
     #[serde(default)]
     pub replies: u64,
     #[serde(default)]
+    pub impressions: u64,
+    #[serde(default)]
     pub images: Vec<MediaUrl>,
     #[serde(default)]
     pub videos: Vec<MediaUrl>,
@@ -57,6 +59,7 @@ impl IncomingTweet {
             likes: self.likes,
             retweets: self.retweets,
             replies: self.replies,
+            impressions: self.impressions,
         })
     }
 }

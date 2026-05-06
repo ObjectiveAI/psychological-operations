@@ -15,6 +15,7 @@ const SCHEMA: &str = "
         likes             INTEGER NOT NULL DEFAULT 0,
         retweets          INTEGER NOT NULL DEFAULT 0,
         replies           INTEGER NOT NULL DEFAULT 0,
+        impressions       INTEGER NOT NULL DEFAULT 0,
         ingested_at       TEXT    NOT NULL DEFAULT (datetime('now')),
         PRIMARY KEY (id, psyop, psyop_commit_sha)
     );
@@ -64,6 +65,7 @@ pub struct Post {
     pub likes: u64,
     pub retweets: u64,
     pub replies: u64,
+    pub impressions: u64,
 }
 
 /// Which input on a psyop produced this post. Mirrors the
@@ -153,12 +155,13 @@ impl Db {
         tx.execute(
             "INSERT OR IGNORE INTO posts
                 (id, psyop, psyop_commit_sha,
-                 handle, created, likes, retweets, replies)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                 handle, created, likes, retweets, replies, impressions)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
                 post.id, psyop, psyop_commit_sha,
                 post.handle, post.created,
                 post.likes as i64, post.retweets as i64, post.replies as i64,
+                post.impressions as i64,
             ],
         )?;
 

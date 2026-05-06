@@ -25,6 +25,23 @@
     return parseCount(label);
   }
 
+  // X renders the view counter as the "View post analytics" affordance,
+  // typically `[data-testid="analytics"]`, sometimes the older
+  // `<a href$="/analytics">` shape. Try both, fall back to the first
+  // descendant whose aria-label mentions a view count.
+  function readImpressions(article) {
+    const candidates = [
+      article.querySelector('[data-testid="analytics"]'),
+      article.querySelector('a[href$="/analytics"]'),
+    ].filter(Boolean);
+    for (const el of candidates) {
+      const label = el.getAttribute("aria-label") || el.textContent || "";
+      const n = parseCount(label);
+      if (n > 0) return n;
+    }
+    return 0;
+  }
+
   function extractOne(article) {
     // The permalink anchor inside the tweet — `/<handle>/status/<id>`.
     let id = null, handle = null;
@@ -43,9 +60,10 @@
     const created = timeEl ? timeEl.getAttribute("datetime") : "";
 
     // Engagement counts.
-    const likes    = readMetric(article, "like");
-    const retweets = readMetric(article, "retweet");
-    const replies  = readMetric(article, "reply");
+    const likes       = readMetric(article, "like");
+    const retweets    = readMetric(article, "retweet");
+    const replies     = readMetric(article, "reply");
+    const impressions = readImpressions(article);
 
     // Media — images from twimg media URLs; videos from <video> elements.
     const images = Array.from(
@@ -58,7 +76,7 @@
 
     return {
       id, handle, text, created,
-      likes, retweets, replies,
+      likes, retweets, replies, impressions,
       images, videos,
     };
   }
