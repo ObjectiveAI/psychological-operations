@@ -52,10 +52,16 @@ pub struct Filter {
 }
 
 impl Filter {
-    /// Parse-only syntax check on `custom`. Used by
-    /// `PsyOp::validate` so a bad expression is rejected at publish
-    /// time, not at first-tweet time.
+    /// Validate the filter at publish time:
+    ///   - For every `min_X` / `max_X` pair, both bounds must be
+    ///     consistent (`min <= max`) when both are set.
+    ///   - If `custom` is `Some`, the Starlark expression must parse.
     pub fn validate(&self) -> Result<(), String> {
+        check_pair("likes",       self.min_likes,       self.max_likes)?;
+        check_pair("retweets",    self.min_retweets,    self.max_retweets)?;
+        check_pair("replies",     self.min_replies,     self.max_replies)?;
+        check_pair("impressions", self.min_impressions, self.max_impressions)?;
+        check_pair("age",         self.min_age,         self.max_age)?;
         if let Some(src) = &self.custom {
             parse_custom(src).map(|_| ())?;
         }
@@ -107,6 +113,17 @@ fn static_pass(
     if let Some(v) = f.min_age          { if age < v          { return false; } }
     if let Some(v) = f.max_age          { if age > v          { return false; } }
     true
+}
+
+fn check_pair(name: &str, min: Option<u64>, max: Option<u64>) -> Result<(), String> {
+    if let (Some(lo), Some(hi)) = (min, max) {
+        if lo > hi {
+            return Err(format!(
+                "min_{name} ({lo}) must be <= max_{name} ({hi})",
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn parse_custom(src: &str) -> Result<AstModule, String> {
@@ -190,6 +207,34 @@ mod tests {
             ..Default::default()
         };
         assert!(f.evaluate(0, 0, 0, 0, 0).is_err());
+    }
+
+    #[test]
+    fn min_greater_than_max_rejected() {
+        let f = Filter {
+            min_likes: Some(100),
+            max_likes: Some(50),
+            ..Default::default()
+        };
+        let err = f.validate().unwrap_err();
+        assert!(err.contains("min_likes"));
+        assert!(err.contains("max_likes"));
+    }
+
+    #[test]
+    fn equal_min_max_is_fine() {
+        let f = Filter {
+            min_likes: Some(50),
+            max_likes: Some(50),
+            ..Default::default()
+        };
+        f.validate().unwrap();
+    }
+
+    #[test]
+    fn min_set_alone_is_fine() {
+        let f = Filter { min_age: Some(60), ..Default::default() };
+        f.validate().unwrap();
     }
 
     #[test]
