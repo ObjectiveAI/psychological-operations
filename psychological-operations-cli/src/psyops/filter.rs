@@ -148,25 +148,23 @@ fn static_pass(
     if let Some(v) = f.min_age          { if age < v          { return false; } }
     if let Some(v) = f.max_age          { if age > v          { return false; } }
 
-    let likes_pi    = ratio(likes, impressions);
-    let retweets_pi = ratio(retweets, impressions);
-    let replies_pi  = ratio(replies, impressions);
-    if let Some(v) = f.min_likes_per_impression    { if likes_pi    < v { return false; } }
-    if let Some(v) = f.max_likes_per_impression    { if likes_pi    > v { return false; } }
-    if let Some(v) = f.min_retweets_per_impression { if retweets_pi < v { return false; } }
-    if let Some(v) = f.max_retweets_per_impression { if retweets_pi > v { return false; } }
-    if let Some(v) = f.min_replies_per_impression  { if replies_pi  < v { return false; } }
-    if let Some(v) = f.max_replies_per_impression  { if replies_pi  > v { return false; } }
+    // Per-impression ratio gates are skipped entirely when
+    // impressions == 0 — there's no meaningful rate without a
+    // denominator, and we don't want to silently reject rows just
+    // because the impression count hasn't been observed yet.
+    if impressions > 0 {
+        let denom = impressions as f64;
+        let likes_pi    = likes    as f64 / denom;
+        let retweets_pi = retweets as f64 / denom;
+        let replies_pi  = replies  as f64 / denom;
+        if let Some(v) = f.min_likes_per_impression    { if likes_pi    < v { return false; } }
+        if let Some(v) = f.max_likes_per_impression    { if likes_pi    > v { return false; } }
+        if let Some(v) = f.min_retweets_per_impression { if retweets_pi < v { return false; } }
+        if let Some(v) = f.max_retweets_per_impression { if retweets_pi > v { return false; } }
+        if let Some(v) = f.min_replies_per_impression  { if replies_pi  < v { return false; } }
+        if let Some(v) = f.max_replies_per_impression  { if replies_pi  > v { return false; } }
+    }
     true
-}
-
-/// Compute `numerator / impressions` as f64. When `impressions == 0`
-/// returns 0.0 — there's no meaningful per-impression rate without
-/// impressions, and treating it as 0 makes `min_*_per_impression`
-/// reject the row (intent: "at least N% engagement on observed
-/// views"), which matches the natural reading of the field.
-fn ratio(numerator: u64, impressions: u64) -> f64 {
-    if impressions == 0 { 0.0 } else { numerator as f64 / impressions as f64 }
 }
 
 fn check_pair(name: &str, min: Option<u64>, max: Option<u64>) -> Result<(), String> {
@@ -348,8 +346,9 @@ mod tests {
         f.validate().unwrap();
         assert!(f.evaluate(60, 0, 0, 1000, 0).unwrap());   // 6% — pass
         assert!(!f.evaluate(40, 0, 0, 1000, 0).unwrap());  // 4% — reject
-        // zero impressions => ratio is 0, fails any positive min
-        assert!(!f.evaluate(10, 0, 0, 0, 0).unwrap());
+        // zero impressions: ratio gates are skipped entirely, so this
+        // passes despite the positive `min_likes_per_impression`.
+        assert!(f.evaluate(10, 0, 0, 0, 0).unwrap());
     }
 
     #[test]
