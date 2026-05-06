@@ -92,7 +92,15 @@ impl Db {
     }
 
     /// Ingest a post under `(psyop, psyop_commit_sha)` with the given
-    /// origin. Three things happen in one transaction:
+    /// origin.
+    ///
+    /// If the post already has a row in `scores`, the entire ingestion
+    /// is a no-op — no posts row, no source row, no contents row.
+    /// (Once a tweet has been scored, re-ingesting it would just churn
+    /// rows back through scoring; the score is the authoritative
+    /// answer.) Returns `Ok(false)` in this case.
+    ///
+    /// Otherwise, three things happen in one transaction:
     ///
     ///   1. **posts** — insert-or-ignore. If a row already exists for
     ///      this `(id, psyop, psyop_commit_sha)`, the existing row's
@@ -104,16 +112,14 @@ impl Db {
     ///      via two distinct queries) is tagged with each source.
     ///   3. **contents** — insert-or-ignore. If the row is already
     ///      present, the existing text/media wins (first observation).
-    ///      If it's missing — most commonly because `set_scores` ran
-    ///      and dropped the contents after scoring — this re-ingestion
-    ///      re-adds the contents alongside the new source row.
+    ///      If it's missing this re-ingestion re-adds the contents
+    ///      alongside the new source row.
     ///
-    /// Returns `true` if a *new source* row was created, `false` if
-    /// the post had already been ingested via this same origin under
-    /// this `(psyop, commit)`. The post-row creation status is
-    /// intentionally not surfaced — multi-source posts shouldn't be
-    /// reported as "skipped" just because the post itself was already
-    /// known.
+    /// Returns `true` if a *new source* row was created, `false`
+    /// otherwise (already-scored, or already-ingested via this same
+    /// origin). The post-row creation status is intentionally not
+    /// surfaced — multi-source posts shouldn't be reported as
+    /// "skipped" just because the post itself was already known.
     pub fn insert_post(
         &self,
         post: &Post,
@@ -126,6 +132,23 @@ impl Db {
             Origin::Query(q) => (0_i64, Some(q.as_str())),
         };
         let tx = self.conn.unchecked_transaction()?;
+
+        // Already scored? Skip everything. Use SELECT 1 ... LIMIT 1
+        // inside the transaction so we observe a consistent snapshot.
+        let already_scored: bool = tx
+            .query_row(
+                "SELECT 1 FROM scores WHERE post_id = ?1 LIMIT 1",
+                params![post.id],
+                |_| Ok(true),
+            )
+            .or_else(|e| match e {
+                rusqlite::Error::QueryReturnedNoRows => Ok(false),
+                other => Err(other),
+            })?;
+        if already_scored {
+            tx.commit()?;
+            return Ok(false);
+        }
 
         tx.execute(
             "INSERT OR IGNORE INTO posts
