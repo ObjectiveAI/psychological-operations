@@ -2435,6 +2435,7 @@ dependencies = [
  "serde_json",
  "serde_path_to_error",
  "sha2",
+ "starlark",
  "tar",
  "thiserror 2.0.18",
  "tokio",

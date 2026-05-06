@@ -100,7 +100,19 @@ impl PsyOp {
                         format!("queries[{i}]: query string must not be empty"),
                     ));
                 }
+                if let Some(f) = &q.filter {
+                    f.validate().map_err(|e| {
+                        crate::error::Error::InvalidPsyop(
+                            format!("queries[{i}].filter: {e}"),
+                        )
+                    })?;
+                }
             }
+        }
+        if let Some(f) = &self.for_you.filter {
+            f.validate().map_err(|e| {
+                crate::error::Error::InvalidPsyop(format!("for_you.filter: {e}"))
+            })?;
         }
         Ok(())
     }
