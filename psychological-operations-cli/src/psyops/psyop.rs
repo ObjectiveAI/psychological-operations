@@ -1,16 +1,9 @@
 use serde::{Deserialize, Serialize};
-use objectiveai::functions::{
-    FullInlineFunctionOrRemoteCommitOptional,
-    FullInlineFunction,
-    AlphaInlineFunction,
-    InlineFunction,
-    InlineProfileOrRemoteCommitOptional,
-};
-use objectiveai::functions::executions::request::Strategy;
 
 use super::for_you::ForYou;
 use super::query::Query;
 use super::sort_by::SortBy;
+use super::stage::Stage;
 
 /// A psyop scores tweets pulled from one or more X v2 sources.
 #[derive(Debug, Serialize, Deserialize)]
@@ -23,21 +16,6 @@ pub struct PsyOp {
     pub queries: Option<Vec<Query>>,
     /// Personalized "For You" timeline input.
     pub for_you: ForYou,
-
-    pub function: FullInlineFunctionOrRemoteCommitOptional,
-    pub profile: InlineProfileOrRemoteCommitOptional,
-    pub strategy: Strategy,
-    #[serde(default)]
-    pub invert: bool,
-    
-    /// If `false`, scored posts are sent to the function with an empty
-    /// `images` array regardless of what was ingested. Defaults to `true`.
-    #[serde(default = "default_true")]
-    pub images: bool,
-    /// If `false`, scored posts are sent to the function with an empty
-    /// `videos` array regardless of what was ingested. Defaults to `true`.
-    #[serde(default = "default_true")]
-    pub videos: bool,
 
     /// Minimum total deduped candidates required before the psyop will
     /// run scoring. If the union of `queries` + `for_you` falls below
@@ -62,6 +40,12 @@ pub struct PsyOp {
     /// Defaults to `true` (no implicit skipping).
     #[serde(default = "default_true")]
     pub query_when_for_you_queued: bool,
+
+    /// Multi-stage scoring pipeline. Posts are scored by `stages[0]`,
+    /// optionally narrowed via the stage's `output_threshold` /
+    /// `output_top`, then fed to `stages[1]`, and so on. Must be
+    /// non-empty (validated at publish time).
+    pub stages: Vec<Stage>,
 }
 
 fn default_true() -> bool { true }
@@ -113,15 +97,13 @@ impl PsyOp {
         self.for_you.validate().map_err(|e| bad(format!("for_you: {e}")))?;
         self.sort.validate().map_err(|e| bad(format!("sort: {e}")))?;
 
-        Ok(())
-    }
-}
+        if self.stages.is_empty() {
+            return Err(bad("stages must not be empty".into()));
+        }
+        for (i, s) in self.stages.iter().enumerate() {
+            s.validate().map_err(|e| bad(format!("stages[{i}]: {e}")))?;
+        }
 
-/// Determine if a function is a vector function.
-/// If the function is remote, it must be fetched first (caller resolves it).
-pub fn is_vector_function(function: &FullInlineFunction) -> bool {
-    match function {
-        FullInlineFunction::Alpha(alpha) => matches!(alpha, AlphaInlineFunction::Vector(_)),
-        FullInlineFunction::Standard(standard) => matches!(standard, InlineFunction::Vector { .. }),
+        Ok(())
     }
 }

@@ -1,0 +1,72 @@
+use serde::{Deserialize, Serialize};
+use objectiveai::functions::{
+    FullInlineFunctionOrRemoteCommitOptional,
+    FullInlineFunction,
+    AlphaInlineFunction,
+    InlineFunction,
+    InlineProfileOrRemoteCommitOptional,
+};
+use objectiveai::functions::executions::request::Strategy;
+
+/// One ObjectiveAI scoring pass over the posts a psyop has assembled
+/// (or the surviving subset from the previous stage's output).
+/// PsyOp carries a `Vec<Stage>` so multi-stage pipelines are the
+/// natural shape: each stage's output, narrowed by `output_threshold`
+/// and/or `output_top`, becomes the next stage's input.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Stage {
+    pub function: FullInlineFunctionOrRemoteCommitOptional,
+    pub profile: InlineProfileOrRemoteCommitOptional,
+    pub strategy: Strategy,
+    #[serde(default)]
+    pub invert: bool,
+    /// If `false`, scored posts are sent to the function with an
+    /// empty `images` array regardless of what was ingested.
+    /// Defaults to `true`.
+    #[serde(default = "default_true")]
+    pub images: bool,
+    /// If `false`, scored posts are sent to the function with an
+    /// empty `videos` array regardless of what was ingested.
+    /// Defaults to `true`.
+    #[serde(default = "default_true")]
+    pub videos: bool,
+    /// Drop posts scoring below this threshold before they advance
+    /// to the next stage (or are returned as final output if this
+    /// is the last stage). Range `[0.0, 1.0]`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_threshold: Option<f64>,
+    /// After applying `output_threshold` (if any), keep only the top
+    /// fraction of scoring posts before advancing. Percentage in
+    /// `[0.0, 1.0]` — e.g. `0.25` = top quarter.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_top: Option<f64>,
+}
+
+fn default_true() -> bool { true }
+
+impl Stage {
+    pub fn validate(&self) -> Result<(), String> {
+        if let Some(t) = self.output_threshold {
+            if !t.is_finite() || !(0.0..=1.0).contains(&t) {
+                return Err(format!("output_threshold ({t}) must be in [0.0, 1.0]"));
+            }
+        }
+        if let Some(p) = self.output_top {
+            if !p.is_finite() || !(0.0..=1.0).contains(&p) {
+                return Err(format!("output_top ({p}) must be in [0.0, 1.0]"));
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Determine if a function is a vector function. Relocated from
+/// psyop.rs since `function` is now a per-stage concern.
+/// If the function is remote, it must be fetched first (caller
+/// resolves it).
+pub fn is_vector_function(function: &FullInlineFunction) -> bool {
+    match function {
+        FullInlineFunction::Alpha(alpha) => matches!(alpha, AlphaInlineFunction::Vector(_)),
+        FullInlineFunction::Standard(standard) => matches!(standard, InlineFunction::Vector { .. }),
+    }
+}

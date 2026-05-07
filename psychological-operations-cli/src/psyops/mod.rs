@@ -6,12 +6,14 @@ pub mod query;
 pub mod for_you;
 pub mod sort_by;
 pub mod filter;
+pub mod stage;
 
 pub use psyop::*;
 pub use query::*;
 pub use for_you::*;
 pub use sort_by::*;
 pub use filter::*;
+pub use stage::*;
 
 use clap::{Args, Subcommand};
 use serde::Serialize;

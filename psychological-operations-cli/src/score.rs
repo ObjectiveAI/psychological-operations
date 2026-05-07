@@ -9,7 +9,7 @@ use serde::Deserialize;
 
 use crate::db::Post;
 use crate::input::{new_post_input_value, PostsInputValue, PostInputValue};
-use crate::psyops::{PsyOp, is_vector_function};
+use crate::psyops::{Stage, is_vector_function};
 
 #[derive(Clone)]
 pub struct ScoredPost {
@@ -185,20 +185,20 @@ fn run_function_execution(
     Ok(result)
 }
 
-/// Run the psyop's single function execution against the given posts.
+/// Run a single stage's function execution against the given posts.
 /// Returns scored posts in score-descending order.
-pub fn score(psyop: &PsyOp, posts: Vec<Post>) -> Result<Vec<ScoredPost>, crate::error::Error> {
+pub fn score(stage: &Stage, posts: Vec<Post>) -> Result<Vec<ScoredPost>, crate::error::Error> {
     let mut scored: Vec<ScoredPost> = posts.into_iter()
         .map(|p| ScoredPost { post: p, score: 0.0 })
         .collect();
 
     eprintln!("Scoring {} posts...", scored.len());
 
-    let function = resolve_function(&psyop.function)?;
+    let function = resolve_function(&stage.function)?;
     let is_vector = is_vector_function(&function);
 
     let items: Vec<PostInputValue> = scored.iter()
-        .map(|s| new_post_input_value(&s.post, psyop.images, psyop.videos))
+        .map(|s| new_post_input_value(&s.post, stage.images, stage.videos))
         .collect();
 
     let (input_json, split) = if is_vector {
@@ -208,7 +208,7 @@ pub fn score(psyop: &PsyOp, posts: Vec<Post>) -> Result<Vec<ScoredPost>, crate::
         (serde_json::to_string(&items)?, true)
     };
 
-    let result = run_function_execution(&function, &psyop.profile, &psyop.strategy, &input_json, split, psyop.invert)?;
+    let result = run_function_execution(&function, &stage.profile, &stage.strategy, &input_json, split, stage.invert)?;
 
     let scores: Vec<f64> = result.output.as_array()
         .ok_or_else(|| crate::error::Error::Other("expected array output".into()))?
