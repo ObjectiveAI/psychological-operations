@@ -46,6 +46,16 @@ const SCHEMA: &str = "
         score      REAL NOT NULL,
         scored_at  TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS for_you_queue (
+        post_id           TEXT NOT NULL,
+        psyop             TEXT NOT NULL,
+        psyop_commit_sha  TEXT NOT NULL,
+        ingested_at       TEXT NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (post_id, psyop, psyop_commit_sha)
+    );
+    CREATE INDEX IF NOT EXISTS for_you_queue_by_psyop
+        ON for_you_queue(psyop, psyop_commit_sha);
 ";
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -78,6 +88,20 @@ pub enum Origin {
 
 pub struct Db {
     conn: Connection,
+}
+
+/// Parse `created` (RFC 3339) and return seconds since `now`. A
+/// `created` that doesn't parse yields 0 — `min_age` filters
+/// would reject it anyway, and we'd rather not error out the whole
+/// runtime over one bad timestamp.
+fn compute_age(created: &str, now: &chrono::DateTime<chrono::Utc>) -> u64 {
+    match chrono::DateTime::parse_from_rfc3339(created) {
+        Ok(t) => {
+            let secs = (*now - t.with_timezone(&chrono::Utc)).num_seconds();
+            secs.max(0) as u64
+        }
+        Err(_) => 0,
+    }
 }
 
 impl Db {
@@ -181,6 +205,173 @@ impl Db {
 
         tx.commit()?;
         Ok(source_inserted)
+    }
+
+    /// Browser-extension entry point. Queues a `(post_id, psyop,
+    /// psyop_commit_sha)` triple for later runtime hydration. The
+    /// queue exists because the chrome extension's "Capture" only
+    /// notes "I saw this id in for-you"; the actual posts/sources/
+    /// contents rows are written by the runtime after fetching the
+    /// tweet from the X v2 API.
+    ///
+    /// `INSERT OR IGNORE` — duplicate triples are silently coalesced.
+    /// Returns `true` iff a new queue row was created.
+    pub fn enqueue_for_you(
+        &self,
+        post_id: &str,
+        psyop: &str,
+        psyop_commit_sha: &str,
+    ) -> Result<bool, crate::error::Error> {
+        let n = self.conn.execute(
+            "INSERT OR IGNORE INTO for_you_queue
+                (post_id, psyop, psyop_commit_sha)
+             VALUES (?1, ?2, ?3)",
+            params![post_id, psyop, psyop_commit_sha],
+        )?;
+        Ok(n > 0)
+    }
+
+    /// Runtime entry point. Returns every queued post_id for this
+    /// `(psyop, psyop_commit_sha)` ordered by `ingested_at ASC` so
+    /// older observations get hydrated first.
+    pub fn for_you_queue(
+        &self,
+        psyop: &str,
+        psyop_commit_sha: &str,
+    ) -> Result<Vec<String>, crate::error::Error> {
+        let mut stmt = self.conn.prepare(
+            "SELECT post_id FROM for_you_queue
+              WHERE psyop = ?1 AND psyop_commit_sha = ?2
+              ORDER BY ingested_at ASC",
+        )?;
+        let rows = stmt.query_map(params![psyop, psyop_commit_sha], |row| {
+            row.get::<_, String>(0)
+        })?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    }
+
+    /// Runtime entry point. Drops queue rows AFTER the runtime has
+    /// successfully hydrated them via `insert_post`. Caller passes
+    /// only the ids it actually persisted, so a partial X-API
+    /// failure leaves the rest in the queue for the next round.
+    pub fn dequeue_for_you(
+        &self,
+        psyop: &str,
+        psyop_commit_sha: &str,
+        post_ids: &[String],
+    ) -> Result<(), crate::error::Error> {
+        if post_ids.is_empty() {
+            return Ok(());
+        }
+        let tx = self.conn.unchecked_transaction()?;
+        for id in post_ids {
+            tx.execute(
+                "DELETE FROM for_you_queue
+                  WHERE post_id = ?1
+                    AND psyop = ?2
+                    AND psyop_commit_sha = ?3",
+                params![id, psyop, psyop_commit_sha],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Runtime read path for filter / sort / score. Returns every
+    /// posts row for this `(psyop, psyop_commit_sha)` that doesn't
+    /// have a matching scores row, paired with all of its origins
+    /// (every `sources` row that shares post_id). `now` is used to
+    /// compute each tweet's `age` once at fetch time.
+    ///
+    /// `LEFT JOIN` against sources keeps tweets that somehow have no
+    /// source row from being silently dropped — every tweet *should*
+    /// have at least one source, but we don't bet runtime
+    /// correctness on it.
+    pub fn list_unscored_with_origins(
+        &self,
+        psyop: &str,
+        psyop_commit_sha: &str,
+        now: &chrono::DateTime<chrono::Utc>,
+    ) -> Result<Vec<(crate::tweet::Tweet, Vec<Origin>)>, crate::error::Error> {
+        let mut stmt = self.conn.prepare(
+            "SELECT
+                p.id, p.handle, p.created,
+                p.likes, p.retweets, p.replies, p.impressions,
+                s.for_you, s.query
+             FROM posts p
+             LEFT JOIN sources s ON s.post_id = p.id
+             WHERE p.psyop = ?1
+               AND p.psyop_commit_sha = ?2
+               AND NOT EXISTS (
+                 SELECT 1 FROM scores sc WHERE sc.post_id = p.id
+               )
+             ORDER BY p.id",
+        )?;
+
+        struct Row {
+            id: String,
+            handle: String,
+            created: String,
+            likes: i64,
+            retweets: i64,
+            replies: i64,
+            impressions: i64,
+            origin: Option<Origin>,
+        }
+
+        let rows = stmt.query_map(params![psyop, psyop_commit_sha], |row| {
+            let for_you: Option<i64> = row.get(7)?;
+            let query: Option<String> = row.get(8)?;
+            let origin = match for_you {
+                Some(1) => Some(Origin::ForYou),
+                Some(0) => Some(Origin::Query(query.unwrap_or_default())),
+                _       => None,   // LEFT JOIN miss
+            };
+            Ok(Row {
+                id:          row.get(0)?,
+                handle:      row.get(1)?,
+                created:     row.get(2)?,
+                likes:       row.get(3)?,
+                retweets:    row.get(4)?,
+                replies:     row.get(5)?,
+                impressions: row.get(6)?,
+                origin,
+            })
+        })?;
+
+        // Collapse the row stream into one (Tweet, Vec<Origin>) per
+        // post id. The query is ORDER BY p.id so all rows for one
+        // post arrive contiguously — a single-pass walk works.
+        let mut out: Vec<(crate::tweet::Tweet, Vec<Origin>)> = Vec::new();
+        for r in rows {
+            let r = r?;
+            let age = compute_age(&r.created, now);
+            let push_new = match out.last() {
+                Some((t, _)) => t.id != r.id,
+                None => true,
+            };
+            if push_new {
+                let tweet = crate::tweet::Tweet {
+                    id: r.id.clone(),
+                    handle: r.handle,
+                    created: r.created,
+                    age,
+                    likes:       r.likes       as u64,
+                    retweets:    r.retweets    as u64,
+                    replies:     r.replies     as u64,
+                    impressions: r.impressions as u64,
+                };
+                out.push((tweet, Vec::new()));
+            }
+            if let Some(o) = r.origin {
+                out.last_mut().unwrap().1.push(o);
+            }
+        }
+        Ok(out)
     }
 
     /// Upsert score rows keyed by `post_id` and drop the matching
