@@ -374,6 +374,59 @@ impl Db {
         Ok(out)
     }
 
+    /// Look up text/images/videos for each `post_id` from `contents`.
+    /// Posts whose row is absent from `contents` (already reaped by
+    /// a prior `set_scores`, or for any reason missing) are simply
+    /// not in the returned map. Callers treat absence as "this post
+    /// doesn't exist for our purposes" — the runtime filters the
+    /// post out of scoring rather than substituting empty content.
+    ///
+    /// Batches SELECTs in chunks of 500 to stay well under SQLite's
+    /// default 999-bind-param cap.
+    pub fn fetch_contents(
+        &self,
+        post_ids: &[String],
+    ) -> Result<
+        std::collections::HashMap<String, (String, Vec<MediaUrl>, Vec<MediaUrl>)>,
+        crate::error::Error,
+    > {
+        let mut out: std::collections::HashMap<
+            String,
+            (String, Vec<MediaUrl>, Vec<MediaUrl>),
+        > = std::collections::HashMap::with_capacity(post_ids.len());
+        if post_ids.is_empty() {
+            return Ok(out);
+        }
+        const CHUNK: usize = 500;
+        for chunk in post_ids.chunks(CHUNK) {
+            let placeholders = vec!["?"; chunk.len()].join(",");
+            let sql = format!(
+                "SELECT post_id, text, images, videos
+                   FROM contents
+                  WHERE post_id IN ({placeholders})",
+            );
+            let mut stmt = self.conn.prepare(&sql)?;
+            let params_vec: Vec<&dyn rusqlite::ToSql> =
+                chunk.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+            let rows = stmt.query_map(params_vec.as_slice(), |row| {
+                let id: String = row.get(0)?;
+                let text: String = row.get(1)?;
+                let images_json: String = row.get(2)?;
+                let videos_json: String = row.get(3)?;
+                Ok((id, text, images_json, videos_json))
+            })?;
+            for r in rows {
+                let (id, text, images_json, videos_json) = r?;
+                let images: Vec<MediaUrl> =
+                    serde_json::from_str(&images_json).unwrap_or_default();
+                let videos: Vec<MediaUrl> =
+                    serde_json::from_str(&videos_json).unwrap_or_default();
+                out.insert(id, (text, images, videos));
+            }
+        }
+        Ok(out)
+    }
+
     /// Upsert score rows keyed by `post_id` and drop the matching
     /// `contents` row in the same transaction — once a post has a
     /// score, its raw text/media is no longer needed. The (psyop,

@@ -17,10 +17,11 @@
 //! 6. Trim to `max_posts`.
 //! 7. **TODO**: scoring + `Db::set_scores`. Currently `todo!()`.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use crate::db::{Db, Origin, Post};
 use crate::error::Error;
+use crate::score::{self, ScoredPost};
 use crate::tweet::Tweet;
 use crate::x::http::Http;
 use crate::x::params::tweet_expansions_parameter::TweetExpansions;
@@ -110,15 +111,105 @@ pub async fn run_psyop(
             .into_iter()
             .take(psyop.max_posts as usize)
             .collect();
-        eprintln!(
-            "psyop \"{name}\": {} tweets ready to score",
-            trimmed.len(),
-        );
 
-        // 7. Scoring (todo: replace with real call to crate::score::score
-        //    and Db::set_scores in the next commit).
-        todo!("scoring not implemented yet — see follow-up commit. trimmed.len() = {}", trimmed.len());
+        // 7. Hydrate Tweet -> Post by joining with the `contents`
+        //    table, then run the multi-stage scoring pipeline.
+        score_pipeline(&db, &psyop, name, trimmed)?;
+        return Ok(crate::Output::Empty);
     }
+}
+
+// -- step 7: score pipeline -----------------------------------------------
+
+fn score_pipeline(
+    db: &Db,
+    psyop: &PsyOp,
+    name: &str,
+    trimmed: Vec<Tweet>,
+) -> Result<(), Error> {
+    // Hydrate Tweet -> Post via contents lookup. Tweets whose
+    // contents row is absent are filtered out — by contract those
+    // posts don't exist for our purposes (set_scores reaped them
+    // already, or some other invariant violation).
+    let ids: Vec<String> = trimmed.iter().map(|t| t.id.clone()).collect();
+    let contents = db.fetch_contents(&ids)?;
+    let mut current: Vec<Post> = trimmed
+        .into_iter()
+        .filter_map(|t| {
+            let (text, images, videos) = contents.get(&t.id)?.clone();
+            Some(Post {
+                id: t.id,
+                handle: t.handle,
+                text,
+                images,
+                videos,
+                created: t.created,
+                likes: t.likes,
+                retweets: t.retweets,
+                replies: t.replies,
+                impressions: t.impressions,
+            })
+        })
+        .collect();
+
+    eprintln!(
+        "psyop \"{name}\": {} posts hydrated and entering scoring",
+        current.len(),
+    );
+
+    // Each post's score = the LAST stage that scored it. Survivors
+    // of every stage end up with the final stage's score; posts
+    // dropped at stage K end up with stage K's score.
+    let mut last_scores: HashMap<String, f64> = HashMap::new();
+
+    for (i, stage) in psyop.stages.iter().enumerate() {
+        if current.is_empty() {
+            eprintln!(
+                "psyop \"{name}\": stage {} has no posts to score; stopping pipeline",
+                i,
+            );
+            break;
+        }
+
+        let scored: Vec<ScoredPost> = score::score(stage, current)?;
+        for s in &scored {
+            last_scores.insert(s.post.id.clone(), s.score);
+        }
+
+        // output_threshold: drop scores < threshold.
+        let after_threshold: Vec<ScoredPost> = match stage.output_threshold {
+            Some(t) => scored.into_iter().filter(|s| s.score >= t).collect(),
+            None => scored,
+        };
+
+        // output_top: keep top ceil(N * pct).
+        let after_top: Vec<ScoredPost> = match stage.output_top {
+            Some(p) if !after_threshold.is_empty() => {
+                let n = ((after_threshold.len() as f64) * p).ceil() as usize;
+                after_threshold.into_iter().take(n).collect()
+            }
+            _ => after_threshold,
+        };
+
+        current = after_top.into_iter().map(|s| s.post).collect();
+    }
+
+    if last_scores.is_empty() {
+        eprintln!("psyop \"{name}\": nothing was scored; no scores persisted");
+        return Ok(());
+    }
+
+    let ids: Vec<String> = last_scores.keys().cloned().collect();
+    let scores: Vec<f64> = ids.iter().map(|id| last_scores[id]).collect();
+    db.set_scores(&ids, &scores)?;
+
+    eprintln!(
+        "psyop \"{name}\": scored {} posts ({} survived all {} stages)",
+        last_scores.len(),
+        current.len(),
+        psyop.stages.len(),
+    );
+    Ok(())
 }
 
 // -- step 1: hydrate -------------------------------------------------------
