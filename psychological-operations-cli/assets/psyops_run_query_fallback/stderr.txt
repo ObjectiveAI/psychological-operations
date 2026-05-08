@@ -1,0 +1,8 @@
+psyop "test-psyop": 0 accepted / 2 min_posts / 10 max_posts
+psyop "test-psyop": query "mock fallback search" returned 3 tweets
+psyop "test-psyop": 3 accepted / 2 min_posts / 10 max_posts
+psyop "test-psyop": 3 posts hydrated and entering scoring
+Scoring 3 posts...
+psyop "test-psyop": scored 3 posts (3 survived all 1 stages)
+psyop "test-psyop": dropped 0 contents row(s) post-scoring
+psyop "test-psyop": delivered 0 of 0 pending (0 failed)
