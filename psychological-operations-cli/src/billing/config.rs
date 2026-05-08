@@ -44,6 +44,30 @@ pub struct BillingConfig {
     pub saved_at: Option<String>,
 }
 
+impl BillingConfig {
+    /// Returns true iff the load-bearing OAuth 2.0 fields are
+    /// present. Per-psyop OAuth (PKCE) needs both `client_id` and
+    /// `client_secret` to drive the authorize redirect + token
+    /// exchange.
+    pub fn is_complete(&self) -> bool {
+        self.client_id.is_some() && self.client_secret.is_some()
+    }
+}
+
+/// Load + assert that `billing.json` is set up. Returns the loaded
+/// config on success, or a clear error pointing the operator at
+/// `psychological-operations billing setup`.
+pub fn ensure_setup() -> Result<BillingConfig, Error> {
+    let cfg = load()?;
+    if !cfg.is_complete() {
+        return Err(Error::Other(
+            "billing not set up — run `psychological-operations billing setup` \
+             and capture client_id + client_secret before running psyops".into(),
+        ));
+    }
+    Ok(cfg)
+}
+
 pub fn path() -> PathBuf {
     let home = dirs::home_dir().expect("could not determine home directory");
     home.join(".psychological-operations").join("billing.json")

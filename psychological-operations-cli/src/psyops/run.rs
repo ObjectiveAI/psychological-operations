@@ -39,6 +39,8 @@ pub async fn run_all(
     name_filter: Option<&str>,
     commit_filter: Option<&str>,
 ) -> Result<crate::Output, Error> {
+    crate::billing::config::ensure_setup()?;
+
     let name = name_filter.ok_or_else(|| {
         Error::Other("psyops run requires --name <psyop>".into())
     })?;
