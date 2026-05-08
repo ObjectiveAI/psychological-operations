@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 use crate::run::Config as RuntimeConfig;
-use crate::targets::destinations::{x, Destination};
+use crate::targets::destinations::{stdout, x, Destination};
 
 // ---------------------------------------------------------------------------
 // Paths — all rooted at `cfg.base_dir()` so an env-var override
@@ -118,7 +118,16 @@ pub fn load(cfg: &RuntimeConfig) -> Config {
 
 fn default_initial_config() -> Config {
     Config {
-        targets: vec![Destination::X(x::X { r#type: x::XType::Like })],
+        targets: vec![
+            Destination::X(x::X { r#type: x::XType::Like }),
+            // urls_with_scores prints one
+            // `<score> — https://x.com/.../status/<id>` line per
+            // survivor — easy for a first-run user to eyeball
+            // what the run picked without rummaging in the DB.
+            Destination::Stdout(stdout::Stdout {
+                mode: stdout::Mode::UrlsWithScores,
+            }),
+        ],
         psyops:  BTreeMap::new(),
     }
 }
