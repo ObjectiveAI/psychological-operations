@@ -169,14 +169,18 @@ pub fn objectiveai_binary() -> &'static Path {
                 "build",
                 "--manifest-path", manifest.to_str().unwrap(),
                 "--no-default-features",
-                "--features", "rustpython,systempython,claude-agent-sdk,updater",
+                // `updater` dropped: phones home to GitHub on every
+                // invocation — non-deterministic + slow + leaks
+                // network errors into stderr snapshots. `viewer`
+                // also dropped (ratatui dep, unused by score path).
+                "--features", "rustpython,systempython,claude-agent-sdk",
                 "--release",
                 "--target-dir", target.to_str().unwrap(),
             ])
             .status()
             .expect("spawn cargo build objectiveai-cli");
         assert!(status.success(), "objectiveai-cli build failed");
-        let exe = if cfg!(windows) { "objectiveai.exe" } else { "objectiveai" };
+        let exe = if cfg!(windows) { "objectiveai-cli.exe" } else { "objectiveai-cli" };
         target.join("release").join(exe)
     }).as_path()
 }

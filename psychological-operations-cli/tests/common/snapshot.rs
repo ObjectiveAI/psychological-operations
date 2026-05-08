@@ -2,10 +2,58 @@
 //! `objectiveai-api/tests/common/stream_harness.rs::assert_snapshot`.
 //!
 //! Each test compares actual stdout / stderr against a committed
-//! file under `tests/assets/<test_name>/{stdout,stderr}.txt`.
+//! file under `assets/<test_name>/{stdout,stderr}.txt`.
 //! Set `UPDATE_PSYOPS_SNAPSHOTS=1` to regenerate.
 
 const SNAPSHOT_ENV: &str = "UPDATE_PSYOPS_SNAPSHOTS";
+
+/// Strip non-deterministic substrings from CLI output before
+/// snapshotting. Tests should call this on stdout / stderr
+/// before passing them to `assert_snapshot`.
+///
+/// Currently scrubs:
+///   - `Logs ID: fnexec-<hex>-<digits>` → `Logs ID: <id>`
+///     (objectiveai's per-execution log id contains a wall-clock
+///     timestamp suffix that varies across runs.)
+pub fn normalize(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for line in s.lines() {
+        if let Some(rest) = line.strip_prefix("Logs ID: ") {
+            // Replace fnexec-<hex>-<digits> with a placeholder.
+            // A raw substring scrub is enough — we don't need a
+            // real regex dep for one pattern.
+            let placeholder = scrub_logs_id(rest);
+            out.push_str("Logs ID: ");
+            out.push_str(&placeholder);
+        } else {
+            out.push_str(line);
+        }
+        out.push('\n');
+    }
+    if !s.ends_with('\n') {
+        out.pop();
+    }
+    out
+}
+
+fn scrub_logs_id(rest: &str) -> String {
+    // rest looks like "fnexec-fe70425df6a34dcc91808cea249d7496-1778269912"
+    // Replace anything matching that shape with "<id>".
+    if let Some(after_prefix) = rest.strip_prefix("fnexec-") {
+        // Split on '-'; if we have exactly two segments and both
+        // are hex/digits, replace.
+        if let Some(dash) = after_prefix.find('-') {
+            let (hash, ts) = after_prefix.split_at(dash);
+            let ts = &ts[1..];
+            if hash.chars().all(|c| c.is_ascii_hexdigit())
+                && ts.chars().all(|c| c.is_ascii_digit())
+            {
+                return "<id>".to_string();
+            }
+        }
+    }
+    rest.to_string()
+}
 
 /// Compare `actual` against `expected_static` (from `include_str!`),
 /// or write `actual` to `path` when `UPDATE_PSYOPS_SNAPSHOTS=1`.
