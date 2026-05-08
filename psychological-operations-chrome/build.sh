@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Stages the embedded Chromium bundle + (eventually) the packed
-# extension into embed/<target>/<profile>/. Re-run is a no-op via
-# fingerprint short-circuit.
+# Stages the embedded Chromium bundle + packed extension into
+# embed/<target>/<profile>/. Re-run is a no-op via fingerprint
+# short-circuit.
 #
 # Usage:
 #   bash psychological-operations-chrome/build.sh [--release] [--target <triple>]
 #
-# Pinned Chrome for Testing version is read from VERSION.
+# Per-platform Chromium revisions are read from VERSION.
 
 set -euo pipefail
 
@@ -28,13 +28,13 @@ run() {
   EMBED_DIR="$SCRIPT_DIR/embed/$TARGET/$PROFILE"
   mkdir -p "$EMBED_DIR"
 
-  # ── download Chrome for Testing ─────────────────────────────────────────
-  CHROME_ZIP="$EMBED_DIR/chrome-bundle.zip"
-  CHROME_URL="https://storage.googleapis.com/chrome-for-testing-public/${CHROME_VERSION}/${CFT_PLATFORM}/chrome-${CFT_PLATFORM}.zip"
-  echo "Downloading $CHROME_URL ..."
-  curl -fLsS "$CHROME_URL" -o "$CHROME_ZIP"
-  CHROME_BYTES=$(wc -c < "$CHROME_ZIP" | tr -d ' ')
-  echo "  -> $CHROME_BYTES bytes"
+  # ── download upstream Chromium snapshot ─────────────────────────────────
+  CHROMIUM_BUNDLE_ZIP="$EMBED_DIR/chrome-bundle.zip"
+  CHROMIUM_URL="https://commondatastorage.googleapis.com/chromium-browser-snapshots/${SNAPSHOT_PLATFORM}/${CHROMIUM_REV}/${CHROMIUM_ZIP}"
+  echo "Downloading $CHROMIUM_URL ..."
+  curl -fLsS "$CHROMIUM_URL" -o "$CHROMIUM_BUNDLE_ZIP"
+  CHROMIUM_BYTES=$(wc -c < "$CHROMIUM_BUNDLE_ZIP" | tr -d ' ')
+  echo "  -> $CHROMIUM_BYTES bytes"
 
   # ── pack extension into a signed CRX3 ──────────────────────────────────
   # crx-pack generates extension-key.pem on first run if it's missing
@@ -54,24 +54,24 @@ run() {
   # ── also stage the unpacked extension as a tar ─────────────────────────
   # `--load-extension` (v1) requires an unpacked dir at runtime; the
   # tar gets include_bytes!'d into the Rust binary and extracted on
-  # first launch alongside the chrome zip.
+  # first launch alongside the chromium zip.
   EXT_TAR="$EMBED_DIR/extension.tar"
   rm -f "$EXT_TAR"
   (cd "$EXT_DIR" && tar -cf "$EXT_TAR" .)
 
   # ── write the launch entry path so the Rust side knows what to exec ────
-  printf '%s\n' "$CHROME_LAUNCH_REL" > "$EMBED_DIR/launch-entry.txt"
+  printf '%s\n' "$CHROMIUM_LAUNCH_REL" > "$EMBED_DIR/launch-entry.txt"
 
   # ── write a metadata file for diagnostics + provenance ─────────────────
   cat > "$EMBED_DIR/bundle.meta.json" <<EOF
 {
-  "chrome_version":   "$CHROME_VERSION",
-  "cft_platform":     "$CFT_PLATFORM",
-  "rust_target":      "$TARGET",
-  "profile":          "$PROFILE",
-  "chrome_url":       "$CHROME_URL",
-  "chrome_bytes":     $CHROME_BYTES,
-  "launch_entry_rel": "$CHROME_LAUNCH_REL"
+  "chromium_rev":       "$CHROMIUM_REV",
+  "snapshot_platform":  "$SNAPSHOT_PLATFORM",
+  "rust_target":        "$TARGET",
+  "profile":            "$PROFILE",
+  "chromium_url":       "$CHROMIUM_URL",
+  "chromium_bytes":     $CHROMIUM_BYTES,
+  "launch_entry_rel":   "$CHROMIUM_LAUNCH_REL"
 }
 EOF
 

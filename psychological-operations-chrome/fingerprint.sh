@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Computes a SHA256 fingerprint of all source files that affect the
-# embedded chrome bundle + packed extension. Mirrors the SDK-runner
+# embedded Chromium bundle + packed extension. Mirrors the SDK-runner
 # fingerprint scheme.
 #
 # Usage:
 #   source fingerprint.sh [--target <triple>] [--release]
 #
-# Exports: CURRENT_FP, FINGERPRINT_FILE, TARGET, PROFILE, CHROME_VERSION,
-#          CFT_PLATFORM, CHROME_LAUNCH_REL
+# Exports: CURRENT_FP, FINGERPRINT_FILE, TARGET, PROFILE, CHROMIUM_REV,
+#          SNAPSHOT_PLATFORM, CHROMIUM_ZIP, CHROMIUM_LAUNCH_REL
 # Returns 0 if fingerprint changed (build needed), 1 if up to date.
 
 set -euo pipefail
@@ -34,36 +34,49 @@ if [ -z "$TARGET" ]; then
   TARGET=$(rustc -vV | grep '^host:' | awk '{print $2}')
 fi
 
-CHROME_VERSION=$(cat "$SCRIPT_DIR/VERSION" | tr -d '[:space:]')
-
-# Map Rust target triple -> Chrome for Testing platform string +
-# launch entry path (relative to the extracted zip's top dir).
+# Map Rust target triple -> Chromium snapshot platform dir + zip name
+# + launch entry path (relative to the extracted zip's top dir).
 case "$TARGET" in
   x86_64-pc-windows-msvc|x86_64-pc-windows-gnu)
-    CFT_PLATFORM="win64"
-    CHROME_LAUNCH_REL="chrome-win64/chrome.exe"
+    SNAPSHOT_PLATFORM="Win_x64"
+    CHROMIUM_ZIP="chrome-win.zip"
+    CHROMIUM_LAUNCH_REL="chrome-win/chrome.exe"
     ;;
   i686-pc-windows-msvc|i686-pc-windows-gnu)
-    CFT_PLATFORM="win32"
-    CHROME_LAUNCH_REL="chrome-win32/chrome.exe"
+    SNAPSHOT_PLATFORM="Win"
+    CHROMIUM_ZIP="chrome-win.zip"
+    CHROMIUM_LAUNCH_REL="chrome-win/chrome.exe"
     ;;
   x86_64-unknown-linux-gnu|x86_64-unknown-linux-musl)
-    CFT_PLATFORM="linux64"
-    CHROME_LAUNCH_REL="chrome-linux64/chrome"
+    SNAPSHOT_PLATFORM="Linux_x64"
+    CHROMIUM_ZIP="chrome-linux.zip"
+    CHROMIUM_LAUNCH_REL="chrome-linux/chrome"
     ;;
   aarch64-apple-darwin)
-    CFT_PLATFORM="mac-arm64"
-    CHROME_LAUNCH_REL="chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"
+    SNAPSHOT_PLATFORM="Mac_Arm"
+    CHROMIUM_ZIP="chrome-mac.zip"
+    CHROMIUM_LAUNCH_REL="chrome-mac/Chromium.app/Contents/MacOS/Chromium"
     ;;
   x86_64-apple-darwin)
-    CFT_PLATFORM="mac-x64"
-    CHROME_LAUNCH_REL="chrome-mac-x64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"
+    SNAPSHOT_PLATFORM="Mac"
+    CHROMIUM_ZIP="chrome-mac.zip"
+    CHROMIUM_LAUNCH_REL="chrome-mac/Chromium.app/Contents/MacOS/Chromium"
     ;;
   *)
-    echo "ERROR: unsupported target '$TARGET' (no Chrome for Testing platform mapping)" >&2
+    echo "ERROR: unsupported target '$TARGET' (no Chromium snapshot platform mapping)" >&2
     return 2 2>/dev/null || exit 2
     ;;
 esac
+
+# Resolve CHROMIUM_REV from VERSION via the SNAPSHOT_PLATFORM key.
+# Each platform pipeline runs independently and may publish at
+# different revs, so VERSION holds one entry per platform.
+VERSION_KEY=$(echo "$SNAPSHOT_PLATFORM" | tr '[:lower:]' '[:upper:]')
+CHROMIUM_REV=$(grep -E "^${VERSION_KEY}=" "$SCRIPT_DIR/VERSION" | head -n1 | cut -d= -f2 | tr -d '[:space:]')
+if [ -z "$CHROMIUM_REV" ]; then
+  echo "ERROR: VERSION has no entry for $VERSION_KEY (target '$TARGET')" >&2
+  return 2 2>/dev/null || exit 2
+fi
 
 EMBED_DIR="$SCRIPT_DIR/embed/$TARGET/$PROFILE"
 FINGERPRINT_FILE="$EMBED_DIR/.fingerprint"
@@ -78,8 +91,8 @@ compute_fingerprint() {
   {
     echo "PROFILE=$PROFILE"
     echo "TARGET=$TARGET"
-    echo "CHROME_VERSION=$CHROME_VERSION"
-    echo "CFT_PLATFORM=$CFT_PLATFORM"
+    echo "CHROMIUM_REV=$CHROMIUM_REV"
+    echo "SNAPSHOT_PLATFORM=$SNAPSHOT_PLATFORM"
     echo "FILE=$SCRIPT_DIR/VERSION"
     echo "FILE=$SCRIPT_DIR/build.sh"
     # Hash every file inside the extension dir so a change to any
@@ -110,7 +123,7 @@ compute_fingerprint() {
 
 CURRENT_FP=$(compute_fingerprint)
 export CURRENT_FP FINGERPRINT_FILE TARGET PROFILE
-export CHROME_VERSION CFT_PLATFORM CHROME_LAUNCH_REL
+export CHROMIUM_REV SNAPSHOT_PLATFORM CHROMIUM_ZIP CHROMIUM_LAUNCH_REL
 
 if [ -f "$FINGERPRINT_FILE" ]; then
   STORED_FP=$(cat "$FINGERPRINT_FILE")
