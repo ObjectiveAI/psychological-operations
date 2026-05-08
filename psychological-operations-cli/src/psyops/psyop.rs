@@ -124,6 +124,9 @@ impl PsyOp {
         if self.max_posts == 0 {
             return Err(bad("max_posts must be > 0".into()));
         }
+        if self.min_posts < 2 {
+            return Err(bad("min_posts must be >= 2 (objectiveai cannot score fewer than 2 inputs)".into()));
+        }
         if self.min_posts > self.max_posts {
             return Err(bad("min_posts must be <= max_posts".into()));
         }

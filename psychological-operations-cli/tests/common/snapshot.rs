@@ -71,9 +71,13 @@ pub fn assert_snapshot(actual: &str, path: &str, expected_static: &str) {
         let written = std::fs::read_to_string(path).expect("re-read snapshot");
         assert_eq!(actual, written.trim_end_matches('\n'));
     } else {
+        // Strip CR so a snapshot file that got auto-CRLFed by git
+        // on Windows still compares equal to the LF-only stdout
+        // we capture from the CLI subprocess.
+        let expected = expected_static.replace('\r', "");
         assert_eq!(
             actual,
-            expected_static.trim_end_matches('\n'),
+            expected.trim_end_matches('\n'),
             "snapshot mismatch at {path}: re-run with {SNAPSHOT_ENV}=1",
         );
     }

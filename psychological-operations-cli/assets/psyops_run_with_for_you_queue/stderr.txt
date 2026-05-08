@@ -1,5 +1,5 @@
 psyop "test-psyop": hydrating 2 for_you_queue entries
-psyop "test-psyop": 2 accepted / 0 min_posts / 10 max_posts
+psyop "test-psyop": 2 accepted / 2 min_posts / 10 max_posts
 psyop "test-psyop": 2 posts hydrated and entering scoring
 Scoring 2 posts...
 psyop "test-psyop": scored 2 posts (2 survived all 1 stages)
