@@ -91,12 +91,63 @@ fn build_psyops_run_with_pre_hydrated_posts() {
     eprintln!("wrote seed: {}", asset.join("data.db").display());
 }
 
+/// Replays the harness's git-init in a tmp dir against the
+/// already-on-disk fixture and returns the resulting commit SHA.
+/// Use when a scenario's psyop.json content varies between runs
+/// (so SHARED_PSYOP_COMMIT_SHA is the wrong value to hardcode).
+fn fixture_commit_sha(asset: &std::path::Path, psyop_name: &str) -> String {
+    let psyop_json = asset.join("psyops").join(psyop_name).join("psyop.json");
+    let content = std::fs::read_to_string(&psyop_json).expect("read fixture psyop.json");
+    let tmp = std::env::temp_dir().join(format!(
+        "psyops-test-seed-{}-{}",
+        psyop_name,
+        std::process::id(),
+    ));
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).expect("create tmp dir");
+    let cfg = Config {
+        commit_author_name:  Some("psyops-test".into()),
+        commit_author_email: Some("test@psyops.invalid".into()),
+        commit_time:         Some(1767225600),
+        ..Default::default()
+    };
+    let sha = psychological_operations_cli::publish::publish_file(
+        &tmp, "psyop.json", &content, "init", &cfg,
+    ).expect("publish_file");
+    let _ = std::fs::remove_dir_all(&tmp);
+    sha
+}
+
+fn build_psyops_run_with_pre_queued_deliveries() {
+    let asset = assets_dir().join("psyops_run_with_pre_queued_deliveries").join(".psychological-operations");
+    std::fs::create_dir_all(&asset).unwrap();
+    let _ = std::fs::remove_file(asset.join("data.db"));
+    let cfg = cfg_for(&asset);
+    let db = Db::open(&cfg).expect("open db");
+
+    // The fixture's content has queries set, so the SHA differs
+    // from SHARED_PSYOP_COMMIT_SHA. Compute it on the fly to match
+    // whatever the harness will produce.
+    let sha = fixture_commit_sha(&asset, "test-psyop");
+
+    let target_json = r#"{"type":"stdout","mode":"urls"}"#;
+    let post_ids_json = r#"["1900000000000000111","1900000000000000222"]"#;
+    let _ = db.enqueue_delivery(
+        "test-psyop",
+        &sha,
+        target_json,
+        post_ids_json,
+    ).expect("enqueue_delivery");
+    eprintln!("wrote seed: {} (psyop sha {sha})", asset.join("data.db").display());
+}
+
 fn main() {
     let scenario = std::env::args().nth(1)
         .expect("usage: build_test_seed <scenario-name>");
     match scenario.as_str() {
-        "psyops_run_with_for_you_queue"     => build_psyops_run_with_for_you_queue(),
-        "psyops_run_with_pre_hydrated_posts" => build_psyops_run_with_pre_hydrated_posts(),
+        "psyops_run_with_for_you_queue"          => build_psyops_run_with_for_you_queue(),
+        "psyops_run_with_pre_hydrated_posts"     => build_psyops_run_with_pre_hydrated_posts(),
+        "psyops_run_with_pre_queued_deliveries"  => build_psyops_run_with_pre_queued_deliveries(),
         other => panic!("unknown scenario: {other}"),
     }
 }
