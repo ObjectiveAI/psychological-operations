@@ -1,0 +1,143 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  check-version:
+    name: Check CLI version
+    runs-on: ubuntu-latest
+    outputs:
+      should-release: ${{ steps.check.outputs.should-release }}
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read version from psychological-operations-cli/Cargo.toml
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=$(cargo metadata --format-version 1 --no-deps --manifest-path psychological-operations-cli/Cargo.toml | jq -r '.packages[] | select(.name == "psychological-operations-cli") | .version')
+          echo "CLI version: $VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if gh release view "v$VERSION" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "Release v$VERSION already exists — skipping build"
+            echo "should-release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Release v$VERSION does not exist — will build"
+            echo "should-release=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  create-release:
+    name: Create release
+    needs: check-version
+    if: needs.check-version.outputs.should-release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Generate release notes
+        # Write notes to a file rather than capturing into a step output —
+        # commit messages routinely contain backticks (`like this`) and
+        # other shell metacharacters, which GHA's `${{ }}` interpolator
+        # would inline literally into the next step's bash script and
+        # cause bash to try evaluating them as command substitutions.
+        # `--notes-file` reads the bytes directly with zero shell
+        # interpolation involved.
+        run: |
+          PREV_TAG=$(git tag --list 'v*' --sort=-v:refname | head -n 1)
+          if [ -n "$PREV_TAG" ]; then
+            echo "Previous tag: $PREV_TAG"
+            git log --pretty=format:"- %s" "$PREV_TAG"..HEAD > release-notes.md
+          else
+            echo "No previous tags — using full history"
+            git log --pretty=format:"- %s" > release-notes.md
+          fi
+      - name: Create release if missing
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ needs.check-version.outputs.version }}"
+          if gh release view "v$VERSION" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "Release v$VERSION already exists — leaving as-is."
+            exit 0
+          fi
+          # Created without --draft so per-asset uploads are user-visible
+          # the moment each build job finishes uploading. Build jobs append
+          # their assets in parallel via `gh release upload --clobber`.
+          gh release create "v$VERSION" \
+            --repo "${{ github.repository }}" \
+            --target "${{ github.sha }}" \
+            --title "v$VERSION" \
+            --notes-file release-notes.md
+
+  build-cli:
+    name: Build CLI (${{ matrix.asset }})
+    needs: [check-version, create-release]
+    if: needs.check-version.outputs.should-release == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # NOTE: Linux aarch64 is intentionally omitted — Chrome for
+          # Testing does not ship a linux-arm64 build, so the embedded
+          # Chrome bundle (required by psychological-operations-cli's
+          # build.rs) cannot be staged for that target. Add this leg
+          # back when CfT publishes linux-arm64 binaries.
+          - os: ubuntu-22.04
+            asset: psychological-operations-linux-x86_64
+            src_name: psychological-operations
+          - os: macos-13
+            asset: psychological-operations-macos-x86_64
+            src_name: psychological-operations
+          - os: macos-14
+            asset: psychological-operations-macos-aarch64
+            src_name: psychological-operations
+          - os: windows-latest
+            asset: psychological-operations-windows-x86_64.exe
+            src_name: psychological-operations.exe
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build CLI
+        shell: bash
+        run: bash psychological-operations-cli/install.sh
+      - name: Dump build logs on failure
+        if: failure()
+        shell: bash
+        run: |
+          shopt -s nullglob
+          for log in .logs/build/*.txt; do
+            echo "::group::$log"
+            cat "$log"
+            echo "::endgroup::"
+          done
+      - name: Stage release binary
+        shell: bash
+        run: cp "$HOME/.psychological-operations/${{ matrix.src_name }}" "${{ matrix.asset }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: ${{ matrix.asset }}
+          if-no-files-found: error
+      - name: Upload asset to release
+        # Each matrix leg appends its single asset to the release the moment
+        # this leg finishes building — so fast platforms aren't gated on the
+        # slowest one. `--clobber` keeps re-runs idempotent.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          VERSION="${{ needs.check-version.outputs.version }}"
+          gh release upload "v$VERSION" "${{ matrix.asset }}" \
+            --clobber \
+            --repo "${{ github.repository }}"

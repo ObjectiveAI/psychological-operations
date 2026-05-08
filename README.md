@@ -3,6 +3,27 @@
 
 An agent that uses computer use to browse [X](https://x.com), searching for tweets that match user-defined criteria. It finds tweets worth replying to by scoring and ranking them through a two-pass analysis pipeline powered by [ObjectiveAI](https://github.com/ObjectiveAI/objectiveai).
 
+## Install
+
+Install the pre-built binary with one command:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/WiggidyW/psychological-operations/main/install.sh | bash
+. "$HOME/.psychological-operations/env"
+```
+
+Sourcing `~/.psychological-operations/env` puts `psychological-operations` on `PATH` for the current shell. New shells pick it up automatically (the installer wires `~/.bashrc` / `~/.zshrc` to source the same file).
+
+Supported platforms: Linux x86_64, macOS x86_64, macOS aarch64 (Apple Silicon), Windows x86_64. The installer drops the binary at `~/.psychological-operations/psychological-operations`, fetched from [GitHub Releases](https://github.com/WiggidyW/psychological-operations/releases).
+
+### From source
+
+```bash
+git clone https://github.com/WiggidyW/psychological-operations.git
+cd psychological-operations
+bash psychological-operations-cli/install.sh
+```
+
 ## How it works
 
 1. **Search** — The agent browses X via computer use, searching for tweets matching provided keywords.

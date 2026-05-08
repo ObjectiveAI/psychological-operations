@@ -1,6 +1,6 @@
 [package]
 name = "psychological-operations-mcp"
-version = "0.1.0"
+version = "0.99.0"
 edition = "2024"
 
 [dependencies]
@@ -8,7 +8,7 @@ anyhow = "1.0.102"
 axum = "0.8.8"
 dotenv = "0.15.0"
 envconfig = "0.11.1"
-psychological-operations-cli = { path = "../psychological-operations-cli", version = "0.1.0" }
+psychological-operations-cli = { path = "../psychological-operations-cli", version = "0.99.0" }
 rmcp = { version = "0.16.0", features = ["server", "transport-streamable-http-server"] }
 schemars = "1.2.1"
 serde = { version = "1.0.228", features = ["derive"] }

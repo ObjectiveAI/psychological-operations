@@ -1,6 +1,6 @@
 [package]
 name = "crx-pack"
-version = "0.1.0"
+version = "0.99.0"
 edition = "2024"
 publish = false
 description = "Build-time tool: pack a Chrome MV3 extension dir into a signed CRX3."
