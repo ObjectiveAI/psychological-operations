@@ -175,14 +175,55 @@ fn run_function_execution(
     // Print stdout passthrough (log lines etc.)
     print!("{stdout}");
 
-    // Find the last line that parses as our ExecutionOutput JSON.
-    // Earlier lines are CLI status (e.g. "Logs ID: ...").
-    let result = stdout.trim().lines().rev()
-        .find_map(|line| serde_json::from_str::<ExecutionOutput>(line.trim()).ok())
+    // The objectiveai CLI prints `Logs ID: <id>` to stdout the first
+    // time its writer task flushes a chunk to disk. The final score
+    // lives in the per-execution log file at
+    // <logs_dir>/functions/executions/<id>.json under
+    // ["output"]["output"]. Reading the log file is more robust than
+    // scanning stdout for the final result JSON, since stdout may
+    // contain other lines (viewer info, warnings, future telemetry).
+    let id = stdout.lines()
+        .find_map(|l| l.trim().strip_prefix("Logs ID:").map(|s| s.trim().to_string()))
         .ok_or_else(|| crate::error::Error::ObjectiveAiCli(
-            format!("no JSON result in stdout: {stdout}"),
+            format!("no `Logs ID:` line in stdout: {stdout}"),
         ))?;
-    Ok(result)
+
+    let log_path = objectiveai_logs_dir()
+        .join("functions").join("executions")
+        .join(format!("{id}.json"));
+
+    let bytes = std::fs::read(&log_path).map_err(|e| {
+        crate::error::Error::ObjectiveAiCli(format!(
+            "failed to read execution log {}: {e}", log_path.display(),
+        ))
+    })?;
+    let root: serde_json::Value = serde_json::from_slice(&bytes).map_err(|e| {
+        crate::error::Error::ObjectiveAiCli(format!(
+            "failed to parse execution log {}: {e}", log_path.display(),
+        ))
+    })?;
+
+    let inner = root.get("output").and_then(|o| o.get("output")).cloned()
+        .ok_or_else(|| crate::error::Error::ObjectiveAiCli(format!(
+            "execution log {} missing [\"output\"][\"output\"]", log_path.display(),
+        )))?;
+
+    Ok(ExecutionOutput { output: inner })
+}
+
+/// Mirrors `objectiveai::filesystem::Client::new` base-dir resolution
+/// (with the `env` feature): explicit > `CONFIG_BASE_DIR` env >
+/// `~/.objectiveai`. The objectiveai dep is pulled in with
+/// default-features = false, so we re-derive here rather than flip
+/// feature flags.
+fn objectiveai_logs_dir() -> std::path::PathBuf {
+    if let Ok(d) = std::env::var("CONFIG_BASE_DIR") {
+        return std::path::PathBuf::from(d).join("logs");
+    }
+    dirs::home_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join(".objectiveai")
+        .join("logs")
 }
 
 /// Run a single stage's function execution against the given posts.
