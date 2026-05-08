@@ -8,7 +8,24 @@
     <div id="identity">…</div>
     <hr />
     <button id="capture" disabled>Capture (0 tweets)</button>
-    <button id="save_credentials" hidden>Save credentials</button>
+    <form id="billing_form" hidden>
+      <label>Client ID
+        <input id="bf_client_id" type="text" autocomplete="off" spellcheck="false" />
+      </label>
+      <label>Client Secret
+        <input id="bf_client_secret" type="password" autocomplete="off" spellcheck="false" />
+      </label>
+      <label>API Key
+        <input id="bf_api_key" type="text" autocomplete="off" spellcheck="false" />
+      </label>
+      <label>API Key Secret
+        <input id="bf_api_key_secret" type="password" autocomplete="off" spellcheck="false" />
+      </label>
+      <label>Bearer Token
+        <input id="bf_bearer_token" type="password" autocomplete="off" spellcheck="false" />
+      </label>
+      <button id="bf_save" type="submit">Save credentials</button>
+    </form>
     <div id="status"></div>
     <script src="popup.js"></script>
   </body>

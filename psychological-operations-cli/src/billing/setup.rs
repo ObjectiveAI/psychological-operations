@@ -30,11 +30,16 @@ pub async fn run() -> Result<crate::Output, Error> {
     cmd.arg("--no-default-browser-check");
     cmd.arg("--disable-component-update");
     cmd.arg("--disable-features=ChromeWhatsNewUI,DefaultBrowserPromptRefresh");
-    cmd.arg("https://console.x.com/");
+    // Land directly on the projects-and-apps page so the operator
+    // doesn't have to navigate from the developer-portal home. If X
+    // renames this path, the operator can navigate manually — the
+    // extension popup form doesn't depend on the URL.
+    cmd.arg("https://developer.x.com/en/portal/projects-and-apps");
 
     // No PSYOP_NAME / PSYOP_COMMIT_SHA — billing isn't a psyop. The
-    // native host's psyop-identity resolver isn't called on the
-    // BillingSave path; only Init / Ingest care about identity.
+    // popup detects the billing profile by virtue of identity
+    // resolution failing (PSYOP_NAME unset) and shows the credentials
+    // form instead of the tweet-capture button.
 
     let child = cmd.spawn().map_err(|e| {
         Error::Other(format!("failed to spawn chromium for billing setup: {e}"))
@@ -45,10 +50,10 @@ pub async fn run() -> Result<crate::Output, Error> {
         child.id(),
     );
     eprintln!("  profile: {}", profile.display());
-    eprintln!("  - sign into your X account, then visit console.x.com");
-    eprintln!("    to create the master App and provision credits.");
-    eprintln!("  - on the App's credentials page, click the extension toolbar");
-    eprintln!("    icon and choose 'Save credentials' to write billing.json.");
+    eprintln!("  - sign into your X account if prompted, then on developer.x.com");
+    eprintln!("    create a Project + App and provision credits.");
+    eprintln!("  - on the App's keys-and-tokens page, click the extension toolbar");
+    eprintln!("    icon and paste the credentials into the form. Click Save.");
     eprintln!("  - this profile persists; future runs reuse the session.");
 
     Ok(crate::Output::Empty)

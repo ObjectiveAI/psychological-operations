@@ -1,11 +1,20 @@
-const identityEl     = document.getElementById("identity");
-const captureBtn     = document.getElementById("capture");
-const credentialsBtn = document.getElementById("save_credentials");
-const statusEl       = document.getElementById("status");
+const identityEl = document.getElementById("identity");
+const captureBtn = document.getElementById("capture");
+const billingForm = document.getElementById("billing_form");
+const billingSaveBtn = document.getElementById("bf_save");
+const statusEl = document.getElementById("status");
+
+const BILLING_FIELDS = [
+  ["client_id",      "bf_client_id"],
+  ["client_secret",  "bf_client_secret"],
+  ["api_key",        "bf_api_key"],
+  ["api_key_secret", "bf_api_key_secret"],
+  ["bearer_token",   "bf_bearer_token"],
+];
 
 let activeTabId = null;
-let activeUrl   = null;
 let countTimer  = null;
+let mode        = null; // "psyop" | "billing"
 
 function setStatus(text, cls) {
   statusEl.textContent = text;
@@ -13,43 +22,16 @@ function setStatus(text, cls) {
 }
 
 async function activeTab() {
-  if (activeTabId != null) return { id: activeTabId, url: activeUrl };
+  if (activeTabId != null) return activeTabId;
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (tabs[0]) {
-    activeTabId = tabs[0].id;
-    activeUrl   = tabs[0].url || "";
-  }
-  return { id: activeTabId, url: activeUrl };
-}
-
-function isConsoleHost(url) {
-  return /^https:\/\/(console|developer)\.x\.com\//.test(url || "");
-}
-
-function isXHost(url) {
-  return /^https:\/\/(x|twitter)\.com\//.test(url || "");
-}
-
-async function applyTabContext() {
-  const { url } = await activeTab();
-  if (isConsoleHost(url)) {
-    captureBtn.hidden = true;
-    credentialsBtn.hidden = false;
-  } else {
-    captureBtn.hidden = false;
-    credentialsBtn.hidden = true;
-  }
+  activeTabId = tabs[0] ? tabs[0].id : null;
+  return activeTabId;
 }
 
 async function refreshCount() {
-  if (captureBtn.hidden) return;
-  const { id, url } = await activeTab();
+  if (mode !== "psyop") return;
+  const id = await activeTab();
   if (id == null) return;
-  if (!isXHost(url)) {
-    captureBtn.textContent = "Capture (not an X page)";
-    captureBtn.disabled = true;
-    return;
-  }
   try {
     const reply = await chrome.tabs.sendMessage(id, { kind: "count" });
     const n = (reply && reply.count) || 0;
@@ -62,21 +44,28 @@ async function refreshCount() {
 }
 
 async function loadIdentity() {
+  let reply;
   try {
-    const reply = await chrome.runtime.sendMessage({ kind: "popup_get_identity" });
-    if (reply && reply.ok) {
-      const id = reply.identity;
-      identityEl.textContent = `psyop: ${id.psyop} @ ${id.commit.slice(0, 8)}`;
-      identityEl.classList.remove("error");
-    } else {
-      // On the billing profile no PSYOP_NAME is set; the identity
-      // request returns an error. Render a friendlier label.
-      identityEl.textContent = "billing setup";
-      identityEl.classList.remove("error");
-    }
+    reply = await chrome.runtime.sendMessage({ kind: "popup_get_identity" });
   } catch (e) {
     identityEl.textContent = `identity error: ${e.message || e}`;
     identityEl.classList.add("error");
+    return;
+  }
+  if (reply && reply.ok) {
+    const id = reply.identity;
+    identityEl.textContent = `psyop: ${id.psyop} @ ${id.commit.slice(0, 8)}`;
+    identityEl.classList.remove("error");
+    mode = "psyop";
+    captureBtn.hidden = false;
+    billingForm.hidden = true;
+  } else {
+    // Identity unresolvable → billing profile (PSYOP_NAME unset).
+    identityEl.textContent = "billing setup";
+    identityEl.classList.remove("error");
+    mode = "billing";
+    captureBtn.hidden = true;
+    billingForm.hidden = false;
   }
 }
 
@@ -84,7 +73,7 @@ captureBtn.addEventListener("click", async () => {
   captureBtn.disabled = true;
   setStatus("extracting…");
   try {
-    const { id } = await activeTab();
+    const id = await activeTab();
     const extractReply = await chrome.tabs.sendMessage(id, { kind: "extract" });
     const tweets = (extractReply && extractReply.tweets) || [];
     if (tweets.length === 0) {
@@ -107,30 +96,44 @@ captureBtn.addEventListener("click", async () => {
   }
 });
 
-credentialsBtn.addEventListener("click", async () => {
-  credentialsBtn.disabled = true;
-  setStatus("scraping…");
-  try {
-    const { id } = await activeTab();
-    const extractReply = await chrome.tabs.sendMessage(id, { kind: "extract_credentials" });
-    const credentials = (extractReply && extractReply.credentials) || {};
-    const found = Object.entries(credentials).filter(([_, v]) => v).length;
-    if (found === 0) {
-      setStatus("no credentials visible on this page", "error");
-      credentialsBtn.disabled = false;
-      return;
-    }
-    setStatus(`saving ${found} field${found === 1 ? "" : "s"}…`);
-    const reply = await chrome.runtime.sendMessage({ kind: "popup_billing_save", credentials });
-    if (reply.kind === "billing_save_ok") {
-      setStatus(`saved ${found} field${found === 1 ? "" : "s"} to billing.json`, "ok");
+billingForm.addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  billingSaveBtn.disabled = true;
+
+  const credentials = {};
+  let nonEmpty = 0;
+  for (const [key, inputId] of BILLING_FIELDS) {
+    const v = document.getElementById(inputId).value.trim();
+    if (v.length > 0) {
+      credentials[key] = v;
+      nonEmpty++;
     } else {
-      setStatus(`error: ${reply.error || "?"}`, "error");
+      credentials[key] = null;
+    }
+  }
+  if (nonEmpty === 0) {
+    setStatus("enter at least one field", "error");
+    billingSaveBtn.disabled = false;
+    return;
+  }
+
+  setStatus(`saving ${nonEmpty} field${nonEmpty === 1 ? "" : "s"}…`);
+  try {
+    const reply = await chrome.runtime.sendMessage({ kind: "popup_billing_save", credentials });
+    if (reply && reply.kind === "billing_save_ok") {
+      setStatus(`saved ${nonEmpty} field${nonEmpty === 1 ? "" : "s"} to billing.json`, "ok");
+      // Clear inputs after a successful save so secrets don't linger
+      // visible in the popup if the operator re-opens it.
+      for (const [_key, inputId] of BILLING_FIELDS) {
+        document.getElementById(inputId).value = "";
+      }
+    } else {
+      setStatus(`error: ${(reply && reply.error) || "?"}`, "error");
     }
   } catch (e) {
     setStatus(`error: ${e.message || e}`, "error");
   } finally {
-    credentialsBtn.disabled = false;
+    billingSaveBtn.disabled = false;
   }
 });
 
@@ -138,6 +141,10 @@ window.addEventListener("unload", () => {
   if (countTimer) clearInterval(countTimer);
 });
 
-loadIdentity();
-applyTabContext().then(refreshCount);
-countTimer = setInterval(refreshCount, 500);
+(async () => {
+  await loadIdentity();
+  if (mode === "psyop") {
+    refreshCount();
+    countTimer = setInterval(refreshCount, 500);
+  }
+})();
