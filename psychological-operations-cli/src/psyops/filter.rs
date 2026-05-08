@@ -187,7 +187,9 @@ fn check_ratio_pair(name: &str, min: Option<f64>, max: Option<f64>) -> Result<()
 }
 
 fn parse_custom(src: &str) -> Result<AstModule, String> {
-    let wrapped = format!("_result = ({src})\n");
+    // Bind the expression to a public name (no leading underscore)
+    // — starlark hides any module global whose name starts with `_`.
+    let wrapped = format!("result = ({src})\n");
     AstModule::parse("filter.custom", wrapped, &Dialect::Standard)
         .map_err(|e| e.to_string())
 }
@@ -210,7 +212,7 @@ fn evaluate_custom(src: &str, t: &Tweet) -> Result<bool, String> {
             .map_err(|e| e.to_string())?;
     }
     let value = module
-        .get("_result")
+        .get("result")
         .ok_or_else(|| "custom expression produced no result".to_string())?;
     value
         .to_value()

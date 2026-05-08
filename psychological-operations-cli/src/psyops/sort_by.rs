@@ -58,7 +58,9 @@ impl SortBy {
 }
 
 fn parse_custom(src: &str) -> Result<AstModule, String> {
-    let wrapped = format!("_result = ({src})\n");
+    // Bind the expression to a public name (no leading underscore)
+    // — starlark hides any module global whose name starts with `_`.
+    let wrapped = format!("result = ({src})\n");
     AstModule::parse("sort.custom", wrapped, &Dialect::Standard)
         .map_err(|e| e.to_string())
 }
@@ -78,7 +80,7 @@ fn evaluate_custom(src: &str, tweets: Vec<Tweet>) -> Result<Vec<Tweet>, String> 
             .map_err(|e| e.to_string())?;
     }
     let result_owned = module
-        .get("_result")
+        .get("result")
         .ok_or_else(|| "custom sort produced no result".to_string())?;
     let result = result_owned.to_value();
 
