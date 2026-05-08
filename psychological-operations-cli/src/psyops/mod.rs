@@ -1,3 +1,4 @@
+pub mod browse;
 pub mod targets;
 pub mod run;
 
@@ -64,6 +65,16 @@ pub enum Commands {
         #[arg(long, requires = "name")]
         commit: Option<String>,
     },
+    /// Open chromium for each psyop in turn so the operator can
+    /// scroll x.com / capture tweets via the extension. Blocks on
+    /// each chromium's exit before opening the next. With
+    /// `--name <X>` opens just that one psyop's chromium.
+    Browse {
+        #[arg(long)]
+        name: Option<String>,
+        #[arg(long, requires = "name")]
+        commit: Option<String>,
+    },
     /// Manage per-psyop target destinations.
     Targets {
         #[command(subcommand)]
@@ -118,6 +129,7 @@ impl Commands {
             Commands::Disable { name, commit } => set_disabled(&name, commit.as_deref(), true),
             Commands::Publish { args } => publish(args),
             Commands::Run { name, commit } => run::run_all(name.as_deref(), commit.as_deref()).await,
+            Commands::Browse { name, commit } => browse::run(name.as_deref(), commit.as_deref()).await,
             Commands::Targets { command } => command.handle(),
             Commands::OAuth { name } => crate::oauth::setup::run(&name).await,
         }

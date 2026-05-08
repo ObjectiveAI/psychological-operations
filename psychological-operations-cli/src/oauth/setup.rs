@@ -75,7 +75,10 @@ pub async fn run(psyop_name: &str) -> Result<crate::Output, Error> {
         )));
     }
     native_host::install(&profile)?;
-    crate::chrome::launch::spawn(
+    // Discard the Child — the OAuth dance is async (we await the
+    // local callback below). Chromium stays open until the operator
+    // closes it; we don't block on that.
+    let _child = crate::chrome::launch::spawn(
         &materialized.chrome_binary,
         &materialized.extension_dir,
         &profile,

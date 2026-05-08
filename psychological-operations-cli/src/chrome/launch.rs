@@ -1,8 +1,13 @@
 //! Spawn the embedded Chromium for a psyop. Caller has already
 //! resolved (psyop, commit) and ensured the bundle is extracted.
+//!
+//! Returns the spawned `Child`. Callers that want detached
+//! behavior (e.g., `oauth::setup`) drop the Child; callers that
+//! want to block until the operator closes Chromium (e.g.,
+//! `psyops browse`) call `child.wait()`.
 
 use std::path::Path;
-use std::process::Command;
+use std::process::{Child, Command};
 
 use crate::error::Error;
 
@@ -13,7 +18,7 @@ pub fn spawn(
     psyop: &str,
     commit: &str,
     landing_url: &str,
-) -> Result<(), Error> {
+) -> Result<Child, Error> {
     let extension_id = crate::chrome::bundles::extension_id();
 
     let mut cmd = Command::new(chrome_binary);
@@ -32,9 +37,6 @@ pub fn spawn(
     cmd.env("PSYOP_NAME", psyop);
     cmd.env("PSYOP_COMMIT_SHA", commit);
 
-    // Spawn detached — we don't wait. The user closes the Chromium
-    // window when done; the native host runs as a separate child of
-    // Chromium each time the extension connects.
     let child = cmd
         .spawn()
         .map_err(|e| Error::Other(format!("failed to spawn chromium: {e}")))?;
@@ -43,5 +45,5 @@ pub fn spawn(
         "psychological-operations: spawned chromium (pid {}) for psyop \"{psyop}\" @ {commit}",
         child.id(),
     );
-    Ok(())
+    Ok(child)
 }
