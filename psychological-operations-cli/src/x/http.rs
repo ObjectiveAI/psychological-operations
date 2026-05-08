@@ -47,9 +47,12 @@ impl Http {
     /// `x_app.json::bearer_token`. Use this for read-only endpoints
     /// (search, tweet lookup) — anything that doesn't need to act
     /// as a specific user.
-    pub async fn app_only(client: Client) -> Result<Self, crate::error::Error> {
-        let cfg = crate::x_app::config::load()?;
-        let bearer = cfg.bearer_token.ok_or_else(|| {
+    pub async fn app_only(
+        client: Client,
+        cfg: &crate::run::Config,
+    ) -> Result<Self, crate::error::Error> {
+        let x_app = crate::x_app::config::load(cfg)?;
+        let bearer = x_app.bearer_token.ok_or_else(|| {
             crate::error::Error::Other(
                 "x_app.json has no bearer_token — re-run \
                  `psychological-operations x_app setup` and capture it".into(),
@@ -70,14 +73,15 @@ impl Http {
     pub async fn for_psyop(
         client: Client,
         psyop_name: &str,
+        cfg: &crate::run::Config,
     ) -> Result<Self, crate::error::Error> {
-        let cfg = crate::x_app::config::ensure_setup()?;
-        let client_id = cfg.client_id
+        let x_app = crate::x_app::config::ensure_setup(cfg)?;
+        let client_id = x_app.client_id
             .expect("ensure_setup guarantees client_id");
-        let client_secret = cfg.client_secret
+        let client_secret = x_app.client_secret
             .expect("ensure_setup guarantees client_secret");
         let tokens = crate::oauth::tokens::load_fresh(
-            psyop_name, &client_id, &client_secret,
+            psyop_name, &client_id, &client_secret, cfg,
         ).await?;
         Ok(Self::new(client, None::<&str>, Some(tokens.access_token)))
     }

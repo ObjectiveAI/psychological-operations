@@ -119,8 +119,8 @@ fn compute_age(created: &str, now: &chrono::DateTime<chrono::Utc>) -> u64 {
 }
 
 impl Db {
-    pub fn open() -> Result<Self, crate::error::Error> {
-        let path = config::db_path();
+    pub fn open(cfg: &crate::run::Config) -> Result<Self, crate::error::Error> {
+        let path = config::db_path(cfg);
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }

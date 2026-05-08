@@ -10,8 +10,9 @@ use crate::error::Error;
 pub async fn run(
     name_filter: Option<&str>,
     commit_filter: Option<&str>,
+    cfg: &crate::run::Config,
 ) -> Result<crate::Output, Error> {
-    let materialized = ensure_extracted()?;
+    let materialized = ensure_extracted(cfg)?;
     eprintln!(
         "psyops browse: chrome materialized at {}",
         materialized.root.display(),
@@ -29,7 +30,7 @@ pub async fn run(
             if commit_filter.is_some() {
                 return Err(Error::Other("--commit requires --name".into()));
             }
-            list_psyops()?
+            list_psyops(cfg)?
         }
     };
 
@@ -42,7 +43,7 @@ pub async fn run(
     for (i, name) in names.iter().enumerate() {
         let commit = match (name_filter, commit_filter) {
             (Some(_), Some(c)) => c.to_string(),
-            _ => derive_commit(name)?,
+            _ => derive_commit(name, cfg)?,
         };
 
         eprintln!(
@@ -50,9 +51,9 @@ pub async fn run(
             i + 1, names.len(),
         );
 
-        let profile = profile_dir(name);
+        let profile = profile_dir(name, cfg);
         std::fs::create_dir_all(&profile)?;
-        native_host::install(&profile)?;
+        native_host::install(&profile, cfg)?;
 
         let mut child = launch::spawn(
             &materialized.chrome_binary,
@@ -76,8 +77,8 @@ pub async fn run(
 
 /// Enumerate psyops on disk in alphabetical order. Same dir-walk
 /// rule as `psyops::list`: must have `psyop.json` + `.git`.
-fn list_psyops() -> Result<Vec<String>, Error> {
-    let dir = crate::config::psyops_dir();
+fn list_psyops(cfg: &crate::run::Config) -> Result<Vec<String>, Error> {
+    let dir = crate::config::psyops_dir(cfg);
     if !dir.exists() {
         return Ok(Vec::new());
     }
@@ -99,8 +100,8 @@ fn list_psyops() -> Result<Vec<String>, Error> {
     Ok(names)
 }
 
-fn derive_commit(name: &str) -> Result<String, Error> {
-    let dir = crate::config::psyops_dir().join(name);
+fn derive_commit(name: &str, cfg: &crate::run::Config) -> Result<String, Error> {
+    let dir = crate::config::psyops_dir(cfg).join(name);
     let repo = git2::Repository::open(&dir).map_err(|e| {
         Error::Other(format!("git open failed at {}: {e}", dir.display()))
     })?;

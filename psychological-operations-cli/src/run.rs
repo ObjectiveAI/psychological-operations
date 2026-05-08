@@ -1,10 +1,87 @@
+use std::path::PathBuf;
+
 use clap::{Parser, Subcommand};
+use envconfig::Envconfig;
 
 use crate::x_app;
 use crate::ingest;
 use crate::invent;
 use crate::targets;
 use crate::psyops;
+
+// ---------------------------------------------------------------------------
+// Env-driven runtime config (3-struct pattern; mirrors objectiveai-cli)
+// ---------------------------------------------------------------------------
+
+#[derive(Envconfig)]
+struct EnvConfigBuilder {
+    #[envconfig(from = "PSYCHOLOGICAL_OPERATIONS_BASE_DIR")]
+    base_dir: Option<String>,
+}
+
+impl EnvConfigBuilder {
+    pub fn build(self) -> ConfigBuilder {
+        ConfigBuilder {
+            base_dir: self.base_dir,
+        }
+    }
+}
+
+#[derive(Default)]
+pub struct ConfigBuilder {
+    pub base_dir: Option<String>,
+}
+
+impl Envconfig for ConfigBuilder {
+    #[allow(deprecated)]
+    fn init() -> Result<Self, envconfig::Error> {
+        EnvConfigBuilder::init().map(|e| e.build())
+    }
+
+    fn init_from_env() -> Result<Self, envconfig::Error> {
+        EnvConfigBuilder::init_from_env().map(|e| e.build())
+    }
+
+    fn init_from_hashmap(
+        h: &std::collections::HashMap<String, String>,
+    ) -> Result<Self, envconfig::Error> {
+        EnvConfigBuilder::init_from_hashmap(h).map(|e| e.build())
+    }
+}
+
+impl ConfigBuilder {
+    pub fn build(self) -> Config {
+        Config { base_dir: self.base_dir }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct Config {
+    pub base_dir: Option<String>,
+}
+
+impl Config {
+    /// Resolve the on-disk base directory. Explicit env override
+    /// (`PSYCHOLOGICAL_OPERATIONS_BASE_DIR`) wins; otherwise
+    /// `~/.psychological-operations`.
+    pub fn base_dir(&self) -> PathBuf {
+        if let Some(d) = &self.base_dir {
+            return PathBuf::from(d);
+        }
+        dirs::home_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join(".psychological-operations")
+    }
+}
+
+/// Build the runtime config from the process environment.
+pub fn load_config() -> Config {
+    ConfigBuilder::init_from_env().unwrap_or_default().build()
+}
+
+// ---------------------------------------------------------------------------
+// CLI surface
+// ---------------------------------------------------------------------------
 
 #[derive(Parser)]
 #[command(name = "psychological-operations")]
@@ -63,18 +140,18 @@ impl std::fmt::Display for Output {
     }
 }
 
-pub async fn run<I, T>(args: I) -> Result<String, String>
+pub async fn run<I, T>(args: I, cfg: &Config) -> Result<String, String>
 where
     I: IntoIterator<Item = T>,
     T: Into<std::ffi::OsString> + Clone,
 {
     let cli = Cli::try_parse_from(args).map_err(|e| e.to_string())?;
     let output = match cli.command {
-        Commands::Psyops { command } => command.handle().await,
-        Commands::Targets { command } => command.handle().await,
-        Commands::Invent { command } => command.handle(),
-        Commands::NativeHost => ingest::run().await,
-        Commands::XApp { command } => command.handle().await,
+        Commands::Psyops { command } => command.handle(cfg).await,
+        Commands::Targets { command } => command.handle(cfg).await,
+        Commands::Invent { command } => command.handle(cfg),
+        Commands::NativeHost => ingest::run(cfg).await,
+        Commands::XApp { command } => command.handle(cfg).await,
     }
     .map_err(|e| e.to_string())?;
     Ok(output.to_string())

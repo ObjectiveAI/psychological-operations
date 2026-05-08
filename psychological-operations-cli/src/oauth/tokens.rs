@@ -11,6 +11,7 @@ use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::error::Error;
+use crate::run::Config as RuntimeConfig;
 
 const TOKEN_ENDPOINT: &str = "https://api.x.com/2/oauth2/token";
 
@@ -24,13 +25,12 @@ pub struct Tokens {
     pub saved_at:      DateTime<Utc>,
 }
 
-pub fn path(psyop: &str) -> PathBuf {
-    let home = dirs::home_dir().expect("could not determine home directory");
-    home.join(".psychological-operations").join("tokens").join(format!("{psyop}.json"))
+pub fn path(psyop: &str, rt: &RuntimeConfig) -> PathBuf {
+    rt.base_dir().join("tokens").join(format!("{psyop}.json"))
 }
 
-pub fn load(psyop: &str) -> Result<Option<Tokens>, Error> {
-    let p = path(psyop);
+pub fn load(psyop: &str, rt: &RuntimeConfig) -> Result<Option<Tokens>, Error> {
+    let p = path(psyop, rt);
     if !p.exists() {
         return Ok(None);
     }
@@ -38,8 +38,8 @@ pub fn load(psyop: &str) -> Result<Option<Tokens>, Error> {
     Ok(Some(serde_json::from_str(&data)?))
 }
 
-pub fn save(psyop: &str, tokens: &Tokens) -> Result<(), Error> {
-    let p = path(psyop);
+pub fn save(psyop: &str, tokens: &Tokens, rt: &RuntimeConfig) -> Result<(), Error> {
+    let p = path(psyop, rt);
     if let Some(parent) = p.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -64,8 +64,9 @@ pub async fn load_fresh(
     psyop: &str,
     client_id: &str,
     client_secret: &str,
+    rt: &RuntimeConfig,
 ) -> Result<Tokens, Error> {
-    let existing = load(psyop)?.ok_or_else(|| Error::Other(format!(
+    let existing = load(psyop, rt)?.ok_or_else(|| Error::Other(format!(
         "no tokens for psyop \"{psyop}\" — \
          run `psychological-operations psyops oauth {psyop}`",
     )))?;
@@ -86,7 +87,7 @@ pub async fn load_fresh(
              re-run `psychological-operations psyops oauth {psyop}`",
         )))?;
 
-    save(psyop, &refreshed)?;
+    save(psyop, &refreshed, rt)?;
     Ok(refreshed)
 }
 

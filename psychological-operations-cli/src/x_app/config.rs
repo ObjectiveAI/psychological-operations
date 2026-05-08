@@ -15,6 +15,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 use crate::error::Error;
+use crate::run::Config as RuntimeConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct XAppConfig {
@@ -57,8 +58,8 @@ impl XAppConfig {
 /// Load + assert that `x_app.json` is set up. Returns the loaded
 /// config on success, or a clear error pointing the operator at
 /// `psychological-operations x_app setup`.
-pub fn ensure_setup() -> Result<XAppConfig, Error> {
-    let cfg = load()?;
+pub fn ensure_setup(rt: &RuntimeConfig) -> Result<XAppConfig, Error> {
+    let cfg = load(rt)?;
     if !cfg.is_complete() {
         return Err(Error::Other(
             "X App not set up — run `psychological-operations x_app setup` \
@@ -68,13 +69,12 @@ pub fn ensure_setup() -> Result<XAppConfig, Error> {
     Ok(cfg)
 }
 
-pub fn path() -> PathBuf {
-    let home = dirs::home_dir().expect("could not determine home directory");
-    home.join(".psychological-operations").join("x_app.json")
+pub fn path(rt: &RuntimeConfig) -> PathBuf {
+    rt.base_dir().join("x_app.json")
 }
 
-pub fn load() -> Result<XAppConfig, Error> {
-    let p = path();
+pub fn load(rt: &RuntimeConfig) -> Result<XAppConfig, Error> {
+    let p = path(rt);
     if !p.exists() {
         return Ok(XAppConfig::default());
     }
@@ -82,8 +82,8 @@ pub fn load() -> Result<XAppConfig, Error> {
     Ok(serde_json::from_str(&data)?)
 }
 
-pub fn save(cfg: &XAppConfig) -> Result<(), Error> {
-    let p = path();
+pub fn save(cfg: &XAppConfig, rt: &RuntimeConfig) -> Result<(), Error> {
+    let p = path(rt);
     if let Some(parent) = p.parent() {
         std::fs::create_dir_all(parent)?;
     }

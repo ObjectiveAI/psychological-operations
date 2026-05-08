@@ -30,8 +30,8 @@ use crate::error::Error;
 /// Write the manifest into the profile's NativeMessagingHosts dir
 /// (Linux/macOS) or the per-user HKCU registry (Windows). Idempotent
 /// — overwrites if already present.
-pub fn install(profile: &Path) -> Result<(), Error> {
-    let wrapper = ensure_wrapper()?;
+pub fn install(profile: &Path, cfg: &crate::run::Config) -> Result<(), Error> {
+    let wrapper = ensure_wrapper(cfg)?;
     let manifest_path_for_registry: PathBuf;
 
     #[cfg(not(windows))]
@@ -81,8 +81,8 @@ pub fn install(profile: &Path) -> Result<(), Error> {
 /// (Chromium's manifest `path` field doesn't accept args, so we need
 /// a separate executable that just exec's our binary with the
 /// `native-host` subcommand).
-fn ensure_wrapper() -> Result<PathBuf, Error> {
-    let path = native_host_wrapper();
+fn ensure_wrapper(cfg: &crate::run::Config) -> Result<PathBuf, Error> {
+    let path = native_host_wrapper(cfg);
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }

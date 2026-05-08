@@ -28,38 +28,38 @@ pub enum Commands {
 }
 
 impl Commands {
-    pub async fn handle(self) -> Result<crate::Output, crate::error::Error> {
+    pub async fn handle(self, cfg: &crate::run::Config) -> Result<crate::Output, crate::error::Error> {
         match self {
             Commands::Get { index } => {
-                let cfg = crate::config::load();
+                let json_cfg = crate::config::load(cfg);
                 match index {
                     Some(i) => {
-                        let entry = cfg.targets.get(i)
+                        let entry = json_cfg.targets.get(i)
                             .ok_or_else(|| crate::error::Error::Other(format!("no target at index {i}")))?;
                         Ok(crate::Output::ConfigGet(serde_json::to_string(entry)?))
                     }
-                    None => Ok(crate::Output::ConfigGet(serde_json::to_string(&cfg.targets)?)),
+                    None => Ok(crate::Output::ConfigGet(serde_json::to_string(&json_cfg.targets)?)),
                 }
             }
             Commands::Add { json } => {
                 let parsed: Destination = serde_json::from_str(&json)?;
-                let mut cfg = crate::config::load();
-                cfg.targets.push(parsed);
-                crate::config::save(&cfg)?;
+                let mut json_cfg = crate::config::load(cfg);
+                json_cfg.targets.push(parsed);
+                crate::config::save(&json_cfg, cfg)?;
                 Ok(crate::Output::ConfigSet)
             }
             Commands::Del { index } => {
-                let mut cfg = crate::config::load();
-                if index >= cfg.targets.len() {
+                let mut json_cfg = crate::config::load(cfg);
+                if index >= json_cfg.targets.len() {
                     return Err(crate::error::Error::Other(format!("no target at index {index}")));
                 }
-                cfg.targets.remove(index);
-                crate::config::save(&cfg)?;
+                json_cfg.targets.remove(index);
+                crate::config::save(&json_cfg, cfg)?;
                 Ok(crate::Output::ConfigSet)
             }
             Commands::Deliver { psyop } => {
-                let db = crate::db::Db::open()?;
-                let summary = drain_queue(&db, psyop.as_deref()).await?;
+                let db = crate::db::Db::open(cfg)?;
+                let summary = drain_queue(&db, psyop.as_deref(), cfg).await?;
                 Ok(crate::Output::Api(serde_json::to_string(&summary)?))
             }
         }
@@ -78,6 +78,7 @@ pub struct DeliverySummary {
 pub async fn drain_queue(
     db: &crate::db::Db,
     psyop_filter: Option<&str>,
+    cfg: &crate::run::Config,
 ) -> Result<DeliverySummary, crate::error::Error> {
     use crate::db::{MediaUrl, Post};
     use crate::psyops::psyop;
@@ -114,7 +115,7 @@ pub async fn drain_queue(
         // Load the psyop as it existed at the queued commit_sha
         // (git tree blob, not working tree). If the repo / commit /
         // file is missing, bump-attempt with a clear message.
-        let psyop_obj = match psyop::load(&row.psyop, Some(&row.psyop_commit_sha)) {
+        let psyop_obj = match psyop::load(&row.psyop, Some(&row.psyop_commit_sha), cfg) {
             Ok(p) => p,
             Err(e) => {
                 let msg = format!("psyop load at {} failed: {e}", row.psyop_commit_sha);
@@ -148,7 +149,7 @@ pub async fn drain_queue(
             output: &stub_refs,
         };
 
-        match send_one(&dest, &subject).await {
+        match send_one(&dest, &subject, cfg).await {
             Ok(()) => {
                 db.delete_delivery(row.id)?;
                 delivered += 1;

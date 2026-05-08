@@ -18,9 +18,9 @@ pub enum Commands {
 }
 
 impl Commands {
-    pub async fn handle(self) -> Result<crate::Output, crate::error::Error> {
+    pub async fn handle(self, cfg: &crate::run::Config) -> Result<crate::Output, crate::error::Error> {
         match self {
-            Commands::Setup => setup::run().await,
+            Commands::Setup => setup::run(cfg).await,
         }
     }
 }

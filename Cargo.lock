@@ -2426,6 +2426,7 @@ dependencies = [
  "chrono",
  "clap",
  "dirs",
+ "envconfig",
  "futures",
  "git2",
  "indexmap",

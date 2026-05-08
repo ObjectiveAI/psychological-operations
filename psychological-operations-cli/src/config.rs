@@ -3,28 +3,24 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+use crate::run::Config as RuntimeConfig;
 use crate::targets::destinations::Destination;
 
 // ---------------------------------------------------------------------------
-// Paths
+// Paths — all rooted at `cfg.base_dir()` so an env-var override
+// (PSYCHOLOGICAL_OPERATIONS_BASE_DIR) re-homes everything.
 // ---------------------------------------------------------------------------
 
-fn base_dir() -> PathBuf {
-    dirs::home_dir()
-        .expect("could not determine home directory")
-        .join(".psychological-operations")
+pub fn config_path(cfg: &RuntimeConfig) -> PathBuf {
+    cfg.base_dir().join("config.json")
 }
 
-pub fn config_path() -> PathBuf {
-    base_dir().join("config.json")
+pub fn psyops_dir(cfg: &RuntimeConfig) -> PathBuf {
+    cfg.base_dir().join("psyops")
 }
 
-pub fn psyops_dir() -> PathBuf {
-    base_dir().join("psyops")
-}
-
-pub fn db_path() -> PathBuf {
-    base_dir().join("data.db")
+pub fn db_path(cfg: &RuntimeConfig) -> PathBuf {
+    cfg.base_dir().join("data.db")
 }
 
 // ---------------------------------------------------------------------------
@@ -105,8 +101,8 @@ pub struct Config {
     pub psyops: BTreeMap<String, PsyopOverrides>,
 }
 
-pub fn load() -> Config {
-    let path = config_path();
+pub fn load(cfg: &RuntimeConfig) -> Config {
+    let path = config_path(cfg);
     if !path.exists() {
         return Config::default();
     }
@@ -114,8 +110,8 @@ pub fn load() -> Config {
     serde_json::from_str(&data).unwrap_or_default()
 }
 
-pub fn save(config: &Config) -> Result<(), crate::error::Error> {
-    let path = config_path();
+pub fn save(config: &Config, cfg: &RuntimeConfig) -> Result<(), crate::error::Error> {
+    let path = config_path(cfg);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }

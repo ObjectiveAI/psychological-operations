@@ -121,24 +121,24 @@ struct PsyopEntry {
 }
 
 impl Commands {
-    pub async fn handle(self) -> Result<crate::Output, crate::error::Error> {
+    pub async fn handle(self, cfg: &crate::run::Config) -> Result<crate::Output, crate::error::Error> {
         match self {
-            Commands::List { enabled, disabled } => list(enabled, disabled),
-            Commands::Get { name } => get(&name),
-            Commands::Enable { name, commit } => set_disabled(&name, commit.as_deref(), false),
-            Commands::Disable { name, commit } => set_disabled(&name, commit.as_deref(), true),
-            Commands::Publish { args } => publish(args),
-            Commands::Run { name, commit } => run::run_all(name.as_deref(), commit.as_deref()).await,
-            Commands::Browse { name, commit } => browse::run(name.as_deref(), commit.as_deref()).await,
-            Commands::Targets { command } => command.handle(),
-            Commands::OAuth { name } => crate::oauth::setup::run(&name).await,
+            Commands::List { enabled, disabled } => list(enabled, disabled, cfg),
+            Commands::Get { name } => get(&name, cfg),
+            Commands::Enable { name, commit } => set_disabled(&name, commit.as_deref(), false, cfg),
+            Commands::Disable { name, commit } => set_disabled(&name, commit.as_deref(), true, cfg),
+            Commands::Publish { args } => publish(args, cfg),
+            Commands::Run { name, commit } => run::run_all(name.as_deref(), commit.as_deref(), cfg).await,
+            Commands::Browse { name, commit } => browse::run(name.as_deref(), commit.as_deref(), cfg).await,
+            Commands::Targets { command } => command.handle(cfg),
+            Commands::OAuth { name } => crate::oauth::setup::run(&name, cfg).await,
         }
     }
 }
 
-fn list(enabled: bool, disabled: bool) -> Result<crate::Output, crate::error::Error> {
-    let cfg = crate::config::load();
-    let dir = crate::config::psyops_dir();
+fn list(enabled: bool, disabled: bool, cfg: &crate::run::Config) -> Result<crate::Output, crate::error::Error> {
+    let json_cfg = crate::config::load(cfg);
+    let dir = crate::config::psyops_dir(cfg);
     let mut entries: Vec<PsyopEntry> = Vec::new();
     if dir.exists() {
         for ent in std::fs::read_dir(&dir)? {
@@ -156,7 +156,7 @@ fn list(enabled: bool, disabled: bool) -> Result<crate::Output, crate::error::Er
                 let head = repo.head()?.peel_to_commit()?;
                 Ok(head.id().to_string())
             })().unwrap_or_default();
-            let is_enabled = !cfg.psyops.get(&name)
+            let is_enabled = !json_cfg.psyops.get(&name)
                 .map(|o| o.disabled_for(&commit_sha))
                 .unwrap_or(false);
             if enabled && !is_enabled { continue; }
@@ -168,15 +168,15 @@ fn list(enabled: bool, disabled: bool) -> Result<crate::Output, crate::error::Er
     Ok(crate::Output::ConfigGet(serde_json::to_string(&entries)?))
 }
 
-fn get(name: &str) -> Result<crate::Output, crate::error::Error> {
-    let psyop = self::psyop::load(name, None)?;
+fn get(name: &str, cfg: &crate::run::Config) -> Result<crate::Output, crate::error::Error> {
+    let psyop = self::psyop::load(name, None, cfg)?;
     Ok(crate::Output::ConfigGet(serde_json::to_string(&psyop)?))
 }
 
-fn set_disabled(name: &str, commit: Option<&str>, value: bool) -> Result<crate::Output, crate::error::Error> {
-    let mut cfg = crate::config::load();
+fn set_disabled(name: &str, commit: Option<&str>, value: bool, cfg: &crate::run::Config) -> Result<crate::Output, crate::error::Error> {
+    let mut json_cfg = crate::config::load(cfg);
     {
-        let overrides = cfg.psyops.entry(name.to_string()).or_default();
+        let overrides = json_cfg.psyops.entry(name.to_string()).or_default();
         match commit {
             Some(sha) => {
                 overrides.commits.entry(sha.to_string()).or_default().disabled = Some(value);
@@ -189,14 +189,14 @@ fn set_disabled(name: &str, commit: Option<&str>, value: bool) -> Result<crate::
             }
         }
     }
-    if cfg.psyops.get(name).is_some_and(|o| o.is_empty()) {
-        cfg.psyops.remove(name);
+    if json_cfg.psyops.get(name).is_some_and(|o| o.is_empty()) {
+        json_cfg.psyops.remove(name);
     }
-    crate::config::save(&cfg)?;
+    crate::config::save(&json_cfg, cfg)?;
     Ok(crate::Output::ConfigSet)
 }
 
-fn publish(args: PublishArgs) -> Result<crate::Output, crate::error::Error> {
+fn publish(args: PublishArgs, cfg: &crate::run::Config) -> Result<crate::Output, crate::error::Error> {
     let psyop: PsyOp = if let Some(inline) = args.source.psyop_inline {
         serde_json::from_str(&inline)?
     } else if let Some(path) = args.source.psyop_file {
@@ -206,7 +206,7 @@ fn publish(args: PublishArgs) -> Result<crate::Output, crate::error::Error> {
         unreachable!("clap group ensures one is set")
     };
     psyop.validate()?;
-    let dir = crate::config::psyops_dir().join(&args.name);
+    let dir = crate::config::psyops_dir(cfg).join(&args.name);
     let json = serde_json::to_string_pretty(&psyop)? + "\n";
     let sha = crate::publish::publish_file(&dir, "psyop.json", &json, &args.message)?;
     Ok(crate::Output::Api(sha))

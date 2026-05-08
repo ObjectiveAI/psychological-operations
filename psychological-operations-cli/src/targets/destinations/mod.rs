@@ -51,9 +51,13 @@ pub enum Subject<'a> {
 
 /// Dispatch one destination. Used by `targets::drain_queue`
 /// row-by-row, capturing errors to bump / delete the queued row.
+/// `rt` is the runtime config — only the X destination needs it
+/// (for `Http::for_psyop`'s OAuth-token loading), but every
+/// destination's send takes the same shape for uniformity.
 pub async fn send_one(
     dest: &Destination,
     subject: &Subject<'_>,
+    rt: &crate::run::Config,
 ) -> Result<(), crate::error::Error> {
     match dest {
         Destination::Discord { webhook_url } => discord::send(webhook_url, subject).await,
@@ -64,6 +68,6 @@ pub async fn send_one(
         Destination::File(cfg) => file::send(cfg, subject).await,
         Destination::Exec(cfg) => exec::send(cfg, subject).await,
         Destination::WebSocket(cfg) => websocket::send(cfg, subject).await,
-        Destination::X(cfg) => x::send(cfg, subject).await,
+        Destination::X(cfg) => x::send(cfg, subject, rt).await,
     }
 }

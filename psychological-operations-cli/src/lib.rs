@@ -14,6 +14,6 @@ pub mod oauth;
 mod publish;
 mod invent;
 
-mod run;
+pub mod run;
 
-pub use run::*;
+pub use run::{Config, Output, load_config, run};

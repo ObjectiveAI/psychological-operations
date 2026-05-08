@@ -46,29 +46,31 @@ use super::{ForYou, PsyOp, Query};
 pub async fn run_all(
     name_filter: Option<&str>,
     commit_filter: Option<&str>,
+    cfg: &crate::run::Config,
 ) -> Result<crate::Output, Error> {
-    crate::x_app::config::ensure_setup()?;
+    crate::x_app::config::ensure_setup(cfg)?;
 
     let name = name_filter.ok_or_else(|| {
         Error::Other("psyops run requires --name <psyop>".into())
     })?;
-    run_psyop(name, commit_filter).await
+    run_psyop(name, commit_filter, cfg).await
 }
 
 pub async fn run_psyop(
     name: &str,
     commit_override: Option<&str>,
+    cfg: &crate::run::Config,
 ) -> Result<crate::Output, Error> {
-    let psyop = super::psyop::load(name, None)?;
+    let psyop = super::psyop::load(name, None, cfg)?;
     psyop.validate()?;
 
     let commit = match commit_override {
         Some(c) => c.to_string(),
-        None => derive_commit(name)?,
+        None => derive_commit(name, cfg)?,
     };
 
-    let db = Db::open()?;
-    let http = make_http_client().await?;
+    let db = Db::open(cfg)?;
+    let http = make_http_client(cfg).await?;
 
     // Capture whether the for_you_queue was non-empty at run start —
     // the `query_when_for_you_queued` policy reads this on the
@@ -142,18 +144,18 @@ pub async fn run_psyop(
 
         // 10. Enqueue a delivery_queue row per (target, survivors).
         if !result.survivors.is_empty() {
-            let cfg = crate::config::load();
+            let json_cfg = crate::config::load(cfg);
             let post_ids: Vec<String> = result.survivors.iter()
                 .map(|s| s.post.id.clone())
                 .collect();
             let post_ids_json = serde_json::to_string(&post_ids)?;
 
-            for dest in &cfg.targets {
+            for dest in &json_cfg.targets {
                 let target_json = serde_json::to_string(dest)?;
                 db.enqueue_delivery(name, &commit, &target_json, &post_ids_json)?;
             }
             let per_psyop: Vec<crate::targets::destinations::Destination> =
-                cfg.psyops.get(name)
+                json_cfg.psyops.get(name)
                     .map(|o| o.targets_for(&commit).to_vec())
                     .unwrap_or_default();
             for dest in &per_psyop {
@@ -163,7 +165,7 @@ pub async fn run_psyop(
         }
 
         // 11. Drain the queue (filtered to this psyop).
-        let summary = crate::targets::drain_queue(&db, Some(name)).await?;
+        let summary = crate::targets::drain_queue(&db, Some(name), cfg).await?;
         eprintln!(
             "psyop \"{name}\": delivered {} of {} pending ({} failed)",
             summary.delivered, summary.pending, summary.failed,
@@ -423,8 +425,8 @@ async fn run_queries(
 
 // -- X API --------------------------------------------------------------------
 
-async fn make_http_client() -> Result<Http, Error> {
-    Http::app_only(reqwest::Client::new()).await
+async fn make_http_client(cfg: &crate::run::Config) -> Result<Http, Error> {
+    Http::app_only(reqwest::Client::new(), cfg).await
 }
 
 fn standard_tweet_fields() -> Vec<TweetFields> {
@@ -531,8 +533,8 @@ fn lookup_handle(
 
 // -- glue ---------------------------------------------------------------------
 
-fn derive_commit(name: &str) -> Result<String, Error> {
-    let dir = crate::config::psyops_dir().join(name);
+fn derive_commit(name: &str, cfg: &crate::run::Config) -> Result<String, Error> {
+    let dir = crate::config::psyops_dir(cfg).join(name);
     let repo = git2::Repository::open(&dir).map_err(|e| {
         Error::Other(format!("git open failed at {}: {e}", dir.display()))
     })?;

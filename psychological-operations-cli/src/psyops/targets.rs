@@ -30,11 +30,11 @@ pub enum Commands {
 }
 
 impl Commands {
-    pub fn handle(self) -> Result<crate::Output, crate::error::Error> {
+    pub fn handle(self, cfg: &crate::run::Config) -> Result<crate::Output, crate::error::Error> {
         match self {
             Commands::Get { name, index, commit } => {
-                let cfg = crate::config::load();
-                let list: Vec<Destination> = cfg.psyops.get(&name).map(|o| match commit.as_deref() {
+                let json_cfg = crate::config::load(cfg);
+                let list: Vec<Destination> = json_cfg.psyops.get(&name).map(|o| match commit.as_deref() {
                     Some(sha) => o.commits.get(sha).map(|c| c.targets.clone()).unwrap_or_default(),
                     None => o.base.targets.clone(),
                 }).unwrap_or_default();
@@ -49,19 +49,19 @@ impl Commands {
             }
             Commands::Add { name, json, commit } => {
                 let parsed: Destination = serde_json::from_str(&json)?;
-                let mut cfg = crate::config::load();
-                let overrides = cfg.psyops.entry(name).or_default();
+                let mut json_cfg = crate::config::load(cfg);
+                let overrides = json_cfg.psyops.entry(name).or_default();
                 match commit.as_deref() {
                     Some(sha) => overrides.commits.entry(sha.to_string()).or_default().targets.push(parsed),
                     None => overrides.base.targets.push(parsed),
                 }
-                crate::config::save(&cfg)?;
+                crate::config::save(&json_cfg, cfg)?;
                 Ok(crate::Output::ConfigSet)
             }
             Commands::Del { name, index, commit } => {
-                let mut cfg = crate::config::load();
+                let mut json_cfg = crate::config::load(cfg);
                 {
-                    let overrides = cfg.psyops.get_mut(&name)
+                    let overrides = json_cfg.psyops.get_mut(&name)
                         .ok_or_else(|| crate::error::Error::Other(format!("no psyop config entry for \"{name}\"")))?;
                     let target = match commit.as_deref() {
                         Some(sha) => &mut overrides.commits.get_mut(sha)
@@ -79,10 +79,10 @@ impl Commands {
                         }
                     }
                 }
-                if cfg.psyops.get(&name).is_some_and(|o| o.is_empty()) {
-                    cfg.psyops.remove(&name);
+                if json_cfg.psyops.get(&name).is_some_and(|o| o.is_empty()) {
+                    json_cfg.psyops.remove(&name);
                 }
-                crate::config::save(&cfg)?;
+                crate::config::save(&json_cfg, cfg)?;
                 Ok(crate::Output::ConfigSet)
             }
         }

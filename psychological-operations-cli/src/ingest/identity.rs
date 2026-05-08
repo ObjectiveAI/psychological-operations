@@ -18,7 +18,7 @@ pub struct Identity {
     pub commit: String,
 }
 
-pub fn resolve() -> Result<Identity, crate::error::Error> {
+pub fn resolve(cfg: &crate::run::Config) -> Result<Identity, crate::error::Error> {
     let psyop = std::env::var("PSYOP_NAME").map_err(|_| {
         crate::error::Error::Other("PSYOP_NAME is not set".into())
     })?;
@@ -35,7 +35,7 @@ pub fn resolve() -> Result<Identity, crate::error::Error> {
     }
 
     // Fall back to the git HEAD of <psyops_dir>/<psyop>/.
-    let dir = crate::config::psyops_dir().join(&psyop);
+    let dir = crate::config::psyops_dir(cfg).join(&psyop);
     let repo = git2::Repository::open(&dir).map_err(|e| {
         crate::error::Error::Other(format!(
             "PSYOP_COMMIT_SHA unset and git open failed at {}: {e}",

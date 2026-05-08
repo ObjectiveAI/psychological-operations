@@ -21,9 +21,9 @@ pub struct Extracted {
 }
 
 /// Extract (or hit cache) and return the relevant paths.
-pub fn ensure_extracted() -> Result<Extracted, Error> {
+pub fn ensure_extracted(cfg: &crate::run::Config) -> Result<Extracted, Error> {
     let hash = content_hash();
-    let root = chrome_cache_root().join(format!("{hash:016x}"));
+    let root = chrome_cache_root(cfg).join(format!("{hash:016x}"));
     let chrome_binary = root.join("chrome").join(launch_entry());
     let extension_dir = root.join("extension");
     let sentinel = root.join(".ready");

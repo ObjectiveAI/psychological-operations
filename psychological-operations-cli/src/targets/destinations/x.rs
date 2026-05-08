@@ -22,7 +22,7 @@ pub enum XType {
     Retweet,
 }
 
-pub async fn send(cfg: &X, subject: &Subject<'_>) -> Result<(), crate::error::Error> {
+pub async fn send(cfg: &X, subject: &Subject<'_>, rt: &crate::run::Config) -> Result<(), crate::error::Error> {
     use crate::x::http::Http;
     use crate::x::types::{
         TweetId, UserIdMatchesAuthenticatedUser,
@@ -31,7 +31,7 @@ pub async fn send(cfg: &X, subject: &Subject<'_>) -> Result<(), crate::error::Er
 
     let Subject::Psyop { name, output, .. } = subject;
 
-    let http = Http::for_psyop(reqwest::Client::new(), name).await?;
+    let http = Http::for_psyop(reqwest::Client::new(), name, rt).await?;
 
     // Resolve the acting user via /2/users/me so the like/retweet
     // URLs can fill the {id} path segment.

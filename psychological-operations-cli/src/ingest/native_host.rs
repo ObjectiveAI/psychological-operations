@@ -49,10 +49,10 @@ enum Outbound<'a> {
     XAppSaveErr { error: String },
 }
 
-pub async fn run() -> Result<crate::Output, crate::error::Error> {
+pub async fn run(cfg: &crate::run::Config) -> Result<crate::Output, crate::error::Error> {
     // Resolve identity up front so an early failure is reported as
     // init_err on the first message rather than panicking later.
-    let identity_result = identity::resolve();
+    let identity_result = identity::resolve(cfg);
 
     let mut stdin = tokio::io::stdin();
     let mut stdout = tokio::io::stdout();
@@ -92,12 +92,12 @@ pub async fn run() -> Result<crate::Output, crate::error::Error> {
             },
             Ok(Inbound::Ingest { tweets }) => match &identity_result {
                 Err(e) => Outbound::IngestErr { error: e.to_string() },
-                Ok(id) => match handle_ingest(&mut db, id, tweets) {
+                Ok(id) => match handle_ingest(&mut db, id, tweets, cfg) {
                     Ok((inserted, skipped)) => Outbound::IngestOk { inserted, skipped },
                     Err(e) => Outbound::IngestErr { error: e.to_string() },
                 },
             },
-            Ok(Inbound::XAppSave { credentials }) => match handle_x_app_save(credentials) {
+            Ok(Inbound::XAppSave { credentials }) => match handle_x_app_save(credentials, cfg) {
                 Ok(()) => Outbound::XAppSaveOk,
                 Err(e) => Outbound::XAppSaveErr { error: e.to_string() },
             },
@@ -112,9 +112,10 @@ fn handle_ingest(
     db: &mut Option<Db>,
     identity: &Identity,
     tweets: Vec<IncomingPostId>,
+    cfg: &crate::run::Config,
 ) -> Result<(usize, usize), crate::error::Error> {
     if db.is_none() {
-        *db = Some(Db::open()?);
+        *db = Some(Db::open(cfg)?);
     }
     let db = db.as_ref().unwrap();
 
@@ -140,8 +141,11 @@ fn handle_ingest(
 /// Merge incoming credentials into the on-disk x_app.json.
 /// Some-wins, None-preserves so a partial paste doesn't clobber
 /// previously-captured fields.
-fn handle_x_app_save(creds: IncomingCredentials) -> Result<(), crate::error::Error> {
-    let existing = x_app_config::load().unwrap_or_default();
+fn handle_x_app_save(
+    creds: IncomingCredentials,
+    cfg: &crate::run::Config,
+) -> Result<(), crate::error::Error> {
+    let existing = x_app_config::load(cfg).unwrap_or_default();
     let now = chrono::Utc::now().to_rfc3339();
     let incoming = XAppConfig {
         client_id:      creds.client_id,
@@ -152,7 +156,7 @@ fn handle_x_app_save(creds: IncomingCredentials) -> Result<(), crate::error::Err
         saved_at:       Some(now),
     };
     let merged = x_app_config::merge(existing, incoming);
-    x_app_config::save(&merged)
+    x_app_config::save(&merged, cfg)
 }
 
 async fn write_frame<W: tokio::io::AsyncWrite + Unpin>(

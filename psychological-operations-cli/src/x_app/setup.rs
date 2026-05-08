@@ -9,16 +9,16 @@ use crate::chrome::native_host;
 use crate::chrome::paths::x_app_profile_dir;
 use crate::error::Error;
 
-pub async fn run() -> Result<crate::Output, Error> {
-    let materialized = ensure_extracted()?;
+pub async fn run(cfg: &crate::run::Config) -> Result<crate::Output, Error> {
+    let materialized = ensure_extracted(cfg)?;
 
-    let profile = x_app_profile_dir();
+    let profile = x_app_profile_dir(cfg);
     std::fs::create_dir_all(&profile)?;
 
     // Same native-host registration the per-psyop browse path uses.
     // The extension on this profile needs the messaging bridge so
     // its "Save credentials" button can ship to x_app.json.
-    native_host::install(&profile)?;
+    native_host::install(&profile, cfg)?;
 
     let extension_id = crate::chrome::bundles::extension_id();
 

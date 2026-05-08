@@ -20,8 +20,8 @@ const AUTHORIZE_BASE: &str = "https://x.com/i/oauth2/authorize";
 const SCOPE: &str = "tweet.read users.read like.write tweet.write offline.access";
 const CALLBACK_TIMEOUT: Duration = Duration::from_secs(300);
 
-pub async fn run(psyop_name: &str) -> Result<crate::Output, Error> {
-    let x_app = x_app_config::ensure_setup()?;
+pub async fn run(psyop_name: &str, cfg: &crate::run::Config) -> Result<crate::Output, Error> {
+    let x_app = x_app_config::ensure_setup(cfg)?;
     let client_id = x_app.client_id.as_ref()
         .expect("x_app::config::ensure_setup guarantees client_id");
     let client_secret = x_app.client_secret.as_ref()
@@ -31,7 +31,7 @@ pub async fn run(psyop_name: &str) -> Result<crate::Output, Error> {
     // psyop.json — only the chrome-profile does — but if the psyop
     // isn't on disk the operator's about to hit a confusing chromium
     // launch. Surface the issue early.
-    let dir = crate::config::psyops_dir().join(psyop_name);
+    let dir = crate::config::psyops_dir(cfg).join(psyop_name);
     if !dir.exists() {
         return Err(Error::Other(format!(
             "psyop directory does not exist: {} — run `psyops publish` first",
@@ -65,16 +65,16 @@ pub async fn run(psyop_name: &str) -> Result<crate::Output, Error> {
 
     // Spawn chromium on the per-psyop profile, landing on the
     // authorize URL. The profile must already be signed into X.
-    let materialized = ensure_extracted()?;
-    let profile = profile_dir(psyop_name);
+    let materialized = ensure_extracted(cfg)?;
+    let profile = profile_dir(psyop_name, cfg);
     if !profile.exists() {
         return Err(Error::Other(format!(
             "per-psyop chrome profile does not exist: {} — run \
-             `psychological-operations browse --psyop {}` and sign into X first",
+             `psychological-operations psyops browse --name {}` and sign into X first",
             profile.display(), psyop_name,
         )));
     }
-    native_host::install(&profile)?;
+    native_host::install(&profile, cfg)?;
     // Discard the Child — the OAuth dance is async (we await the
     // local callback below). Chromium stays open until the operator
     // closes it; we don't block on that.
@@ -122,7 +122,7 @@ pub async fn run(psyop_name: &str) -> Result<crate::Output, Error> {
         &redirect_uri,
     ).await?;
 
-    tokens::save(psyop_name, &tokens)?;
+    tokens::save(psyop_name, &tokens, cfg)?;
     eprintln!(
         "psyop \"{psyop_name}\": saved tokens (scope: {}, expires_at: {})",
         tokens.scope, tokens.expires_at.to_rfc3339(),

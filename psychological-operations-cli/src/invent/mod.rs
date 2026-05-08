@@ -174,7 +174,7 @@ pub enum Commands {
 }
 
 impl Commands {
-    pub fn handle(self) -> Result<crate::Output, crate::error::Error> {
+    pub fn handle(self, _cfg: &crate::run::Config) -> Result<crate::Output, crate::error::Error> {
         match self {
             Commands::AlphaScalar { params, forward } => {
                 let p = params.into_params();

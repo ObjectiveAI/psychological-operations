@@ -7,6 +7,6 @@ pub mod extract;
 pub mod identity;
 pub mod native_host;
 
-pub async fn run() -> Result<crate::Output, crate::error::Error> {
-    native_host::run().await
+pub async fn run(cfg: &crate::run::Config) -> Result<crate::Output, crate::error::Error> {
+    native_host::run(cfg).await
 }
