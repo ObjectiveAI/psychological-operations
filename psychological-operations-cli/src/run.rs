@@ -21,6 +21,12 @@ struct EnvConfigBuilder {
     mock_x_api: Option<String>,
     #[envconfig(from = "PSYCHOLOGICAL_OPERATIONS_OBJECTIVEAI_BINARY")]
     objectiveai_binary: Option<String>,
+    #[envconfig(from = "PSYCHOLOGICAL_OPERATIONS_COMMIT_AUTHOR_NAME")]
+    commit_author_name: Option<String>,
+    #[envconfig(from = "PSYCHOLOGICAL_OPERATIONS_COMMIT_AUTHOR_EMAIL")]
+    commit_author_email: Option<String>,
+    #[envconfig(from = "PSYCHOLOGICAL_OPERATIONS_COMMIT_TIME")]
+    commit_time: Option<String>,
 }
 
 impl EnvConfigBuilder {
@@ -30,18 +36,25 @@ impl EnvConfigBuilder {
             !v.is_empty() && v != "0" && !v.eq_ignore_ascii_case("false")
         }
         ConfigBuilder {
-            base_dir:           self.base_dir,
-            mock_x_api:         self.mock_x_api.map(|s| parse_bool(&s)),
-            objectiveai_binary: self.objectiveai_binary,
+            base_dir:            self.base_dir,
+            mock_x_api:          self.mock_x_api.map(|s| parse_bool(&s)),
+            objectiveai_binary:  self.objectiveai_binary,
+            commit_author_name:  self.commit_author_name,
+            commit_author_email: self.commit_author_email,
+            commit_time:         self.commit_time
+                .and_then(|s| s.trim().parse::<i64>().ok()),
         }
     }
 }
 
 #[derive(Default)]
 pub struct ConfigBuilder {
-    pub base_dir:           Option<String>,
-    pub mock_x_api:         Option<bool>,
-    pub objectiveai_binary: Option<String>,
+    pub base_dir:            Option<String>,
+    pub mock_x_api:          Option<bool>,
+    pub objectiveai_binary:  Option<String>,
+    pub commit_author_name:  Option<String>,
+    pub commit_author_email: Option<String>,
+    pub commit_time:         Option<i64>,
 }
 
 impl Envconfig for ConfigBuilder {
@@ -64,9 +77,12 @@ impl Envconfig for ConfigBuilder {
 impl ConfigBuilder {
     pub fn build(self) -> Config {
         Config {
-            base_dir:           self.base_dir,
-            mock_x_api:         self.mock_x_api.unwrap_or(false),
-            objectiveai_binary: self.objectiveai_binary,
+            base_dir:            self.base_dir,
+            mock_x_api:          self.mock_x_api.unwrap_or(false),
+            objectiveai_binary:  self.objectiveai_binary,
+            commit_author_name:  self.commit_author_name,
+            commit_author_email: self.commit_author_email,
+            commit_time:         self.commit_time,
         }
     }
 }
@@ -83,6 +99,19 @@ pub struct Config {
     /// `~/.objectiveai/objectiveai(.exe)` and then PATH. Set via
     /// `PSYCHOLOGICAL_OPERATIONS_OBJECTIVEAI_BINARY`.
     pub objectiveai_binary: Option<String>,
+    /// Commit author name baked into git commits produced by
+    /// `psyops publish`. Default `"psychological-operations"`.
+    /// Set via `PSYCHOLOGICAL_OPERATIONS_COMMIT_AUTHOR_NAME`.
+    pub commit_author_name:  Option<String>,
+    /// Commit author email. Default `"psyops@localhost"`.
+    /// Set via `PSYCHOLOGICAL_OPERATIONS_COMMIT_AUTHOR_EMAIL`.
+    pub commit_author_email: Option<String>,
+    /// Commit time (epoch seconds). When `Some`, all commits use
+    /// this fixed timestamp — yields reproducible commit SHAs
+    /// across machines (used by integration tests). When `None`,
+    /// each commit uses the current wall clock.
+    /// Set via `PSYCHOLOGICAL_OPERATIONS_COMMIT_TIME`.
+    pub commit_time:         Option<i64>,
 }
 
 impl Config {

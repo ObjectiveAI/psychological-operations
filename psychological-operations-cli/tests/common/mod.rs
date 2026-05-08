@@ -174,13 +174,21 @@ impl TestEnv {
     }
 
     /// Build a `Command` for our CLI with the right env vars set
-    /// (per-subprocess, not per-process).
+    /// (per-subprocess, not per-process). Includes pinned
+    /// commit-author + commit-time so any `psyops publish`
+    /// invocations produce byte-stable commit SHAs.
     pub fn cmd(&self) -> Command {
         let mut cmd = Command::new(psyops_binary());
-        cmd.env("PSYCHOLOGICAL_OPERATIONS_BASE_DIR",           &self.dir);
-        cmd.env("PSYCHOLOGICAL_OPERATIONS_MOCK_X_API",         "true");
-        cmd.env("PSYCHOLOGICAL_OPERATIONS_OBJECTIVEAI_BINARY", objectiveai_binary());
-        cmd.env("CONFIG_BASE_DIR",                             objectiveai_state_dir());
+        cmd.env("PSYCHOLOGICAL_OPERATIONS_BASE_DIR",            &self.dir);
+        cmd.env("PSYCHOLOGICAL_OPERATIONS_MOCK_X_API",          "true");
+        cmd.env("PSYCHOLOGICAL_OPERATIONS_OBJECTIVEAI_BINARY",  objectiveai_binary());
+        cmd.env("CONFIG_BASE_DIR",                              objectiveai_state_dir());
+        cmd.env("PSYCHOLOGICAL_OPERATIONS_COMMIT_AUTHOR_NAME",  "psyops-test");
+        cmd.env("PSYCHOLOGICAL_OPERATIONS_COMMIT_AUTHOR_EMAIL", "test@psyops.invalid");
+        // Fixed epoch (2026-01-01 00:00:00 UTC). Combined with the
+        // pinned author, gives every test's `psyops publish` a
+        // byte-stable commit_sha across machines.
+        cmd.env("PSYCHOLOGICAL_OPERATIONS_COMMIT_TIME",         "1767225600");
         cmd
     }
 

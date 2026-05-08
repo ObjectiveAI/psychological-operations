@@ -212,6 +212,6 @@ fn publish(args: PublishArgs, cfg: &crate::run::Config) -> Result<crate::Output,
     psyop.validate()?;
     let dir = crate::config::psyops_dir(cfg).join(&args.name);
     let json = serde_json::to_string_pretty(&psyop)? + "\n";
-    let sha = crate::publish::publish_file(&dir, "psyop.json", &json, &args.message)?;
+    let sha = crate::publish::publish_file(&dir, "psyop.json", &json, &args.message, cfg)?;
     Ok(crate::Output::Api(sha))
 }
