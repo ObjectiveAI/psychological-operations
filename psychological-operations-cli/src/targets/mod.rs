@@ -103,13 +103,13 @@ async fn deliver(psyop_filter: Option<&str>) -> Result<crate::Output, crate::err
             }
         };
 
-        // Load the psyop from disk at current HEAD; we don't
-        // checkout the row's commit_sha. If the psyop file is gone,
-        // surface that and move on.
-        let psyop_obj = match psyop::load(&row.psyop) {
+        // Load the psyop as it existed at the queued commit_sha
+        // (git tree blob, not working tree). If the repo / commit /
+        // file is missing, bump-attempt with a clear message.
+        let psyop_obj = match psyop::load(&row.psyop, Some(&row.psyop_commit_sha)) {
             Ok(p) => p,
             Err(e) => {
-                let msg = format!("psyop load failed: {e}");
+                let msg = format!("psyop load at {} failed: {e}", row.psyop_commit_sha);
                 eprintln!("delivery #{} failed: {msg}", row.id);
                 db.bump_delivery_attempt(row.id, &msg)?;
                 failed += 1;

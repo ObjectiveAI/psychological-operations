@@ -148,7 +148,7 @@ fn list(enabled: bool, disabled: bool) -> Result<crate::Output, crate::error::Er
 }
 
 fn get(name: &str) -> Result<crate::Output, crate::error::Error> {
-    let psyop = self::psyop::load(name)?;
+    let psyop = self::psyop::load(name, None)?;
     Ok(crate::Output::ConfigGet(serde_json::to_string(&psyop)?))
 }
 

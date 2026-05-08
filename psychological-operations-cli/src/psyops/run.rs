@@ -51,7 +51,7 @@ pub async fn run_psyop(
     name: &str,
     commit_override: Option<&str>,
 ) -> Result<crate::Output, Error> {
-    let psyop = super::psyop::load(name)?;
+    let psyop = super::psyop::load(name, None)?;
     psyop.validate()?;
 
     let commit = match commit_override {
