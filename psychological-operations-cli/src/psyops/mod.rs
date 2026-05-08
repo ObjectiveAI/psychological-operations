@@ -69,6 +69,14 @@ pub enum Commands {
         #[command(subcommand)]
         command: targets::Commands,
     },
+    /// Authorize the per-psyop X account via OAuth 2.0 (PKCE) so the
+    /// X target can like / retweet on its behalf. Opens chromium on
+    /// the per-psyop profile (which must already be signed into X)
+    /// and persists tokens to ~/.psychological-operations/tokens/<name>.json.
+    /// One-time per psyop — refresh tokens are used silently after that.
+    OAuth {
+        name: String,
+    },
 }
 
 #[derive(Args)]
@@ -111,6 +119,7 @@ impl Commands {
             Commands::Publish { args } => publish(args),
             Commands::Run { name, commit } => run::run_all(name.as_deref(), commit.as_deref()).await,
             Commands::Targets { command } => command.handle(),
+            Commands::OAuth { name } => crate::oauth::setup::run(&name).await,
         }
     }
 }

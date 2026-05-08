@@ -12,6 +12,7 @@ pub fn spawn(
     profile: &Path,
     psyop: &str,
     commit: &str,
+    landing_url: &str,
 ) -> Result<(), Error> {
     let extension_id = crate::chrome::bundles::extension_id();
 
@@ -23,7 +24,7 @@ pub fn spawn(
     cmd.arg("--no-default-browser-check");
     cmd.arg("--disable-component-update");
     cmd.arg("--disable-features=ChromeWhatsNewUI,DefaultBrowserPromptRefresh");
-    cmd.arg("https://x.com/home");
+    cmd.arg(landing_url);
 
     // Identity threads through the OS-level env; Chromium inherits,
     // and when the extension calls connectNative the host child of

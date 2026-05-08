@@ -29,6 +29,8 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 sha2 = "0.10"
 tar = "0.4"
 starlark = "0.13.0"
+rand = "0.8"
+base64 = "0.22"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"

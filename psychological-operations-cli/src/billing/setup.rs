@@ -54,6 +54,10 @@ pub async fn run() -> Result<crate::Output, Error> {
     eprintln!("    create a Project + App and provision credits.");
     eprintln!("  - on the App's keys-and-tokens page, click the extension toolbar");
     eprintln!("    icon and paste the credentials into the form. Click Save.");
+    eprintln!("  - on \"User authentication settings\": enable OAuth 2.0,");
+    eprintln!("    select \"Read and write\" permissions, and register");
+    eprintln!("    `http://127.0.0.1/callback` (host only, no port) as a");
+    eprintln!("    Callback URL. Required for `psyops oauth <name>`.");
     eprintln!("  - this profile persists; future runs reuse the session.");
 
     Ok(crate::Output::Empty)

@@ -53,6 +53,7 @@ pub async fn browse(psyop: String, commit: Option<String>) -> Result<crate::Outp
         &profile,
         &psyop,
         &commit,
+        "https://x.com/home",
     )?;
 
     Ok(crate::Output::Empty)
