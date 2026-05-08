@@ -1,0 +1,8 @@
+psyop "test-psyop": 0 accepted / 2 min_posts / 10 max_posts
+psyop "test-psyop": query "tweet ranker vector swarm" returned 5 tweets
+psyop "test-psyop": 5 accepted / 2 min_posts / 10 max_posts
+psyop "test-psyop": 5 posts hydrated and entering scoring
+Scoring 5 posts...
+psyop "test-psyop": scored 5 posts (5 survived all 1 stages)
+psyop "test-psyop": dropped 0 contents row(s) post-scoring
+psyop "test-psyop": delivered 0 of 0 pending (0 failed)
