@@ -50,8 +50,12 @@ fn format_remote_ref(path: &RemotePathCommitOptional) -> String {
 /// default location at ~/.objectiveai/objectiveai(.exe) — the Windows installer
 /// only updates the user environment PATH, which isn't reflected in an already-
 /// running shell.
-pub fn objectiveai_binary() -> std::path::PathBuf {
+pub fn objectiveai_binary(cfg: &crate::run::Config) -> std::path::PathBuf {
     use std::path::PathBuf;
+    // Env override wins outright.
+    if let Some(p) = &cfg.objectiveai_binary {
+        return PathBuf::from(p);
+    }
     let name = if cfg!(windows) { "objectiveai.exe" } else { "objectiveai" };
     if let Ok(home) = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
         let candidate = PathBuf::from(home).join(".objectiveai").join(name);
@@ -63,9 +67,9 @@ pub fn objectiveai_binary() -> std::path::PathBuf {
 }
 
 /// Fetch a remote function definition via the CLI and deserialize to inline.
-fn fetch_function(path: &RemotePathCommitOptional) -> Result<FullInlineFunction, crate::error::Error> {
+fn fetch_function(path: &RemotePathCommitOptional, cfg: &crate::run::Config) -> Result<FullInlineFunction, crate::error::Error> {
     let ref_str = format_remote_ref(path);
-    let output = std::process::Command::new(objectiveai_binary())
+    let output = std::process::Command::new(objectiveai_binary(cfg))
         .args(["functions", "get", "--path", &ref_str])
         .stdin(std::process::Stdio::inherit())
         .stderr(std::process::Stdio::inherit())
@@ -81,18 +85,18 @@ fn fetch_function(path: &RemotePathCommitOptional) -> Result<FullInlineFunction,
 }
 
 /// Resolve a function to its inline definition, fetching if remote.
-fn resolve_function(function: &FullInlineFunctionOrRemoteCommitOptional) -> Result<FullInlineFunction, crate::error::Error> {
+fn resolve_function(function: &FullInlineFunctionOrRemoteCommitOptional, cfg: &crate::run::Config) -> Result<FullInlineFunction, crate::error::Error> {
     match function {
         FullInlineFunctionOrRemoteCommitOptional::Inline(f) => Ok(f.clone()),
-        FullInlineFunctionOrRemoteCommitOptional::Remote(path) => fetch_function(path),
+        FullInlineFunctionOrRemoteCommitOptional::Remote(path) => fetch_function(path, cfg),
     }
 }
 
 /// Fetch a fresh function-execution `--instructions-id` from the CLI. The
 /// objectiveai CLI requires this token on every `executions create` call;
 /// it ties a specific execution to the current instructions revision.
-fn fetch_instructions_id() -> Result<String, crate::error::Error> {
-    let output = std::process::Command::new(objectiveai_binary())
+fn fetch_instructions_id(cfg: &crate::run::Config) -> Result<String, crate::error::Error> {
+    let output = std::process::Command::new(objectiveai_binary(cfg))
         .args(["functions", "executions", "instructions", "get"])
         .stdin(std::process::Stdio::inherit())
         .stderr(std::process::Stdio::inherit())
@@ -123,10 +127,11 @@ fn run_function_execution(
     input_json: &str,
     split: bool,
     invert: bool,
+    cfg: &crate::run::Config,
 ) -> Result<ExecutionOutput, crate::error::Error> {
     let function_json = serde_json::to_string(function)?;
     let profile_json = serde_json::to_string(profile)?;
-    let instructions_id = fetch_instructions_id()?;
+    let instructions_id = fetch_instructions_id(cfg)?;
 
     let subcommand = match strategy {
         Strategy::Default => "standard",
@@ -159,7 +164,7 @@ fn run_function_execution(
         args.push("--invert".to_string());
     }
 
-    let output = std::process::Command::new(objectiveai_binary())
+    let output = std::process::Command::new(objectiveai_binary(cfg))
         .args(&args)
         .stdin(std::process::Stdio::inherit())
         .stderr(std::process::Stdio::inherit())
@@ -228,14 +233,14 @@ fn objectiveai_logs_dir() -> std::path::PathBuf {
 
 /// Run a single stage's function execution against the given posts.
 /// Returns scored posts in score-descending order.
-pub fn score(stage: &Stage, posts: Vec<Post>) -> Result<Vec<ScoredPost>, crate::error::Error> {
+pub fn score(stage: &Stage, posts: Vec<Post>, cfg: &crate::run::Config) -> Result<Vec<ScoredPost>, crate::error::Error> {
     let mut scored: Vec<ScoredPost> = posts.into_iter()
         .map(|p| ScoredPost { post: p, score: 0.0 })
         .collect();
 
     eprintln!("Scoring {} posts...", scored.len());
 
-    let function = resolve_function(&stage.function)?;
+    let function = resolve_function(&stage.function, cfg)?;
     let is_vector = is_vector_function(&function);
 
     let items: Vec<PostInputValue> = scored.iter()
@@ -249,7 +254,7 @@ pub fn score(stage: &Stage, posts: Vec<Post>) -> Result<Vec<ScoredPost>, crate::
         (serde_json::to_string(&items)?, true)
     };
 
-    let result = run_function_execution(&function, &stage.profile, &stage.strategy, &input_json, split, stage.invert)?;
+    let result = run_function_execution(&function, &stage.profile, &stage.strategy, &input_json, split, stage.invert, cfg)?;
 
     let scores: Vec<f64> = result.output.as_array()
         .ok_or_else(|| crate::error::Error::Other("expected array output".into()))?

@@ -19,6 +19,8 @@ struct EnvConfigBuilder {
     base_dir: Option<String>,
     #[envconfig(from = "PSYCHOLOGICAL_OPERATIONS_MOCK_X_API")]
     mock_x_api: Option<String>,
+    #[envconfig(from = "PSYCHOLOGICAL_OPERATIONS_OBJECTIVEAI_BINARY")]
+    objectiveai_binary: Option<String>,
 }
 
 impl EnvConfigBuilder {
@@ -28,16 +30,18 @@ impl EnvConfigBuilder {
             !v.is_empty() && v != "0" && !v.eq_ignore_ascii_case("false")
         }
         ConfigBuilder {
-            base_dir:   self.base_dir,
-            mock_x_api: self.mock_x_api.map(|s| parse_bool(&s)),
+            base_dir:           self.base_dir,
+            mock_x_api:         self.mock_x_api.map(|s| parse_bool(&s)),
+            objectiveai_binary: self.objectiveai_binary,
         }
     }
 }
 
 #[derive(Default)]
 pub struct ConfigBuilder {
-    pub base_dir:   Option<String>,
-    pub mock_x_api: Option<bool>,
+    pub base_dir:           Option<String>,
+    pub mock_x_api:         Option<bool>,
+    pub objectiveai_binary: Option<String>,
 }
 
 impl Envconfig for ConfigBuilder {
@@ -60,19 +64,25 @@ impl Envconfig for ConfigBuilder {
 impl ConfigBuilder {
     pub fn build(self) -> Config {
         Config {
-            base_dir:   self.base_dir,
-            mock_x_api: self.mock_x_api.unwrap_or(false),
+            base_dir:           self.base_dir,
+            mock_x_api:         self.mock_x_api.unwrap_or(false),
+            objectiveai_binary: self.objectiveai_binary,
         }
     }
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct Config {
-    pub base_dir:   Option<String>,
+    pub base_dir:           Option<String>,
     /// When true, every X HTTP call short-circuits to a
     /// deterministic mock keyed on the input. Set via
     /// `PSYCHOLOGICAL_OPERATIONS_MOCK_X_API`.
-    pub mock_x_api: bool,
+    pub mock_x_api:         bool,
+    /// Override the path to the `objectiveai` binary used by the
+    /// scoring + invention shell-outs. When `None`, falls back to
+    /// `~/.objectiveai/objectiveai(.exe)` and then PATH. Set via
+    /// `PSYCHOLOGICAL_OPERATIONS_OBJECTIVEAI_BINARY`.
+    pub objectiveai_binary: Option<String>,
 }
 
 impl Config {
