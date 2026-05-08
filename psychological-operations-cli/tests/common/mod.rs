@@ -187,6 +187,39 @@ fn ensure_objectiveai_state_dir() -> PathBuf {
     dir
 }
 
+/// Generic per-psyop git-init: walks `psyops_dir`, and for each
+/// subdirectory containing a `psyop.json` (and no existing `.git`),
+/// runs the same publish flow `psyops publish` uses. Author /
+/// email / commit time are pinned so the resulting commit_sha is
+/// byte-stable across machines (which is what the seeded
+/// `data.db` rows reference).
+///
+/// Asset folders just drop in whatever psyops they need under
+/// `.psychological-operations/psyops/<name>/psyop.json`; the
+/// harness handles all of them uniformly.
+fn git_init_psyops(psyops_dir: &Path) {
+    let cfg = psychological_operations_cli::run::Config {
+        commit_author_name:  Some("psyops-test".into()),
+        commit_author_email: Some("test@psyops.invalid".into()),
+        commit_time:         Some(1767225600),
+        ..Default::default()
+    };
+    for entry in std::fs::read_dir(psyops_dir).expect("read psyops dir") {
+        let entry = entry.expect("psyops dir entry");
+        let path = entry.path();
+        if !path.is_dir() { continue; }
+        let psyop_json = path.join("psyop.json");
+        if !psyop_json.exists() { continue; }
+        if path.join(".git").exists() { continue; }
+
+        let content = std::fs::read_to_string(&psyop_json)
+            .expect("read psyop.json");
+        psychological_operations_cli::publish::publish_file(
+            &path, "psyop.json", &content, "init", &cfg,
+        ).expect("git-init psyop");
+    }
+}
+
 /// Recursively copy `src` into `dst`. Both must exist; entries
 /// in `src` are merged into `dst` (overwriting on conflict).
 fn copy_dir_recursive(src: &Path, dst: &Path) {
@@ -224,8 +257,11 @@ impl CapturedOutput {
 impl TestEnv {
     /// Pre-wipe the runtime per-test dir, then copy the committed
     /// initial state from `assets/<name>/.psychological-operations/`
-    /// if present. Tests with no initial state can omit that
-    /// directory; the runtime dir starts empty.
+    /// if present. After copy, generically git-init every psyop
+    /// dir found under `psyops/` so the on-disk state matches what
+    /// `psyops publish` would have produced (committed assets
+    /// can't include nested .git dirs without git treating them
+    /// as embedded repos).
     pub fn new(name: &str) -> Self {
         let _ = ensure_objectiveai_state_dir();
         let dir = tests_dir().join(format!(".psychological-operations-{name}"));
@@ -237,6 +273,11 @@ impl TestEnv {
             copy_dir_recursive(&initial, &dir);
         } else {
             std::fs::create_dir_all(&dir).expect("create test dir");
+        }
+
+        let psyops_dir = dir.join("psyops");
+        if psyops_dir.exists() {
+            git_init_psyops(&psyops_dir);
         }
 
         Self { name: name.into(), dir, assets }

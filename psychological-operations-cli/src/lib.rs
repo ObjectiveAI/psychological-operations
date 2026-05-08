@@ -11,7 +11,7 @@ pub mod ingest;
 pub mod chrome;
 pub mod x_app;
 pub mod oauth;
-mod publish;
+pub mod publish;
 mod invent;
 
 pub mod run;

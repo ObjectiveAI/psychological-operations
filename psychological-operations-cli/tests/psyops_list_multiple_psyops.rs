@@ -1,5 +1,7 @@
-//! Publishes 3 psyops (a, b, c) then runs `psyops list`.
-//! Snapshots the list output.
+//! Asset folder pre-loads 3 psyop dirs (`a-psyop`, `b-psyop`,
+//! `c-psyop`) under `.psychological-operations/psyops/`. The
+//! harness git-inits each one at copy time. Test runs
+//! `psyops list` and snapshots the output.
 
 mod common;
 
@@ -8,23 +10,6 @@ use common::TestEnv;
 #[test]
 fn psyops_list_multiple_psyops() {
     let env = TestEnv::new("psyops_list_multiple_psyops");
-
-    let psyop_file = env.assets.join("psyop.json");
-    let psyop_arg = psyop_file.to_str().unwrap();
-
-    for name in ["a-psyop", "b-psyop", "c-psyop"] {
-        let out = env.run(&[
-            "psyops", "publish",
-            "--name", name,
-            "--psyop-file", psyop_arg,
-            "--message", "init",
-        ]);
-        assert!(
-            out.status.success(),
-            "publish {name} failed: stderr={}",
-            out.stderr,
-        );
-    }
 
     let list = env.run(&["psyops", "list"]);
     assert!(
