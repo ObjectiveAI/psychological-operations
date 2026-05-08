@@ -21,10 +21,10 @@ pub fn profile_dir(psyop: &str) -> PathBuf {
     base_dir().join("chrome-profiles").join(psyop)
 }
 
-/// Master billing-account Chromium profile dir. Distinct from the
-/// per-psyop profile tree so a psyop name can never collide.
-pub fn billing_profile_dir() -> PathBuf {
-    base_dir().join("chrome-billing")
+/// Master X-App Chromium profile dir. Distinct from the per-psyop
+/// profile tree so a psyop name can never collide.
+pub fn x_app_profile_dir() -> PathBuf {
+    base_dir().join("chrome-x_app")
 }
 
 /// Where the wrapper script that Chromium invokes for native messaging

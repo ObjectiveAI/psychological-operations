@@ -14,7 +14,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use super::extract::IncomingPostId;
 use super::identity::{self, Identity};
-use crate::billing::config::{self as billing_config, BillingConfig};
+use crate::x_app::config::{self as x_app_config, XAppConfig};
 use crate::db::Db;
 
 #[derive(Debug, Deserialize)]
@@ -22,7 +22,7 @@ use crate::db::Db;
 enum Inbound {
     Init,
     Ingest { tweets: Vec<IncomingPostId> },
-    BillingSave { credentials: IncomingCredentials },
+    XAppSave { credentials: IncomingCredentials },
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -46,8 +46,8 @@ enum Outbound<'a> {
     InitErr { error: String },
     IngestOk { inserted: usize, skipped: usize },
     IngestErr { error: String },
-    BillingSaveOk,
-    BillingSaveErr { error: String },
+    XAppSaveOk,
+    XAppSaveErr { error: String },
 }
 
 pub async fn run() -> Result<crate::Output, crate::error::Error> {
@@ -98,9 +98,9 @@ pub async fn run() -> Result<crate::Output, crate::error::Error> {
                     Err(e) => Outbound::IngestErr { error: e.to_string() },
                 },
             },
-            Ok(Inbound::BillingSave { credentials }) => match handle_billing_save(credentials) {
-                Ok(()) => Outbound::BillingSaveOk,
-                Err(e) => Outbound::BillingSaveErr { error: e.to_string() },
+            Ok(Inbound::XAppSave { credentials }) => match handle_x_app_save(credentials) {
+                Ok(()) => Outbound::XAppSaveOk,
+                Err(e) => Outbound::XAppSaveErr { error: e.to_string() },
             },
         };
 
@@ -138,13 +138,13 @@ fn handle_ingest(
     Ok((inserted, skipped))
 }
 
-/// Merge incoming credentials into the on-disk billing.json.
-/// Some-wins, None-preserves so a partial DOM scrape doesn't
-/// clobber previously-captured fields.
-fn handle_billing_save(creds: IncomingCredentials) -> Result<(), crate::error::Error> {
-    let existing = billing_config::load().unwrap_or_default();
+/// Merge incoming credentials into the on-disk x_app.json.
+/// Some-wins, None-preserves so a partial paste doesn't clobber
+/// previously-captured fields.
+fn handle_x_app_save(creds: IncomingCredentials) -> Result<(), crate::error::Error> {
+    let existing = x_app_config::load().unwrap_or_default();
     let now = chrono::Utc::now().to_rfc3339();
-    let incoming = BillingConfig {
+    let incoming = XAppConfig {
         client_id:      creds.client_id,
         client_secret:  creds.client_secret,
         api_key:        creds.api_key,
@@ -152,8 +152,8 @@ fn handle_billing_save(creds: IncomingCredentials) -> Result<(), crate::error::E
         bearer_token:   creds.bearer_token,
         saved_at:       Some(now),
     };
-    let merged = billing_config::merge(existing, incoming);
-    billing_config::save(&merged)
+    let merged = x_app_config::merge(existing, incoming);
+    x_app_config::save(&merged)
 }
 
 async fn write_frame<W: tokio::io::AsyncWrite + Unpin>(

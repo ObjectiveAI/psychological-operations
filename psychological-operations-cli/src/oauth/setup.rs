@@ -1,7 +1,7 @@
 //! `psyops oauth <name>` — drive the per-psyop OAuth 2.0 PKCE flow.
 //!
 //! Prereqs:
-//!   - `billing.json` has `client_id` + `client_secret`.
+//!   - `x_app.json` has `client_id` + `client_secret`.
 //!   - The per-psyop Chrome profile (`<psyops_dir>/<name>/chrome-profiles/<name>`)
 //!     was created earlier via `psychological-operations browse --psyop <name>`
 //!     and the operator manually signed into X with the target account.
@@ -10,7 +10,7 @@
 
 use std::time::Duration;
 
-use crate::billing::config as billing_config;
+use crate::x_app::config as x_app_config;
 use crate::chrome::{extract::ensure_extracted, native_host, paths::profile_dir};
 use crate::error::Error;
 
@@ -21,11 +21,11 @@ const SCOPE: &str = "tweet.read users.read like.write tweet.write offline.access
 const CALLBACK_TIMEOUT: Duration = Duration::from_secs(300);
 
 pub async fn run(psyop_name: &str) -> Result<crate::Output, Error> {
-    let billing = billing_config::ensure_setup()?;
-    let client_id = billing.client_id.as_ref()
-        .expect("billing::config::ensure_setup guarantees client_id");
-    let client_secret = billing.client_secret.as_ref()
-        .expect("billing::config::ensure_setup guarantees client_secret");
+    let x_app = x_app_config::ensure_setup()?;
+    let client_id = x_app.client_id.as_ref()
+        .expect("x_app::config::ensure_setup guarantees client_id");
+    let client_secret = x_app.client_secret.as_ref()
+        .expect("x_app::config::ensure_setup guarantees client_secret");
 
     // Verify the per-psyop dir exists. We don't strictly need the
     // psyop.json — only the chrome-profile does — but if the psyop

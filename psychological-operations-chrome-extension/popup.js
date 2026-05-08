@@ -1,10 +1,10 @@
 const identityEl = document.getElementById("identity");
 const captureBtn = document.getElementById("capture");
-const billingForm = document.getElementById("billing_form");
-const billingSaveBtn = document.getElementById("bf_save");
+const xAppForm = document.getElementById("x_app_form");
+const xAppSaveBtn = document.getElementById("bf_save");
 const statusEl = document.getElementById("status");
 
-const BILLING_FIELDS = [
+const X_APP_FIELDS = [
   ["client_id",      "bf_client_id"],
   ["client_secret",  "bf_client_secret"],
   ["api_key",        "bf_api_key"],
@@ -14,7 +14,7 @@ const BILLING_FIELDS = [
 
 let activeTabId = null;
 let countTimer  = null;
-let mode        = null; // "psyop" | "billing"
+let mode        = null; // "psyop" | "x_app"
 
 function setStatus(text, cls) {
   statusEl.textContent = text;
@@ -58,14 +58,14 @@ async function loadIdentity() {
     identityEl.classList.remove("error");
     mode = "psyop";
     captureBtn.hidden = false;
-    billingForm.hidden = true;
+    xAppForm.hidden = true;
   } else {
-    // Identity unresolvable → billing profile (PSYOP_NAME unset).
-    identityEl.textContent = "billing setup";
+    // Identity unresolvable → x_app profile (PSYOP_NAME unset).
+    identityEl.textContent = "x_app setup";
     identityEl.classList.remove("error");
-    mode = "billing";
+    mode = "x_app";
     captureBtn.hidden = true;
-    billingForm.hidden = false;
+    xAppForm.hidden = false;
   }
 }
 
@@ -96,13 +96,13 @@ captureBtn.addEventListener("click", async () => {
   }
 });
 
-billingForm.addEventListener("submit", async (ev) => {
+xAppForm.addEventListener("submit", async (ev) => {
   ev.preventDefault();
-  billingSaveBtn.disabled = true;
+  xAppSaveBtn.disabled = true;
 
   const credentials = {};
   let nonEmpty = 0;
-  for (const [key, inputId] of BILLING_FIELDS) {
+  for (const [key, inputId] of X_APP_FIELDS) {
     const v = document.getElementById(inputId).value.trim();
     if (v.length > 0) {
       credentials[key] = v;
@@ -113,18 +113,18 @@ billingForm.addEventListener("submit", async (ev) => {
   }
   if (nonEmpty === 0) {
     setStatus("enter at least one field", "error");
-    billingSaveBtn.disabled = false;
+    xAppSaveBtn.disabled = false;
     return;
   }
 
   setStatus(`saving ${nonEmpty} field${nonEmpty === 1 ? "" : "s"}…`);
   try {
-    const reply = await chrome.runtime.sendMessage({ kind: "popup_billing_save", credentials });
-    if (reply && reply.kind === "billing_save_ok") {
-      setStatus(`saved ${nonEmpty} field${nonEmpty === 1 ? "" : "s"} to billing.json`, "ok");
+    const reply = await chrome.runtime.sendMessage({ kind: "popup_x_app_save", credentials });
+    if (reply && reply.kind === "x_app_save_ok") {
+      setStatus(`saved ${nonEmpty} field${nonEmpty === 1 ? "" : "s"} to x_app.json`, "ok");
       // Clear inputs after a successful save so secrets don't linger
       // visible in the popup if the operator re-opens it.
-      for (const [_key, inputId] of BILLING_FIELDS) {
+      for (const [_key, inputId] of X_APP_FIELDS) {
         document.getElementById(inputId).value = "";
       }
     } else {
@@ -133,7 +133,7 @@ billingForm.addEventListener("submit", async (ev) => {
   } catch (e) {
     setStatus(`error: ${e.message || e}`, "error");
   } finally {
-    billingSaveBtn.disabled = false;
+    xAppSaveBtn.disabled = false;
   }
 });
 

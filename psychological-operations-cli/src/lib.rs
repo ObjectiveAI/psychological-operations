@@ -9,7 +9,7 @@ pub mod psyops;
 pub mod x;
 pub mod ingest;
 pub mod chrome;
-pub mod billing;
+pub mod x_app;
 pub mod oauth;
 mod publish;
 mod invent;

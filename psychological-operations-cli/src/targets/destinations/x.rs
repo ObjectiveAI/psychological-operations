@@ -5,7 +5,7 @@ use super::Subject;
 /// "X" target — like or retweet each scored post on behalf of the
 /// psyop's X account. The act-as user is determined per-psyop at
 /// dispatch time; the next commit plumbs per-psyop OAuth tokens
-/// (consuming `billing.json`'s client_id / client_secret) and wires
+/// (consuming `x_app.json`'s client_id / client_secret) and wires
 /// the real API call.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct X {

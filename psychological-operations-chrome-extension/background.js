@@ -71,10 +71,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return true;
   }
 
-  if (msg.kind === "popup_billing_save") {
-    send({ kind: "billing_save", credentials: msg.credentials })
+  if (msg.kind === "popup_x_app_save") {
+    send({ kind: "x_app_save", credentials: msg.credentials })
       .then((reply) => sendResponse(reply))
-      .catch((e) => sendResponse({ kind: "billing_save_err", error: String(e.message || e) }));
+      .catch((e) => sendResponse({ kind: "x_app_save_err", error: String(e.message || e) }));
     return true;
   }
 

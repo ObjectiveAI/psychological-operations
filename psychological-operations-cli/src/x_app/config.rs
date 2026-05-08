@@ -1,13 +1,13 @@
-//! `billing.json` — the master X dev-account App's credentials,
-//! captured by the chrome extension during `billing setup` and
-//! consumed by the per-psyop OAuth flow (next commit).
+//! `x_app.json` — the master X dev-account App's credentials,
+//! captured by the chrome extension during `x_app setup` and
+//! consumed by the per-psyop OAuth flow.
 //!
-//! File path: `~/.psychological-operations/billing.json`.
+//! File path: `~/.psychological-operations/x_app.json`.
 //!
 //! `merge` semantics on insert: every `Some(_)` in the incoming
 //! payload wins; `None`s preserve the existing value. This lets
 //! the operator re-click the extension's "Save credentials" button
-//! after a partial DOM scrape without clobbering previously-captured
+//! after a partial paste without clobbering previously-captured
 //! fields.
 
 use std::path::PathBuf;
@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use crate::error::Error;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct BillingConfig {
+pub struct XAppConfig {
     /// OAuth 2.0 user-context Client ID. Load-bearing — the
     /// per-psyop OAuth flow uses this as `client_id` in the PKCE
     /// authorize redirect.
@@ -44,7 +44,7 @@ pub struct BillingConfig {
     pub saved_at: Option<String>,
 }
 
-impl BillingConfig {
+impl XAppConfig {
     /// Returns true iff the load-bearing OAuth 2.0 fields are
     /// present. Per-psyop OAuth (PKCE) needs both `client_id` and
     /// `client_secret` to drive the authorize redirect + token
@@ -54,14 +54,14 @@ impl BillingConfig {
     }
 }
 
-/// Load + assert that `billing.json` is set up. Returns the loaded
+/// Load + assert that `x_app.json` is set up. Returns the loaded
 /// config on success, or a clear error pointing the operator at
-/// `psychological-operations billing setup`.
-pub fn ensure_setup() -> Result<BillingConfig, Error> {
+/// `psychological-operations x_app setup`.
+pub fn ensure_setup() -> Result<XAppConfig, Error> {
     let cfg = load()?;
     if !cfg.is_complete() {
         return Err(Error::Other(
-            "billing not set up — run `psychological-operations billing setup` \
+            "X App not set up — run `psychological-operations x_app setup` \
              and capture client_id + client_secret before running psyops".into(),
         ));
     }
@@ -70,19 +70,19 @@ pub fn ensure_setup() -> Result<BillingConfig, Error> {
 
 pub fn path() -> PathBuf {
     let home = dirs::home_dir().expect("could not determine home directory");
-    home.join(".psychological-operations").join("billing.json")
+    home.join(".psychological-operations").join("x_app.json")
 }
 
-pub fn load() -> Result<BillingConfig, Error> {
+pub fn load() -> Result<XAppConfig, Error> {
     let p = path();
     if !p.exists() {
-        return Ok(BillingConfig::default());
+        return Ok(XAppConfig::default());
     }
     let data = std::fs::read_to_string(&p)?;
     Ok(serde_json::from_str(&data)?)
 }
 
-pub fn save(cfg: &BillingConfig) -> Result<(), Error> {
+pub fn save(cfg: &XAppConfig) -> Result<(), Error> {
     let p = path();
     if let Some(parent) = p.parent() {
         std::fs::create_dir_all(parent)?;
@@ -95,8 +95,8 @@ pub fn save(cfg: &BillingConfig) -> Result<(), Error> {
 /// Returns the merge of `existing` and `incoming` per the
 /// "Some-wins, None-preserves" rule. `incoming.saved_at` always
 /// wins (caller is expected to stamp it to `now`).
-pub fn merge(existing: BillingConfig, incoming: BillingConfig) -> BillingConfig {
-    BillingConfig {
+pub fn merge(existing: XAppConfig, incoming: XAppConfig) -> XAppConfig {
+    XAppConfig {
         client_id:      incoming.client_id.or(existing.client_id),
         client_secret:  incoming.client_secret.or(existing.client_secret),
         api_key:        incoming.api_key.or(existing.api_key),

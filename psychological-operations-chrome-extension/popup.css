@@ -38,19 +38,19 @@ button#capture:not(:disabled):hover,
 button#bf_save:not(:disabled):hover {
   background: #1a8cd8;
 }
-#billing_form {
+#x_app_form {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
-#billing_form label {
+#x_app_form label {
   display: flex;
   flex-direction: column;
   gap: 2px;
   font-size: 11px;
   color: #444;
 }
-#billing_form input {
+#x_app_form input {
   width: 100%;
   box-sizing: border-box;
   padding: 6px 8px;
@@ -59,7 +59,7 @@ button#bf_save:not(:disabled):hover {
   border-radius: 4px;
   background: #fafafa;
 }
-#billing_form input:focus {
+#x_app_form input:focus {
   outline: none;
   border-color: #1da1f2;
   background: #fff;

@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
 
-use crate::billing;
+use crate::x_app;
 use crate::chrome;
 use crate::ingest;
 use crate::invent;
@@ -51,10 +51,11 @@ enum Commands {
         #[arg(long)]
         commit: Option<String>,
     },
-    /// Master billing-account / X developer-app setup.
-    Billing {
+    /// Master X dev-account / X-App credentials setup.
+    #[command(name = "x_app")]
+    XApp {
         #[command(subcommand)]
-        command: billing::Commands,
+        command: x_app::Commands,
     },
 }
 
@@ -88,7 +89,7 @@ where
         Commands::Invent { command } => command.handle(),
         Commands::NativeHost => ingest::run().await,
         Commands::Browse { psyop, commit } => chrome::browse(psyop, commit).await,
-        Commands::Billing { command } => command.handle().await,
+        Commands::XApp { command } => command.handle().await,
     }
     .map_err(|e| e.to_string())?;
     Ok(output.to_string())
