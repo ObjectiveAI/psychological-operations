@@ -84,7 +84,7 @@ where
     let cli = Cli::try_parse_from(args).map_err(|e| e.to_string())?;
     let output = match cli.command {
         Commands::Psyops { command } => command.handle().await,
-        Commands::Targets { command } => command.handle(),
+        Commands::Targets { command } => command.handle().await,
         Commands::Invent { command } => command.handle(),
         Commands::NativeHost => ingest::run().await,
         Commands::Browse { psyop, commit } => chrome::browse(psyop, commit).await,

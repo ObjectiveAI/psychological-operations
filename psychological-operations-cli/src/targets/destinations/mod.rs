@@ -49,21 +49,30 @@ pub enum Subject<'a> {
     },
 }
 
+/// Dispatch one destination. `dispatch` calls this in
+/// parallel-join + swallows errors; the `targets deliver` path
+/// calls it row-by-row + captures errors to bump / delete the
+/// queue.
+pub async fn send_one(
+    dest: &Destination,
+    subject: &Subject<'_>,
+) -> Result<(), crate::error::Error> {
+    match dest {
+        Destination::Discord { webhook_url } => discord::send(webhook_url, subject).await,
+        Destination::Telegram { bot_token, chat_id } => telegram::send(bot_token, chat_id, subject).await,
+        Destination::Http(cfg) => http::send(cfg, subject).await,
+        Destination::Stdout(cfg) => stdout::send(cfg, subject).await,
+        Destination::Stderr(cfg) => stderr::send(cfg, subject).await,
+        Destination::File(cfg) => file::send(cfg, subject).await,
+        Destination::Exec(cfg) => exec::send(cfg, subject).await,
+        Destination::WebSocket(cfg) => websocket::send(cfg, subject).await,
+        Destination::X(cfg) => x::send(cfg, subject).await,
+    }
+}
+
 pub async fn dispatch(destinations: &[Destination], subject: Subject<'_>) {
     let subject_ref = &subject;
-    let futs = destinations.iter().map(|dest| async move {
-        match dest {
-            Destination::Discord { webhook_url } => discord::send(webhook_url, subject_ref).await,
-            Destination::Telegram { bot_token, chat_id } => telegram::send(bot_token, chat_id, subject_ref).await,
-            Destination::Http(cfg) => http::send(cfg, subject_ref).await,
-            Destination::Stdout(cfg) => stdout::send(cfg, subject_ref).await,
-            Destination::Stderr(cfg) => stderr::send(cfg, subject_ref).await,
-            Destination::File(cfg) => file::send(cfg, subject_ref).await,
-            Destination::Exec(cfg) => exec::send(cfg, subject_ref).await,
-            Destination::WebSocket(cfg) => websocket::send(cfg, subject_ref).await,
-            Destination::X(cfg) => x::send(cfg, subject_ref).await,
-        }
-    });
+    let futs = destinations.iter().map(|dest| send_one(dest, subject_ref));
     for result in futures::future::join_all(futs).await {
         if let Err(e) = result {
             eprintln!("delivery failed: {e}");
