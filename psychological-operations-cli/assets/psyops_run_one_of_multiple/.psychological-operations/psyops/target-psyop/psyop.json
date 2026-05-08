@@ -1,0 +1,19 @@
+{
+  "queries": [
+    { "query": "target only" }
+  ],
+  "for_you": {},
+  "min_posts": 2,
+  "max_posts": 10,
+  "sort": "newest",
+  "stages": [
+    {
+      "function": { "remote": "mock", "name": "tweet-scorer" },
+      "profile":  { "remote": "mock", "name": "solo-instruction" },
+      "strategy": { "type": "default" },
+      "invert": false,
+      "images": false,
+      "videos": false
+    }
+  ]
+}
