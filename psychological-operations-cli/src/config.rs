@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 use crate::run::Config as RuntimeConfig;
-use crate::targets::destinations::Destination;
+use crate::targets::destinations::{x, Destination};
 
 // ---------------------------------------------------------------------------
 // Paths — all rooted at `cfg.base_dir()` so an env-var override
@@ -104,10 +104,23 @@ pub struct Config {
 pub fn load(cfg: &RuntimeConfig) -> Config {
     let path = config_path(cfg);
     if !path.exists() {
-        return Config::default();
+        // First-run users get a useful out-of-the-box behavior:
+        // every survivor of scoring gets liked on X. Users who
+        // don't want it can `targets del 0` to drop it (which
+        // creates an explicit `{"targets":[]}` on disk; a
+        // file-present empty list is honored as-is, so the opt-out
+        // sticks).
+        return default_initial_config();
     }
     let data = std::fs::read_to_string(&path).unwrap_or_default();
     serde_json::from_str(&data).unwrap_or_default()
+}
+
+fn default_initial_config() -> Config {
+    Config {
+        targets: vec![Destination::X(x::X { r#type: x::XType::Like })],
+        psyops:  BTreeMap::new(),
+    }
 }
 
 pub fn save(config: &Config, cfg: &RuntimeConfig) -> Result<(), crate::error::Error> {
