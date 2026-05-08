@@ -141,6 +141,32 @@ fn build_psyops_run_with_pre_queued_deliveries() {
     eprintln!("wrote seed: {} (psyop sha {sha})", asset.join("data.db").display());
 }
 
+fn build_targets_deliver_drains_queue() {
+    let asset = assets_dir().join("targets_deliver_drains_queue").join(".psychological-operations");
+    std::fs::create_dir_all(&asset).unwrap();
+    let _ = std::fs::remove_file(asset.join("data.db"));
+    let cfg = cfg_for(&asset);
+    let db = Db::open(&cfg).expect("open db");
+
+    // Two pre-queued rows: one stdout-urls + one stdout-json. The
+    // psyop.json fixture matches SHARED_PSYOP_COMMIT_SHA exactly
+    // (no queries, just min_posts: 2 + a single mock stage), so we
+    // can pin the SHA constant rather than recomputing.
+    let post_ids_json = r#"["1900000000000000111","1900000000000000222"]"#;
+    for target_json in [
+        r#"{"type":"stdout","mode":"urls"}"#,
+        r#"{"type":"stdout","mode":"json"}"#,
+    ] {
+        let _ = db.enqueue_delivery(
+            "test-psyop",
+            SHARED_PSYOP_COMMIT_SHA,
+            target_json,
+            post_ids_json,
+        ).expect("enqueue_delivery");
+    }
+    eprintln!("wrote seed: {}", asset.join("data.db").display());
+}
+
 fn main() {
     let scenario = std::env::args().nth(1)
         .expect("usage: build_test_seed <scenario-name>");
@@ -148,6 +174,7 @@ fn main() {
         "psyops_run_with_for_you_queue"          => build_psyops_run_with_for_you_queue(),
         "psyops_run_with_pre_hydrated_posts"     => build_psyops_run_with_pre_hydrated_posts(),
         "psyops_run_with_pre_queued_deliveries"  => build_psyops_run_with_pre_queued_deliveries(),
+        "targets_deliver_drains_queue"           => build_targets_deliver_drains_queue(),
         other => panic!("unknown scenario: {other}"),
     }
 }

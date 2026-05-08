@@ -1,0 +1,4 @@
+https://x.com//status/1900000000000000111
+https://x.com//status/1900000000000000222
+{"kind":"psyop","name":"test-psyop","results":[{"score":0.0,"id":"1900000000000000111","handle":"","text":"","images":[],"videos":[],"created":"","url":"https://x.com//status/1900000000000000111"},{"score":0.0,"id":"1900000000000000222","handle":"","text":"","images":[],"videos":[],"created":"","url":"https://x.com//status/1900000000000000222"}]}
+{"pending":2,"delivered":2,"failed":0}
