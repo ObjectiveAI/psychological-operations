@@ -44,17 +44,16 @@ fn target_binaries_dir() -> PathBuf { tests_dir().join(".target-binaries") }
 fn ensure_chrome_bundle() {
     static DONE: OnceLock<()> = OnceLock::new();
     DONE.get_or_init(|| {
-        // Pass a relative path: bash on Windows (Git Bash)
-        // mangles backslashes if you give it a Windows-absolute
-        // path. cwd-relative + posix-style separators sidesteps
-        // that.
-        let status = Command::new("bash")
+        // Use Git Bash on Windows (see bash_command rationale).
+        // Pin --target so fingerprint.sh doesn't have to call
+        // `rustc -vV` to detect the host.
+        let status = Command::new(bash_command())
             .arg("psychological-operations-chrome/build.sh")
+            .arg("--target").arg(host_triple())
             .arg("--release")
             .current_dir(repo_root())
             .status()
-            .expect("spawn bash psychological-operations-chrome/build.sh \
-                     (Windows: requires Git Bash on PATH)");
+            .expect("spawn bash psychological-operations-chrome/build.sh");
         assert!(status.success(), "psychological-operations-chrome build failed");
     });
 }
@@ -83,12 +82,82 @@ pub fn psyops_binary() -> &'static Path {
     }).as_path()
 }
 
+/// Host triple the test process is built for. Used to pin the
+/// --target arg on bundle builds so the fingerprint script
+/// doesn't need to invoke `rustc -vV` (which fails when bash's
+/// PATH doesn't have rustc — common in WSL-bash subprocesses).
+fn host_triple() -> &'static str {
+    if cfg!(all(target_os = "windows", target_arch = "x86_64"))    { "x86_64-pc-windows-msvc" }
+    else if cfg!(all(target_os = "macos",   target_arch = "aarch64")) { "aarch64-apple-darwin" }
+    else if cfg!(all(target_os = "macos",   target_arch = "x86_64"))  { "x86_64-apple-darwin" }
+    else if cfg!(all(target_os = "linux",   target_arch = "aarch64")) { "aarch64-unknown-linux-gnu" }
+    else if cfg!(all(target_os = "linux",   target_arch = "x86_64"))  { "x86_64-unknown-linux-gnu" }
+    else { panic!("unsupported host triple — extend host_triple()") }
+}
+
+/// Path to bash. On Windows, prefer Git Bash over WSL bash:
+/// WSL mangles Windows paths (rewrites `C:\...` to `/mnt/c/...`),
+/// and its rustc / cargo PATH usually doesn't include the host's
+/// Rust installation — both blow up the bundle build scripts.
+fn bash_command() -> &'static Path {
+    static BASH: OnceLock<PathBuf> = OnceLock::new();
+    BASH.get_or_init(|| {
+        if cfg!(windows) {
+            for candidate in [
+                r"C:\Program Files\Git\bin\bash.exe",
+                r"C:\Program Files (x86)\Git\bin\bash.exe",
+            ] {
+                let p = PathBuf::from(candidate);
+                if p.exists() { return p; }
+            }
+        }
+        PathBuf::from("bash")
+    }).as_path()
+}
+
+/// Build a sister-bundle that `objectiveai-api`'s `build.rs`
+/// validates before compiling. `script` is relative to the
+/// objectiveai workspace root. The build scripts are idempotent
+/// — fingerprint-short-circuit when source hashes haven't
+/// changed, so repeat invocations are near-instant.
+fn ensure_objectiveai_bundle(script_rel: &str, args: &[&str]) {
+    let oai_root = repo_root().join("objectiveai");
+    let status = Command::new(bash_command())
+        .arg(script_rel)
+        .args(args)
+        .current_dir(&oai_root)
+        .status()
+        .expect("spawn bash <bundle build.sh>");
+    assert!(
+        status.success(),
+        "objectiveai bundle build failed: bash {script_rel} {args:?}",
+    );
+}
+
 /// Build `objectiveai-cli` once per cargo-test process.
 /// `viewer` feature disabled — viewer pulls in ratatui and is
-/// unrelated to the score path.
+/// unrelated to the score path. Cargo's incremental build means
+/// the second + later cargo-test runs only do a fingerprint
+/// check (sub-second) when nothing changed.
 pub fn objectiveai_binary() -> &'static Path {
     static BIN: OnceLock<PathBuf> = OnceLock::new();
     BIN.get_or_init(|| {
+        // Pre-built sister bundles required by objectiveai-api's
+        // build.rs. Both fingerprint-short-circuit on subsequent
+        // calls.
+        ensure_objectiveai_bundle(
+            "objectiveai-mcp-filesystem/build.sh",
+            // Filesystem MCP is always linux-musl regardless of
+            // the host (Docker injection target).
+            &["--target", "x86_64-unknown-linux-musl", "--release"],
+        );
+        ensure_objectiveai_bundle(
+            "objectiveai-claude-agent-sdk-runner/build.sh",
+            // Built for the test host; pin --target so
+            // fingerprint.sh doesn't need rustc on PATH.
+            &["--target", host_triple(), "--release"],
+        );
+
         let target = target_binaries_dir().join("objectiveai");
         std::fs::create_dir_all(&target).expect("create objectiveai target dir");
         let manifest = repo_root()
