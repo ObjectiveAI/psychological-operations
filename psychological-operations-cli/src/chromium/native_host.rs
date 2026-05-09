@@ -4,14 +4,17 @@
 //!
 //! Per Chromium's docs, the lookup paths are:
 //!
-//!   Windows: HKCU\SOFTWARE\Google\Chrome\NativeMessagingHosts\<name>
-//!            (default value = absolute path to the manifest JSON)
+//!   Windows: HKCU\SOFTWARE\Chromium\NativeMessagingHosts\<name>
+//!            (default value = absolute path to the manifest JSON;
+//!            we also write to HKCU\SOFTWARE\Google\Chrome\... so a
+//!            user-installed Google Chrome with our extension side-
+//!            loaded can find the host too.)
 //!
 //!   Linux:   <user-data-dir>/NativeMessagingHosts/<name>.json
-//!            ~/.config/google-chrome/NativeMessagingHosts/<name>.json (fallback)
+//!            ~/.config/chromium/NativeMessagingHosts/<name>.json (fallback)
 //!
 //!   macOS:   <user-data-dir>/NativeMessagingHosts/<name>.json
-//!            ~/Library/Application Support/Google/Chrome/NativeMessagingHosts/<name>.json
+//!            ~/Library/Application Support/Chromium/NativeMessagingHosts/<name>.json
 //!            (similar fallback)
 //!
 //! On Windows we register once in HKCU. Per-profile reuse falls out

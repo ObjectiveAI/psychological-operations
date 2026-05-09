@@ -4,16 +4,16 @@ use std::process::Command;
 
 fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
-    let chrome_dir = manifest_dir
+    let chromium_dir = manifest_dir
         .parent()
         .unwrap()
-        .join("psychological-operations-chrome");
+        .join("psychological-operations-chromium");
 
     let target = env::var("TARGET").unwrap();
     let profile = if env::var("PROFILE").unwrap() == "release" { "release" } else { "debug" };
 
-    // Validate the embedded chrome bundle.
-    let validate_script = chrome_dir.join("validate.sh");
+    // Validate the embedded Chromium bundle.
+    let validate_script = chromium_dir.join("validate.sh");
     let mut args: Vec<&str> = vec!["--target", &target];
     if profile == "release" {
         args.push("--release");
@@ -36,8 +36,8 @@ fn main() {
         Ok(s) if s.success() => {}
         Ok(s) => {
             panic!(
-                "\n\npsychological-operations-chrome bundle is missing or stale.\n\
-                 Run: bash psychological-operations-chrome/build.sh --target {target}{}\n\
+                "\n\npsychological-operations-chromium bundle is missing or stale.\n\
+                 Run: bash psychological-operations-chromium/build.sh --target {target}{}\n\
                  Exit code: {}\n",
                 if profile == "release" { " --release" } else { "" },
                 s.code().unwrap_or(-1),
@@ -48,11 +48,11 @@ fn main() {
         }
     }
 
-    let embed_dir = chrome_dir.join("embed").join(&target).join(profile);
+    let embed_dir = chromium_dir.join("embed").join(&target).join(profile);
 
     println!(
-        "cargo:rustc-env=PSYOPS_CHROME_BUNDLE_PATH={}",
-        embed_dir.join("chrome-bundle.zip").display(),
+        "cargo:rustc-env=PSYOPS_CHROMIUM_BUNDLE_PATH={}",
+        embed_dir.join("chromium-bundle.zip").display(),
     );
     println!(
         "cargo:rustc-env=PSYOPS_EXTENSION_TAR_PATH={}",
@@ -63,11 +63,11 @@ fn main() {
         embed_dir.join("extension-id.txt").display(),
     );
     println!(
-        "cargo:rustc-env=PSYOPS_CHROME_LAUNCH_ENTRY_PATH={}",
+        "cargo:rustc-env=PSYOPS_CHROMIUM_LAUNCH_ENTRY_PATH={}",
         embed_dir.join("launch-entry.txt").display(),
     );
     println!(
         "cargo:rerun-if-changed={}",
-        chrome_dir.join("embed").display(),
+        chromium_dir.join("embed").display(),
     );
 }

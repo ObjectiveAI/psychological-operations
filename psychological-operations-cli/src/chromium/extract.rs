@@ -1,6 +1,6 @@
-//! Content-hash-keyed cached extraction of the embedded Chrome zip
+//! Content-hash-keyed cached extraction of the embedded Chromium zip
 //! and extension tar. First call materializes both into
-//! `~/.psychological-operations/chrome/<hash>/`; subsequent calls
+//! `~/.psychological-operations/chromium/<hash>/`; subsequent calls
 //! short-circuit when the hash dir already exists.
 
 use std::fs;
@@ -9,35 +9,35 @@ use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 
-use super::bundles::{CHROME_BUNDLE, EXTENSION_TAR, launch_entry};
-use super::paths::chrome_cache_root;
+use super::bundles::{CHROMIUM_BUNDLE, EXTENSION_TAR, launch_entry};
+use super::paths::chromium_cache_root;
 use crate::error::Error;
 
 /// Materialized layout returned to the launcher.
 pub struct Extracted {
     pub root: PathBuf,
-    pub chrome_binary: PathBuf,
+    pub chromium_binary: PathBuf,
     pub extension_dir: PathBuf,
 }
 
 /// Extract (or hit cache) and return the relevant paths.
 pub fn ensure_extracted(cfg: &crate::run::Config) -> Result<Extracted, Error> {
     let hash = content_hash();
-    let root = chrome_cache_root(cfg).join(format!("{hash:016x}"));
-    let chrome_binary = root.join("chrome").join(launch_entry());
+    let root = chromium_cache_root(cfg).join(format!("{hash:016x}"));
+    let chromium_binary = root.join("chromium").join(launch_entry());
     let extension_dir = root.join("extension");
     let sentinel = root.join(".ready");
 
     if !sentinel.exists() {
         fs::create_dir_all(&root)?;
-        let chrome_root = root.join("chrome");
-        if chrome_root.exists() {
+        let chromium_root = root.join("chromium");
+        if chromium_root.exists() {
             // Stale partial extraction — start fresh so we never leave
             // half-extracted files behind on the second attempt.
-            let _ = fs::remove_dir_all(&chrome_root);
+            let _ = fs::remove_dir_all(&chromium_root);
         }
-        fs::create_dir_all(&chrome_root)?;
-        extract_zip(CHROME_BUNDLE, &chrome_root)?;
+        fs::create_dir_all(&chromium_root)?;
+        extract_zip(CHROMIUM_BUNDLE, &chromium_root)?;
 
         if extension_dir.exists() {
             let _ = fs::remove_dir_all(&extension_dir);
@@ -51,23 +51,23 @@ pub fn ensure_extracted(cfg: &crate::run::Config) -> Result<Extracted, Error> {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let mut perms = fs::metadata(&chrome_binary)?.permissions();
+            let mut perms = fs::metadata(&chromium_binary)?.permissions();
             perms.set_mode(0o755);
-            fs::set_permissions(&chrome_binary, perms)?;
+            fs::set_permissions(&chromium_binary, perms)?;
         }
 
         fs::write(&sentinel, "ok")?;
     }
 
-    Ok(Extracted { root, chrome_binary, extension_dir })
+    Ok(Extracted { root, chromium_binary, extension_dir })
 }
 
 fn content_hash() -> u64 {
     // 8 bytes is enough for cache-key collision resistance (~6e9
     // expected first collision). Keeps directory names short.
     let mut hasher = Sha256::new();
-    hasher.update(&(CHROME_BUNDLE.len() as u64).to_le_bytes());
-    hasher.update(CHROME_BUNDLE);
+    hasher.update(&(CHROMIUM_BUNDLE.len() as u64).to_le_bytes());
+    hasher.update(CHROMIUM_BUNDLE);
     hasher.update(&(EXTENSION_TAR.len() as u64).to_le_bytes());
     hasher.update(EXTENSION_TAR);
     let digest = hasher.finalize();
@@ -79,11 +79,11 @@ fn content_hash() -> u64 {
 fn extract_zip(bytes: &[u8], dest: &Path) -> Result<(), Error> {
     let cursor = Cursor::new(bytes);
     let mut archive = zip::ZipArchive::new(cursor)
-        .map_err(|e| Error::Other(format!("chrome zip open: {e}")))?;
+        .map_err(|e| Error::Other(format!("chromium zip open: {e}")))?;
     for i in 0..archive.len() {
         let mut file = archive
             .by_index(i)
-            .map_err(|e| Error::Other(format!("chrome zip entry: {e}")))?;
+            .map_err(|e| Error::Other(format!("chromium zip entry: {e}")))?;
         let outpath = match file.enclosed_name() {
             Some(p) => dest.join(p),
             None => continue,

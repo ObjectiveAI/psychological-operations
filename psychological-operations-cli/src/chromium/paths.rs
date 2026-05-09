@@ -1,25 +1,25 @@
-//! Per-OS path helpers for the embedded Chrome subsystem. All
+//! Per-OS path helpers for the embedded Chromium subsystem. All
 //! rooted at the runtime `Config`'s base dir.
 
 use std::path::PathBuf;
 
 use crate::run::Config as RuntimeConfig;
 
-/// Cache root for the extracted Chrome zip + extension. Each unique
+/// Cache root for the extracted Chromium zip + extension. Each unique
 /// embedded payload (content-hashed) gets its own subdirectory.
-pub fn chrome_cache_root(cfg: &RuntimeConfig) -> PathBuf {
-    cfg.base_dir().join("chrome")
+pub fn chromium_cache_root(cfg: &RuntimeConfig) -> PathBuf {
+    cfg.base_dir().join("chromium")
 }
 
 /// Per-psyop Chromium profile dir. Persists logins / cookies between runs.
 pub fn profile_dir(psyop: &str, cfg: &RuntimeConfig) -> PathBuf {
-    cfg.base_dir().join("chrome-profiles").join(psyop)
+    cfg.base_dir().join("chromium-profiles").join(psyop)
 }
 
 /// Master X-App Chromium profile dir. Distinct from the per-psyop
 /// profile tree so a psyop name can never collide.
 pub fn x_app_profile_dir(cfg: &RuntimeConfig) -> PathBuf {
-    cfg.base_dir().join("chrome-x_app")
+    cfg.base_dir().join("chromium-x_app")
 }
 
 /// Where the wrapper script that Chromium invokes for native messaging
@@ -39,6 +39,6 @@ pub fn native_host_wrapper(cfg: &RuntimeConfig) -> PathBuf {
 /// consistency / debugging.
 pub fn native_host_manifest_for_profile(profile: &std::path::Path) -> PathBuf {
     profile.join("NativeMessagingHosts").join(
-        format!("{}.json", crate::chrome::bundles::NATIVE_HOST_NAME),
+        format!("{}.json", crate::chromium::bundles::NATIVE_HOST_NAME),
     )
 }

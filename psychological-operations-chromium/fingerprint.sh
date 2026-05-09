@@ -14,7 +14,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-EXT_DIR="$REPO_ROOT/psychological-operations-chrome-extension"
+EXT_DIR="$REPO_ROOT/psychological-operations-chromium-extension"
 
 # Parse --target and --release from args
 TARGET=""

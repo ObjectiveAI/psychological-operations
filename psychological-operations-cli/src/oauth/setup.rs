@@ -2,7 +2,7 @@
 //!
 //! Prereqs:
 //!   - `x_app.json` has `client_id` + `client_secret`.
-//!   - The per-psyop Chrome profile (`<psyops_dir>/<name>/chrome-profiles/<name>`)
+//!   - The per-psyop Chromium profile (`<psyops_dir>/<name>/chromium-profiles/<name>`)
 //!     was created earlier via `psychological-operations browse --psyop <name>`
 //!     and the operator manually signed into X with the target account.
 //!   - The X App on console.x.com has `http://127.0.0.1/callback`
@@ -11,7 +11,7 @@
 use std::time::Duration;
 
 use crate::x_app::config as x_app_config;
-use crate::chrome::{extract::ensure_extracted, native_host, paths::profile_dir};
+use crate::chromium::{extract::ensure_extracted, native_host, paths::profile_dir};
 use crate::error::Error;
 
 use super::{pkce, server, tokens};
@@ -28,7 +28,7 @@ pub async fn run(psyop_name: &str, cfg: &crate::run::Config) -> Result<crate::Ou
         .expect("x_app::config::ensure_setup guarantees client_secret");
 
     // Verify the per-psyop dir exists. We don't strictly need the
-    // psyop.json — only the chrome-profile does — but if the psyop
+    // psyop.json — only the Chromium profile does — but if the psyop
     // isn't on disk the operator's about to hit a confusing chromium
     // launch. Surface the issue early.
     let dir = crate::config::psyops_dir(cfg).join(psyop_name);
@@ -69,7 +69,7 @@ pub async fn run(psyop_name: &str, cfg: &crate::run::Config) -> Result<crate::Ou
     let profile = profile_dir(psyop_name, cfg);
     if !profile.exists() {
         return Err(Error::Other(format!(
-            "per-psyop chrome profile does not exist: {} — run \
+            "per-psyop Chromium profile does not exist: {} — run \
              `psychological-operations psyops browse --name {}` and sign into X first",
             profile.display(), psyop_name,
         )));
@@ -78,8 +78,8 @@ pub async fn run(psyop_name: &str, cfg: &crate::run::Config) -> Result<crate::Ou
     // Discard the Child — the OAuth dance is async (we await the
     // local callback below). Chromium stays open until the operator
     // closes it; we don't block on that.
-    let _child = crate::chrome::launch::spawn(
-        &materialized.chrome_binary,
+    let _child = crate::chromium::launch::spawn(
+        &materialized.chromium_binary,
         &materialized.extension_dir,
         &profile,
         psyop_name,

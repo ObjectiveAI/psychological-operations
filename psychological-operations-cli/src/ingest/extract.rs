@@ -1,4 +1,4 @@
-//! Wire schema for the post_ids the chrome extension sends across
+//! Wire schema for the post_ids the Chromium extension sends across
 //! the native-messaging port. The extension's only job is to
 //! announce "I saw this id in for-you"; the Rust runtime later
 //! hydrates the full post (engagement counts, text, media) via the
@@ -7,7 +7,7 @@
 use serde::Deserialize;
 
 /// One tweet id as serialized by
-/// `psychological-operations-chrome-extension/content_script.js`.
+/// `psychological-operations-chromium-extension/content_script.js`.
 /// Serde ignores unknown fields by default, so older extension
 /// builds that still emit `{id, handle, text, …}` decode cleanly
 /// into this — we just keep the id and drop the rest.

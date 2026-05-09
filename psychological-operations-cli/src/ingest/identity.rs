@@ -7,8 +7,8 @@
 //!                               to derive the commit when env didn't
 //!                               supply one.
 //!
-//! Each Chrome profile is launched with `PSYOP_NAME` (and optionally
-//! `PSYOP_COMMIT_SHA`) set; Chrome inherits the env and propagates it
+//! Each Chromium profile is launched with `PSYOP_NAME` (and optionally
+//! `PSYOP_COMMIT_SHA`) set; Chromium inherits the env and propagates it
 //! to the native-messaging child process. That's the entire identity
 //! threading mechanism — no per-profile config files are read.
 

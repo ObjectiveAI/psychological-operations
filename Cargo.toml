@@ -3,7 +3,7 @@ resolver = "3"
 members = [
     "psychological-operations-cli",
     "psychological-operations-mcp",
-    "psychological-operations-chrome/crx-pack",
+    "psychological-operations-chromium/crx-pack",
 ]
 exclude = [
     "objectiveai",

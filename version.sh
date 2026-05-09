@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # version.sh — set the version of every psychological-operations package
 # (and inter-package dependency reference) to a single value. Touches the
-# workspace Cargo.toml files and the Chrome extension manifest. Skips
+# workspace Cargo.toml files and the Chromium extension manifest. Skips
 # Cargo.lock — that regenerates on next build.
 #
 # Usage:
@@ -85,7 +85,7 @@ set_cargo_psyops_deps() {
     "version = \"$NEW_VERSION\""
 }
 
-# Chrome manifest.json `"version": "..."` — first occurrence in the file
+# Chromium manifest.json `"version": "..."` — first occurrence in the file
 # (manifest layout puts it near the top, right after `"name"`).
 set_manifest_json_version() {
   local file="$1"
@@ -101,11 +101,11 @@ set_manifest_json_version() {
 CARGO_TOMLS=(
   psychological-operations-cli/Cargo.toml
   psychological-operations-mcp/Cargo.toml
-  psychological-operations-chrome/crx-pack/Cargo.toml
+  psychological-operations-chromium/crx-pack/Cargo.toml
 )
 
 MANIFEST_JSONS=(
-  psychological-operations-chrome-extension/manifest.json
+  psychological-operations-chromium-extension/manifest.json
 )
 
 # ---------------------------------------------------------------------------

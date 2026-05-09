@@ -4,18 +4,18 @@
 # short-circuit.
 #
 # Usage:
-#   bash psychological-operations-chrome/build.sh [--release] [--target <triple>]
+#   bash psychological-operations-chromium/build.sh [--release] [--target <triple>]
 #
 # Per-platform Chromium revisions are read from VERSION.
 
 set -euo pipefail
 
-MODULE="psychological-operations-chrome"
+MODULE="psychological-operations-chromium"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 LOG_DIR="$REPO_ROOT/.logs/build"
 LOG_FILE="$LOG_DIR/$MODULE.txt"
-EXT_DIR="$REPO_ROOT/psychological-operations-chrome-extension"
+EXT_DIR="$REPO_ROOT/psychological-operations-chromium-extension"
 
 mkdir -p "$LOG_DIR"
 
@@ -29,7 +29,7 @@ run() {
   mkdir -p "$EMBED_DIR"
 
   # ── download upstream Chromium snapshot ─────────────────────────────────
-  CHROMIUM_BUNDLE_ZIP="$EMBED_DIR/chrome-bundle.zip"
+  CHROMIUM_BUNDLE_ZIP="$EMBED_DIR/chromium-bundle.zip"
   CHROMIUM_URL="https://commondatastorage.googleapis.com/chromium-browser-snapshots/${SNAPSHOT_PLATFORM}/${CHROMIUM_REV}/${CHROMIUM_ZIP}"
   echo "Downloading $CHROMIUM_URL ..."
   curl -fLsS "$CHROMIUM_URL" -o "$CHROMIUM_BUNDLE_ZIP"

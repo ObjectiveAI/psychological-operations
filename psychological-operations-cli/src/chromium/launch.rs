@@ -12,16 +12,16 @@ use std::process::{Child, Command};
 use crate::error::Error;
 
 pub fn spawn(
-    chrome_binary: &Path,
+    chromium_binary: &Path,
     extension_dir: &Path,
     profile: &Path,
     psyop: &str,
     commit: &str,
     landing_url: &str,
 ) -> Result<Child, Error> {
-    let extension_id = crate::chrome::bundles::extension_id();
+    let extension_id = crate::chromium::bundles::extension_id();
 
-    let mut cmd = Command::new(chrome_binary);
+    let mut cmd = Command::new(chromium_binary);
     cmd.arg(format!("--user-data-dir={}", profile.display()));
     cmd.arg(format!("--load-extension={}", extension_dir.display()));
     cmd.arg(format!("--allowlisted-extension-id={extension_id}"));

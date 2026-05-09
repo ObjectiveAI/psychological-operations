@@ -1,4 +1,4 @@
-# psychological-operations-chrome
+# psychological-operations-chromium
 
 Sister-bundle directory: downloads upstream
 [Chromium](https://www.chromium.org/) browser snapshots from
@@ -9,7 +9,7 @@ contained binary.
 
 We use upstream Chromium (BSD-licensed, freely redistributable, self-
 identifies as "Chromium" in window titles + about page) rather than
-Chrome for Testing (which is also Chromium-derived, but self-
+the Chrome for Testing build (which IS also Chromium-derived but self-
 identifies as "Google Chrome" / "Google Chrome for Testing").
 
 Mirrors the build pipeline pattern used by
@@ -28,9 +28,9 @@ hashes the inputs, `validate.sh` is the contract for downstream
 - `build.sh` — downloads the snapshot zip for the target, stages the
   extension, writes `launch-entry.txt` (relative path to chrome.exe /
   chrome / Chromium.app inside the zip) and `bundle.meta.json`. Logs go
-  to `.logs/build/psychological-operations-chrome.txt`.
+  to `.logs/build/psychological-operations-chromium.txt`.
 - `fingerprint.sh` — SHA256 of (VERSION + build.sh + every file in
-  `psychological-operations-chrome-extension/`). Source it; sets
+  `psychological-operations-chromium-extension/`). Source it; sets
   `TARGET`, `PROFILE`, `CHROMIUM_REV`, `SNAPSHOT_PLATFORM`,
   `CHROMIUM_ZIP`, `CHROMIUM_LAUNCH_REL`, `CURRENT_FP`,
   `FINGERPRINT_FILE`.
@@ -42,7 +42,7 @@ hashes the inputs, `validate.sh` is the contract for downstream
 
 ```
 embed/<rust-target-triple>/<debug|release>/
-├── chrome-bundle.zip          ← Chromium snapshot zip, copied verbatim
+├── chromium-bundle.zip        ← Chromium snapshot zip, copied verbatim
 ├── extension.crx              ← signed extension (CRX3)
 ├── extension.tar              ← unpacked extension archive (for --load-extension)
 ├── launch-entry.txt           ← relative path to the Chromium binary inside the zip
@@ -56,9 +56,9 @@ artifacts produced from the pinned revs + extension sources.
 ## Usage
 
 ```sh
-bash psychological-operations-chrome/build.sh                   # host target, debug
-bash psychological-operations-chrome/build.sh --release         # host target, release
-bash psychological-operations-chrome/build.sh --target x86_64-unknown-linux-gnu  # cross
+bash psychological-operations-chromium/build.sh                   # host target, debug
+bash psychological-operations-chromium/build.sh --release         # host target, release
+bash psychological-operations-chromium/build.sh --target x86_64-unknown-linux-gnu  # cross
 ```
 
 Re-runs are no-ops via the fingerprint short-circuit unless the

@@ -2,7 +2,7 @@
 # Validates that embed/<target>/<profile>/ exists and its fingerprint matches.
 #
 # Usage:
-#   bash psychological-operations-chrome/validate.sh [--target <triple>] [--release]
+#   bash psychological-operations-chromium/validate.sh [--target <triple>] [--release]
 
 set -euo pipefail
 

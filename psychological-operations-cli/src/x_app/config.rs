@@ -1,5 +1,5 @@
 //! `x_app.json` — the master X dev-account App's credentials,
-//! captured by the chrome extension during `x_app setup` and
+//! captured by the Chromium extension during `x_app setup` and
 //! consumed by the per-psyop OAuth flow.
 //!
 //! File path: `~/.psychological-operations/x_app.json`.

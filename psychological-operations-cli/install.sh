@@ -78,11 +78,11 @@ if [ -f "$FINGERPRINT_FILE" ]; then
 fi
 
 # ── Build embedded dependencies ────────────────────────────────────────
-# The CLI embeds the Chrome for Testing bundle + packed extension via
+# The CLI embeds the upstream Chromium snapshot bundle + packed extension via
 # build.rs (guarded on its own fingerprint, so re-runs are no-ops).
 
 echo "Building embedded dependencies..."
-bash "$REPO_ROOT/psychological-operations-chrome/build.sh" --release
+bash "$REPO_ROOT/psychological-operations-chromium/build.sh" --release
 
 # ── Build CLI ──────────────────────────────────────────────────────────
 

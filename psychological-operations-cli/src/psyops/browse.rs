@@ -4,7 +4,7 @@
 //! exit before moving to the next psyop. With `--name <X>`,
 //! opens just that one and blocks on its exit.
 
-use crate::chrome::{extract::ensure_extracted, launch, native_host, paths::profile_dir};
+use crate::chromium::{extract::ensure_extracted, launch, native_host, paths::profile_dir};
 use crate::error::Error;
 
 pub async fn run(
@@ -14,7 +14,7 @@ pub async fn run(
 ) -> Result<crate::Output, Error> {
     let materialized = ensure_extracted(cfg)?;
     eprintln!(
-        "psyops browse: chrome materialized at {}",
+        "psyops browse: chromium materialized at {}",
         materialized.root.display(),
     );
 
@@ -56,7 +56,7 @@ pub async fn run(
         native_host::install(&profile, cfg)?;
 
         let mut child = launch::spawn(
-            &materialized.chrome_binary,
+            &materialized.chromium_binary,
             &materialized.extension_dir,
             &profile,
             name,

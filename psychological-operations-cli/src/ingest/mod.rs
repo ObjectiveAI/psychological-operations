@@ -1,5 +1,5 @@
-//! Chrome-extension ingestion pathway. The `native-host` subcommand
-//! implements Chrome's native-messaging protocol over stdin/stdout
+//! Chromium-extension ingestion pathway. The `native-host` subcommand
+//! implements Chromium's native-messaging protocol over stdin/stdout
 //! and writes captured tweets into the local DB with `for_you = true`
 //! and `(psyop, commit)` resolved from environment variables.
 

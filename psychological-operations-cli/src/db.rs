@@ -223,7 +223,7 @@ impl Db {
 
     /// Browser-extension entry point. Queues a `(post_id, psyop,
     /// psyop_commit_sha)` triple for later runtime hydration. The
-    /// queue exists because the chrome extension's "Capture" only
+    /// queue exists because the Chromium extension's "Capture" only
     /// notes "I saw this id in for-you"; the actual posts/sources/
     /// contents rows are written by the runtime after fetching the
     /// tweet from the X v2 API.

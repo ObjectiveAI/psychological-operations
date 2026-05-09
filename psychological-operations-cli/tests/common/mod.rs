@@ -37,24 +37,24 @@ fn assets_dir() -> PathBuf { manifest_dir().join("assets") }
 fn objectiveai_state_dir() -> PathBuf { tests_dir().join(".objectiveai") }
 fn target_binaries_dir() -> PathBuf { tests_dir().join(".target-binaries") }
 
-/// Run `psychological-operations-chrome/build.sh` once per
+/// Run `psychological-operations-chromium/build.sh` once per
 /// cargo-test process to ensure the embedded chrome bundle is
 /// present before we build our binary. Idempotent — the script
 /// fingerprint-short-circuits when the embed dir is fresh.
-fn ensure_chrome_bundle() {
+fn ensure_chromium_bundle() {
     static DONE: OnceLock<()> = OnceLock::new();
     DONE.get_or_init(|| {
         // Use Git Bash on Windows (see bash_command rationale).
         // Pin --target so fingerprint.sh doesn't have to call
         // `rustc -vV` to detect the host.
         let status = Command::new(bash_command())
-            .arg("psychological-operations-chrome/build.sh")
+            .arg("psychological-operations-chromium/build.sh")
             .arg("--target").arg(host_triple())
             .arg("--release")
             .current_dir(repo_root())
             .status()
-            .expect("spawn bash psychological-operations-chrome/build.sh");
-        assert!(status.success(), "psychological-operations-chrome build failed");
+            .expect("spawn bash psychological-operations-chromium/build.sh");
+        assert!(status.success(), "psychological-operations-chromium build failed");
     });
 }
 
@@ -63,7 +63,7 @@ fn ensure_chrome_bundle() {
 pub fn psyops_binary() -> &'static Path {
     static BIN: OnceLock<PathBuf> = OnceLock::new();
     BIN.get_or_init(|| {
-        ensure_chrome_bundle();
+        ensure_chromium_bundle();
         let target = target_binaries_dir().join("psyops");
         std::fs::create_dir_all(&target).expect("create psyops target dir");
         let status = Command::new(env!("CARGO"))

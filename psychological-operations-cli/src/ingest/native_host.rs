@@ -1,11 +1,11 @@
-//! Chrome native-messaging protocol implementation.
+//! Chromium native-messaging protocol implementation.
 //!
 //! Frame format: `[u32 LE length][UTF-8 JSON payload]` on both
 //! directions. We loop reading frames from stdin, dispatching to a
 //! tiny JSON-tagged protocol, and writing framed JSON replies.
 //!
 //! The host stays alive for as long as the extension's port is open;
-//! Chrome closes stdin when the port disconnects, which we read as
+//! Chromium closes stdin when the port disconnects, which we read as
 //! EOF and exit cleanly.
 
 use serde::{Deserialize, Serialize};
@@ -62,14 +62,14 @@ pub async fn run(cfg: &crate::run::Config) -> Result<crate::Output, crate::error
         let mut len_buf = [0u8; 4];
         match stdin.read_exact(&mut len_buf).await {
             Ok(_) => {}
-            // Clean EOF — Chrome closed the port.
+            // Clean EOF — Chromium closed the port.
             Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => break,
             Err(e) => {
                 return Err(crate::error::Error::Io(e));
             }
         }
         let len = u32::from_le_bytes(len_buf) as usize;
-        // Chrome's spec caps inbound messages at 1 MB. Be generous; bail
+        // Chromium's spec caps inbound messages at 1 MB. Be generous; bail
         // on anything implausible to avoid allocating gigabytes on a
         // garbled stream.
         if len > 16 * 1024 * 1024 {

@@ -1,4 +1,4 @@
-//! Master X dev-account / X-App credentials setup. The chrome
+//! Master X dev-account / X-App credentials setup. The Chromium
 //! extension captures credentials from `console.x.com` and ships
 //! them via the native messaging port; the host writes them to
 //! `~/.psychological-operations/x_app.json`. Per-psyop OAuth reads

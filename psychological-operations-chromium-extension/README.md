@@ -1,10 +1,10 @@
-# psychological-operations-chrome-extension
+# psychological-operations-chromium-extension
 
-Chrome MV3 extension that captures the tweets currently rendered on
+Chromium MV3 extension that captures the tweets currently rendered on
 an X feed and writes them into the local `posts` table with
 `for_you = true`. The extension is a single build; per-psyop state
-is the **Chrome profile directory** plus `PSYOP_NAME` /
-`PSYOP_COMMIT_SHA` env vars set when Chrome is launched.
+is the **Chromium profile directory** plus `PSYOP_NAME` /
+`PSYOP_COMMIT_SHA` env vars set when Chromium is launched.
 
 ## Components
 
@@ -18,7 +18,7 @@ is the **Chrome profile directory** plus `PSYOP_NAME` /
 
 ## Wire protocol (extension ↔ native host)
 
-Framed JSON over stdin/stdout per Chrome's native-messaging spec
+Framed JSON over stdin/stdout per Chromium's native-messaging spec
 (4-byte little-endian length, then UTF-8 JSON).
 
 ```
@@ -46,7 +46,7 @@ Each tweet (extension → host):
 
 ## Manual install (dev)
 
-This is the manual flow until the embedded-Chrome runner exists
+This is the manual flow until the embedded-Chromium runner exists
 (it'll do all of this automatically per psyop).
 
 ### 1. Build the binary
@@ -57,7 +57,7 @@ cargo build -p psychological-operations-cli
 
 ### 2. Drop a wrapper script
 
-Chrome's native-messaging manifest invokes a binary directly with
+Chromium's native-messaging manifest invokes a binary directly with
 no args, so we need a tiny wrapper that calls
 `psychological-operations native-host`:
 
@@ -76,8 +76,8 @@ Windows — save as `%USERPROFILE%\bin\psychological-operations-native-host.cmd`
 
 ### 3. Load the extension and copy its ID
 
-In Chrome → `chrome://extensions` → Developer mode on →
-"Load unpacked" → select `psychological-operations-chrome-extension/`. Copy the generated
+In Chromium → `chrome://extensions` → Developer mode on →
+"Load unpacked" → select `psychological-operations-chromium-extension/`. Copy the generated
 extension ID (looks like `abcd1234efgh…`).
 
 ### 4. Drop the native-messaging manifest
@@ -86,12 +86,12 @@ Replace `<EXT_ID>` with the ID from step 3 and `<WRAPPER_PATH>`
 with the absolute wrapper path from step 2.
 
 **Linux**:
-`~/.config/google-chrome/NativeMessagingHosts/com.objectiveai.psychological_operations.json`
+`~/.config/chromium/NativeMessagingHosts/com.objectiveai.psychological_operations.json`
 
 **macOS**:
-`~/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.objectiveai.psychological_operations.json`
+`~/Library/Application Support/Chromium/NativeMessagingHosts/com.objectiveai.psychological_operations.json`
 
-**Windows**: register under `HKCU\Software\Google\Chrome\NativeMessagingHosts\com.objectiveai.psychological_operations` with the JSON path as the default value. (See the [Chrome docs](https://developer.chrome.com/docs/extensions/develop/concepts/native-messaging) for the registry layout.)
+**Windows**: register under `HKCU\Software\Chromium\NativeMessagingHosts\com.objectiveai.psychological_operations` (and `HKCU\Software\Google\Chrome\NativeMessagingHosts\...` for a Google Chrome side-load) with the JSON path as the default value. (See the [Chromium docs](https://www.chromium.org/developers/design-documents/native-messaging/) for the registry layout.)
 
 ```json
 {
@@ -103,11 +103,11 @@ with the absolute wrapper path from step 2.
 }
 ```
 
-### 5. Launch Chrome with the right env vars and a dedicated profile
+### 5. Launch Chromium with the right env vars and a dedicated profile
 
 ```sh
 PSYOP_NAME=test \
-google-chrome --user-data-dir="$HOME/.psychological-operations/chrome-profiles/test"
+chromium --user-data-dir="$HOME/.psychological-operations/chromium-profiles/test"
 ```
 
 `PSYOP_COMMIT_SHA` is optional — if unset, the host does
@@ -132,7 +132,7 @@ Rows should have `for_you = 1` and `query IS NULL`.
 
 ## Future (not in this commit)
 
-A Rust subcommand will create a per-psyop Chrome profile, write the
+A Rust subcommand will create a per-psyop Chromium profile, write the
 native-messaging manifest with the right `allowed_origins`, pre-load
-the extension into that profile, and `exec` Chrome with the env vars
+the extension into that profile, and `exec` Chromium with the env vars
 set — replacing this whole manual checklist with a single command.

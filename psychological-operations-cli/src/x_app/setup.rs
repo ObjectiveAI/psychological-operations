@@ -4,9 +4,9 @@
 
 use std::process::Command;
 
-use crate::chrome::extract::ensure_extracted;
-use crate::chrome::native_host;
-use crate::chrome::paths::x_app_profile_dir;
+use crate::chromium::extract::ensure_extracted;
+use crate::chromium::native_host;
+use crate::chromium::paths::x_app_profile_dir;
 use crate::error::Error;
 
 pub async fn run(cfg: &crate::run::Config) -> Result<crate::Output, Error> {
@@ -20,9 +20,9 @@ pub async fn run(cfg: &crate::run::Config) -> Result<crate::Output, Error> {
     // its "Save credentials" button can ship to x_app.json.
     native_host::install(&profile, cfg)?;
 
-    let extension_id = crate::chrome::bundles::extension_id();
+    let extension_id = crate::chromium::bundles::extension_id();
 
-    let mut cmd = Command::new(&materialized.chrome_binary);
+    let mut cmd = Command::new(&materialized.chromium_binary);
     cmd.arg(format!("--user-data-dir={}", profile.display()));
     cmd.arg(format!("--load-extension={}", materialized.extension_dir.display()));
     cmd.arg(format!("--allowlisted-extension-id={extension_id}"));
