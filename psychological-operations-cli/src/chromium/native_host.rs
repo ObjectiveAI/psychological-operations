@@ -30,100 +30,45 @@ use super::bundles::{
     AUTH_EXTENSION_ID, NATIVE_HOST_NAME, SCRAPE_EXTENSION_ID,
     auth_extension_id, scrape_extension_id,
 };
-use super::paths::{native_host_manifest_for_profile, native_host_wrapper};
+use super::paths::native_host_manifest_for_profile;
 use crate::error::Error;
 
 /// Write the manifest into the profile's NativeMessagingHosts dir
 /// (Linux/macOS) or the per-user HKCU registry (Windows). Idempotent
 /// — overwrites if already present.
-pub fn install(profile: &Path, cfg: &crate::run::Config) -> Result<(), Error> {
-    let wrapper = ensure_wrapper(cfg)?;
-    let manifest_path_for_registry: PathBuf;
+pub fn install(profile: &Path, _cfg: &crate::run::Config) -> Result<(), Error> {
+    // Point the manifest at the main psychological-operations binary
+    // directly. main.rs detects the Chromium-NM-host invocation
+    // signature (`--parent-window=` arg etc.) and routes to
+    // native-host mode automatically. This avoids a .cmd / .sh
+    // wrapper, which on Windows mangles binary stdin under cmd.exe
+    // and breaks the NM length-prefix protocol.
+    let exe = std::env::current_exe()?;
 
-    #[cfg(not(windows))]
-    {
-        let manifest_path = native_host_manifest_for_profile(profile);
-        if let Some(parent) = manifest_path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        let manifest = json!({
-            "name": NATIVE_HOST_NAME,
-            "description": "Psychological Operations native host",
-            "path": wrapper,
-            "type": "stdio",
-            "allowed_origins": [
-                format!("chrome-extension://{}/", scrape_extension_id()),
-                format!("chrome-extension://{}/", auth_extension_id()),
-            ],
-        });
-        fs::write(&manifest_path, serde_json::to_vec_pretty(&manifest)?)?;
-        manifest_path_for_registry = manifest_path;
+    let manifest_path = native_host_manifest_for_profile(profile);
+    if let Some(parent) = manifest_path.parent() {
+        fs::create_dir_all(parent)?;
     }
+    let manifest = json!({
+        "name": NATIVE_HOST_NAME,
+        "description": "Psychological Operations native host",
+        "path": exe.to_string_lossy(),
+        "type": "stdio",
+        "allowed_origins": [
+            format!("chrome-extension://{}/", scrape_extension_id()),
+            format!("chrome-extension://{}/", auth_extension_id()),
+        ],
+    });
+    fs::write(&manifest_path, serde_json::to_vec_pretty(&manifest)?)?;
 
     #[cfg(windows)]
-    {
-        // Drop a JSON next to the wrapper too — diagnostic + fallback
-        // for users who manually configured Chromium with an external
-        // user-data-dir not driven by us.
-        let manifest_path = native_host_manifest_for_profile(profile);
-        if let Some(parent) = manifest_path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        let manifest = json!({
-            "name": NATIVE_HOST_NAME,
-            "description": "Psychological Operations native host",
-            // serde_json handles JSON escaping for us — pass the raw
-            // OS path string. Manually doubling backslashes here used
-            // to produce `C:\\\\Users\\\\...` in the on-disk JSON,
-            // which Chromium can't resolve to a real file.
-            "path": wrapper.to_string_lossy(),
-            "type": "stdio",
-            "allowed_origins": [
-                format!("chrome-extension://{}/", scrape_extension_id()),
-                format!("chrome-extension://{}/", auth_extension_id()),
-            ],
-        });
-        fs::write(&manifest_path, serde_json::to_vec_pretty(&manifest)?)?;
-        register_windows_native_host(&manifest_path)?;
-        manifest_path_for_registry = manifest_path;
-    }
+    register_windows_native_host(&manifest_path)?;
 
-    let _ = manifest_path_for_registry;
     let _ = SCRAPE_EXTENSION_ID;
     let _ = AUTH_EXTENSION_ID;
     Ok(())
 }
 
-/// Lazily generate the tiny wrapper script that Chromium invokes
-/// (Chromium's manifest `path` field doesn't accept args, so we need
-/// a separate executable that just exec's our binary with the
-/// `native-host` subcommand).
-fn ensure_wrapper(cfg: &crate::run::Config) -> Result<PathBuf, Error> {
-    let path = native_host_wrapper(cfg);
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    let exe = std::env::current_exe()?;
-    #[cfg(windows)]
-    let body = format!(
-        "@echo off\r\n\"{}\" native-host %*\r\n",
-        exe.display(),
-    );
-    #[cfg(not(windows))]
-    let body = format!(
-        "#!/bin/sh\nexec \"{}\" native-host \"$@\"\n",
-        exe.display(),
-    );
-    fs::write(&path, body)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut perms = fs::metadata(&path)?.permissions();
-        perms.set_mode(0o755);
-        fs::set_permissions(&path, perms)?;
-    }
-    Ok(path)
-}
 
 #[cfg(windows)]
 fn register_windows_native_host(manifest_path: &Path) -> Result<(), Error> {
