@@ -35,11 +35,10 @@ pub async fn run(cfg: &crate::run::Config) -> Result<crate::Output, Error> {
     cmd.arg("--no-default-browser-check");
     cmd.arg("--disable-component-update");
     cmd.arg("--disable-features=ChromeWhatsNewUI,DefaultBrowserPromptRefresh");
-    // Land directly on the projects-and-apps page so the operator
-    // doesn't have to navigate from the developer-portal home. If X
-    // renames this path, the operator can navigate manually — the
-    // extension popup form doesn't depend on the URL.
-    cmd.arg("https://developer.x.com/en/portal/projects-and-apps");
+    // Land on the X Developer Console root. If X renames this path,
+    // the operator can navigate manually — the extension popup form
+    // doesn't depend on the URL.
+    cmd.arg("https://console.x.com/");
 
     // No PSYOP_NAME / PSYOP_COMMIT_SHA — the X-App profile isn't a
     // psyop. The auth extension never asks for them.
@@ -53,7 +52,7 @@ pub async fn run(cfg: &crate::run::Config) -> Result<crate::Output, Error> {
         child.id(),
     );
     eprintln!("  profile: {}", profile.display());
-    eprintln!("  - sign into your X account if prompted, then on developer.x.com");
+    eprintln!("  - sign into your X account if prompted, then on console.x.com");
     eprintln!("    create a Project + App and provision credits.");
     eprintln!("  - on the App's keys-and-tokens page, click the extension toolbar");
     eprintln!("    icon and paste the credentials into the form. Click Save.");
