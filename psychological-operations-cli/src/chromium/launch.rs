@@ -21,6 +21,11 @@ pub fn spawn(
 ) -> Result<Child, Error> {
     let extension_id = crate::chromium::bundles::scrape_extension_id();
 
+    // Pre-seed the profile so the scrape extension shows up pinned to
+    // the toolbar on first launch (and stays pinned across re-launches
+    // via idempotent merge).
+    crate::chromium::pinned::seed_pinned_extensions(profile, &[extension_id])?;
+
     let mut cmd = Command::new(chromium_binary);
     cmd.arg(format!("--user-data-dir={}", profile.display()));
     cmd.arg(format!("--load-extension={}", scrape_extension_dir.display()));

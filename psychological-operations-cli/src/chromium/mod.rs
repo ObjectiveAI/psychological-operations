@@ -25,3 +25,4 @@ pub mod extract;
 pub mod launch;
 pub mod native_host;
 pub mod paths;
+pub mod pinned;

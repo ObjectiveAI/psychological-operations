@@ -22,6 +22,11 @@ pub async fn run(cfg: &crate::run::Config) -> Result<crate::Output, Error> {
 
     let extension_id = crate::chromium::bundles::auth_extension_id();
 
+    // Pre-seed the profile so the auth extension shows up pinned to
+    // the toolbar on first launch (and stays pinned across re-launches
+    // via idempotent merge).
+    crate::chromium::pinned::seed_pinned_extensions(&profile, &[extension_id])?;
+
     let mut cmd = Command::new(&materialized.chromium_binary);
     cmd.arg(format!("--user-data-dir={}", profile.display()));
     cmd.arg(format!("--load-extension={}", materialized.auth_extension_dir.display()));
