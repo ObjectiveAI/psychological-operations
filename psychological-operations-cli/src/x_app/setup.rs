@@ -54,13 +54,15 @@ pub async fn run(cfg: &crate::run::Config) -> Result<crate::Output, Error> {
     eprintln!("  profile: {}", profile.display());
     eprintln!("  - sign into your X account if prompted, then on console.x.com");
     eprintln!("    create a Project + App and provision credits.");
-    eprintln!("  - on the App's Keys and Tokens page, copy the Consumer Key,");
-    eprintln!("    Secret Key, and Bearer Token into the extension popup form.");
-    eprintln!("    Click Save.");
-    eprintln!("  - on \"User authentication settings\": enable OAuth 2.0,");
-    eprintln!("    select \"Read and write\" permissions, and register");
+    eprintln!("  - on \"User authentication settings\": set up as a Web App with");
+    eprintln!("    \"Read and write\" permissions and register");
     eprintln!("    `http://127.0.0.1/callback` (host only, no port) as a");
-    eprintln!("    Callback URL. Required for `psyops oauth <name>`.");
+    eprintln!("    Callback URI. Required for `psyops oauth <name>`.");
+    eprintln!("  - paste the OAuth 2.0 Client ID + Client Secret (from User");
+    eprintln!("    authentication settings) and the Bearer Token (from Keys");
+    eprintln!("    and Tokens) into the extension popup form. Click Save.");
+    eprintln!("    NOTE: do NOT paste the Consumer Key / Secret Key from the");
+    eprintln!("    Keys and Tokens page — those are OAuth 1.0a, unused here.");
     eprintln!("  - this profile persists; future runs reuse the session.");
 
     Ok(crate::Output::Empty)

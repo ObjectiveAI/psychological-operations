@@ -8,13 +8,16 @@
     <div id="title">X-App credentials</div>
     <hr />
     <form id="x_app_form">
-      <label>Consumer Key
+      <label>Client ID
+        <span class="hint">User authentication settings (OAuth 2.0). NOT the Consumer Key from Keys and Tokens.</span>
         <input id="bf_client_id" type="text" autocomplete="off" spellcheck="false" />
       </label>
-      <label>Secret Key
+      <label>Client Secret
+        <span class="hint">User authentication settings (OAuth 2.0). NOT the Secret Key from Keys and Tokens.</span>
         <input id="bf_client_secret" type="password" autocomplete="off" spellcheck="false" />
       </label>
       <label>Bearer Token
+        <span class="hint">Keys and Tokens page.</span>
         <input id="bf_bearer_token" type="password" autocomplete="off" spellcheck="false" />
       </label>
       <button id="bf_save" type="submit">Save credentials</button>
