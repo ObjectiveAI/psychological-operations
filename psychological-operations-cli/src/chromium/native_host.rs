@@ -72,7 +72,11 @@ pub fn install(profile: &Path, cfg: &crate::run::Config) -> Result<(), Error> {
         let manifest = json!({
             "name": NATIVE_HOST_NAME,
             "description": "Psychological Operations native host",
-            "path": wrapper.to_string_lossy().replace('\\', "\\\\"),
+            // serde_json handles JSON escaping for us — pass the raw
+            // OS path string. Manually doubling backslashes here used
+            // to produce `C:\\\\Users\\\\...` in the on-disk JSON,
+            // which Chromium can't resolve to a real file.
+            "path": wrapper.to_string_lossy(),
             "type": "stdio",
             "allowed_origins": [
                 format!("chrome-extension://{}/", scrape_extension_id()),
