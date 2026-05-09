@@ -31,10 +31,6 @@ struct IncomingCredentials {
     #[serde(default)]
     client_secret: Option<String>,
     #[serde(default)]
-    api_key: Option<String>,
-    #[serde(default)]
-    api_key_secret: Option<String>,
-    #[serde(default)]
     bearer_token: Option<String>,
 }
 
@@ -148,12 +144,10 @@ fn handle_x_app_save(
     let existing = x_app_config::load(cfg).unwrap_or_default();
     let now = chrono::Utc::now().to_rfc3339();
     let incoming = XAppConfig {
-        client_id:      creds.client_id,
-        client_secret:  creds.client_secret,
-        api_key:        creds.api_key,
-        api_key_secret: creds.api_key_secret,
-        bearer_token:   creds.bearer_token,
-        saved_at:       Some(now),
+        client_id:     creds.client_id,
+        client_secret: creds.client_secret,
+        bearer_token:  creds.bearer_token,
+        saved_at:      Some(now),
     };
     let merged = x_app_config::merge(existing, incoming);
     x_app_config::save(&merged, cfg)
