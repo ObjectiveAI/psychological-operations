@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
-# psychological-operations CLI installer — downloads a pre-built release binary.
+# psychological-operations plugin installer — downloads a pre-built release binary.
 #
 #   curl -fsSL https://raw.githubusercontent.com/WiggidyW/psychological-operations/main/install.sh | bash
 #
 # - Detects platform + architecture.
 # - Fetches the latest published release asset from GitHub and drops it
-#   at ~/.psychological-operations/psychological-operations
-#   (or psychological-operations.exe on Windows).
-# - Adds ~/.psychological-operations to PATH.
+#   at $HOME/.objectiveai/plugins/psychological-operations[.exe] so the
+#   objectiveai-cli host dispatches `objectiveai psychological-operations
+#   <subcmd>` to us.
+# - Our own state lives at $HOME/.objectiveai/plugins/.psychological-operations/.
 #
 # No toolchain required. For a from-source install, clone the repo and
 # run `psychological-operations-cli/install.sh` instead.
@@ -15,12 +16,12 @@
 set -euo pipefail
 
 REPO="WiggidyW/psychological-operations"
-INSTALL_DIR="$HOME/.psychological-operations"
+INSTALL_DIR="$HOME/.objectiveai/plugins"
 
 for arg in "$@"; do
   case "$arg" in
     -h|--help)
-      sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     *)
@@ -53,8 +54,8 @@ case "$ARCH" in
 esac
 
 # Only these platform/arch combos have release assets.
-# (linux-aarch64 is unsupported because Chrome for Testing — required by
-# the embedded chrome bundle — does not ship a linux-arm64 build.)
+# (linux-aarch64 is unsupported because upstream Chromium snapshots —
+# required by the embedded chromium bundle — don't ship a linux-arm64 build.)
 SUPPORTED=0
 case "$PLATFORM-$ARCH" in
   linux-x86_64|macos-x86_64|macos-aarch64|windows-x86_64) SUPPORTED=1 ;;
@@ -107,71 +108,13 @@ cp "$TMP" "$DST"
 chmod +x "$DST"
 echo "Installed $DST"
 
-# ── PATH ──────────────────────────────────────────────────────────────
-#
-# A child process can't mutate its parent shell's environment, so the
-# canonical pattern (rustup, etc.) is to write a sourceable env file.
-# Future shells pick it up via a one-liner appended to the user's rc;
-# the current shell sources it on demand.
-
-write_env_file() {
-  cat > "$INSTALL_DIR/env" <<'EOF'
-#!/bin/sh
-# psychological-operations shell setup. Source this file from your shell
-# rc, or run
-#   . "$HOME/.psychological-operations/env"
-# to put `psychological-operations` on PATH for the current shell.
-
-case ":${PATH}:" in
-    *:"$HOME/.psychological-operations":*) ;;
-    *) export PATH="$HOME/.psychological-operations:$PATH" ;;
-esac
-EOF
-}
-
-add_to_path() {
-  local shell_rc="$1"
-  local line='. "$HOME/.psychological-operations/env"'
-  if [ -f "$shell_rc" ] && grep -qF '.psychological-operations/env' "$shell_rc"; then
-    return
-  fi
-  {
-    echo ""
-    echo "# psychological-operations CLI"
-    echo "$line"
-  } >> "$shell_rc"
-  echo "Added to PATH in $shell_rc"
-}
-
-write_env_file
-
-case "$PLATFORM" in
-  windows)
-    INSTALL_DIR_WIN="$(cygpath -w "$INSTALL_DIR" 2>/dev/null || echo "$INSTALL_DIR")"
-    CURRENT_PATH=$(powershell.exe -NoProfile -Command "[Environment]::GetEnvironmentVariable('Path', 'User')" 2>/dev/null | tr -d '\r' || true)
-    if echo "$CURRENT_PATH" | grep -qiF '.psychological-operations'; then
-      echo "PATH already contains $INSTALL_DIR_WIN"
-    else
-      powershell.exe -NoProfile -Command \
-        "[Environment]::SetEnvironmentVariable('Path', '$INSTALL_DIR_WIN;' + [Environment]::GetEnvironmentVariable('Path', 'User'), 'User')" 2>/dev/null
-      echo "Added $INSTALL_DIR_WIN to user PATH (restart cmd/PowerShell to use it)."
-    fi
-    # Also wire up Git Bash / MSYS via the env file.
-    [ -f "$HOME/.bashrc" ] && add_to_path "$HOME/.bashrc"
-    ;;
-  macos)
-    add_to_path "$HOME/.zshrc"
-    ;;
-  linux)
-    [ -f "$HOME/.bashrc" ] && add_to_path "$HOME/.bashrc"
-    [ -f "$HOME/.zshrc" ]  && add_to_path "$HOME/.zshrc"
-    ;;
-esac
+# No PATH wiring needed — users invoke via
+#   objectiveai psychological-operations <subcmd>
+# which objectiveai-cli dispatches to our binary by name lookup
+# under $HOME/.objectiveai/plugins/.
 
 echo ""
 echo "Done!"
 echo ""
-echo "To use psychological-operations in your current shell, run:"
-echo '  . "$HOME/.psychological-operations/env"'
-echo ""
-echo "(New shells will pick it up automatically.)"
+echo "Invoke via:"
+echo "  objectiveai psychological-operations --help"

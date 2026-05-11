@@ -15,12 +15,14 @@ use crate::psyops;
 
 #[derive(Envconfig)]
 struct EnvConfigBuilder {
-    #[envconfig(from = "PSYCHOLOGICAL_OPERATIONS_BASE_DIR")]
-    base_dir: Option<String>,
+    /// objectiveai's base directory. We share the same env name so a
+    /// single setting controls both objectiveai-cli and this plugin.
+    /// Default `~/.objectiveai`. Our state goes in
+    /// `<base>/plugins/.psychological-operations/`.
+    #[envconfig(from = "CONFIG_BASE_DIR")]
+    objectiveai_base_dir: Option<String>,
     #[envconfig(from = "PSYCHOLOGICAL_OPERATIONS_MOCK_X_API")]
     mock_x_api: Option<String>,
-    #[envconfig(from = "PSYCHOLOGICAL_OPERATIONS_OBJECTIVEAI_BINARY")]
-    objectiveai_binary: Option<String>,
     #[envconfig(from = "PSYCHOLOGICAL_OPERATIONS_COMMIT_AUTHOR_NAME")]
     commit_author_name: Option<String>,
     #[envconfig(from = "PSYCHOLOGICAL_OPERATIONS_COMMIT_AUTHOR_EMAIL")]
@@ -36,12 +38,11 @@ impl EnvConfigBuilder {
             !v.is_empty() && v != "0" && !v.eq_ignore_ascii_case("false")
         }
         ConfigBuilder {
-            base_dir:            self.base_dir,
-            mock_x_api:          self.mock_x_api.map(|s| parse_bool(&s)),
-            objectiveai_binary:  self.objectiveai_binary,
-            commit_author_name:  self.commit_author_name,
-            commit_author_email: self.commit_author_email,
-            commit_time:         self.commit_time
+            objectiveai_base_dir: self.objectiveai_base_dir,
+            mock_x_api:           self.mock_x_api.map(|s| parse_bool(&s)),
+            commit_author_name:   self.commit_author_name,
+            commit_author_email:  self.commit_author_email,
+            commit_time:          self.commit_time
                 .and_then(|s| s.trim().parse::<i64>().ok()),
         }
     }
@@ -49,12 +50,11 @@ impl EnvConfigBuilder {
 
 #[derive(Default)]
 pub struct ConfigBuilder {
-    pub base_dir:            Option<String>,
-    pub mock_x_api:          Option<bool>,
-    pub objectiveai_binary:  Option<String>,
-    pub commit_author_name:  Option<String>,
-    pub commit_author_email: Option<String>,
-    pub commit_time:         Option<i64>,
+    pub objectiveai_base_dir: Option<String>,
+    pub mock_x_api:           Option<bool>,
+    pub commit_author_name:   Option<String>,
+    pub commit_author_email:  Option<String>,
+    pub commit_time:          Option<i64>,
 }
 
 impl Envconfig for ConfigBuilder {
@@ -77,28 +77,25 @@ impl Envconfig for ConfigBuilder {
 impl ConfigBuilder {
     pub fn build(self) -> Config {
         Config {
-            base_dir:            self.base_dir,
-            mock_x_api:          self.mock_x_api.unwrap_or(false),
-            objectiveai_binary:  self.objectiveai_binary,
-            commit_author_name:  self.commit_author_name,
-            commit_author_email: self.commit_author_email,
-            commit_time:         self.commit_time,
+            objectiveai_base_dir: self.objectiveai_base_dir,
+            mock_x_api:           self.mock_x_api.unwrap_or(false),
+            commit_author_name:   self.commit_author_name,
+            commit_author_email:  self.commit_author_email,
+            commit_time:          self.commit_time,
         }
     }
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct Config {
-    pub base_dir:           Option<String>,
+    /// objectiveai-cli's base directory (shared env: `CONFIG_BASE_DIR`).
+    /// When `None`, defaults to `~/.objectiveai`. Our state goes in
+    /// `<this>/plugins/.psychological-operations/`.
+    pub objectiveai_base_dir: Option<String>,
     /// When true, every X HTTP call short-circuits to a
     /// deterministic mock keyed on the input. Set via
     /// `PSYCHOLOGICAL_OPERATIONS_MOCK_X_API`.
     pub mock_x_api:         bool,
-    /// Override the path to the `objectiveai` binary used by the
-    /// scoring + invention shell-outs. When `None`, falls back to
-    /// `~/.objectiveai/objectiveai(.exe)` and then PATH. Set via
-    /// `PSYCHOLOGICAL_OPERATIONS_OBJECTIVEAI_BINARY`.
-    pub objectiveai_binary: Option<String>,
     /// Commit author name baked into git commits produced by
     /// `psyops publish`. Default `"psychological-operations"`.
     /// Set via `PSYCHOLOGICAL_OPERATIONS_COMMIT_AUTHOR_NAME`.
@@ -115,15 +112,26 @@ pub struct Config {
 }
 
 impl Config {
-    /// Resolve the on-disk base directory. Explicit env override
-    /// (`PSYCHOLOGICAL_OPERATIONS_BASE_DIR`) wins; otherwise
-    /// `~/.psychological-operations`.
-    pub fn base_dir(&self) -> PathBuf {
-        if let Some(d) = &self.base_dir {
+    /// objectiveai-cli's base directory. Honors `CONFIG_BASE_DIR`,
+    /// falls back to `~/.objectiveai`.
+    pub fn objectiveai_base_dir(&self) -> PathBuf {
+        if let Some(d) = &self.objectiveai_base_dir {
             return PathBuf::from(d);
         }
         dirs::home_dir()
             .unwrap_or_else(|| PathBuf::from("."))
+            .join(".objectiveai")
+    }
+
+    /// Our state directory:
+    /// `<objectiveai_base>/plugins/.psychological-operations`.
+    ///
+    /// Leading `.` so the objectiveai-cli plugin dispatcher (which
+    /// looks for bare files in `plugins/`) doesn't try to invoke
+    /// this dir as a plugin binary.
+    pub fn base_dir(&self) -> PathBuf {
+        self.objectiveai_base_dir()
+            .join("plugins")
             .join(".psychological-operations")
     }
 }

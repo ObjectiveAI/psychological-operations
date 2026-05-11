@@ -50,12 +50,8 @@ fn format_remote_ref(path: &RemotePathCommitOptional) -> String {
 /// default location at ~/.objectiveai/objectiveai(.exe) — the Windows installer
 /// only updates the user environment PATH, which isn't reflected in an already-
 /// running shell.
-pub fn objectiveai_binary(cfg: &crate::run::Config) -> std::path::PathBuf {
+pub fn objectiveai_binary(_cfg: &crate::run::Config) -> std::path::PathBuf {
     use std::path::PathBuf;
-    // Env override wins outright.
-    if let Some(p) = &cfg.objectiveai_binary {
-        return PathBuf::from(p);
-    }
     let name = if cfg!(windows) { "objectiveai.exe" } else { "objectiveai" };
     if let Ok(home) = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
         let candidate = PathBuf::from(home).join(".objectiveai").join(name);

@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# Builds and installs the psychological-operations CLI from source.
+# Builds and installs psychological-operations as an objectiveai-cli plugin.
 #
 # - Builds psychological-operations-cli in release mode (skips if fingerprint unchanged)
-# - Copies the binary to ~/.psychological-operations/ as 'psychological-operations'
-#   (or 'psychological-operations.exe' on Windows)
-# - Adds ~/.psychological-operations to PATH if not already present
+# - Drops the binary at $HOME/.objectiveai/plugins/ so the objectiveai-cli
+#   host can dispatch `objectiveai psychological-operations <subcmd>` to it.
+# - Our own state still lives at $HOME/.objectiveai/plugins/.psychological-operations/
+#   (data.db, psyops/, config.json, x_app.json, tokens/, …).
 #
 # Usage:
 #   bash psychological-operations-cli/install.sh
@@ -13,7 +14,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-INSTALL_DIR="$HOME/.psychological-operations"
+# Install the binary into objectiveai-cli's plugin directory.
+INSTALL_DIR="$HOME/.objectiveai/plugins"
 
 # Detect platform
 case "$(uname -s)" in
@@ -32,7 +34,9 @@ fi
 # Hash all source files that affect the CLI build. Skip the build if the
 # installed binary's fingerprint matches.
 
-FINGERPRINT_FILE="$INSTALL_DIR/.fingerprint"
+# Use a plugin-specific fingerprint filename so we don't collide with
+# objectiveai-cli's own .fingerprint or with any other plugin's.
+FINGERPRINT_FILE="$INSTALL_DIR/.fingerprint-psychological-operations"
 
 # Cross-platform SHA-256 wrapper. macOS runners ship `shasum` (Perl) but
 # not GNU `sha256sum`; Linux/Windows-Git-bash typically ship both — we
@@ -79,10 +83,15 @@ fi
 
 # ── Build embedded dependencies ────────────────────────────────────────
 # The CLI embeds the upstream Chromium snapshot bundle + packed extension via
-# build.rs (guarded on its own fingerprint, so re-runs are no-ops).
+# build.rs (guarded on its own fingerprint, so re-runs are no-ops). The
+# objectiveai-api dep also embeds the claude-agent-sdk-runner and the
+# mcp-filesystem; their build.shes need to run from inside the objectiveai
+# workspace so cargo can resolve their package names.
 
 echo "Building embedded dependencies..."
 bash "$REPO_ROOT/psychological-operations-chromium/build.sh" --release
+bash "$REPO_ROOT/objectiveai/objectiveai-claude-agent-sdk-runner/build.sh" --release
+(cd "$REPO_ROOT/objectiveai" && bash objectiveai-mcp-filesystem/build.sh --target x86_64-unknown-linux-musl --release)
 
 # ── Build CLI ──────────────────────────────────────────────────────────
 
@@ -106,75 +115,13 @@ chmod +x "$INSTALL_DIR/$BIN_NAME"
 echo "$CURRENT_FP" > "$FINGERPRINT_FILE"
 echo "Installed $INSTALL_DIR/$BIN_NAME"
 
-# ── PATH ───────────────────────────────────────────────────────────────
-#
-# A child process can't mutate its parent shell's environment, so the
-# canonical pattern (rustup, etc.) is to write a sourceable env file.
-# Future shells pick it up via a one-liner appended to the user's rc;
-# the current shell sources it on demand.
-
-write_env_file() {
-  cat > "$INSTALL_DIR/env" <<'EOF'
-#!/bin/sh
-# psychological-operations shell setup. Source this file from your shell
-# rc, or run
-#   . "$HOME/.psychological-operations/env"
-# to put `psychological-operations` on PATH for the current shell.
-
-case ":${PATH}:" in
-    *:"$HOME/.psychological-operations":*) ;;
-    *) export PATH="$HOME/.psychological-operations:$PATH" ;;
-esac
-EOF
-}
-
-add_to_path() {
-  local shell_rc="$1"
-  local line='. "$HOME/.psychological-operations/env"'
-  if [ -f "$shell_rc" ] && grep -qF '.psychological-operations/env' "$shell_rc"; then
-    return
-  fi
-  echo "" >> "$shell_rc"
-  echo "# psychological-operations CLI" >> "$shell_rc"
-  echo "$line" >> "$shell_rc"
-  echo "Added to PATH in $shell_rc"
-}
-
-write_env_file
-
-case "$PLATFORM" in
-  windows)
-    INSTALL_DIR_WIN="$(cygpath -w "$INSTALL_DIR")"
-    CURRENT_PATH=$(powershell.exe -NoProfile -Command "[Environment]::GetEnvironmentVariable('Path', 'User')" 2>/dev/null | tr -d '\r')
-    if echo "$CURRENT_PATH" | grep -qiF '.psychological-operations'; then
-      echo "PATH already contains $INSTALL_DIR_WIN"
-    else
-      powershell.exe -NoProfile -Command \
-        "[Environment]::SetEnvironmentVariable('Path', '$INSTALL_DIR_WIN;' + [Environment]::GetEnvironmentVariable('Path', 'User'), 'User')" 2>/dev/null
-      echo "Added $INSTALL_DIR_WIN to user PATH (restart cmd/PowerShell to use it)."
-    fi
-    # Also wire up Git Bash / MSYS via the env file.
-    if [ -f "$HOME/.bashrc" ]; then
-      add_to_path "$HOME/.bashrc"
-    fi
-    ;;
-  macos)
-    add_to_path "$HOME/.zshrc"
-    ;;
-  linux)
-    if [ -f "$HOME/.bashrc" ]; then
-      add_to_path "$HOME/.bashrc"
-    fi
-    if [ -f "$HOME/.zshrc" ]; then
-      add_to_path "$HOME/.zshrc"
-    fi
-    ;;
-esac
+# No PATH wiring needed — users invoke via
+#   objectiveai psychological-operations <subcmd>
+# which objectiveai-cli dispatches to our binary by name lookup
+# under $HOME/.objectiveai/plugins/.
 
 echo ""
 echo "Done!"
 echo ""
-echo "To use psychological-operations in your current shell, run:"
-echo '  . "$HOME/.psychological-operations/env"'
-echo ""
-echo "(New shells will pick it up automatically.)"
+echo "Invoke via:"
+echo "  objectiveai psychological-operations --help"

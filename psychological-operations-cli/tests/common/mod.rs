@@ -242,6 +242,8 @@ fn copy_dir_recursive(src: &Path, dst: &Path) {
 }
 
 pub struct TestEnv {
+    #[allow(dead_code)]
+    pub base:   PathBuf,   // CONFIG_BASE_DIR for this test (gitignored)
     pub name:   String,
     pub dir:    PathBuf,   // runtime per-test base dir (gitignored)
     pub assets: PathBuf,   // tests/assets/<name>/ (committed)
@@ -268,23 +270,30 @@ impl TestEnv {
     /// as embedded repos).
     pub fn new(name: &str) -> Self {
         let _ = ensure_objectiveai_state_dir();
-        let dir = tests_dir().join(format!(".psychological-operations-{name}"));
-        let _ = std::fs::remove_dir_all(&dir);
+        // base_dir = the per-test CONFIG_BASE_DIR (acts as
+        // objectiveai's base too). Our state nests inside as
+        // `<base>/plugins/.psychological-operations/` per the
+        // plugin-conversion layout — matching Config::base_dir().
+        // Keep this prefix tight — Windows MAX_PATH (260) bites when
+        // git2 creates .git/ deep under
+        // `<base>/plugins/.psychological-operations/psyops/<name>/.git/...`.
+        let base = tests_dir().join(format!(".t-{name}"));
+        let state = base.join("plugins").join(".psychological-operations");
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&state).expect("create test state dir");
 
         let assets = assets_dir().join(name);
         let initial = assets.join(".psychological-operations");
         if initial.exists() {
-            copy_dir_recursive(&initial, &dir);
-        } else {
-            std::fs::create_dir_all(&dir).expect("create test dir");
+            copy_dir_recursive(&initial, &state);
         }
 
-        let psyops_dir = dir.join("psyops");
+        let psyops_dir = state.join("psyops");
         if psyops_dir.exists() {
             git_init_psyops(&psyops_dir);
         }
 
-        Self { name: name.into(), dir, assets }
+        Self { name: name.into(), dir: state, base, assets }
     }
 
     /// Build a `Command` for our CLI with the right env vars set
@@ -293,10 +302,8 @@ impl TestEnv {
     /// invocations produce byte-stable commit SHAs.
     pub fn cmd(&self) -> Command {
         let mut cmd = Command::new(psyops_binary());
-        cmd.env("PSYCHOLOGICAL_OPERATIONS_BASE_DIR",            &self.dir);
+        cmd.env("CONFIG_BASE_DIR",                              &self.base);
         cmd.env("PSYCHOLOGICAL_OPERATIONS_MOCK_X_API",          "true");
-        cmd.env("PSYCHOLOGICAL_OPERATIONS_OBJECTIVEAI_BINARY",  objectiveai_binary());
-        cmd.env("CONFIG_BASE_DIR",                              objectiveai_state_dir());
         cmd.env("PSYCHOLOGICAL_OPERATIONS_COMMIT_AUTHOR_NAME",  "psyops-test");
         cmd.env("PSYCHOLOGICAL_OPERATIONS_COMMIT_AUTHOR_EMAIL", "test@psyops.invalid");
         // Fixed epoch (2026-01-01 00:00:00 UTC). Combined with the
@@ -335,6 +342,6 @@ impl Drop for TestEnv {
             );
             return;
         }
-        let _ = std::fs::remove_dir_all(&self.dir);
+        let _ = std::fs::remove_dir_all(&self.base);
     }
 }
