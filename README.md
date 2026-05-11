@@ -1,5 +1,6 @@
 # psychological-operations
 
+> **Note:** This repo is being transformed into an `objectiveai` plugin rather than a standalone binary. It does not work at the moment.
 
 Teach X's [For You](https://x.com) algorithm to surface tweets that match a function you define. Each psyop is an X account paired with a multi-stage scoring pipeline; the run loop captures, scores, and likes/retweets on-target tweets, training the algorithm to surface more of the same. Scoring is powered by [ObjectiveAI](https://github.com/ObjectiveAI/objectiveai).
 
