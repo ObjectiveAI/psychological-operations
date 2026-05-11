@@ -2,10 +2,11 @@
 # Builds and installs psychological-operations as an objectiveai-cli plugin.
 #
 # - Builds psychological-operations-cli in release mode (skips if fingerprint unchanged)
-# - Drops the binary at $HOME/.objectiveai/plugins/ so the objectiveai-cli
-#   host can dispatch `objectiveai psychological-operations <subcmd>` to it.
-# - Our own state still lives at $HOME/.objectiveai/plugins/.psychological-operations/
-#   (data.db, psyops/, config.json, x_app.json, tokens/, …).
+# - Drops the binary at $HOME/.objectiveai/plugins/psychological-operations/plugin[.exe]
+#   so the objectiveai-cli host can dispatch
+#   `objectiveai psychological-operations <subcmd>` to it.
+# - State files (data.db, psyops/, config.json, x_app.json, tokens/, …)
+#   live alongside the binary in the same per-plugin subdir.
 #
 # Usage:
 #   bash psychological-operations-cli/install.sh
@@ -14,8 +15,10 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-# Install the binary into objectiveai-cli's plugin directory.
-INSTALL_DIR="$HOME/.objectiveai/plugins"
+# Per-plugin subdir under objectiveai-cli's plugins root. Matches the
+# layout objectiveai-cli's own `plugins install` command produces:
+# `<plugins>/<repository>/plugin[.exe]` + state files alongside.
+INSTALL_DIR="$HOME/.objectiveai/plugins/psychological-operations"
 
 # Detect platform
 case "$(uname -s)" in
@@ -24,10 +27,13 @@ case "$(uname -s)" in
   *)                    PLATFORM="linux"   ;;
 esac
 
+# Match upstream's install-binary naming convention.
 if [ "$PLATFORM" = "windows" ]; then
-  BIN_NAME="psychological-operations.exe"
+  DST_BIN_NAME="plugin.exe"
+  SRC_BIN_NAME="psychological-operations.exe"
 else
-  BIN_NAME="psychological-operations"
+  DST_BIN_NAME="plugin"
+  SRC_BIN_NAME="psychological-operations"
 fi
 
 # ── Fingerprint ────────────────────────────────────────────────────────
@@ -75,7 +81,7 @@ CURRENT_FP=$(compute_fingerprint)
 
 if [ -f "$FINGERPRINT_FILE" ]; then
   STORED_FP=$(cat "$FINGERPRINT_FILE")
-  if [ "$CURRENT_FP" = "$STORED_FP" ] && [ -f "$INSTALL_DIR/$BIN_NAME" ]; then
+  if [ "$CURRENT_FP" = "$STORED_FP" ] && [ -f "$INSTALL_DIR/$DST_BIN_NAME" ]; then
     echo "psychological-operations is up to date (fingerprint: ${CURRENT_FP:0:12}...)"
     exit 0
   fi
@@ -99,7 +105,7 @@ echo "Building psychological-operations-cli (release)..."
 cargo build --release -p psychological-operations-cli \
   --manifest-path "$REPO_ROOT/Cargo.toml"
 
-SRC="$REPO_ROOT/target/release/$BIN_NAME"
+SRC="$REPO_ROOT/target/release/$SRC_BIN_NAME"
 if [ ! -f "$SRC" ]; then
   echo "ERROR: expected binary at $SRC" >&2
   exit 1
@@ -110,10 +116,10 @@ fi
 mkdir -p "$INSTALL_DIR"
 # `mv` onto a running Windows exe fails ("in use"); prefer `cp` so a
 # later install over an in-use binary degrades to a clearer error.
-cp "$SRC" "$INSTALL_DIR/$BIN_NAME"
-chmod +x "$INSTALL_DIR/$BIN_NAME"
+cp "$SRC" "$INSTALL_DIR/$DST_BIN_NAME"
+chmod +x "$INSTALL_DIR/$DST_BIN_NAME"
 echo "$CURRENT_FP" > "$FINGERPRINT_FILE"
-echo "Installed $INSTALL_DIR/$BIN_NAME"
+echo "Installed $INSTALL_DIR/$DST_BIN_NAME"
 
 # No PATH wiring needed — users invoke via
 #   objectiveai psychological-operations <subcmd>

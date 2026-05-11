@@ -278,7 +278,7 @@ impl TestEnv {
         // git2 creates .git/ deep under
         // `<base>/plugins/.psychological-operations/psyops/<name>/.git/...`.
         let base = tests_dir().join(format!(".t-{name}"));
-        let state = base.join("plugins").join(".psychological-operations");
+        let state = base.join("plugins").join("psychological-operations");
         let _ = std::fs::remove_dir_all(&base);
         std::fs::create_dir_all(&state).expect("create test state dir");
 

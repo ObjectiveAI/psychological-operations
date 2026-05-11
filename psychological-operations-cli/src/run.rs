@@ -124,15 +124,16 @@ impl Config {
     }
 
     /// Our state directory:
-    /// `<objectiveai_base>/plugins/.psychological-operations`.
+    /// `<objectiveai_base>/plugins/psychological-operations`.
     ///
-    /// Leading `.` so the objectiveai-cli plugin dispatcher (which
-    /// looks for bare files in `plugins/`) doesn't try to invoke
-    /// this dir as a plugin binary.
+    /// Matches objectiveai-cli's per-plugin subdir install layout
+    /// (`<plugins_dir>/<repository>/`). State files (data.db, psyops/,
+    /// config.json, x_app.json, tokens/, chromium profiles) live in
+    /// this dir alongside the installed binary.
     pub fn base_dir(&self) -> PathBuf {
         self.objectiveai_base_dir()
             .join("plugins")
-            .join(".psychological-operations")
+            .join("psychological-operations")
     }
 }
 

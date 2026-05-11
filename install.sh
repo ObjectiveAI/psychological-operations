@@ -1,22 +1,23 @@
 #!/usr/bin/env bash
 # psychological-operations plugin installer — downloads a pre-built release binary.
 #
-#   curl -fsSL https://raw.githubusercontent.com/WiggidyW/psychological-operations/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/ObjectiveAI/psychological-operations/main/install.sh | bash
 #
 # - Detects platform + architecture.
 # - Fetches the latest published release asset from GitHub and drops it
-#   at $HOME/.objectiveai/plugins/psychological-operations[.exe] so the
-#   objectiveai-cli host dispatches `objectiveai psychological-operations
-#   <subcmd>` to us.
-# - Our own state lives at $HOME/.objectiveai/plugins/.psychological-operations/.
+#   at $HOME/.objectiveai/plugins/psychological-operations/plugin[.exe]
+#   so the objectiveai-cli host dispatches
+#   `objectiveai psychological-operations <subcmd>` to us.
+# - State files (data.db, psyops/, x_app.json, …) live alongside the
+#   binary in the same per-plugin subdir.
 #
 # No toolchain required. For a from-source install, clone the repo and
 # run `psychological-operations-cli/install.sh` instead.
 
 set -euo pipefail
 
-REPO="WiggidyW/psychological-operations"
-INSTALL_DIR="$HOME/.objectiveai/plugins"
+REPO="ObjectiveAI/psychological-operations"
+INSTALL_DIR="$HOME/.objectiveai/plugins/psychological-operations"
 
 for arg in "$@"; do
   case "$arg" in
@@ -70,9 +71,9 @@ fi
 ASSET="psychological-operations-${PLATFORM}-${ARCH}"
 if [ "$PLATFORM" = "windows" ]; then
   ASSET="${ASSET}.exe"
-  DST_NAME="psychological-operations.exe"
+  DST_NAME="plugin.exe"
 else
-  DST_NAME="psychological-operations"
+  DST_NAME="plugin"
 fi
 
 URL="https://github.com/${REPO}/releases/latest/download/${ASSET}"
