@@ -2,7 +2,7 @@
   "description": "Teach X's For You algorithm to surface tweets that match a function you define.",
   "version": "0.99.0",
   "author": "ObjectiveAI",
-  "homepage": "https://github.com/WiggidyW/psychological-operations",
+  "homepage": "https://github.com/ObjectiveAI/psychological-operations",
   "license": "MIT",
   "binaries": {
     "linux-x86_64": "psychological-operations-linux-x86_64",
