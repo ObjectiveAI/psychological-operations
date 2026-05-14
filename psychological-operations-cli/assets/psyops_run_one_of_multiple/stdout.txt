@@ -1,9 +1,17 @@
 {"type":"begin"}
-{"type":"notification","value":{"event":"stage_0_begin"}}
+{"type":"notification","value":{"event":"filter_complete","psyop":"target-psyop","accepted":0,"min_posts":2,"max_posts":10}}
+{"type":"notification","value":{"event":"query_complete","psyop":"target-psyop","query":"target only","count":4}}
+{"type":"notification","value":{"event":"filter_complete","psyop":"target-psyop","accepted":4,"min_posts":2,"max_posts":10}}
+{"type":"notification","value":{"event":"posts_hydrated","psyop":"target-psyop","count":4}}
+{"type":"notification","value":{"event":"stage_begin","stage":0}}
+{"type":"notification","value":{"event":"scoring_started","count":4}}
 {"type":"notification","value":{"log_stream_ready":"<id>"}}
-{"type":"notification","value":{"event":"stage_0_end"}}
-{"type":"notification","value":"0.5000 - https://x.com/mockuser_7cf284f819227bb0/status/1903404806175488944"}
-{"type":"notification","value":"0.5000 - https://x.com/mockuser_29be9e97fac2e197/status/1908015976714396055"}
-{"type":"notification","value":"0.5000 - https://x.com/mockuser_568c1e05692de75c/status/1936392592589580124"}
-{"type":"notification","value":"0.5000 - https://x.com/mockuser_c31c4d83866320f1/status/1959197364034543857"}
+{"type":"notification","value":{"event":"stage_end","stage":0}}
+{"type":"notification","value":{"event":"scoring_complete","psyop":"target-psyop","scored":4,"survivors":4,"stages":1}}
+{"type":"notification","value":{"event":"contents_dropped","psyop":"target-psyop","count":0}}
+{"type":"notification","value":{"event":"target_delivered","transport":"stdout","mode":"urls_with_scores","score":0.5,"url":"https://x.com/mockuser_7cf284f819227bb0/status/1903404806175488944"}}
+{"type":"notification","value":{"event":"target_delivered","transport":"stdout","mode":"urls_with_scores","score":0.5,"url":"https://x.com/mockuser_29be9e97fac2e197/status/1908015976714396055"}}
+{"type":"notification","value":{"event":"target_delivered","transport":"stdout","mode":"urls_with_scores","score":0.5,"url":"https://x.com/mockuser_568c1e05692de75c/status/1936392592589580124"}}
+{"type":"notification","value":{"event":"target_delivered","transport":"stdout","mode":"urls_with_scores","score":0.5,"url":"https://x.com/mockuser_c31c4d83866320f1/status/1959197364034543857"}}
+{"type":"notification","value":{"event":"delivery_complete","psyop":"target-psyop","delivered":2,"pending":2,"failed":0}}
 {"type":"end"}

@@ -47,23 +47,24 @@ pub async fn run(cfg: &crate::run::Config) -> Result<crate::Output, Error> {
         Error::Other(format!("failed to spawn chromium for x_app setup: {e}"))
     })?;
 
-    eprintln!(
-        "psychological-operations: spawned chromium (pid {}) for x_app setup",
-        child.id(),
-    );
-    eprintln!("  profile: {}", profile.display());
-    eprintln!("  - sign into your X account if prompted, then on console.x.com");
-    eprintln!("    create a Project + App and provision credits.");
-    eprintln!("  - on \"User authentication settings\": set up as a Web App with");
-    eprintln!("    \"Read and write\" permissions and register");
-    eprintln!("    `http://127.0.0.1/callback` (host only, no port) as a");
-    eprintln!("    Callback URI. Required for `psyops oauth <name>`.");
-    eprintln!("  - paste the OAuth 2.0 Client ID + Client Secret (from User");
-    eprintln!("    authentication settings) and the Bearer Token (from Keys");
-    eprintln!("    and Tokens) into the extension popup form. Click Save.");
-    eprintln!("    NOTE: do NOT paste the Consumer Key / Secret Key from the");
-    eprintln!("    Keys and Tokens page — those are OAuth 1.0a, unused here.");
-    eprintln!("  - this profile persists; future runs reuse the session.");
+    crate::emit::emit(crate::events::Event::XAppSetupInstructions {
+        profile: profile.display().to_string(),
+        child_pid: child.id(),
+        instructions: "\
+            - sign into your X account if prompted, then on console.x.com \
+              create a Project + App and provision credits.\n\
+            - on \"User authentication settings\": set up as a Web App with \
+              \"Read and write\" permissions and register \
+              `http://127.0.0.1/callback` (host only, no port) as a \
+              Callback URI. Required for `psyops oauth <name>`.\n\
+            - paste the OAuth 2.0 Client ID + Client Secret (from User \
+              authentication settings) and the Bearer Token (from Keys \
+              and Tokens) into the extension popup form. Click Save. \
+              NOTE: do NOT paste the Consumer Key / Secret Key from the \
+              Keys and Tokens page - those are OAuth 1.0a, unused here.\n\
+            - this profile persists; future runs reuse the session."
+            .to_string(),
+    });
 
     Ok(crate::Output::Empty)
 }

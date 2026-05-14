@@ -1,8 +1,0 @@
-psyop "test-psyop": 0 accepted / 2 min_posts / 10 max_posts
-psyop "test-psyop": query "x target test" returned 4 tweets
-psyop "test-psyop": 4 accepted / 2 min_posts / 10 max_posts
-psyop "test-psyop": 4 posts hydrated and entering scoring
-Scoring 4 posts...
-psyop "test-psyop": scored 4 posts (4 survived all 1 stages)
-psyop "test-psyop": dropped 0 contents row(s) post-scoring
-psyop "test-psyop": delivered 1 of 1 pending (0 failed)

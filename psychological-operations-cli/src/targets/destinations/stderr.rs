@@ -1,7 +1,12 @@
 use serde::{Deserialize, Serialize};
 
-use super::{json_body, Subject};
+use crate::events::Transport;
+use super::Subject;
 
+/// Mirror of [`super::stdout::Mode`]. Kept as its own type so config
+/// serialization stays distinct (`{"type":"stderr","mode":…}` vs
+/// `{"type":"stdout",…}`), but the actual delivery logic shares
+/// [`super::stdout::deliver`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Mode {
@@ -16,23 +21,14 @@ pub struct Stderr {
 }
 
 pub async fn send(cfg: &Stderr, subject: &Subject<'_>) -> Result<(), crate::error::Error> {
-    match cfg.mode {
-        Mode::Urls => {
-            let (_, lines) = json_body::lines(subject);
-            for (_, url) in lines {
-                eprintln!("{url}");
-            }
-        }
-        Mode::UrlsWithScores => {
-            let (_, lines) = json_body::lines(subject);
-            for (label, url) in lines {
-                eprintln!("{label} - {url}");
-            }
-        }
-        Mode::Json => {
-            let body = json_body::build(subject);
-            eprintln!("{}", serde_json::to_string(&body)?);
-        }
-    }
-    Ok(())
+    // Reuse stdout::deliver — only the `transport` discriminator on the
+    // emitted `Event::TargetDelivered` differs.
+    let mirror = super::stdout::Stdout {
+        mode: match cfg.mode {
+            Mode::Urls => super::stdout::Mode::Urls,
+            Mode::UrlsWithScores => super::stdout::Mode::UrlsWithScores,
+            Mode::Json => super::stdout::Mode::Json,
+        },
+    };
+    super::stdout::deliver(&mirror, subject, Transport::Stderr)
 }

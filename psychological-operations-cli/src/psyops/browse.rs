@@ -13,10 +13,9 @@ pub async fn run(
     cfg: &crate::run::Config,
 ) -> Result<crate::Output, Error> {
     let materialized = ensure_extracted(cfg)?;
-    eprintln!(
-        "psyops browse: chromium materialized at {}",
-        materialized.root.display(),
-    );
+    crate::emit::emit(crate::events::Event::BrowseChromiumMaterialized {
+        path: materialized.root.display().to_string(),
+    });
 
     let names = match name_filter {
         Some(n) => {
@@ -35,21 +34,23 @@ pub async fn run(
     };
 
     if names.is_empty() {
-        eprintln!("psyops browse: no psyops on disk");
+        crate::emit::emit(crate::events::Event::BrowseNoPsyops);
         return Ok(crate::Output::Empty);
     }
 
-    eprintln!("psyops browse: {} psyop(s) to step through", names.len());
+    crate::emit::emit(crate::events::Event::BrowsePsyopList { count: names.len() });
     for (i, name) in names.iter().enumerate() {
         let commit = match (name_filter, commit_filter) {
             (Some(_), Some(c)) => c.to_string(),
             _ => derive_commit(name, cfg)?,
         };
 
-        eprintln!(
-            "\n[{}/{}] psyop \"{name}\" @ {commit} — close chromium when done",
-            i + 1, names.len(),
-        );
+        crate::emit::emit(crate::events::Event::BrowseStarting {
+            psyop: name.to_string(),
+            commit: commit.clone(),
+            index: i + 1,
+            total: names.len(),
+        });
 
         let profile = profile_dir(name, cfg);
         std::fs::create_dir_all(&profile)?;
@@ -69,7 +70,10 @@ pub async fn run(
         let status = child.wait().map_err(|e| {
             Error::Other(format!("waiting for chromium ({name}) failed: {e}"))
         })?;
-        eprintln!("psyops browse: chromium for \"{name}\" exited (status: {status})");
+        crate::emit::emit(crate::events::Event::BrowseChromiumExit {
+            psyop: name.to_string(),
+            status: status.code(),
+        });
     }
 
     Ok(crate::Output::Empty)

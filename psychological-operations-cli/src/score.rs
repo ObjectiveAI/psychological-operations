@@ -297,13 +297,11 @@ fn run_function_execution(
     let execution = &value["execution"];
     let errors = execution.get("errors").and_then(|e| e.as_array()).cloned().unwrap_or_default();
     if !errors.is_empty() {
-        // Silent fallback to a uniform prior. Keep the message
-        // byte-stable across runs by omitting any per-execution IDs.
-        eprintln!(
-            "warning: objectiveai execution reported {} task error(s) \
-             — output may be a fallback",
-            errors.len(),
-        );
+        // Silent fallback to a uniform prior — surface as a Warn so
+        // consumers see it but execution continues.
+        crate::emit::emit(crate::events::Event::ObjectiveaiTaskErrors {
+            count: errors.len(),
+        });
     }
     let inner = execution.get("output").cloned().ok_or_else(|| {
         crate::error::Error::ObjectiveAiCli(
@@ -321,7 +319,9 @@ pub fn score(stage: &Stage, posts: Vec<Post>, seed: Option<i64>, cfg: &crate::ru
         .map(|p| ScoredPost { post: p, score: 0.0 })
         .collect();
 
-    eprintln!("Scoring {} posts...", scored.len());
+    crate::emit::emit(crate::events::Event::ScoringStarted {
+        count: scored.len(),
+    });
 
     let function = resolve_function(&stage.function, cfg)?;
     let is_vector = is_vector_function(&function);

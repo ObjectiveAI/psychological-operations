@@ -95,7 +95,7 @@ pub async fn drain_queue(
             Ok(d) => d,
             Err(e) => {
                 let msg = format!("malformed target_json: {e}");
-                eprintln!("delivery #{} failed: {msg}", row.id);
+                crate::emit::emit(crate::events::Event::DeliveryFailed { delivery_id: row.id, reason: msg.clone() });
                 db.bump_delivery_attempt(row.id, &msg)?;
                 failed += 1;
                 continue;
@@ -105,7 +105,7 @@ pub async fn drain_queue(
             Ok(v) => v,
             Err(e) => {
                 let msg = format!("malformed post_ids_json: {e}");
-                eprintln!("delivery #{} failed: {msg}", row.id);
+                crate::emit::emit(crate::events::Event::DeliveryFailed { delivery_id: row.id, reason: msg.clone() });
                 db.bump_delivery_attempt(row.id, &msg)?;
                 failed += 1;
                 continue;
@@ -119,7 +119,7 @@ pub async fn drain_queue(
             Ok(p) => p,
             Err(e) => {
                 let msg = format!("psyop load at {} failed: {e}", row.psyop_commit_sha);
-                eprintln!("delivery #{} failed: {msg}", row.id);
+                crate::emit::emit(crate::events::Event::DeliveryFailed { delivery_id: row.id, reason: msg.clone() });
                 db.bump_delivery_attempt(row.id, &msg)?;
                 failed += 1;
                 continue;
@@ -162,7 +162,7 @@ pub async fn drain_queue(
             }
             Err(e) => {
                 let msg = e.to_string();
-                eprintln!("delivery #{} failed: {msg}", row.id);
+                crate::emit::emit(crate::events::Event::DeliveryFailed { delivery_id: row.id, reason: msg.clone() });
                 db.bump_delivery_attempt(row.id, &msg)?;
                 failed += 1;
             }

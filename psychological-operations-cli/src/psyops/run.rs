@@ -93,12 +93,12 @@ pub async fn run_psyop(
 
         // 3. Filter with priority resolution.
         let accepted = filter_with_priority(&psyop, entries)?;
-        eprintln!(
-            "psyop \"{name}\": {} accepted / {} min_posts / {} max_posts",
-            accepted.len(),
-            psyop.min_posts,
-            psyop.max_posts,
-        );
+        crate::emit::emit(crate::events::Event::FilterComplete {
+            psyop: name.to_string(),
+            accepted: accepted.len(),
+            min_posts: psyop.min_posts,
+            max_posts: psyop.max_posts,
+        });
 
         // 4. Eligibility — run queries if we're short.
         if (accepted.len() as u64) < psyop.min_posts {
@@ -142,9 +142,10 @@ pub async fn run_psyop(
         // 9. Reap content for every post under (name, commit), scored
         //    or not.
         let dropped = db.drop_psyop_contents(name, &commit)?;
-        eprintln!(
-            "psyop \"{name}\": dropped {dropped} contents row(s) post-scoring",
-        );
+        crate::emit::emit(crate::events::Event::ContentsDropped {
+            psyop: name.to_string(),
+            count: dropped,
+        });
 
         // 10. Enqueue a delivery_queue row per (target, survivors).
         if !result.survivors.is_empty() {
@@ -170,10 +171,12 @@ pub async fn run_psyop(
 
         // 11. Drain the queue (filtered to this psyop).
         let summary = crate::targets::drain_queue(&db, Some(name), cfg).await?;
-        eprintln!(
-            "psyop \"{name}\": delivered {} of {} pending ({} failed)",
-            summary.delivered, summary.pending, summary.failed,
-        );
+        crate::emit::emit(crate::events::Event::DeliveryComplete {
+            psyop: name.to_string(),
+            delivered: summary.delivered as usize,
+            pending: summary.pending as usize,
+            failed: summary.failed as usize,
+        });
 
         return Ok(crate::Output::Empty);
     }
@@ -220,10 +223,10 @@ fn score_pipeline(
         })
         .collect();
 
-    eprintln!(
-        "psyop \"{name}\": {} posts hydrated and entering scoring",
-        current.len(),
-    );
+    crate::emit::emit(crate::events::Event::PostsHydrated {
+        psyop: name.to_string(),
+        count: current.len(),
+    });
 
     // Each post's score = the LAST stage that scored it. Survivors
     // of every stage end up with the final stage's score; posts
@@ -233,20 +236,20 @@ fn score_pipeline(
 
     for (i, stage) in psyop.stages.iter().enumerate() {
         if current.is_empty() {
-            eprintln!(
-                "psyop \"{name}\": stage {} has no posts to score; stopping pipeline",
-                i,
-            );
+            crate::emit::emit(crate::events::Event::StageEmpty {
+                psyop: name.to_string(),
+                stage: i,
+            });
             break;
         }
 
         // Bracket each stage with marker notifications so consumers
         // can see exactly where one stage ends and the next begins in
         // the JSONL stream. Snapshot wire shape (after host re-wrap):
-        //   {"type":"notification","value":{"event":"stage_<N>_begin"}}
+        //   {"type":"notification","value":{"event":"stage_begin","stage":N}}
         //   …per-stage scoring notifications…
-        //   {"type":"notification","value":{"event":"stage_<N>_end"}}
-        crate::emit::emit_event(&format!("stage_{i}_begin"));
+        //   {"type":"notification","value":{"event":"stage_end","stage":N}}
+        crate::emit::emit(crate::events::Event::StageBegin { stage: i });
 
         let scored: Vec<ScoredPost> = score::score(stage, current, seed, cfg)?;
         for s in &scored {
@@ -271,15 +274,15 @@ fn score_pipeline(
         survivors = after_top.clone();
         current = after_top.into_iter().map(|s| s.post).collect();
 
-        crate::emit::emit_event(&format!("stage_{i}_end"));
+        crate::emit::emit(crate::events::Event::StageEnd { stage: i });
     }
 
-    eprintln!(
-        "psyop \"{name}\": scored {} posts ({} survived all {} stages)",
-        last_scores.len(),
-        survivors.len(),
-        psyop.stages.len(),
-    );
+    crate::emit::emit(crate::events::Event::ScoringComplete {
+        psyop: name.to_string(),
+        scored: last_scores.len(),
+        survivors: survivors.len(),
+        stages: psyop.stages.len(),
+    });
     Ok(ScoreResult { last_scores, survivors })
 }
 
@@ -295,10 +298,10 @@ async fn hydrate_for_you(
     if queued.is_empty() {
         return Ok(());
     }
-    eprintln!(
-        "psyop \"{name}\": hydrating {} for_you_queue entries",
-        queued.len(),
-    );
+    crate::emit::emit(crate::events::Event::HydratingQueue {
+        psyop: name.to_string(),
+        count: queued.len(),
+    });
     let mut succeeded: Vec<String> = Vec::new();
     for id in queued {
         match fetch_tweet(http, &id).await {
@@ -307,11 +310,18 @@ async fn hydrate_for_you(
                 succeeded.push(id);
             }
             Ok(None) => {
-                eprintln!("psyop \"{name}\": tweet id {id} not found, dropping from queue");
+                crate::emit::emit(crate::events::Event::TweetNotFound {
+                    psyop: name.to_string(),
+                    tweet_id: id.clone(),
+                });
                 succeeded.push(id);   // unrecoverable — don't keep retrying
             }
             Err(e) => {
-                eprintln!("psyop \"{name}\": fetch failed for id {id}: {e}");
+                crate::emit::emit(crate::events::Event::TweetFetchFailed {
+                    psyop: name.to_string(),
+                    tweet_id: id,
+                    error: e.to_string(),
+                });
                 // leave in queue for next round
             }
         }
@@ -421,18 +431,30 @@ async fn run_queries(
         if !matches!(q.endpoint, SearchEndpoint::Recent) {
             // `/2/tweets/search/all` is Pro/Enterprise only and not wired up
             // yet — skip with a notice.
-            eprintln!("psyop \"{name}\": skipping query (endpoint != Recent): {}", q.query);
+            crate::emit::emit(crate::events::Event::QuerySkipped {
+                psyop: name.to_string(),
+                query: q.query.clone(),
+                reason: "endpoint_not_recent".to_string(),
+            });
             continue;
         }
         match search_recent(http, &q.query).await {
             Ok(posts) => {
-                eprintln!("psyop \"{name}\": query \"{}\" returned {} tweets", q.query, posts.len());
+                crate::emit::emit(crate::events::Event::QueryComplete {
+                    psyop: name.to_string(),
+                    query: q.query.clone(),
+                    count: posts.len(),
+                });
                 for p in posts {
                     db.insert_post(&p, name, commit, &Origin::Query(q.query.clone()))?;
                 }
             }
             Err(e) => {
-                eprintln!("psyop \"{name}\": query \"{}\" failed: {e}", q.query);
+                crate::emit::emit(crate::events::Event::QueryFailed {
+                    psyop: name.to_string(),
+                    query: q.query.clone(),
+                    error: e.to_string(),
+                });
             }
         }
     }

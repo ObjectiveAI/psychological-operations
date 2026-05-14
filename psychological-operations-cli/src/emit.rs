@@ -32,14 +32,19 @@ pub fn emit_notification(value: Value) {
     println!("{line}");
 }
 
-/// Emit a lifecycle marker (`stage_<N>_begin` / `stage_<N>_end`, etc.).
+/// Emit a typed `Event` through the right `PluginOutput` variant.
 ///
-/// Lands in snapshots as
-/// `{"type":"notification","value":{"event":"<name>"}}`. We use the
-/// `event` key rather than `type` because PluginOutput's discriminator
-/// already lives at that name — having both collides on the wire.
-pub fn emit_event(name: &str) {
-    emit_notification(serde_json::json!({ "event": name }));
+/// Variants tagged as failures by [`Event::error_level`] go through
+/// `emit_error(level, fatal=false, …)`; everything else goes through
+/// `emit_notification`. Either way the serialized value carries the
+/// `event` discriminator + per-variant fields, so consumers see a
+/// uniform shape regardless of the wire variant chosen.
+pub fn emit(event: crate::events::Event) {
+    let value = serde_json::to_value(&event).expect("Event serializes");
+    match event.error_level() {
+        Some(level) => emit_error(level, /* fatal */ false, value),
+        None        => emit_notification(value),
+    }
 }
 
 /// Emit a `PluginOutput::Error` line. Caller decides whether to also

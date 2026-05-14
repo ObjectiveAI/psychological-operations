@@ -1,8 +1,16 @@
 {"type":"begin"}
-{"type":"notification","value":{"event":"stage_0_begin"}}
+{"type":"notification","value":{"event":"filter_complete","psyop":"test-psyop","accepted":0,"min_posts":2,"max_posts":10}}
+{"type":"notification","value":{"event":"query_complete","psyop":"test-psyop","query":"stdout target test","count":3}}
+{"type":"notification","value":{"event":"filter_complete","psyop":"test-psyop","accepted":3,"min_posts":2,"max_posts":10}}
+{"type":"notification","value":{"event":"posts_hydrated","psyop":"test-psyop","count":3}}
+{"type":"notification","value":{"event":"stage_begin","stage":0}}
+{"type":"notification","value":{"event":"scoring_started","count":3}}
 {"type":"notification","value":{"log_stream_ready":"<id>"}}
-{"type":"notification","value":{"event":"stage_0_end"}}
-{"type":"notification","value":"0.5000 - https://x.com/mockuser_54eae9bef8812676/status/1918960050158511734"}
-{"type":"notification","value":"0.5000 - https://x.com/mockuser_6439be9670077b8b/status/1922013030799211403"}
-{"type":"notification","value":"0.5000 - https://x.com/mockuser_43b364f5a83b0feb/status/1978353827624587243"}
+{"type":"notification","value":{"event":"stage_end","stage":0}}
+{"type":"notification","value":{"event":"scoring_complete","psyop":"test-psyop","scored":3,"survivors":3,"stages":1}}
+{"type":"notification","value":{"event":"contents_dropped","psyop":"test-psyop","count":0}}
+{"type":"notification","value":{"event":"target_delivered","transport":"stdout","mode":"urls_with_scores","score":0.5,"url":"https://x.com/mockuser_54eae9bef8812676/status/1918960050158511734"}}
+{"type":"notification","value":{"event":"target_delivered","transport":"stdout","mode":"urls_with_scores","score":0.5,"url":"https://x.com/mockuser_6439be9670077b8b/status/1922013030799211403"}}
+{"type":"notification","value":{"event":"target_delivered","transport":"stdout","mode":"urls_with_scores","score":0.5,"url":"https://x.com/mockuser_43b364f5a83b0feb/status/1978353827624587243"}}
+{"type":"notification","value":{"event":"delivery_complete","psyop":"test-psyop","delivered":1,"pending":1,"failed":0}}
 {"type":"end"}

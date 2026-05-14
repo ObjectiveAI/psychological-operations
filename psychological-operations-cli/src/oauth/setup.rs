@@ -90,11 +90,11 @@ pub async fn run(psyop_name: &str, cfg: &crate::run::Config) -> Result<crate::Ou
         &authorize_url,
     )?;
 
-    eprintln!(
-        "psyop \"{psyop_name}\": waiting for authorization callback on \
-         127.0.0.1:{port} (timeout: {}s)",
-        CALLBACK_TIMEOUT.as_secs(),
-    );
+    crate::emit::emit(crate::events::Event::OauthListening {
+        psyop: psyop_name.to_string(),
+        port,
+        timeout_secs: CALLBACK_TIMEOUT.as_secs(),
+    });
 
     // Await the callback.
     let callback = callback_fut.await?;
@@ -123,10 +123,11 @@ pub async fn run(psyop_name: &str, cfg: &crate::run::Config) -> Result<crate::Ou
     ).await?;
 
     tokens::save(psyop_name, &tokens, cfg)?;
-    eprintln!(
-        "psyop \"{psyop_name}\": saved tokens (scope: {}, expires_at: {})",
-        tokens.scope, tokens.expires_at.to_rfc3339(),
-    );
+    crate::emit::emit(crate::events::Event::OauthTokensSaved {
+        psyop: psyop_name.to_string(),
+        scope: tokens.scope.clone(),
+        expires_at: tokens.expires_at.to_rfc3339(),
+    });
 
     Ok(crate::Output::Empty)
 }

@@ -46,9 +46,10 @@ pub fn spawn(
         .spawn()
         .map_err(|e| Error::Other(format!("failed to spawn chromium: {e}")))?;
 
-    eprintln!(
-        "psychological-operations: spawned chromium (pid {}) for psyop \"{psyop}\" @ {commit}",
-        child.id(),
-    );
+    crate::emit::emit(crate::events::Event::ChromiumSpawned {
+        psyop: psyop.to_string(),
+        commit: commit.to_string(),
+        pid: child.id(),
+    });
     Ok(child)
 }
