@@ -84,11 +84,7 @@ pub enum Event {
     },
 
     // ── target delivery ──────────────────────────────────────
-    TargetDelivered {
-        transport: Transport,
-        #[serde(flatten)]
-        body: TargetBody,
-    },
+    TargetDelivered { body: serde_json::Value },
 
     // ── error-flavored variants (routed through emit_error) ──
     ObjectiveaiTaskErrors { count: usize },
@@ -96,21 +92,6 @@ pub enum Event {
     TweetFetchFailed      { psyop: String, tweet_id: String, error: String },
     QueryFailed           { psyop: String, query: String, error: String },
     DeliveryFailed        { delivery_id: i64, reason: String },
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
-#[serde(rename_all = "snake_case")]
-pub enum Transport { Stdout, Stderr }
-
-/// Body of a `TargetDelivered` event, flattened into the parent
-/// so the wire is `…,"mode":"urls_with_scores","score":0.5,"url":…`
-/// rather than nested under another object.
-#[derive(Serialize, Deserialize, Debug, Clone)]
-#[serde(tag = "mode", rename_all = "snake_case")]
-pub enum TargetBody {
-    Urls           { url: String },
-    UrlsWithScores { score: f64, url: String },
-    Json           { body: serde_json::Value },
 }
 
 impl Event {

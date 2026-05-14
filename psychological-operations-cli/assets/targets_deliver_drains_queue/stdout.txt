@@ -1,6 +1,4 @@
 {"type":"begin"}
-{"type":"notification","value":{"event":"target_delivered","transport":"stdout","mode":"urls","url":"https://x.com/alice/status/1900000000000000111"}}
-{"type":"notification","value":{"event":"target_delivered","transport":"stdout","mode":"urls","url":"https://x.com/bob/status/1900000000000000222"}}
-{"type":"notification","value":{"event":"target_delivered","transport":"stdout","mode":"json","body":{"kind":"psyop","name":"test-psyop","results":[{"score":0.7531,"id":"1900000000000000111","handle":"alice","text":"","images":[],"videos":[],"created":"","url":"https://x.com/alice/status/1900000000000000111"},{"score":0.4218,"id":"1900000000000000222","handle":"bob","text":"","images":[],"videos":[],"created":"","url":"https://x.com/bob/status/1900000000000000222"}]}}}
-{"type":"notification","value":{"value":{"delivered":2,"failed":0}}}
+{"type":"notification","value":{"event":"target_delivered","body":{"kind":"psyop","name":"test-psyop","results":[{"score":0.7531,"id":"1900000000000000111","handle":"alice","text":"","images":[],"videos":[],"created":"","url":"https://x.com/alice/status/1900000000000000111"},{"score":0.4218,"id":"1900000000000000222","handle":"bob","text":"","images":[],"videos":[],"created":"","url":"https://x.com/bob/status/1900000000000000222"}]}}}
+{"type":"notification","value":{"value":{"delivered":1,"failed":0}}}
 {"type":"end"}

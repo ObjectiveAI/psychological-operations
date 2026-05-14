@@ -9,9 +9,6 @@
 {"type":"notification","value":{"event":"stage_end","stage":0}}
 {"type":"notification","value":{"event":"scoring_complete","psyop":"target-psyop","scored":4,"survivors":4,"stages":1}}
 {"type":"notification","value":{"event":"contents_dropped","psyop":"target-psyop","count":0}}
-{"type":"notification","value":{"event":"target_delivered","transport":"stdout","mode":"urls_with_scores","score":0.5,"url":"https://x.com/mockuser_7cf284f819227bb0/status/1903404806175488944"}}
-{"type":"notification","value":{"event":"target_delivered","transport":"stdout","mode":"urls_with_scores","score":0.5,"url":"https://x.com/mockuser_29be9e97fac2e197/status/1908015976714396055"}}
-{"type":"notification","value":{"event":"target_delivered","transport":"stdout","mode":"urls_with_scores","score":0.5,"url":"https://x.com/mockuser_568c1e05692de75c/status/1936392592589580124"}}
-{"type":"notification","value":{"event":"target_delivered","transport":"stdout","mode":"urls_with_scores","score":0.5,"url":"https://x.com/mockuser_c31c4d83866320f1/status/1959197364034543857"}}
+{"type":"notification","value":{"event":"target_delivered","body":{"kind":"psyop","name":"target-psyop","results":[{"score":0.5,"id":"1903404806175488944","handle":"mockuser_7cf284f819227bb0","text":"","images":[],"videos":[],"created":"","url":"https://x.com/mockuser_7cf284f819227bb0/status/1903404806175488944"},{"score":0.5,"id":"1908015976714396055","handle":"mockuser_29be9e97fac2e197","text":"","images":[],"videos":[],"created":"","url":"https://x.com/mockuser_29be9e97fac2e197/status/1908015976714396055"},{"score":0.5,"id":"1936392592589580124","handle":"mockuser_568c1e05692de75c","text":"","images":[],"videos":[],"created":"","url":"https://x.com/mockuser_568c1e05692de75c/status/1936392592589580124"},{"score":0.5,"id":"1959197364034543857","handle":"mockuser_c31c4d83866320f1","text":"","images":[],"videos":[],"created":"","url":"https://x.com/mockuser_c31c4d83866320f1/status/1959197364034543857"}]}}}
 {"type":"notification","value":{"event":"delivery_complete","psyop":"target-psyop","delivered":2,"failed":0}}
 {"type":"end"}

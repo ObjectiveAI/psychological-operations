@@ -120,13 +120,11 @@ fn default_initial_config() -> Config {
     Config {
         targets: vec![
             Destination::X(x::X { r#type: x::XType::Like }),
-            // urls_with_scores prints one
-            // `<score> — https://x.com/.../status/<id>` line per
-            // survivor — easy for a first-run user to eyeball
-            // what the run picked without rummaging in the DB.
-            Destination::Stdout(stdout::Stdout {
-                mode: stdout::Mode::UrlsWithScores,
-            }),
+            // Stdout emits one `Event::TargetDelivered` per drained
+            // delivery with the full `json_body`; consumers see the
+            // ranked survivors structured as JSON in the PluginOutput
+            // stream.
+            Destination::Stdout(stdout::Stdout::default()),
         ],
         psyops:  BTreeMap::new(),
     }

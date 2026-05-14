@@ -9,8 +9,6 @@
 {"type":"notification","value":{"event":"stage_end","stage":0}}
 {"type":"notification","value":{"event":"scoring_complete","psyop":"test-psyop","scored":3,"survivors":3,"stages":1}}
 {"type":"notification","value":{"event":"contents_dropped","psyop":"test-psyop","count":0}}
-{"type":"notification","value":{"event":"target_delivered","transport":"stdout","mode":"urls_with_scores","score":0.5,"url":"https://x.com/mockuser_434e74a593a389e1/status/1949942103219997153"}}
-{"type":"notification","value":{"event":"target_delivered","transport":"stdout","mode":"urls_with_scores","score":0.5,"url":"https://x.com/mockuser_754d6f5c653c91ae/status/1952534518270431662"}}
-{"type":"notification","value":{"event":"target_delivered","transport":"stdout","mode":"urls_with_scores","score":0.5,"url":"https://x.com/mockuser_aba1c77ba5f857d9/status/1967385385615513561"}}
+{"type":"notification","value":{"event":"target_delivered","body":{"kind":"psyop","name":"test-psyop","results":[{"score":0.5,"id":"1949942103219997153","handle":"mockuser_434e74a593a389e1","text":"","images":[],"videos":[],"created":"","url":"https://x.com/mockuser_434e74a593a389e1/status/1949942103219997153"},{"score":0.5,"id":"1952534518270431662","handle":"mockuser_754d6f5c653c91ae","text":"","images":[],"videos":[],"created":"","url":"https://x.com/mockuser_754d6f5c653c91ae/status/1952534518270431662"},{"score":0.5,"id":"1967385385615513561","handle":"mockuser_aba1c77ba5f857d9","text":"","images":[],"videos":[],"created":"","url":"https://x.com/mockuser_aba1c77ba5f857d9/status/1967385385615513561"}]}}}
 {"type":"notification","value":{"event":"delivery_complete","psyop":"test-psyop","delivered":2,"failed":0}}
 {"type":"end"}

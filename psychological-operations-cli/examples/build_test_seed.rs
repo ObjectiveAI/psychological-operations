@@ -198,17 +198,15 @@ fn build_targets_deliver_drains_queue() {
     // (no queries, just min_posts: 2 + a single mock stage), so we
     // can pin the SHA constant rather than recomputing.
     let post_ids_json = serde_json::to_string(&ids).expect("encode ids");
-    for target_json in [
-        r#"{"type":"stdout","mode":"urls"}"#,
-        r#"{"type":"stdout","mode":"json"}"#,
-    ] {
-        let _ = db.enqueue_delivery(
-            "test-psyop",
-            SHARED_PSYOP_COMMIT_SHA,
-            target_json,
-            &post_ids_json,
-        ).expect("enqueue_delivery");
-    }
+    // One stdout row — the destination is now mode-less, so there's
+    // no second variant to exercise. Drain produces exactly one
+    // `target_delivered` event with the full json_body.
+    let _ = db.enqueue_delivery(
+        "test-psyop",
+        SHARED_PSYOP_COMMIT_SHA,
+        r#"{"type":"stdout"}"#,
+        &post_ids_json,
+    ).expect("enqueue_delivery");
     eprintln!("wrote seed: {}", plugin_dir.join("data.db").display());
 }
 

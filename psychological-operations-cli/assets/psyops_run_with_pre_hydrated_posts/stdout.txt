@@ -7,7 +7,6 @@
 {"type":"notification","value":{"event":"stage_end","stage":0}}
 {"type":"notification","value":{"event":"scoring_complete","psyop":"test-psyop","scored":2,"survivors":2,"stages":1}}
 {"type":"notification","value":{"event":"contents_dropped","psyop":"test-psyop","count":0}}
-{"type":"notification","value":{"event":"target_delivered","transport":"stdout","mode":"urls_with_scores","score":0.5,"url":"https://x.com/alice/status/1910000000000000001"}}
-{"type":"notification","value":{"event":"target_delivered","transport":"stdout","mode":"urls_with_scores","score":0.5,"url":"https://x.com/bob/status/1910000000000000002"}}
+{"type":"notification","value":{"event":"target_delivered","body":{"kind":"psyop","name":"test-psyop","results":[{"score":0.5,"id":"1910000000000000001","handle":"alice","text":"","images":[],"videos":[],"created":"","url":"https://x.com/alice/status/1910000000000000001"},{"score":0.5,"id":"1910000000000000002","handle":"bob","text":"","images":[],"videos":[],"created":"","url":"https://x.com/bob/status/1910000000000000002"}]}}}
 {"type":"notification","value":{"event":"delivery_complete","psyop":"test-psyop","delivered":2,"failed":0}}
 {"type":"end"}

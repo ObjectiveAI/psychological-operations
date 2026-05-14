@@ -3,7 +3,6 @@ pub mod exec;
 pub mod file;
 pub mod http;
 pub mod json_body;
-pub mod stderr;
 pub mod stdout;
 pub mod telegram;
 pub mod websocket;
@@ -25,8 +24,6 @@ pub enum Destination {
     Http(http::Http),
     #[serde(rename = "stdout")]
     Stdout(stdout::Stdout),
-    #[serde(rename = "stderr")]
-    Stderr(stderr::Stderr),
     #[serde(rename = "file")]
     File(file::File),
     #[serde(rename = "exec")]
@@ -64,7 +61,6 @@ pub async fn send_one(
         Destination::Telegram { bot_token, chat_id } => telegram::send(bot_token, chat_id, subject).await,
         Destination::Http(cfg) => http::send(cfg, subject).await,
         Destination::Stdout(cfg) => stdout::send(cfg, subject).await,
-        Destination::Stderr(cfg) => stderr::send(cfg, subject).await,
         Destination::File(cfg) => file::send(cfg, subject).await,
         Destination::Exec(cfg) => exec::send(cfg, subject).await,
         Destination::WebSocket(cfg) => websocket::send(cfg, subject).await,
