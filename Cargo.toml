@@ -5,6 +5,3 @@ members = [
     "psychological-operations-mcp",
     "psychological-operations-chromium/crx-pack",
 ]
-exclude = [
-    "objectiveai",
-]
