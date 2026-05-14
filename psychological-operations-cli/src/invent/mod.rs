@@ -1,5 +1,5 @@
 use clap::{Args, Subcommand};
-use objectiveai::functions::inventions::{
+use objectiveai_sdk::functions::inventions::{
     ParamsState,
     state::{AlphaScalarState, AlphaVectorState, Params},
 };

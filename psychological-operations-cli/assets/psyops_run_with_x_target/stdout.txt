@@ -1,2 +1,5 @@
 {"type":"begin"}
+{"type":"notification","value":{"event":"stage_0_begin"}}
+{"type":"notification","value":{"log_stream_ready":"<id>"}}
+{"type":"notification","value":{"event":"stage_0_end"}}
 {"type":"end"}

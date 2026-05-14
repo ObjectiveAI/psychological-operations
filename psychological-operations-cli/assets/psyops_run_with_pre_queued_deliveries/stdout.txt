@@ -1,9 +1,12 @@
 {"type":"begin"}
+{"type":"notification","value":{"event":"stage_0_begin"}}
+{"type":"notification","value":{"log_stream_ready":"<id>"}}
+{"type":"notification","value":{"event":"stage_0_end"}}
 {"type":"notification","value":"https://x.com//status/1900000000000000111"}
 {"type":"notification","value":"https://x.com//status/1900000000000000222"}
-{"type":"notification","value":"0.0000 — https://x.com//status/1903406987036451522"}
-{"type":"notification","value":"0.0000 — https://x.com//status/1906632026254504392"}
-{"type":"notification","value":"0.0000 — https://x.com//status/1927205321167945926"}
-{"type":"notification","value":"0.0000 — https://x.com//status/1940845390324286270"}
-{"type":"notification","value":"0.0000 — https://x.com//status/1999174102579864426"}
+{"type":"notification","value":"0.5000 â https://x.com//status/1903406987036451522"}
+{"type":"notification","value":"0.5000 â https://x.com//status/1906632026254504392"}
+{"type":"notification","value":"0.5000 â https://x.com//status/1927205321167945926"}
+{"type":"notification","value":"0.5000 â https://x.com//status/1940845390324286270"}
+{"type":"notification","value":"0.5000 â https://x.com//status/1999174102579864426"}
 {"type":"end"}

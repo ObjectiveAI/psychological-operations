@@ -240,6 +240,14 @@ fn score_pipeline(
             break;
         }
 
+        // Bracket each stage with marker notifications so consumers
+        // can see exactly where one stage ends and the next begins in
+        // the JSONL stream. Snapshot wire shape (after host re-wrap):
+        //   {"type":"notification","value":{"event":"stage_<N>_begin"}}
+        //   …per-stage scoring notifications…
+        //   {"type":"notification","value":{"event":"stage_<N>_end"}}
+        crate::emit::emit_event(&format!("stage_{i}_begin"));
+
         let scored: Vec<ScoredPost> = score::score(stage, current, seed, cfg)?;
         for s in &scored {
             last_scores.insert(s.post.id.clone(), s.score);
@@ -262,6 +270,8 @@ fn score_pipeline(
 
         survivors = after_top.clone();
         current = after_top.into_iter().map(|s| s.post).collect();
+
+        crate::emit::emit_event(&format!("stage_{i}_end"));
     }
 
     eprintln!(

@@ -441,6 +441,31 @@ impl Db {
         Ok(out)
     }
 
+    /// Look up the persisted score for each `post_id`. Missing IDs
+    /// (not yet scored) come back as `0.0` — callers running through
+    /// the delivery queue will see this when scoring hasn't recorded
+    /// a row, which shouldn't happen in practice for posts that made
+    /// it to the queue.
+    pub fn get_scores(&self, ids: &[String]) -> Result<Vec<f64>, crate::error::Error> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let placeholders = vec!["?"; ids.len()].join(",");
+        let sql = format!(
+            "SELECT post_id, score FROM scores WHERE post_id IN ({placeholders})",
+        );
+        let params = rusqlite::params_from_iter(ids.iter());
+        let mut stmt = self.conn.prepare(&sql)?;
+        let mut rows = stmt.query(params)?;
+        let mut by_id: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+        while let Some(row) = rows.next()? {
+            let id: String = row.get(0)?;
+            let score: f64 = row.get(1)?;
+            by_id.insert(id, score);
+        }
+        Ok(ids.iter().map(|id| by_id.get(id).copied().unwrap_or(0.0)).collect())
+    }
+
     /// Upsert score rows keyed by `post_id` and drop the matching
     /// `contents` row in the same transaction — once a post has a
     /// score, its raw text/media is no longer needed. The (psyop,

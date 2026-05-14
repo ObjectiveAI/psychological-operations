@@ -1,5 +1,11 @@
 {"type":"begin"}
-{"type":"notification","value":"0.0000 — https://x.com//status/1915635282857829504"}
-{"type":"notification","value":"0.0000 — https://x.com//status/1960040951350466048"}
-{"type":"notification","value":"0.0000 — https://x.com//status/1982122356701243978"}
+{"type":"notification","value":{"event":"stage_0_begin"}}
+{"type":"notification","value":{"log_stream_ready":"<id>"}}
+{"type":"notification","value":{"event":"stage_0_end"}}
+{"type":"notification","value":{"event":"stage_1_begin"}}
+{"type":"notification","value":{"log_stream_ready":"<id>"}}
+{"type":"notification","value":{"event":"stage_1_end"}}
+{"type":"notification","value":"0.5000 â https://x.com//status/1915635282857829504"}
+{"type":"notification","value":"0.5000 â https://x.com//status/1960040951350466048"}
+{"type":"notification","value":"0.5000 â https://x.com//status/1982122356701243978"}
 {"type":"end"}

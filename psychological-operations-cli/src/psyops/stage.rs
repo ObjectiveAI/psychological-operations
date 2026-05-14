@@ -1,12 +1,12 @@
 use serde::{Deserialize, Serialize};
-use objectiveai::functions::{
+use objectiveai_sdk::functions::{
     FullInlineFunctionOrRemoteCommitOptional,
     FullInlineFunction,
     AlphaInlineFunction,
     InlineFunction,
     InlineProfileOrRemoteCommitOptional,
 };
-use objectiveai::functions::executions::request::Strategy;
+use objectiveai_sdk::functions::executions::request::Strategy;
 
 /// One ObjectiveAI scoring pass over the posts a psyop has assembled
 /// (or the surviving subset from the previous stage's output).

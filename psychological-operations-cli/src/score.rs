@@ -1,10 +1,10 @@
-use objectiveai::functions::{
+use objectiveai_sdk::functions::{
     FullInlineFunctionOrRemoteCommitOptional,
     FullInlineFunction,
     InlineProfileOrRemoteCommitOptional,
 };
-use objectiveai::functions::executions::request::Strategy;
-use objectiveai::RemotePathCommitOptional;
+use objectiveai_sdk::functions::executions::request::Strategy;
+use objectiveai_sdk::RemotePathCommitOptional;
 use serde::Deserialize;
 
 use crate::db::Post;
@@ -75,49 +75,112 @@ pub fn objectiveai_binary(_cfg: &crate::run::Config) -> std::path::PathBuf {
     PathBuf::from(name)
 }
 
-/// Scan a JSONL stdout stream and return the `value` of the LAST
-/// `notification` line whose `value` contains the requested top-level
-/// `key`. The post-2.0.4 objectiveai CLI emits multiple notifications
-/// per command: incremental progress (e.g. `log_stream_ready`) plus
-/// the final terminal payload (e.g. `execution`, `function`,
-/// `instructions`). Picking by key lets each caller wait for its
-/// specific terminal notification.
+/// Spawn an objectiveai CLI subprocess, stream its stdout line-by-line
+/// to **our** stdout (so the host upstream of us sees every progress
+/// notification the inner CLI emits), and return the `value` payload of
+/// the first `notification` whose `value` carries the requested
+/// `terminal_key` top-level field.
 ///
-/// An `error` line short-circuits with the host's error message
-/// regardless of position.
-fn parse_notification_value(stdout: &str, key: &str) -> Result<serde_json::Value, crate::error::Error> {
-    let mut last_match: Option<serde_json::Value> = None;
-    for line in stdout.lines() {
-        let line = line.trim();
-        if line.is_empty() { continue; }
-        let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {
-            continue; // skip non-JSON noise (warnings, panics)
-        };
-        match v.get("type").and_then(|t| t.as_str()) {
-            Some("notification") => {
-                if let Some(value) = v.get("value") {
-                    if value.get(key).is_some() {
-                        last_match = Some(value.clone());
-                    }
+/// Forwarding rules:
+/// - `Output::Begin` / `Output::End` — DROPPED. The host already
+///   bookends our own stream; inner subprocess bookends would
+///   duplicate.
+/// - `Output::Notification(value)` where `value.<terminal_key>` is
+///   present — captured as the return value. Not forwarded (the caller
+///   uses it directly).
+/// - `Output::Notification(value)` otherwise — forwarded verbatim via
+///   `emit_notification` (e.g. `log_stream_ready`, streamed
+///   `inner_errors`).
+/// - `Output::Error(err)` — forwarded via `emit_error`. Fatal errors
+///   propagate as `Err(_)`.
+/// - Any line that fails to parse — forwarded as a raw-string
+///   notification so non-JSONL warnings still surface.
+fn run_objectiveai_subprocess<I, S>(
+    args: I,
+    terminal_key: &str,
+    cfg: &crate::run::Config,
+) -> Result<serde_json::Value, crate::error::Error>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<std::ffi::OsStr>,
+{
+    use std::io::{BufRead, BufReader};
+    use objectiveai_cli_sdk::output::{Notification as CliNotif, Output as CliOutput};
+
+    let mut child = std::process::Command::new(objectiveai_binary(cfg))
+        .args(args)
+        .stdin(std::process::Stdio::inherit())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::inherit())
+        .spawn()?;
+
+    let stdout = child.stdout.take().expect("piped stdout");
+    let reader = BufReader::new(stdout);
+
+    let mut terminal: Option<serde_json::Value> = None;
+
+    for line in reader.lines() {
+        let line = line.map_err(|e| crate::error::Error::ObjectiveAiCli(
+            format!("read subprocess stdout: {e}"),
+        ))?;
+        let trimmed = line.trim();
+        if trimmed.is_empty() { continue; }
+
+        match serde_json::from_str::<CliOutput<serde_json::Value>>(trimmed) {
+            Ok(CliOutput::Begin) | Ok(CliOutput::End) => {
+                // Inner bookends — drop. The host already wraps us.
+            }
+            Ok(CliOutput::Notification(CliNotif { value })) => {
+                let is_terminal = value.is_object()
+                    && value.get(terminal_key).is_some();
+                if is_terminal {
+                    terminal = Some(value);
+                } else if value.is_object() {
+                    crate::emit::emit_notification(value);
+                } else {
+                    // Non-object value (rare). Wrap so PluginOutput's
+                    // internal tagging can carry it.
+                    crate::emit::emit_notification(serde_json::json!({"value": value}));
                 }
             }
-            Some("error") => {
-                let msg = v.get("message").and_then(|m| m.as_str()).unwrap_or("(no message)");
-                return Err(crate::error::Error::ObjectiveAiCli(msg.to_string()));
+            Ok(CliOutput::Error(err)) => {
+                let fatal = err.fatal;
+                let message_for_err = err.message.clone();
+                crate::emit::emit_error(err.level, err.fatal, err.message);
+                if fatal {
+                    let _ = child.wait();
+                    let msg = message_for_err.as_str()
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| message_for_err.to_string());
+                    return Err(crate::error::Error::ObjectiveAiCli(msg));
+                }
             }
-            _ => {}
+            Err(_) => {
+                // Non-JSONL line (e.g. a stray warning). Forward
+                // visibly under a `raw` key so it's still in the
+                // stream.
+                crate::emit::emit_notification(serde_json::json!({"raw": trimmed}));
+            }
         }
     }
-    last_match.ok_or_else(|| crate::error::Error::ObjectiveAiCli(
-        format!("no `notification` with field `{key}` in CLI stdout: {stdout}"),
+
+    let status = child.wait()?;
+    if !status.success() && terminal.is_none() {
+        return Err(crate::error::Error::ObjectiveAiCli(
+            format!("subprocess exited non-zero with no `{terminal_key}` notification"),
+        ));
+    }
+
+    terminal.ok_or_else(|| crate::error::Error::ObjectiveAiCli(
+        format!("subprocess produced no `notification` carrying `{terminal_key}`"),
     ))
 }
 
 /// Fetch a remote function definition via the CLI and deserialize to inline.
 ///
-/// The CLI now wraps `functions get` output as:
-///   `{"type":"notification","value":{"function":<GetFunctionResponse>}}`
-/// where `GetFunctionResponse` flattens `RemotePath` (remote/owner/…)
+/// Terminal notification shape:
+///   `{"function": <GetFunctionResponse>}`
+/// `GetFunctionResponse` flattens `RemotePath` (remote/owner/…)
 /// alongside the function body (`type`, `description`, `input_schema`,
 /// `tasks`). We pluck the `function` field, drop the path metadata by
 /// deserializing as `FullInlineFunction` (serde ignores unknown fields),
@@ -125,18 +188,11 @@ fn parse_notification_value(stdout: &str, key: &str) -> Result<serde_json::Value
 /// `input_schema` keys without complaint.
 fn fetch_function(path: &RemotePathCommitOptional, cfg: &crate::run::Config) -> Result<FullInlineFunction, crate::error::Error> {
     let ref_str = format_remote_ref(path);
-    let output = std::process::Command::new(objectiveai_binary(cfg))
-        .args(["functions", "get", "--path", &ref_str])
-        .stdin(std::process::Stdio::inherit())
-        .stderr(std::process::Stdio::inherit())
-        .output()?;
-
-    if !output.status.success() {
-        return Err(crate::error::Error::ObjectiveAiCli("failed to fetch function".into()));
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let value = parse_notification_value(&stdout, "function")?;
+    let value = run_objectiveai_subprocess(
+        ["functions", "get", "--path", &ref_str],
+        "function",
+        cfg,
+    )?;
     let function_value = &value["function"];
     let function: FullInlineFunction = serde_json::from_value(function_value.clone())?;
     Ok(function)
@@ -158,18 +214,11 @@ fn resolve_function(function: &FullInlineFunctionOrRemoteCommitOptional, cfg: &c
 /// The markdown body ends with an `Instructions ID: <id>` line — extract
 /// that ID and return it.
 fn fetch_instructions_id(cfg: &crate::run::Config) -> Result<String, crate::error::Error> {
-    let output = std::process::Command::new(objectiveai_binary(cfg))
-        .args(["functions", "executions", "instructions", "get"])
-        .stdin(std::process::Stdio::inherit())
-        .stderr(std::process::Stdio::inherit())
-        .output()?;
-    if !output.status.success() {
-        return Err(crate::error::Error::ObjectiveAiCli(
-            format!("instructions get failed: {}", String::from_utf8_lossy(&output.stdout)),
-        ));
-    }
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let value = parse_notification_value(&stdout, "instructions")?;
+    let value = run_objectiveai_subprocess(
+        ["functions", "executions", "instructions", "get"],
+        "instructions",
+        cfg,
+    )?;
     let instructions = value["instructions"].as_str().ok_or_else(|| {
         crate::error::Error::ObjectiveAiCli(
             format!("instructions get notification `instructions` field is not a string: {value}"),
@@ -236,37 +285,20 @@ fn run_function_execution(
         args.push(s.to_string());
     }
 
-    let output = std::process::Command::new(objectiveai_binary(cfg))
-        .args(&args)
-        .stdin(std::process::Stdio::inherit())
-        .stderr(std::process::Stdio::inherit())
-        .output()?;
+    let value = run_objectiveai_subprocess(args, "execution", cfg)?;
 
-    if !output.status.success() {
-        return Err(crate::error::Error::ObjectiveAiCli(
-            String::from_utf8_lossy(&output.stdout).to_string(),
-        ));
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    // NOTE: we do NOT echo subprocess stdout — the host treats *our*
-    // stdout as a JSONL stream, and forwarding the inner CLI's JSONL
-    // verbatim would duplicate `begin`/`end` markers and confuse the
-    // host. Anything that needs to surface to the user goes through
-    // stderr or our own structured emit.
-
-    // Post-2.0.4 wire shape: the CLI emits multiple notifications per
-    // execution (progress markers like `log_stream_ready`, then the
-    // terminal `execution` payload). Pick the last one whose value
-    // carries `execution`. Wire:
-    //   {"type":"notification","value":{"execution":{"output":...,"errors":[...]}}}
-    let value = parse_notification_value(&stdout, "execution")?;
+    // Terminal notification wire (v2.0.5):
+    //   {"execution":{"output":<TaskOutputOwned>,"errors":[...]}}
+    // `TaskOutputOwned` (defined in
+    // `objectiveai-sdk-rs/src/functions/expression/params.rs`) is an
+    // untagged enum: scalar → number, vector → array, vectors →
+    // nested arrays, error → object. For our score path we expect an
+    // array (vector or split-scalar).
     let execution = &value["execution"];
     let errors = execution.get("errors").and_then(|e| e.as_array()).cloned().unwrap_or_default();
     if !errors.is_empty() {
-        // Mirror the previous warning behavior: silent fallback to a
-        // uniform prior. Keep the message byte-stable across runs by
-        // omitting any per-execution IDs.
+        // Silent fallback to a uniform prior. Keep the message
+        // byte-stable across runs by omitting any per-execution IDs.
         eprintln!(
             "warning: objectiveai execution reported {} task error(s) \
              — output may be a fallback",
@@ -308,10 +340,14 @@ pub fn score(stage: &Stage, posts: Vec<Post>, seed: Option<i64>, cfg: &crate::ru
     let result = run_function_execution(&function, &stage.profile, &stage.strategy, &input_json, split, stage.invert, seed, cfg)?;
 
     let scores: Vec<f64> = result.output.as_array()
-        .ok_or_else(|| crate::error::Error::Other("expected array output".into()))?
+        .ok_or_else(|| crate::error::Error::Other(
+            format!("expected array score output, got {}", result.output),
+        ))?
         .iter()
-        .map(|v| v.as_f64().unwrap_or(0.0))
-        .collect();
+        .map(|v| v.as_f64().ok_or_else(|| crate::error::Error::Other(
+            format!("expected numeric score, got {v}"),
+        )))
+        .collect::<Result<Vec<_>, _>>()?;
 
     if scores.len() != scored.len() {
         return Err(crate::error::Error::Other(

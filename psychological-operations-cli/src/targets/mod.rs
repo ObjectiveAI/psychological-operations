@@ -126,11 +126,14 @@ pub async fn drain_queue(
             }
         };
 
-        // Synthesize stub ScoredPosts from the queued IDs. Sufficient
-        // for the X destination (only reads post.id); body-rendering
-        // destinations will see empty text since `contents` is
-        // dropped after scoring.
-        let stubs: Vec<ScoredPost> = post_ids.iter().map(|id| ScoredPost {
+        // Synthesize stub ScoredPosts from the queued IDs. Score is
+        // loaded back from the persisted `scores` table so stdout
+        // delivery shows real numbers; the rest of the Post is stub
+        // (X destination only reads post.id, body-rendering
+        // destinations see empty text since `contents` is dropped
+        // after scoring).
+        let scores = db.get_scores(&post_ids)?;
+        let stubs: Vec<ScoredPost> = post_ids.iter().zip(scores.iter()).map(|(id, &score)| ScoredPost {
             post: Post {
                 id: id.clone(),
                 handle: String::new(),
@@ -140,7 +143,7 @@ pub async fn drain_queue(
                 created: String::new(),
                 likes: 0, retweets: 0, replies: 0, impressions: 0,
             },
-            score: 0.0,
+            score,
         }).collect();
         let stub_refs: Vec<&ScoredPost> = stubs.iter().collect();
         let subject = Subject::Psyop {

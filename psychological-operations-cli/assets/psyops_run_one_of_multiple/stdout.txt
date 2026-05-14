@@ -1,6 +1,9 @@
 {"type":"begin"}
-{"type":"notification","value":"0.0000 — https://x.com//status/1903404806175488944"}
-{"type":"notification","value":"0.0000 — https://x.com//status/1908015976714396055"}
-{"type":"notification","value":"0.0000 — https://x.com//status/1936392592589580124"}
-{"type":"notification","value":"0.0000 — https://x.com//status/1959197364034543857"}
+{"type":"notification","value":{"event":"stage_0_begin"}}
+{"type":"notification","value":{"log_stream_ready":"<id>"}}
+{"type":"notification","value":{"event":"stage_0_end"}}
+{"type":"notification","value":"0.5000 â https://x.com//status/1903404806175488944"}
+{"type":"notification","value":"0.5000 â https://x.com//status/1908015976714396055"}
+{"type":"notification","value":"0.5000 â https://x.com//status/1936392592589580124"}
+{"type":"notification","value":"0.5000 â https://x.com//status/1959197364034543857"}
 {"type":"end"}

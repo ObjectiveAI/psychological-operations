@@ -1,13 +1,13 @@
 use serde::Serialize;
 use indexmap::IndexMap;
-use objectiveai::functions::expression::{
+use objectiveai_sdk::functions::expression::{
     InputSchema, ObjectInputSchema, ObjectInputSchemaType,
     ArrayInputSchema, ArrayInputSchemaType,
     StringInputSchema, StringInputSchemaType,
     ImageInputSchema, ImageInputSchemaType,
     VideoInputSchema, VideoInputSchemaType,
 };
-use objectiveai::functions::alpha_vector::expression::VectorFunctionInputSchema;
+use objectiveai_sdk::functions::alpha_vector::expression::VectorFunctionInputSchema;
 use crate::db::{Post, MediaUrl};
 
 #[derive(Debug, Serialize)]

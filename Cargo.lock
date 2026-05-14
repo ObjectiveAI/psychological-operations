@@ -2201,8 +2201,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "objectiveai"
-version = "2.0.4"
+name = "objectiveai-cli-sdk"
+version = "2.0.5"
+dependencies = [
+ "indexmap",
+ "objectiveai-sdk",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "objectiveai-sdk"
+version = "2.0.5"
 dependencies = [
  "anyhow",
  "arbitrary",
@@ -2221,7 +2232,7 @@ dependencies = [
  "json-escape",
  "mime2ext",
  "mime_guess",
- "objectiveai-macros",
+ "objectiveai-sdk-macros",
  "rand 0.9.4",
  "regex",
  "rusqlite",
@@ -2240,19 +2251,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "objectiveai-cli-sdk"
-version = "2.0.4"
-dependencies = [
- "indexmap",
- "objectiveai",
- "serde",
- "serde_json",
- "tokio",
-]
-
-[[package]]
-name = "objectiveai-macros"
-version = "2.0.4"
+name = "objectiveai-sdk-macros"
+version = "2.0.5"
 
 [[package]]
 name = "once_cell"
@@ -2495,8 +2495,8 @@ dependencies = [
  "futures",
  "git2",
  "indexmap",
- "objectiveai",
  "objectiveai-cli-sdk",
+ "objectiveai-sdk",
  "rand 0.8.6",
  "reqwest",
  "rusqlite",
