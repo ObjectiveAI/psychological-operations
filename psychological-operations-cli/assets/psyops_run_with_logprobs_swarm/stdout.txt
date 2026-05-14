@@ -2,7 +2,7 @@
 {"type":"notification","value":{"event":"stage_0_begin"}}
 {"type":"notification","value":{"log_stream_ready":"<id>"}}
 {"type":"notification","value":{"event":"stage_0_end"}}
-{"type":"notification","value":"0.5173 â https://x.com//status/1974882017977645198"}
-{"type":"notification","value":"0.5014 â https://x.com//status/1960633268184688237"}
-{"type":"notification","value":"0.4027 â https://x.com//status/1907918347904407821"}
+{"type":"notification","value":"0.5173 - https://x.com/mockuser_4934253f71a7388e/status/1974882017977645198"}
+{"type":"notification","value":"0.5014 - https://x.com/mockuser_b96a812b746a266d/status/1960633268184688237"}
+{"type":"notification","value":"0.4027 - https://x.com/mockuser_f9e8fa53cf14d90d/status/1907918347904407821"}
 {"type":"end"}

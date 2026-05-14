@@ -2,6 +2,6 @@
 {"type":"notification","value":{"event":"stage_0_begin"}}
 {"type":"notification","value":{"log_stream_ready":"<id>"}}
 {"type":"notification","value":{"event":"stage_0_end"}}
-{"type":"notification","value":"0.5000 â https://x.com//status/1900000000000000001"}
-{"type":"notification","value":"0.5000 â https://x.com//status/1900000000000000002"}
+{"type":"notification","value":"0.5000 - https://x.com/mockuser_f3fd20cdbf812054/status/1900000000000000001"}
+{"type":"notification","value":"0.5000 - https://x.com/mockuser_24d9de5b78b6d5fb/status/1900000000000000002"}
 {"type":"end"}

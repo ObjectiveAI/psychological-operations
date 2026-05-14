@@ -2,6 +2,6 @@
 {"type":"notification","value":{"event":"stage_0_begin"}}
 {"type":"notification","value":{"log_stream_ready":"<id>"}}
 {"type":"notification","value":{"event":"stage_0_end"}}
-{"type":"notification","value":"0.5000 â https://x.com//status/1910000000000000001"}
-{"type":"notification","value":"0.5000 â https://x.com//status/1910000000000000002"}
+{"type":"notification","value":"0.5000 - https://x.com/alice/status/1910000000000000001"}
+{"type":"notification","value":"0.5000 - https://x.com/bob/status/1910000000000000002"}
 {"type":"end"}

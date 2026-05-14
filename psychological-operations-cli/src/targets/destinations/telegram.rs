@@ -2,6 +2,13 @@ use super::{json_body, Subject};
 
 const MAX_MESSAGE_LENGTH: usize = 4096;
 
+/// Extract the `<handle>` from `https://x.com/<handle>/status/...`.
+fn parse_handle(url: &str) -> Option<String> {
+    let rest = url.strip_prefix("https://x.com/")?;
+    let (handle, _) = rest.split_once('/')?;
+    Some(handle.to_string())
+}
+
 pub async fn send(
     bot_token: &str,
     chat_id: &str,
@@ -9,11 +16,12 @@ pub async fn send(
 ) -> Result<(), crate::error::Error> {
     let (header_plain, items) = json_body::lines(subject);
     let header = format!("*{header_plain}*");
-    // Telegram-flavoured per-line: backtick the score and link the URL with
-    // the handle as anchor when the URL looks like an x.com tweet.
+    // Telegram-flavoured per-line: backtick the score and link the
+    // URL with the @handle as anchor text (parsed back out of the
+    // `https://x.com/<handle>/status/<id>` URL).
     let lines: Vec<String> = items.into_iter().map(|(label, url)| {
         let handle = parse_handle(&url).unwrap_or_else(|| url.clone());
-        format!("`{label}` — [@{handle}]({url})")
+        format!("`{label}` - [@{handle}]({url})")
     }).collect();
 
     let url = format!("https://api.telegram.org/bot{bot_token}/sendMessage");
@@ -34,13 +42,6 @@ pub async fn send(
         }
     }
     Ok(())
-}
-
-/// Extract the `<handle>` from `https://x.com/<handle>/status/...`.
-fn parse_handle(url: &str) -> Option<String> {
-    let rest = url.strip_prefix("https://x.com/")?;
-    let (handle, _) = rest.split_once('/')?;
-    Some(handle.to_string())
 }
 
 /// Pack `header` plus per-post `lines` into messages of at most `max_len` chars,

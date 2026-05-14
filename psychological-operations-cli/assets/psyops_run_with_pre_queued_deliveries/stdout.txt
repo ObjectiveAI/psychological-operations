@@ -4,9 +4,9 @@
 {"type":"notification","value":{"event":"stage_0_end"}}
 {"type":"notification","value":"https://x.com//status/1900000000000000111"}
 {"type":"notification","value":"https://x.com//status/1900000000000000222"}
-{"type":"notification","value":"0.5000 â https://x.com//status/1903406987036451522"}
-{"type":"notification","value":"0.5000 â https://x.com//status/1906632026254504392"}
-{"type":"notification","value":"0.5000 â https://x.com//status/1927205321167945926"}
-{"type":"notification","value":"0.5000 â https://x.com//status/1940845390324286270"}
-{"type":"notification","value":"0.5000 â https://x.com//status/1999174102579864426"}
+{"type":"notification","value":"0.5000 - https://x.com/mockuser_7e55cc6c3c1de2c2/status/1903406987036451522"}
+{"type":"notification","value":"0.5000 - https://x.com/mockuser_eeca3ca9c9c271c8/status/1906632026254504392"}
+{"type":"notification","value":"0.5000 - https://x.com/mockuser_69d946d4352f40c6/status/1927205321167945926"}
+{"type":"notification","value":"0.5000 - https://x.com/mockuser_b7c0eebac025c33e/status/1940845390324286270"}
+{"type":"notification","value":"0.5000 - https://x.com/mockuser_63e89ab41476e36a/status/1999174102579864426"}
 {"type":"end"}

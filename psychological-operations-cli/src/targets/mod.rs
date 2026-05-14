@@ -126,25 +126,28 @@ pub async fn drain_queue(
             }
         };
 
-        // Synthesize stub ScoredPosts from the queued IDs. Score is
-        // loaded back from the persisted `scores` table so stdout
-        // delivery shows real numbers; the rest of the Post is stub
-        // (X destination only reads post.id, body-rendering
-        // destinations see empty text since `contents` is dropped
-        // after scoring).
-        let scores = db.get_scores(&post_ids)?;
-        let stubs: Vec<ScoredPost> = post_ids.iter().zip(scores.iter()).map(|(id, &score)| ScoredPost {
-            post: Post {
-                id: id.clone(),
-                handle: String::new(),
-                text: String::new(),
-                images: Vec::<MediaUrl>::new(),
-                videos: Vec::<MediaUrl>::new(),
-                created: String::new(),
-                likes: 0, retweets: 0, replies: 0, impressions: 0,
-            },
-            score,
-        }).collect();
+        // Synthesize stub ScoredPosts from the queued IDs. Score +
+        // handle are loaded back from the persisted `scores` and
+        // `posts` tables so stdout delivery shows real numbers and
+        // well-formed `https://x.com/<handle>/status/<id>` URLs; the
+        // rest of the Post (text, media, …) stays empty — `contents`
+        // is dropped after scoring, and X delivery only reads
+        // post.id.
+        let scored = db.get_scored_handles(&post_ids)?;
+        let stubs: Vec<ScoredPost> = post_ids.iter().zip(scored.iter())
+            .map(|(id, (score, handle))| ScoredPost {
+                post: Post {
+                    id: id.clone(),
+                    handle: handle.clone(),
+                    text: String::new(),
+                    images: Vec::<MediaUrl>::new(),
+                    videos: Vec::<MediaUrl>::new(),
+                    created: String::new(),
+                    likes: 0, retweets: 0, replies: 0, impressions: 0,
+                },
+                score: *score,
+            })
+            .collect();
         let stub_refs: Vec<&ScoredPost> = stubs.iter().collect();
         let subject = Subject::Psyop {
             name:   &row.psyop,

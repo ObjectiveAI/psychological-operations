@@ -441,29 +441,40 @@ impl Db {
         Ok(out)
     }
 
-    /// Look up the persisted score for each `post_id`. Missing IDs
-    /// (not yet scored) come back as `0.0` — callers running through
-    /// the delivery queue will see this when scoring hasn't recorded
-    /// a row, which shouldn't happen in practice for posts that made
-    /// it to the queue.
-    pub fn get_scores(&self, ids: &[String]) -> Result<Vec<f64>, crate::error::Error> {
+    /// Look up the persisted score + handle for each `post_id`, in
+    /// the same order as `ids`. Joins `posts` + `scores` so a single
+    /// query backs the delivery worker's `ScoredPost` stub
+    /// rehydration (score) and its URL formatting (handle goes into
+    /// `https://x.com/<handle>/status/<id>`). Missing rows fall back
+    /// to `(0.0, "")`.
+    pub fn get_scored_handles(
+        &self,
+        ids: &[String],
+    ) -> Result<Vec<(f64, String)>, crate::error::Error> {
         if ids.is_empty() {
             return Ok(Vec::new());
         }
         let placeholders = vec!["?"; ids.len()].join(",");
         let sql = format!(
-            "SELECT post_id, score FROM scores WHERE post_id IN ({placeholders})",
+            "SELECT p.id, p.handle, COALESCE(s.score, 0.0)
+               FROM posts p
+               LEFT JOIN scores s ON s.post_id = p.id
+              WHERE p.id IN ({placeholders})",
         );
         let params = rusqlite::params_from_iter(ids.iter());
         let mut stmt = self.conn.prepare(&sql)?;
         let mut rows = stmt.query(params)?;
-        let mut by_id: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+        let mut by_id: std::collections::HashMap<String, (f64, String)> =
+            std::collections::HashMap::new();
         while let Some(row) = rows.next()? {
             let id: String = row.get(0)?;
-            let score: f64 = row.get(1)?;
-            by_id.insert(id, score);
+            let handle: String = row.get(1)?;
+            let score: f64 = row.get(2)?;
+            by_id.insert(id, (score, handle));
         }
-        Ok(ids.iter().map(|id| by_id.get(id).copied().unwrap_or(0.0)).collect())
+        Ok(ids.iter().map(|id|
+            by_id.get(id).cloned().unwrap_or_else(|| (0.0, String::new()))
+        ).collect())
     }
 
     /// Upsert score rows keyed by `post_id` and drop the matching

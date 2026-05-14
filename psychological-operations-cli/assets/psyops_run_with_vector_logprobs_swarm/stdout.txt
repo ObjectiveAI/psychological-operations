@@ -2,9 +2,9 @@
 {"type":"notification","value":{"event":"stage_0_begin"}}
 {"type":"notification","value":{"log_stream_ready":"<id>"}}
 {"type":"notification","value":{"event":"stage_0_end"}}
-{"type":"notification","value":"0.2615 â https://x.com//status/1914108159122829965"}
-{"type":"notification","value":"0.2129 â https://x.com//status/1994949463567275514"}
-{"type":"notification","value":"0.1924 â https://x.com//status/1984403790859208401"}
-{"type":"notification","value":"0.1824 â https://x.com//status/1967377741153135303"}
-{"type":"notification","value":"0.1507 â https://x.com//status/1988018662676731914"}
+{"type":"notification","value":"0.2615 - https://x.com/mockuser_07227aa598a5728d/status/1914108159122829965"}
+{"type":"notification","value":"0.2129 - https://x.com/mockuser_9732a2d02dc295fa/status/1994949463567275514"}
+{"type":"notification","value":"0.1924 - https://x.com/mockuser_b16b53835b5206d1/status/1984403790859208401"}
+{"type":"notification","value":"0.1824 - https://x.com/mockuser_5b240342973d6ac7/status/1967377741153135303"}
+{"type":"notification","value":"0.1507 - https://x.com/mockuser_fdcc1814628f980a/status/1988018662676731914"}
 {"type":"end"}

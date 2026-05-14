@@ -26,7 +26,7 @@ pub async fn send(cfg: &Stderr, subject: &Subject<'_>) -> Result<(), crate::erro
         Mode::UrlsWithScores => {
             let (_, lines) = json_body::lines(subject);
             for (label, url) in lines {
-                eprintln!("{label} — {url}");
+                eprintln!("{label} - {url}");
             }
         }
         Mode::Json => {

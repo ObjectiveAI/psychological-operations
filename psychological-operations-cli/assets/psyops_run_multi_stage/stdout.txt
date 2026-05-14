@@ -5,7 +5,7 @@
 {"type":"notification","value":{"event":"stage_1_begin"}}
 {"type":"notification","value":{"log_stream_ready":"<id>"}}
 {"type":"notification","value":{"event":"stage_1_end"}}
-{"type":"notification","value":"0.5000 â https://x.com//status/1915635282857829504"}
-{"type":"notification","value":"0.5000 â https://x.com//status/1960040951350466048"}
-{"type":"notification","value":"0.5000 â https://x.com//status/1982122356701243978"}
+{"type":"notification","value":"0.5000 - https://x.com/mockuser_94b5958411622480/status/1915635282857829504"}
+{"type":"notification","value":"0.5000 - https://x.com/mockuser_d953a44659509600/status/1960040951350466048"}
+{"type":"notification","value":"0.5000 - https://x.com/mockuser_6d62ec85ab57aa4a/status/1982122356701243978"}
 {"type":"end"}
