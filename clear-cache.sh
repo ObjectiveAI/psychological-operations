@@ -8,6 +8,11 @@
 #
 #   - .logs/             (build/test log capture — keep history)
 #   - .git/              (obviously)
+#   - psychological-operations-chromium/embed/
+#                        (staged upstream chromium snapshot — multi-hundred-MB
+#                        download from commondatastorage; reproducible but slow.
+#                        build.sh's fingerprint short-circuits when sources are
+#                        unchanged, so re-runs are cheap anyway.)
 #   - Source, lockfiles (Cargo.lock), config (objectiveai.json,
 #                        .gitignore, *.pem)
 #
@@ -43,22 +48,6 @@ for t in "${RUST_TARGETS[@]}"; do
   elif [ -d "$t" ]; then
     echo "Removing $t/"
     rm -rf -- "$t"
-  fi
-done
-
-# ---------------------------------------------------------------------------
-# Chromium snapshot bundle staged by psychological-operations-chromium/build.sh.
-# Re-fetches upstream Chromium + zips the extension; idempotent on rerun
-# (fingerprint.sh short-circuits when sources are unchanged).
-# ---------------------------------------------------------------------------
-TOP_LEVEL_CACHES=(
-  psychological-operations-chromium/embed
-)
-
-for d in "${TOP_LEVEL_CACHES[@]}"; do
-  if [ -d "$d" ]; then
-    echo "Removing $d/"
-    rm -rf -- "$d"
   fi
 done
 
