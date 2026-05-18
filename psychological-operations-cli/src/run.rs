@@ -203,12 +203,40 @@ impl std::fmt::Display for Output {
     }
 }
 
+/// Three clap error kinds carry rendered text the user explicitly
+/// asked for (`--help`, `--version`) or that clap auto-renders when
+/// invocation lacks a subcommand. They're informational — not parse
+/// failures — and should bypass the fatal-Error emission path.
+///
+/// Mirrors the upstream objectiveai-cli fix (see `deleteme.md`
+/// scaffolding doc).
+fn is_informational(e: &clap::Error) -> bool {
+    use clap::error::ErrorKind;
+    matches!(
+        e.kind(),
+        ErrorKind::DisplayHelp
+            | ErrorKind::DisplayVersion
+            | ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
+    )
+}
+
 pub async fn run<I, T>(args: I, cfg: &Config) -> Result<String, String>
 where
     I: IntoIterator<Item = T>,
     T: Into<std::ffi::OsString> + Clone,
 {
-    let cli = Cli::try_parse_from(args).map_err(|e| e.to_string())?;
+    let cli = match Cli::try_parse_from(args) {
+        Ok(cli) => cli,
+        // Clap returns Err for `--help`, `--version`, and "no subcommand
+        // given" because none has a `Cli` value to dispatch on. All three
+        // are informational, not failures — return them through the Ok
+        // arm so main.rs emits via `emit_notification_from_payload`
+        // (Notification, exit 0) instead of `emit_error` (Error, exit 1).
+        // Matches the structure of objectiveai's own upstream fix in
+        // `deleteme.md`.
+        Err(e) if is_informational(&e) => return Ok(e.to_string()),
+        Err(e) => return Err(e.to_string()),
+    };
     let output = match cli.command {
         Commands::Psyops { command } => command.handle(cfg).await,
         Commands::Targets { command } => command.handle(cfg).await,
