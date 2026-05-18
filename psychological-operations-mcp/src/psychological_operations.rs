@@ -36,10 +36,35 @@ impl PsychologicalOperationsMcpCli {
         let args: Vec<String> = std::iter::once("psychological-operations".to_string())
             .chain(req.command)
             .collect();
+        let cfg = psychological_operations_cli::load_config();
 
-        match psychological_operations_cli::run(args).await {
-            Ok(output) => output,
-            Err(e) => format!("error: {e}"),
+        // `psychological_operations_cli::run` holds a `&Db` (rusqlite
+        // Connection — `!Sync`) across `.await` points, so the future
+        // it returns is `!Send`. `rmcp`'s `#[tool]` macro requires
+        // `Send` futures so they can be polled on its multi-threaded
+        // dispatcher. Bridge: run the !Send future on a dedicated
+        // blocking thread under a current-thread runtime that doesn't
+        // need Send tasks. spawn_blocking's join handle IS Send, so
+        // the outer tool future stays Send.
+        //
+        // Long-term fix: plumb an `objectiveai_sdk::cli::output::Handle`
+        // through `psyops_cli::run` (matching `objectiveai-mcp-cli`'s
+        // `Handle::Collect` pattern), which would let the cli emit
+        // directly into a `Vec` without holding `&Db` across awaits.
+        let join = tokio::task::spawn_blocking(move || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("build current-thread runtime for psyops cli call");
+            rt.block_on(async move {
+                psychological_operations_cli::run(args, &cfg).await
+            })
+        });
+
+        match join.await {
+            Ok(Ok(output)) => output,
+            Ok(Err(e))     => format!("error: {e}"),
+            Err(e)         => format!("error: cli task panicked: {e}"),
         }
     }
 }

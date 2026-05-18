@@ -9,7 +9,8 @@ const SNAPSHOT_ENV: &str = "UPDATE_PSYOPS_SNAPSHOTS";
 
 /// Strip non-deterministic substrings from CLI output before
 /// snapshotting. Tests should call this on stdout / stderr
-/// before passing them to `assert_snapshot`.
+/// before passing them to `assert_snapshot` when their output
+/// includes `objectiveai functions executions` log ids.
 ///
 /// Currently scrubs:
 ///   - `Logs ID: fnexec-<hex>-<digits>` → `Logs ID: <id>`
@@ -19,6 +20,12 @@ const SNAPSHOT_ENV: &str = "UPDATE_PSYOPS_SNAPSHOTS";
 ///
 /// objectiveai's per-execution log id contains a wall-clock
 /// timestamp suffix that varies across runs.
+///
+/// Note: the host-preamble strip (auto-updater check / `up_to_date`
+/// notifications the host emits before our plugin runs) lives in
+/// [`assert_snapshot`] instead — it's universal to every plugin
+/// invocation, not just tests that emit fnexec ids, so it shouldn't
+/// be opt-in.
 pub fn normalize(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for line in s.lines() {
@@ -29,6 +36,36 @@ pub fn normalize(s: &str) -> String {
         } else {
             out.push_str(&scrub_fnexec_in_line(line));
         }
+        out.push('\n');
+    }
+    if !s.ends_with('\n') {
+        out.pop();
+    }
+    out
+}
+
+/// Drop the host's startup preamble — every line preceding the
+/// first `{"type":"begin"}` marker. The objectiveai host emits
+/// its auto-updater check (`{"event":"checking"}` followed by
+/// `{"event":"up_to_date"}` or whichever variant) on stdout before
+/// wrapping our plugin's response in the begin/end frame, and that
+/// preamble is host-version coupled noise. When no `begin` marker
+/// is present (e.g. stderr, or a host failure before dispatch),
+/// the input is returned as-is so the failure stays visible in
+/// the snapshot.
+fn strip_host_preamble(s: &str) -> String {
+    const BEGIN: &str = r#"{"type":"begin"}"#;
+    if !s.lines().any(|l| l == BEGIN) {
+        return s.to_string();
+    }
+    let mut out = String::with_capacity(s.len());
+    let mut seen_begin = false;
+    for line in s.lines() {
+        if !seen_begin {
+            if line == BEGIN { seen_begin = true; }
+            else { continue; }
+        }
+        out.push_str(line);
         out.push('\n');
     }
     if !s.ends_with('\n') {
@@ -97,6 +134,13 @@ fn scrub_logs_id(rest: &str) -> String {
 /// built via `concat!(env!("CARGO_MANIFEST_DIR"), "/tests/assets/...")`)
 /// so update-mode can open and rewrite it.
 pub fn assert_snapshot(actual: &str, path: &str, expected_static: &str) {
+    // Strip the host's startup preamble unconditionally — every
+    // snapshot is a plugin response wrapped by the objectiveai
+    // host, so the host's pre-dispatch noise (auto-updater check,
+    // etc.) is universal and shouldn't be opt-in per test.
+    let actual = strip_host_preamble(actual);
+    let actual = actual.as_str();
+
     if std::env::var(SNAPSHOT_ENV).as_deref() == Ok("1") {
         if let Some(parent) = std::path::Path::new(path).parent() {
             std::fs::create_dir_all(parent).expect("create snapshot parent dir");
