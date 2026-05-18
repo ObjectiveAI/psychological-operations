@@ -22,7 +22,7 @@
 //! into the profile's `NativeMessagingHosts/` dir.
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use serde_json::json;
 
