@@ -126,7 +126,7 @@ fn bash_command() -> &'static Path {
 /// Bump this when you want tests to run against a newer release
 /// (snapshots are wire-format-coupled to the host version, so a bump
 /// often requires `UPDATE_PSYOPS_SNAPSHOTS=1` regen alongside it).
-const OBJECTIVEAI_VERSION: &str = "2.0.7";
+const OBJECTIVEAI_VERSION: &str = "2.0.8";
 
 /// Filename for the prebuilt `objectiveai` release asset on the
 /// current host, matching the upload convention in

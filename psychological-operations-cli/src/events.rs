@@ -77,8 +77,8 @@ impl Event {
     /// `Some(level)` ⇒ this event is a failure / warning and should
     /// be emitted as `PluginOutput::Error(level, fatal=false, …)`.
     /// `None` ⇒ informational, emit as `PluginOutput::Notification`.
-    pub(crate) fn error_level(&self) -> Option<objectiveai_cli_sdk::output::Level> {
-        use objectiveai_cli_sdk::output::Level;
+    pub(crate) fn error_level(&self) -> Option<objectiveai_sdk::cli::output::Level> {
+        use objectiveai_sdk::cli::output::Level;
         match self {
             Event::ObjectiveaiTaskErrors { .. }
             | Event::TweetNotFound { .. }

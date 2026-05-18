@@ -1,4 +1,4 @@
-use objectiveai_cli_sdk::output::Level;
+use objectiveai_sdk::cli::output::Level;
 
 use psychological_operations_cli::emit::{emit_error, emit_notification_from_payload};
 

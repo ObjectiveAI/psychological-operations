@@ -105,7 +105,7 @@ where
     S: AsRef<std::ffi::OsStr>,
 {
     use std::io::{BufRead, BufReader};
-    use objectiveai_cli_sdk::output::{Notification as CliNotif, Output as CliOutput};
+    use objectiveai_sdk::cli::output::{Notification as CliNotif, Output as CliOutput};
 
     let mut child = std::process::Command::new(objectiveai_binary(cfg))
         .args(args)

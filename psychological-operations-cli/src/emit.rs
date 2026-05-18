@@ -1,5 +1,5 @@
 //! PluginOutput JSONL emission helpers — one place that knows the
-//! wire-format quirks of `objectiveai-cli-sdk`'s `PluginOutput` enum.
+//! wire-format quirks of `objectiveai-sdk`'s `PluginOutput` enum.
 //!
 //! All helpers write **one** JSON line to stdout. The objectiveai host
 //! reads our stdout line-by-line, re-wraps each parseable
@@ -12,8 +12,8 @@
 //! - `emit_event("foo")`                   → `{"type":"notification","value":{"event":"foo"}}`
 //! - `emit_notification_from_payload(s)`   → `{"type":"notification","value":{"value":<parsed-or-string>}}` (double `value` is intentional — see fn doc)
 
-use objectiveai_cli_sdk::output::{Error as PluginError, Level};
-use objectiveai_cli_sdk::plugins::PluginOutput;
+use objectiveai_sdk::cli::output::{Error as PluginError, Level};
+use objectiveai_sdk::cli::plugins::PluginOutput;
 use serde_json::Value;
 
 /// Emit one `PluginOutput::Notification` line whose host-re-emitted
