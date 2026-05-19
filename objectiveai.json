@@ -10,5 +10,10 @@
     "macos_aarch64": "psychological-operations-macos-aarch64",
     "windows_x86_64": "psychological-operations-windows-x86_64.exe"
   },
-  "viewer_zip": "psychological-operations-viewer.zip"
+  "viewer_zip": "psychological-operations-viewer.zip",
+  "viewer_routes": [
+    { "method": "POST", "path": "/psyops/added",   "type": "psyop_added"   },
+    { "method": "POST", "path": "/psyops/edited",  "type": "psyop_edited"  },
+    { "method": "POST", "path": "/psyops/deleted", "type": "psyop_deleted" }
+  ]
 }

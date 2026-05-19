@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { invokeCli } from "@objectiveai/sdk/viewer";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { invokeCli, listen } from "@objectiveai/sdk/viewer";
 import type {
   Psyop,
   PsyopEntry,
@@ -15,54 +15,128 @@ export type UsePsyopsState =
 
 /**
  * On mount, fetches `psyops list` then `psyops get <name>` for each
- * entry and returns the merged result. Sequential, not concurrent
- * — see the comment block inside the effect for why.
+ * entry and returns the merged result.
  *
- * Re-renders ARE NOT trigger a refetch — the effect has an empty
- * dep array. Returns the same state across the component's
- * lifetime until unmount.
+ * Also subscribes to three host-pushed events the cli fires after
+ * CRUD ops (see `objectiveai.json::viewer_routes`):
+ *
+ *  - `psyop_added` / `psyop_edited`: payload is a `PsyopWithDefinition`.
+ *    If we're already `ready`, mutate state.psyops in place (replace
+ *    by name, or append). If we're still `loading` or in `error`,
+ *    discard the in-flight fetch via a generation counter and start
+ *    a fresh full reload — the notification implies the on-disk state
+ *    just changed, and racing partial data against the newer truth
+ *    is worse than re-fetching cheaply.
+ *
+ *  - `psyop_deleted`: payload is `{name}`. In `ready`, drop by name.
+ *    In `loading`/`error`, restart the fetch.
+ *
+ * Initial fetch runs once on mount; subsequent fetches only happen
+ * via the loading-state notification handler. The hook doesn't
+ * expose a `refresh()` callback — if the cli does CRUD, it'll
+ * notify us; if you want manual refresh, add it later.
  */
 export function usePsyops(): UsePsyopsState {
   const [state, setState] = useState<UsePsyopsState>({ status: "loading" });
 
-  useEffect(() => {
-    let cancelled = false;
+  // Mirror state to a ref so async listeners read the latest status
+  // without recapturing closures (listen() handlers are registered
+  // once per mount and outlive any individual render's `state`).
+  const stateRef = useRef<UsePsyopsState>(state);
+
+  // Generation guard: each call to `startFetch()` bumps this. The
+  // in-flight async fetch checks the gen before every `setState` —
+  // if a notification triggered a newer fetch while we were
+  // mid-flight, this older fetch's setState calls become no-ops.
+  const genRef = useRef(0);
+
+  const setStateWithRef = useCallback((s: UsePsyopsState) => {
+    stateRef.current = s;
+    setState(s);
+  }, []);
+
+  const startFetch = useCallback(() => {
+    const gen = ++genRef.current;
+    setStateWithRef({ status: "loading" });
 
     void (async () => {
       try {
         const entries = await fetchList();
-        if (cancelled) return;
+        if (genRef.current !== gen) return;
 
         // SEQUENTIAL — not concurrent. `@objectiveai/sdk/viewer`'s
         // `invokeCli` has no per-invocation demux; firing two in
         // parallel produces interleaved streams the iterators
-        // can't separate (each iterator's `onMessage` listener
-        // sees every `cli_command` event, regardless of which
-        // invocation produced it — see viewer/index.ts:142-146).
-        // If concurrency becomes a perf concern, the right fix is
-        // either a batch endpoint (`psyops list --details`) or
-        // per-invocation id support in objectiveai-sdk.
+        // can't separate. See viewer/index.ts:142-146.
         const full: PsyopWithDefinition[] = [];
         for (const entry of entries) {
-          if (cancelled) return;
+          if (genRef.current !== gen) return;
           const definition = await fetchPsyop(entry.name);
           full.push({ ...entry, definition });
         }
-        if (cancelled) return;
-        setState({ status: "ready", psyops: full });
+        if (genRef.current !== gen) return;
+        setStateWithRef({ status: "ready", psyops: full });
       } catch (e) {
-        if (cancelled) return;
-        setState({
+        if (genRef.current !== gen) return;
+        setStateWithRef({
           status: "error",
           error: e instanceof Error ? e.message : String(e),
         });
       }
     })();
+  }, [setStateWithRef]);
+
+  // Initial fetch on mount.
+  useEffect(() => {
+    startFetch();
+  }, [startFetch]);
+
+  // Subscribe to push notifications from cli CRUD ops.
+  useEffect(() => {
+    const onUpsert = (value: unknown) => {
+      const current = stateRef.current;
+      if (current.status !== "ready") {
+        // Pre-load or error path: discard in-flight, restart fresh.
+        startFetch();
+        return;
+      }
+      const psyop = value as PsyopWithDefinition;
+      if (!psyop || typeof psyop.name !== "string") return;
+      const idx = current.psyops.findIndex((p) => p.name === psyop.name);
+      const next =
+        idx >= 0
+          ? current.psyops.map((p, i) => (i === idx ? psyop : p))
+          : [...current.psyops, psyop];
+      setStateWithRef({ status: "ready", psyops: next });
+    };
+
+    const onDeleted = (value: unknown) => {
+      const current = stateRef.current;
+      if (current.status !== "ready") {
+        startFetch();
+        return;
+      }
+      const obj = value as { name?: unknown } | null;
+      if (!obj || typeof obj.name !== "string") return;
+      const name = obj.name;
+      const next = current.psyops.filter((p) => p.name !== name);
+      // Missing-name delete is a no-op (lenient — could be a duplicate
+      // event after a reload, or a race where the viewer already
+      // dropped the entry).
+      if (next.length === current.psyops.length) return;
+      setStateWithRef({ status: "ready", psyops: next });
+    };
+
+    const offAdded = listen("psyop_added", onUpsert);
+    const offEdited = listen("psyop_edited", onUpsert);
+    const offDeleted = listen("psyop_deleted", onDeleted);
 
     return () => {
-      cancelled = true;
+      offAdded();
+      offEdited();
+      offDeleted();
     };
-  }, []);
+  }, [startFetch, setStateWithRef]);
 
   return state;
 }
