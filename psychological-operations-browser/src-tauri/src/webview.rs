@@ -28,6 +28,18 @@ const OVERLAY_JS: &str = include_str!(concat!(
     "/../dist/overlay.js"
 ));
 
+/// Returns the X-App data-directory rooted at `--config-base-dir`.
+/// Mirrors the old chromium fork's layout (with `browser` swapped
+/// in for `chromium`).
+pub fn x_app_data_dir<R: Runtime>(handle: &AppHandle<R>) -> std::path::PathBuf {
+    let args = handle.state::<Args>();
+    args.config_base_dir
+        .join("plugins")
+        .join("psychological-operations")
+        .join("browser")
+        .join("x-app")
+}
+
 /// Create the X-App webview if it doesn't already exist. Loads
 /// `https://console.x.ai/` directly, injects the React overlay,
 /// persists session state to
@@ -38,14 +50,7 @@ pub fn create_x_app<R: Runtime>(handle: &AppHandle<R>) -> tauri::Result<WebviewW
         return Ok(w);
     }
 
-    let data_dir = {
-        let args = handle.state::<Args>();
-        args.config_base_dir
-            .join("plugins")
-            .join("psychological-operations")
-            .join("browser")
-            .join("x-app")
-    };
+    let data_dir = x_app_data_dir(handle);
     std::fs::create_dir_all(&data_dir)?;
 
     let url = Url::parse("https://console.x.ai/").expect("hardcoded URL parses");

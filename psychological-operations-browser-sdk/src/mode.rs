@@ -1,18 +1,52 @@
 //! The session mode the browser is currently in.
 //!
-//! Mode is set on the Rust side when a mode-setting [`crate::request::Request`]
-//! (e.g. [`crate::request::Request::XApp`]) is processed, and the
-//! frontend can query it on each overlay mount via the
+//! Mode is the highest-priority piece of state — every [`crate::output::Output`]
+//! line carries it as a top-level `"mode"` field so consumers can
+//! tell which session produced which event. It's set on the Rust
+//! side when a mode-setting [`crate::request::Request`] arrives
+//! ([`crate::request::Request::XApp`] today; `Psyop { name }` later)
+//! and held in a process-global slot below so [`crate::output::Output::emit`]
+//! can read it without taking a host-supplied parameter.
+//!
+//! The frontend overlay can also query the current mode via the
 //! `current_mode` Tauri command — useful for resuming URL reporting
-//! after a full-page navigation has re-mounted the overlay on a new
+//! after a full-page navigation re-mounts the overlay on a new
 //! origin.
+
+use std::sync::{Mutex, OnceLock};
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Mode {
-    /// Master X-App (root) session. Frontend lands the user on
-    /// `https://console.x.ai/` and reports URL changes from there.
+    /// Master X-App (root) session. Webview lands on
+    /// `https://console.x.ai/`; sign-in is observed via the `sso`
+    /// HttpOnly JWT cookie on `.x.ai`.
     XApp,
+    /// Per-psyop session, scoped to the named psyop. The eventual
+    /// wiring will land x.com (twitter) with per-psyop cookie
+    /// isolation; the wire shape is here now so consumers can
+    /// future-proof their dispatch.
+    Psyop { name: String },
+}
+
+/// Process-global slot for the current mode. Set by [`set`], read by
+/// [`get`]. `None` before any mode-setting request has been processed
+/// (e.g. during `--help` / clap-error emission).
+fn slot() -> &'static Mutex<Option<Mode>> {
+    static SLOT: OnceLock<Mutex<Option<Mode>>> = OnceLock::new();
+    SLOT.get_or_init(|| Mutex::new(None))
+}
+
+/// Update the current mode. Subsequent [`crate::output::Output::emit`]
+/// calls will include the new mode in their `"mode"` field.
+pub fn set(mode: Option<Mode>) {
+    *slot().lock().expect("mode slot poisoned") = mode;
+}
+
+/// Read the current mode. Returns `None` before any mode-setting
+/// request has been processed.
+pub fn get() -> Option<Mode> {
+    slot().lock().expect("mode slot poisoned").clone()
 }

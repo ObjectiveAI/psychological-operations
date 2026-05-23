@@ -53,8 +53,8 @@ async function handleRequest(event: Event<Request>) {
   const req = event.payload;
   switch (req.type) {
     case "x_app": {
-      // Ack FIRST — the user wants the ack on the wire before any URL
-      // emission. Mode resets are the highest-priority signal.
+      // Ack FIRST — the user wants the ack on the wire before any
+      // URL emission. Mode resets are the highest-priority signal.
       await respondOk({ type: "ack" });
 
       // Halt prior per-mode state. After the navigation below the
@@ -137,11 +137,12 @@ function whenDomReady(fn: () => void) {
     await listen<Request>("psyops:request", handleRequest);
     await invoke("frontend_ready");
     const mode = await invoke<Mode>("current_mode");
-    if (mode?.type === "x_app") {
-      // Re-mounted into an active session (e.g. after the XApp
-      // handler's `location.assign`). Pick up where the previous
-      // overlay left off and start URL reporting. The initial URL
-      // is emitted by `installSpaUrlReporter` itself.
+
+    // URL reporting is gated on having *any* mode set — if there's
+    // no mode there's no session to report URLs for. With a mode,
+    // we always install the reporter so subsequent navigations
+    // (sign-in, sign-out, page-clicks) flow through.
+    if (mode !== null) {
       urlReporterUninstall = installSpaUrlReporter();
     }
   } catch {

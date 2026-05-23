@@ -12,8 +12,12 @@
 //!    stdin. The OS pipe already buffers anything the host wrote
 //!    during startup, so no in-process buffering is needed.
 //! 4. For each parsed [`Request`], [`dispatch_request`]:
-//!    a. Updates [`CurrentMode`] (so a post-navigation overlay can
-//!       resume URL reporting by querying [`current_mode`]).
+//!    a. For mode-setting variants (currently only [`Request::XApp`]),
+//!       updates the SDK's process-global mode slot via
+//!       [`psychological_operations_browser_sdk::mode::set`] so that
+//!       the subsequent ack already carries `"mode":{"type":"x_app"}`,
+//!       then starts a new sign-in watcher scoped to that mode
+//!       (replacing any previous one).
 //!    b. Creates a [`std::sync::mpsc::sync_channel`] for the ack,
 //!       stashes the sender in [`PendingAck`].
 //!    c. Emits the request to the window as a `psyops:request`
@@ -23,6 +27,8 @@
 //!    e. Emits the resulting [`Output::Response`] on stdout.
 //! 5. URL output is entirely frontend-driven via [`report_url`];
 //!    there is no Rust-side `on_navigation` hook.
+//! 6. Sign-in output is fully Rust-side via [`crate::signin_watcher`],
+//!    driven by filesystem events on the WebView2 cookie store.
 //!
 //! Every byte the browser writes goes through [`Output::emit`] —
 //! no `println!`, no `eprintln!`, no direct stderr from our code.
@@ -31,11 +37,14 @@ use std::io::BufRead;
 use std::sync::Mutex;
 use std::sync::mpsc;
 
-use psychological_operations_browser_sdk::mode::Mode;
+use psychological_operations_browser_sdk::mode::{self, Mode};
 use psychological_operations_browser_sdk::output::Output;
 use psychological_operations_browser_sdk::request::Request;
 use psychological_operations_browser_sdk::response::ResponseOutcome;
 use tauri::{AppHandle, Emitter, Manager, Runtime};
+
+use crate::signin_watcher;
+use crate::webview;
 
 /// Tauri event channel the browser emits stdio requests on.
 /// Follows the `psyops:<topic>` naming convention.
@@ -49,10 +58,10 @@ pub struct ReadyTx(pub Mutex<Option<mpsc::Sender<()>>>);
 /// channel. `None` when no request is awaiting a response.
 pub struct PendingAck(pub Mutex<Option<mpsc::SyncSender<ResponseOutcome>>>);
 
-/// Tauri state — the active session mode. Updated by
-/// [`dispatch_request`] before emitting a mode-setting event so the
-/// post-navigation overlay can query [`current_mode`] and resume.
-pub struct CurrentMode(pub Mutex<Option<Mode>>);
+/// Tauri state — the active sign-in watcher's handle, if any.
+/// Dropping the previous handle when assigning a new one tears down
+/// its filesystem watcher + reader thread.
+pub struct SigninWatcherSlot(pub Mutex<Option<signin_watcher::Handle>>);
 
 /// Spawn the stdin reader thread. It waits on `ready_rx` for the
 /// frontend's `frontend_ready` signal before opening stdin.
@@ -85,11 +94,20 @@ pub fn start<R: Runtime>(handle: AppHandle<R>, ready_rx: mpsc::Receiver<()>) {
 }
 
 fn dispatch_request<R: Runtime>(handle: &AppHandle<R>, req: Request) {
-    // 1. Update CurrentMode for any subsequent `current_mode` query
-    //    from a post-navigation overlay re-mount.
+    // 1. For mode-setting requests: update the SDK mode static
+    //    FIRST so the ack we're about to emit (and every output
+    //    line from now on) carries the new mode. Then (re)start the
+    //    sign-in watcher scoped to that mode — dropping the old
+    //    handle tears down its filesystem watcher.
     if let Request::XApp = req {
-        let mode: tauri::State<CurrentMode> = handle.state();
-        *mode.0.lock().expect("mode lock poisoned") = Some(Mode::XApp);
+        mode::set(Some(Mode::XApp));
+        let watcher_slot: tauri::State<SigninWatcherSlot> = handle.state();
+        *watcher_slot.0.lock().expect("watcher slot poisoned") = None; // drop old
+        if let Some(window) = handle.get_webview_window(webview::X_APP_LABEL) {
+            let data_dir = webview::x_app_data_dir(handle);
+            *watcher_slot.0.lock().expect("watcher slot poisoned") =
+                signin_watcher::start(window, &Mode::XApp, &data_dir);
+        }
     }
 
     // 2. Register a pending-ack slot before emitting so the window's
@@ -148,13 +166,13 @@ pub fn stdio_respond(
         .map_err(|_| "ack receiver dropped".to_string())
 }
 
-/// Invoked by the overlay on every mount. Lets the overlay resume
-/// URL reporting after a navigation has re-mounted it onto a new
-/// origin — if mode is `Some(XApp)`, the overlay installs its URL
-/// reporter immediately.
+/// Invoked by the overlay on every mount. Reads from the SDK's
+/// process-global mode slot (the single source of truth) so the
+/// overlay can resume URL reporting after a navigation has
+/// re-mounted it onto a new origin.
 #[tauri::command]
-pub fn current_mode(mode: tauri::State<'_, CurrentMode>) -> Result<Option<Mode>, String> {
-    Ok(*mode.0.lock().map_err(|e| e.to_string())?)
+pub fn current_mode() -> Result<Option<Mode>, String> {
+    Ok(mode::get())
 }
 
 /// Invoked by the overlay for the initial URL after install and on

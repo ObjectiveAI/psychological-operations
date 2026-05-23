@@ -1,4 +1,5 @@
 mod args;
+mod signin_watcher;
 mod stdio;
 mod webview;
 
@@ -9,7 +10,7 @@ use clap::Parser;
 use clap::error::ErrorKind;
 use psychological_operations_browser_sdk::output::Output;
 
-use crate::stdio::{CurrentMode, PendingAck, ReadyTx};
+use crate::stdio::{PendingAck, ReadyTx, SigninWatcherSlot};
 
 /// `--help`, `--version`, and the special
 /// `DisplayHelpOnMissingArgumentOrSubcommand` case are clap's three
@@ -51,7 +52,7 @@ pub fn run() {
         .manage(args)
         .manage(ReadyTx(Mutex::new(Some(ready_tx))))
         .manage(PendingAck(Mutex::new(None)))
-        .manage(CurrentMode(Mutex::new(None)))
+        .manage(SigninWatcherSlot(Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![
             stdio::frontend_ready,
             stdio::stdio_respond,
