@@ -1,10 +1,10 @@
-//! Runtime that drives the stdio protocol. The wire types and event-
-//! name constants live in `psychological-operations-browser-sdk`;
-//! this module just plumbs them through:
+//! Runtime that drives the stdio protocol. The wire types live in
+//! `psychological-operations-browser-sdk`; this module handles the
+//! Tauri-specific transport:
 //!
 //! 1. A background thread reads one [`Request`] per line from stdin.
 //! 2. Each parsed request is forwarded to the frontend via the
-//!    [`sdk::stdio::EVENT_REQUEST`] Tauri event.
+//!    [`EVENT_REQUEST`] Tauri event.
 //! 3. The frontend handles the request and posts a [`Response`] back
 //!    via the [`stdio_respond`] Tauri command.
 //! 4. [`stdio_respond`] serializes the response as a JSON line and
@@ -13,9 +13,13 @@
 use std::io::{BufRead, Write};
 use std::sync::{Mutex, OnceLock};
 
-use psychological_operations_browser_sdk::stdio as sdk;
-use psychological_operations_browser_sdk::stdio::{Request, Response};
+use psychological_operations_browser_sdk::request::Request;
+use psychological_operations_browser_sdk::response::Response;
 use tauri::{AppHandle, Emitter, Runtime};
+
+/// Tauri event channel the browser emits stdio requests on.
+/// Follows the `psyops:<topic>:<event>` naming convention.
+pub const EVENT_REQUEST: &str = "psyops:stdio:request";
 
 /// Spawns the stdin reader thread. Call exactly once from `setup`.
 pub fn start<R: Runtime>(handle: AppHandle<R>) {
@@ -34,7 +38,7 @@ pub fn start<R: Runtime>(handle: AppHandle<R>) {
                     continue;
                 }
             };
-            if let Err(e) = handle.emit(sdk::EVENT_REQUEST, req) {
+            if let Err(e) = handle.emit(EVENT_REQUEST, req) {
                 eprintln!("stdio: emit failed: {e}");
             }
         }
