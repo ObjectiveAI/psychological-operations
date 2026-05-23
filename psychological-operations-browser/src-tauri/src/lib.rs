@@ -2,27 +2,40 @@ mod args;
 mod stdio;
 
 use clap::Parser;
+use clap::error::ErrorKind;
 use psychological_operations_browser_sdk::output::Output;
+
+/// `--help`, `--version`, and the special
+/// `DisplayHelpOnMissingArgumentOrSubcommand` case are clap's three
+/// "informational" error kinds — they're not real errors, they're
+/// success-with-text. Mirror the convention used in
+/// `psychological-operations-cli/src/run.rs::is_informational`.
+fn is_informational(e: &clap::Error) -> bool {
+    matches!(
+        e.kind(),
+        ErrorKind::DisplayHelp
+            | ErrorKind::DisplayVersion
+            | ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
+    )
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let args = match args::Args::try_parse() {
         Ok(a) => a,
+        Err(e) if is_informational(&e) => {
+            let _ = Output::Help { text: e.to_string() }.emit();
+            std::process::exit(0);
+        }
         Err(e) => {
-            // Clap would normally render to stderr; we route everything
-            // through JSONL on stdout instead.
-            let _ = stdio::write_output(&Output::Log {
-                message: format!("args: {e}"),
-            });
+            let _ = Output::Error { error: e.to_string() }.emit();
             std::process::exit(e.exit_code());
         }
     };
     let mode = match args.mode() {
         Ok(m) => m,
-        Err(e) => {
-            let _ = stdio::write_output(&Output::Log {
-                message: format!("args: {e}"),
-            });
+        Err(msg) => {
+            let _ = Output::Error { error: msg.to_string() }.emit();
             std::process::exit(2);
         }
     };

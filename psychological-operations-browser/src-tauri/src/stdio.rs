@@ -4,15 +4,13 @@
 //!    stdin and emits each parsed [`Request`] on [`EVENT_REQUEST`].
 //! 2. The frontend handles the request and posts a [`ResponseOutcome`]
 //!    back via the [`stdio_respond`] Tauri command.
-//! 3. [`stdio_respond`] wraps the outcome in [`Output::Response`] and
-//!    writes it via [`write_output`].
-//! 4. [`write_output`] serializes the [`Output`] as one JSON line on
-//!    stdout under a mutex (so concurrent writes don't interleave).
+//! 3. [`stdio_respond`] wraps the outcome in [`Output::Response`]
+//!    and writes it via [`Output::emit`].
 //!
-//! The browser never writes to stdout or stderr outside `write_output`.
+//! Every byte the browser writes goes through [`Output::emit`] —
+//! no `println!`, no `eprintln!`, no direct stderr from our code.
 
-use std::io::{BufRead, Write};
-use std::sync::{Mutex, OnceLock};
+use std::io::BufRead;
 
 use psychological_operations_browser_sdk::output::Output;
 use psychological_operations_browser_sdk::request::Request;
@@ -36,43 +34,29 @@ pub fn start<R: Runtime>(handle: AppHandle<R>) {
             let req: Request = match serde_json::from_str(trimmed) {
                 Ok(r) => r,
                 Err(e) => {
-                    let _ = write_output(&Output::Log {
+                    let _ = Output::Log {
                         message: format!("stdio: dropping unparseable line: {e}"),
-                    });
+                    }
+                    .emit();
                     continue;
                 }
             };
             if let Err(e) = handle.emit(EVENT_REQUEST, req) {
-                let _ = write_output(&Output::Log {
+                let _ = Output::Log {
                     message: format!("stdio: emit failed: {e}"),
-                });
+                }
+                .emit();
             }
         }
     });
 }
 
-fn stdout_lock() -> &'static Mutex<()> {
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(()))
-}
-
-/// Serialize an [`Output`] as one JSON line on stdout under a mutex.
-/// The single channel through which every byte the browser writes
-/// goes.
-pub fn write_output(out: &Output) -> std::io::Result<()> {
-    let line = serde_json::to_string(out)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-    let _guard = stdout_lock().lock().expect("stdout lock poisoned");
-    let mut stdout = std::io::stdout().lock();
-    writeln!(stdout, "{line}")?;
-    stdout.flush()?;
-    Ok(())
-}
-
 /// Tauri command the frontend invokes to deliver a response (ok or
 /// err) back to the host. Wraps the outcome in [`Output::Response`]
-/// and writes it via [`write_output`].
+/// and writes it via [`Output::emit`].
 #[tauri::command]
 pub fn stdio_respond(result: ResponseOutcome) -> Result<(), String> {
-    write_output(&Output::Response { result }).map_err(|e| e.to_string())
+    Output::Response { result }
+        .emit()
+        .map_err(|e| e.to_string())
 }
