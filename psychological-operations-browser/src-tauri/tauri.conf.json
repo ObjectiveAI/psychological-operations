@@ -3,7 +3,9 @@
   "productName": "psychological-operations-browser",
   "version": "0.99.0",
   "identifier": "com.objectiveai.psychological-operations-browser",
-  "build": {},
+  "build": {
+    "frontendDist": ".."
+  },
   "app": {
     "withGlobalTauri": false,
     "windows": [],

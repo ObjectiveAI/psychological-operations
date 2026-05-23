@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>psychological-operations-browser</title>
+    <style>
+      html, body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        background: #000;
+        color: #ddd;
+        font: 14px system-ui, -apple-system, sans-serif;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+    </style>
+  </head>
+  <body>
+    <!--
+      This page is the fallback frontend. In normal operation the
+      browser window navigates to an external URL (set by the Rust
+      side via `WebviewWindowBuilder::new(..., WebviewUrl::External(..))`)
+      and never displays this document.
+    -->
+    Loading…
+  </body>
+</html>
