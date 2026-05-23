@@ -1,0 +1,17 @@
+[package]
+name = "psychological-operations-browser"
+version = "0.99.0"
+edition = "2024"
+publish = false
+description = "Minimal Tauri webview shell for psych-ops sessions (per-psyop and X-app modes)."
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2.10.3", features = [] }
+url = "2"
+
+[build-dependencies]
+tauri-build = { version = "2.5.6", features = [] }
