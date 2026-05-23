@@ -1,0 +1,6 @@
+"$schema" = "../gen/schemas/desktop-schema.json"
+
+[[permission]]
+identifier = "allow-current-mode"
+description = "Allows the injected overlay to query the active session mode so it can resume URL reporting after a navigation re-mounts it."
+commands.allow = ["current_mode"]

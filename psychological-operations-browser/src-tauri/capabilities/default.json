@@ -1,12 +1,20 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "X-App webview capability. Allows our injected overlay (running on https://x.com) to call our Tauri commands via __TAURI__ IPC.",
+  "description": "X-App webview capability. Allows our injected overlay to call our Tauri commands via __TAURI__ IPC from x.com and console.x.ai origins. Each user-defined command must be allowlisted explicitly here — core:default only grants core commands.",
   "windows": ["x-app"],
   "remote": {
-    "urls": ["https://x.com/*", "https://*.x.com/*"]
+    "urls": [
+      "https://x.com/*",
+      "https://*.x.com/*",
+      "https://console.x.ai/*"
+    ]
   },
   "permissions": [
-    "core:default"
+    "core:default",
+    "allow-frontend-ready",
+    "allow-stdio-respond",
+    "allow-current-mode",
+    "allow-report-url"
   ]
 }

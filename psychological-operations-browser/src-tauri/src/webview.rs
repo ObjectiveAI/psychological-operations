@@ -1,16 +1,17 @@
 //! Tauri webview construction.
 //!
-//! The X-App webview loads `https://x.com` directly and has our
-//! React overlay bundle injected at document-creation time via
+//! The X-App webview loads `https://console.x.ai/` directly (the
+//! X developer console — same landing page the old chromium fork
+//! used for `--x-app` mode) and has our React overlay bundle
+//! injected at document-creation time via
 //! [`WebviewWindowBuilder::initialization_script`] (which maps to
 //! WebView2's `AddScriptToExecuteOnDocumentCreated` on Windows).
-//! Native full-page navigations route through the `on_navigation`
-//! callback, which emits [`Output::Url`].
 //!
-//! Other modes (psyop sessions) will land in this file alongside
-//! `create_x_app` once the wire shape settles.
+//! URL emission is the frontend's responsibility — there is no
+//! Rust-side `on_navigation` callback. The injected overlay calls
+//! the `report_url` Tauri command in [`crate::stdio`] for both the
+//! initial URL and every subsequent change.
 
-use psychological_operations_browser_sdk::output::Output;
 use tauri::{AppHandle, Manager, Runtime, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
 use crate::args::Args;
@@ -19,7 +20,7 @@ use crate::args::Args;
 pub const X_APP_LABEL: &str = "x-app";
 
 /// Self-contained IIFE bundle of the React overlay, baked in at
-/// compile time. Produced by `pnpm build` (Vite) at
+/// compile time. Produced by `yarn build` (Vite) at
 /// `psychological-operations-browser/dist/overlay.js` — so a
 /// frontend build must run before this crate compiles.
 const OVERLAY_JS: &str = include_str!(concat!(
@@ -28,8 +29,9 @@ const OVERLAY_JS: &str = include_str!(concat!(
 ));
 
 /// Create the X-App webview if it doesn't already exist. Loads
-/// `https://x.com` directly, injects the React overlay, persists
-/// session state to `<config-base-dir>/plugins/psychological-operations/browser/x-app/`.
+/// `https://console.x.ai/` directly, injects the React overlay,
+/// persists session state to
+/// `<config-base-dir>/plugins/psychological-operations/browser/x-app/`.
 /// Idempotent — returns the existing webview if one is alive.
 pub fn create_x_app<R: Runtime>(handle: &AppHandle<R>) -> tauri::Result<WebviewWindow<R>> {
     if let Some(w) = handle.get_webview_window(X_APP_LABEL) {
@@ -46,19 +48,17 @@ pub fn create_x_app<R: Runtime>(handle: &AppHandle<R>) -> tauri::Result<WebviewW
     };
     std::fs::create_dir_all(&data_dir)?;
 
-    let url = Url::parse("https://x.com").expect("hardcoded URL parses");
+    let url = Url::parse("https://console.x.ai/").expect("hardcoded URL parses");
 
-    WebviewWindowBuilder::new(handle, X_APP_LABEL, WebviewUrl::External(url))
+    let window = WebviewWindowBuilder::new(handle, X_APP_LABEL, WebviewUrl::External(url))
         .title("psychological-operations-browser — X-App")
         .data_directory(data_dir)
         .initialization_script(OVERLAY_JS)
         .inner_size(1200.0, 800.0)
-        .on_navigation(|url| {
-            let _ = Output::Url {
-                url: url.to_string(),
-            }
-            .emit();
-            true
-        })
-        .build()
+        .build()?;
+
+    #[cfg(debug_assertions)]
+    window.open_devtools();
+
+    Ok(window)
 }

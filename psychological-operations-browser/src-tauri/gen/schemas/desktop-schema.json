@@ -345,6 +345,30 @@
       "description": "Permission identifier",
       "oneOf": [
         {
+          "description": "Allows the injected overlay to query the active session mode so it can resume URL reporting after a navigation re-mounts it.",
+          "type": "string",
+          "const": "allow-current-mode",
+          "markdownDescription": "Allows the injected overlay to query the active session mode so it can resume URL reporting after a navigation re-mounts it."
+        },
+        {
+          "description": "Allows the injected overlay to signal that its `psyops:request` listener is registered, unblocking the Rust stdin reader.",
+          "type": "string",
+          "const": "allow-frontend-ready",
+          "markdownDescription": "Allows the injected overlay to signal that its `psyops:request` listener is registered, unblocking the Rust stdin reader."
+        },
+        {
+          "description": "Allows the injected overlay to report URL changes for emission as `Output::Url` on stdout.",
+          "type": "string",
+          "const": "allow-report-url",
+          "markdownDescription": "Allows the injected overlay to report URL changes for emission as `Output::Url` on stdout."
+        },
+        {
+          "description": "Allows the injected overlay to fulfill an in-flight stdio request with a Response (Ack or err).",
+          "type": "string",
+          "const": "allow-stdio-respond",
+          "markdownDescription": "Allows the injected overlay to fulfill an in-flight stdio request with a Response (Ack or err)."
+        },
+        {
           "description": "Default core plugins set.\n#### This default permission set includes:\n\n- `core:path:default`\n- `core:event:default`\n- `core:window:default`\n- `core:webview:default`\n- `core:app:default`\n- `core:image:default`\n- `core:resources:default`\n- `core:menu:default`\n- `core:tray:default`",
           "type": "string",
           "const": "core:default",
