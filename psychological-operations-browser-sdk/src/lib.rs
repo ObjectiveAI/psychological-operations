@@ -7,5 +7,6 @@
 //! thread, the `stdio_respond` command) lives in the browser crate,
 //! not here — this crate is transport-agnostic.
 
+pub mod output;
 pub mod request;
 pub mod response;
