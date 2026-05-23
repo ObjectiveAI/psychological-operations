@@ -50,15 +50,10 @@ pub fn create_x_app<R: Runtime>(handle: &AppHandle<R>) -> tauri::Result<WebviewW
 
     let url = Url::parse("https://console.x.ai/").expect("hardcoded URL parses");
 
-    let window = WebviewWindowBuilder::new(handle, X_APP_LABEL, WebviewUrl::External(url))
+    WebviewWindowBuilder::new(handle, X_APP_LABEL, WebviewUrl::External(url))
         .title("psychological-operations-browser — X-App")
         .data_directory(data_dir)
         .initialization_script(OVERLAY_JS)
         .inner_size(1200.0, 800.0)
-        .build()?;
-
-    #[cfg(debug_assertions)]
-    window.open_devtools();
-
-    Ok(window)
+        .build()
 }
