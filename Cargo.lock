@@ -3961,11 +3961,19 @@ dependencies = [
 name = "psychological-operations-browser"
 version = "0.1.0"
 dependencies = [
+ "psychological-operations-browser-sdk",
  "serde",
  "serde_json",
  "tauri",
  "tauri-build",
  "tauri-plugin-opener",
+]
+
+[[package]]
+name = "psychological-operations-browser-sdk"
+version = "0.1.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
