@@ -1,5 +1,6 @@
 mod args;
 mod stdio;
+mod webview;
 
 use clap::Parser;
 use clap::error::ErrorKind;
@@ -32,19 +33,11 @@ pub fn run() {
             std::process::exit(e.exit_code());
         }
     };
-    let mode = match args.mode() {
-        Ok(m) => m,
-        Err(msg) => {
-            let _ = Output::Error { error: msg.to_string() }.emit();
-            std::process::exit(2);
-        }
-    };
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(args)
-        .manage(mode)
-        .invoke_handler(tauri::generate_handler![stdio::stdio_respond])
+        .invoke_handler(tauri::generate_handler![stdio::report_url])
         .setup(|app| {
             stdio::start(app.handle().clone());
             Ok(())

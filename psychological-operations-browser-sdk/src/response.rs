@@ -5,6 +5,7 @@
 //! Examples:
 //! ```text
 //! {"type":"html","html":"<!DOCTYPE html…"}
+//! {"type":"ack"}
 //! ```
 
 use serde::{Deserialize, Serialize};
@@ -14,6 +15,10 @@ use serde::{Deserialize, Serialize};
 pub enum Response {
     /// Reply to [`crate::request::Request::Html`].
     Html { html: String },
+    /// Generic acknowledgement. Reply to [`crate::request::Request::XApp`]
+    /// (and future mode-setting requests) confirming the browser
+    /// accepted the request and is now in the requested mode.
+    Ack,
 }
 
 /// Outcome of handling a request — either the corresponding

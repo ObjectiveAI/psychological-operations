@@ -5,6 +5,7 @@
 //! Examples:
 //! ```text
 //! {"type":"html"}
+//! {"type":"x_app"}
 //! ```
 
 use serde::{Deserialize, Serialize};
@@ -14,4 +15,8 @@ use serde::{Deserialize, Serialize};
 pub enum Request {
     /// Ask for the active page's serialized outer HTML.
     Html,
+    /// Place the browser in X-App (master root) mode. Triggers
+    /// creation of the X webview pointed at `https://x.com` with the
+    /// X-App data directory. Response is [`crate::response::Response::Ack`].
+    XApp,
 }

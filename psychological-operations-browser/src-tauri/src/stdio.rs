@@ -1,27 +1,29 @@
 //! Tauri-side runtime for the JSON-Lines stdio protocol.
 //!
 //! 1. [`start`] spawns a background thread that reads lines from
-//!    stdin and emits each parsed [`Request`] on [`EVENT_REQUEST`].
-//! 2. The frontend handles the request and posts a [`ResponseOutcome`]
-//!    back via the [`stdio_respond`] Tauri command.
-//! 3. [`stdio_respond`] wraps the outcome in [`Output::Response`]
-//!    and writes it via [`Output::emit`].
+//!    stdin, parses each one as a [`Request`], and dispatches it to
+//!    [`dispatch_request`].
+//! 2. Each request handler is responsible for emitting exactly one
+//!    [`Output::Response`] (ok or err). Handlers that need to do
+//!    main-thread work (e.g. creating a webview) hop via
+//!    [`AppHandle::run_on_main_thread`] and a sync channel.
+//! 3. The injected overlay reports SPA URL changes via the
+//!    [`report_url`] Tauri command, which emits [`Output::Url`].
 //!
 //! Every byte the browser writes goes through [`Output::emit`] —
 //! no `println!`, no `eprintln!`, no direct stderr from our code.
 
 use std::io::BufRead;
+use std::sync::mpsc;
 
 use psychological_operations_browser_sdk::output::Output;
 use psychological_operations_browser_sdk::request::Request;
-use psychological_operations_browser_sdk::response::ResponseOutcome;
-use tauri::{AppHandle, Emitter, Runtime};
+use psychological_operations_browser_sdk::response::{Response, ResponseOutcome};
+use tauri::{AppHandle, Runtime};
 
-/// Tauri event channel the browser emits stdio requests on.
-/// Follows the `psyops:<topic>:<event>` naming convention.
-pub const EVENT_REQUEST: &str = "psyops:stdio:request";
+use crate::webview;
 
-/// Spawns the stdin reader thread. Call exactly once from `setup`.
+/// Spawn the stdin reader thread. Call exactly once from `setup`.
 pub fn start<R: Runtime>(handle: AppHandle<R>) {
     std::thread::spawn(move || {
         let stdin = std::io::stdin();
@@ -41,22 +43,57 @@ pub fn start<R: Runtime>(handle: AppHandle<R>) {
                     continue;
                 }
             };
-            if let Err(e) = handle.emit(EVENT_REQUEST, req) {
-                let _ = Output::Log {
-                    message: format!("stdio: emit failed: {e}"),
-                }
-                .emit();
-            }
+            dispatch_request(&handle, req);
         }
     });
 }
 
-/// Tauri command the frontend invokes to deliver a response (ok or
-/// err) back to the host. Wraps the outcome in [`Output::Response`]
-/// and writes it via [`Output::emit`].
+fn dispatch_request<R: Runtime>(handle: &AppHandle<R>, req: Request) {
+    let outcome = match req {
+        Request::XApp => handle_x_app(handle),
+        Request::Html => {
+            let _ = Output::Log {
+                message: "stdio: html request not implemented yet".into(),
+            }
+            .emit();
+            ResponseOutcome::Err {
+                error: "html request not implemented".into(),
+            }
+        }
+    };
+    let _ = Output::Response { result: outcome }.emit();
+}
+
+fn handle_x_app<R: Runtime>(handle: &AppHandle<R>) -> ResponseOutcome {
+    let (tx, rx) = mpsc::channel();
+    let h = handle.clone();
+    let dispatched = handle.run_on_main_thread(move || {
+        let res = webview::create_x_app(&h)
+            .map(|_| ())
+            .map_err(|e| e.to_string());
+        let _ = tx.send(res);
+    });
+    match dispatched {
+        Ok(()) => match rx.recv() {
+            Ok(Ok(())) => ResponseOutcome::Ok {
+                response: Response::Ack,
+            },
+            Ok(Err(error)) => ResponseOutcome::Err { error },
+            Err(e) => ResponseOutcome::Err {
+                error: format!("webview create channel: {e}"),
+            },
+        },
+        Err(e) => ResponseOutcome::Err {
+            error: format!("dispatch failed: {e}"),
+        },
+    }
+}
+
+/// Tauri command the injected overlay invokes on every URL change
+/// inside the X webview (SPA route changes via `history.pushState` /
+/// `popstate`). Native full-page navigations route through the
+/// `on_navigation` callback in [`crate::webview`] instead.
 #[tauri::command]
-pub fn stdio_respond(result: ResponseOutcome) -> Result<(), String> {
-    Output::Response { result }
-        .emit()
-        .map_err(|e| e.to_string())
+pub fn report_url(url: String) -> Result<(), String> {
+    Output::Url { url }.emit().map_err(|e| e.to_string())
 }

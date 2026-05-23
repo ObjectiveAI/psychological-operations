@@ -35,6 +35,13 @@ pub enum Output {
     /// otherwise written to stderr at runtime (parse errors,
     /// lifecycle traces, etc.).
     Log { message: String },
+
+    /// The URL the active content webview is currently on. Emitted
+    /// on every navigation — both native full-page navs (caught by
+    /// Tauri's `on_navigation` callback) and SPA route changes
+    /// (caught by the injected overlay's `history.pushState` /
+    /// `popstate` patch).
+    Url { url: String },
 }
 
 impl Output {

@@ -1,1 +1,1 @@
-{"default":{"identifier":"default","description":"Capability for the main window","local":true,"windows":["main"],"permissions":["core:default","opener:default"]}}
+{"default":{"identifier":"default","description":"X-App webview capability. Allows our injected overlay (running on https://x.com) to call our Tauri commands via __TAURI__ IPC.","remote":{"urls":["https://x.com/*","https://*.x.com/*"]},"local":true,"windows":["x-app"],"permissions":["core:default"]}}

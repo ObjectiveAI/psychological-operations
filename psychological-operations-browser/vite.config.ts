@@ -29,4 +29,22 @@ export default defineConfig(async () => ({
       ignored: ["**/src-tauri/**"],
     },
   },
+
+  // We're not loading our React app as the page — Tauri loads
+  // https://x.com directly and injects our bundle via
+  // initialization_script. So the build needs to produce a single
+  // self-contained IIFE that mounts a Shadow-DOM overlay on top of
+  // whatever page is loaded.
+  build: {
+    rollupOptions: {
+      input: "src/main.tsx",
+      output: {
+        format: "iife",
+        entryFileNames: "overlay.js",
+        inlineDynamicImports: true,
+      },
+    },
+    cssCodeSplit: false,
+    assetsInlineLimit: Number.MAX_SAFE_INTEGER,
+  },
 }));
