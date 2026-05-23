@@ -9,9 +9,11 @@
 //! {"type":"html","error":"no active web contents"}
 //! ```
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize)]
+// `Deserialize` is needed so the frontend can hand the response back
+// to Rust via the `stdio_respond` Tauri command.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Response {
     /// Reply to [`crate::stdio::request::Request::Html`].
@@ -20,7 +22,7 @@ pub enum Response {
 
 /// Outcome of an [`Response::Html`] response — either the serialized
 /// outer HTML or an error string explaining why it wasn't available.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum HtmlPayload {
     Ok {

@@ -7,9 +7,11 @@
 //! {"type":"html"}
 //! ```
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Deserialize)]
+// `Serialize` is needed so the request can be forwarded to the
+// frontend over Tauri's event system.
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Request {
     /// Ask for the active page's serialized outer HTML.
