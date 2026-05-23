@@ -14,8 +14,9 @@
 use std::io::{BufRead, Write};
 use std::sync::{Mutex, OnceLock};
 
-use psychological_operations_browser_sdk::output::{Output, ResponseOutcome};
+use psychological_operations_browser_sdk::output::Output;
 use psychological_operations_browser_sdk::request::Request;
+use psychological_operations_browser_sdk::response::ResponseOutcome;
 use tauri::{AppHandle, Emitter, Runtime};
 
 /// Tauri event channel the browser emits stdio requests on.
