@@ -200,7 +200,24 @@ function tick() {
     // fields (inputs, checkboxes) vertically center. `translateX
     // (-100%)` places the helper's right edge at the chosen left
     // coordinate, so we don't have to measure helper width.
+    //
+    // Also cap max-width per-tick to whatever room is available
+    // between the viewport's left edge and the field, so when the
+    // window is narrow the helper wraps to multiple lines instead
+    // of clipping off-screen. Floor at MIN_WIDTH so the helper
+    // stays legible even at extreme widths (it'll sliver off the
+    // edge a bit rather than vanish).
     const rect = target.getBoundingClientRect();
+    const GAP = 8;
+    const VIEWPORT_MARGIN = 12;
+    const MIN_WIDTH = 120;
+    const MAX_WIDTH = 300;
+    const available = rect.left - GAP - VIEWPORT_MARGIN;
+    helper.style.maxWidth = `${Math.max(
+      MIN_WIDTH,
+      Math.min(MAX_WIDTH, available),
+    )}px`;
+
     if (rect.height > 60) {
       helper.style.top = `${rect.top + 8}px`;
       helper.style.transform = "translateX(-100%)";
@@ -208,7 +225,7 @@ function tick() {
       helper.style.top = `${rect.top + rect.height / 2}px`;
       helper.style.transform = "translateX(-100%) translateY(-50%)";
     }
-    helper.style.left = `${rect.left - 8}px`;
+    helper.style.left = `${rect.left - GAP}px`;
 
     // Status / state visualization.
     const status = helper.querySelector<HTMLSpanElement>(".status");
@@ -249,11 +266,11 @@ function makeStyles(): HTMLStyleElement {
   s.textContent = `
     .helper {
       position: fixed;
+      box-sizing: border-box;
       display: inline-flex;
       align-items: center;
       gap: 8px;
       padding: 6px 10px;
-      max-width: 300px;
       background: rgba(20, 25, 35, 0.95);
       color: #fff;
       font: 12px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -263,7 +280,13 @@ function makeStyles(): HTMLStyleElement {
       box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
       pointer-events: auto;
       transition: background 180ms ease, border-color 180ms ease;
-      white-space: nowrap;
+      /* Wrap text when narrow. max-width is set per-tick from
+         tick() so the helper never extends past the viewport's
+         left edge. overflow-wrap:anywhere catches the case where
+         the helper text contains a long unbroken token (URLs,
+         etc.) that would otherwise force horizontal overflow. */
+      white-space: normal;
+      overflow-wrap: anywhere;
     }
     .helper.complete {
       background: rgba(34, 139, 60, 0.95);
