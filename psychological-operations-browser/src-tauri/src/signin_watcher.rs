@@ -236,6 +236,22 @@ async fn run_watcher<R: Runtime>(
 
     let kick = handle.state::<WatcherKick>().0.clone();
 
+    // Drain any pre-existing kick permits. `read_cookie_sync` above
+    // already captured the current state, so a stored permit (from an
+    // `on_page_load` that fired before this watcher task started) would
+    // only cause a redundant cookies_for_url call. Worse: that call,
+    // racing with the rest of the x_app dispatch (emit + ack roundtrip
+    // through the main UI thread + multi-webview set_size dispatches),
+    // deadlocks the main thread on this build of Tauri. Draining stale
+    // permits before entering the loop avoids the race entirely.
+    loop {
+        tokio::select! {
+            biased;
+            _ = kick.notified() => continue,
+            _ = std::future::ready(()) => break,
+        }
+    }
+
     loop {
         tokio::select! {
             _ = stop.notified() => break,
