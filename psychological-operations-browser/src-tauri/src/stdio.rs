@@ -44,6 +44,7 @@ use psychological_operations_browser_sdk::request::Request;
 use psychological_operations_browser_sdk::response::ResponseOutcome;
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 
+use crate::WatcherKick;
 use crate::cookies_watcher;
 use crate::state::{self, SignedInPayload};
 use crate::webview;
@@ -198,8 +199,18 @@ pub fn current_panel() -> Result<Option<PanelState>, String> {
 
 /// Invoked by the overlay for the initial URL after install and on
 /// every SPA route change (`pushState` / `replaceState` /
-/// `popstate` / `hashchange`). Emits [`Output::Url`].
+/// `popstate` / `hashchange`). Emits [`Output::Url`] and kicks the
+/// cookies watcher: SPA navs often coincide with cookie changes
+/// (e.g. xAI team creation sets `last-team-id` then `router.push`es
+/// to `/team/<id>`), and `on_page_load(Finished)` only fires for
+/// full-document loads — so SPA navs need this complementary
+/// trigger to drive the watcher in sub-second time.
 #[tauri::command]
-pub fn report_url(url: String) -> Result<(), String> {
-    Output::Url { url }.emit().map_err(|e| e.to_string())
+pub fn report_url(
+    url: String,
+    kick: tauri::State<'_, WatcherKick>,
+) -> Result<(), String> {
+    Output::Url { url }.emit().map_err(|e| e.to_string())?;
+    kick.0.notify_one();
+    Ok(())
 }
