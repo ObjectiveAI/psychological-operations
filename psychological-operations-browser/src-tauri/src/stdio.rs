@@ -201,10 +201,10 @@ pub fn current_panel() -> Result<Option<PanelState>, String> {
 /// every SPA route change (`pushState` / `replaceState` /
 /// `popstate` / `hashchange`). Emits [`Output::Url`] and kicks the
 /// cookies watcher: SPA navs often coincide with cookie changes
-/// (e.g. xAI team creation sets `last-team-id` then `router.push`es
-/// to `/team/<id>`), and `on_page_load(Finished)` only fires for
-/// full-document loads — so SPA navs need this complementary
-/// trigger to drive the watcher in sub-second time.
+/// (e.g. an action sets a session cookie then `router.push`es to a
+/// new route), and `on_page_load(Finished)` only fires for full-
+/// document loads — so SPA navs need this complementary trigger to
+/// drive the watcher in sub-second time.
 #[tauri::command]
 pub fn report_url(
     url: String,

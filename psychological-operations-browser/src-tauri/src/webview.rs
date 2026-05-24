@@ -9,7 +9,7 @@
 //!     Tauri IPC works unconditionally — no remote-URL ACL needed.
 //!
 //!   - `CONTENT_LABEL` ("content") below the panel, taking the
-//!     remaining height. Loads `https://console.x.ai/` directly with
+//!     remaining height. Loads `https://console.x.com/` directly with
 //!     the React/non-React overlay bundle injected via
 //!     `WebviewBuilder::initialization_script` (which maps to
 //!     WebView2's `AddScriptToExecuteOnDocumentCreated` on Windows).
@@ -93,7 +93,7 @@ pub fn create_x_app<R: Runtime>(handle: &AppHandle<R>) -> tauri::Result<()> {
     )?;
 
     // 3. Content webview below: remote console.x.ai + injected overlay.
-    let url = Url::parse("https://console.x.ai/").expect("hardcoded URL parses");
+    let url = Url::parse("https://console.x.com/").expect("hardcoded URL parses");
     let kick = handle.state::<WatcherKick>().0.clone();
     let content = WebviewBuilder::new(CONTENT_LABEL, WebviewUrl::External(url))
         .data_directory(data_dir)

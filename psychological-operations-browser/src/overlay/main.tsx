@@ -62,7 +62,7 @@ async function handleRequest(event: Event<Request>) {
 
       // Navigate (or reload if already on the right origin so the
       // overlay still re-mounts on the fresh page).
-      const target = "https://console.x.ai/";
+      const target = "https://console.x.com/";
       if (location.href === target || location.href.startsWith(target)) {
         location.reload();
       } else {

@@ -18,7 +18,9 @@ pub enum Request {
     /// Ask for the active page's serialized outer HTML.
     Html,
     /// Place the browser in X-App (master root) mode. Triggers
-    /// navigation to `https://console.x.ai/` and an Ack.
+    /// navigation to `https://console.x.com/` and an Ack. (The
+    /// `XApp` name stays for wire stability even though the URL has
+    /// moved off `console.x.ai`.)
     XApp,
     /// Drain the overlay's buffered console-entry buffer. Returns
     /// every `console.log/warn/error/info/debug` call and every

@@ -75,7 +75,7 @@ pub fn start<R: Runtime>(
     data_dir: &Path,
 ) -> Option<Handle> {
     let auth_url: Url = match mode {
-        Mode::XApp => Url::parse("https://console.x.ai/").ok()?,
+        Mode::XApp => Url::parse("https://console.x.com/").ok()?,
         Mode::Psyop { .. } => {
             let _ = Output::Log {
                 message: "cookies_watcher: Psyop mode not yet wired".into(),

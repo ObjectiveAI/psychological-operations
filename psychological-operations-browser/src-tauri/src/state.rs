@@ -14,7 +14,7 @@
 //!    - the panel webview's Tauri-event listener (`psyops:panel`)
 //!    - the X-App window reflow (panel resizes 0 ↔ [`PANEL_HEIGHT`])
 //!    - the content webview, via a post-sign-in redirect to
-//!      `https://console.x.ai/` on the
+//!      `https://console.x.com/` on the
 //!      `SignInToX → !SignInToX` transition.
 //!
 //! Adding a new panel condition: add a [`PanelCondition`] variant in
@@ -241,7 +241,7 @@ pub fn recompute_and_publish<R: Runtime>(handle: &AppHandle<R>) {
     );
     if was_signin && !is_signin && matches!(mode::get(), Some(Mode::XApp)) {
         if let Some(content) = handle.get_webview(webview::CONTENT_LABEL) {
-            if let Ok(target) = Url::parse("https://console.x.ai/") {
+            if let Ok(target) = Url::parse("https://console.x.com/") {
                 let _ = content.navigate(target);
             }
         }

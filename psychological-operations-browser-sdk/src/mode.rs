@@ -21,8 +21,11 @@ use serde::{Deserialize, Serialize};
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Mode {
     /// Master X-App (root) session. Webview lands on
-    /// `https://console.x.ai/`; sign-in is observed via the `sso`
-    /// HttpOnly JWT cookie on `.x.ai`.
+    /// `https://console.x.com/`. Sign-in is observed via cookies on
+    /// the content webview; the exact cookie name + domain is in
+    /// flux while we're switching off the legacy `console.x.ai` /
+    /// `sso`-on-`.x.ai` setup — see the cookies watcher for the
+    /// current set of names being probed.
     XApp,
     /// Per-psyop session, scoped to the named psyop. The eventual
     /// wiring will land x.com (twitter) with per-psyop cookie
