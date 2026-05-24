@@ -3,7 +3,9 @@
 // Six small badges, each anchored to a form element, that flip
 // green-with-checkmark when the user completes that step. The
 // description badge also exposes a "Copy" button that writes the
-// canonical description string to the OS clipboard.
+// canonical description string to the OS clipboard. Visuals come
+// from the shared `helper-widget` module so this stays consistent
+// with other wizard pointers (apps-tab, etc.).
 //
 // =================================================================
 // TOS / "no automation" constraint — enforced by what we use:
@@ -14,9 +16,8 @@
 //     - getBoundingClientRect, querySelector, querySelectorAll
 //     - reading element.value / .checked / .textContent
 //     - requestAnimationFrame
-//     - navigator.clipboard.writeText (writes OS clipboard; the
-//       user pastes themselves)
-//     - attachShadow, document.createElement (under our own root)
+//     - DOM creation under our own root (via helper-widget) + the
+//       Copy button's `navigator.clipboard.writeText` call
 //
 //   APIs this module is *deliberately forbidden* from using
 //   (grep these names in the diff if reviewing this file):
@@ -32,6 +33,12 @@
 // resulting state. That's accessibility-tool territory, not
 // automation.
 
+import {
+  HELPER_CSS,
+  createHelperWidget,
+  type HelperState,
+  type HelperWidget,
+} from "./helper-widget";
 import { subscribeUrl } from "./spa-url";
 
 // =================================================================
@@ -122,7 +129,7 @@ function isOnboardingUrl(url: string): boolean {
 // Mount / unmount lifecycle
 // =================================================================
 let rootEl: HTMLDivElement | null = null;
-const helperEls = new Map<string, HTMLDivElement>();
+const widgets = new Map<string, HelperWidget>();
 let rafId: number | null = null;
 
 function mount() {
@@ -141,11 +148,18 @@ function mount() {
   } satisfies Partial<CSSStyleDeclaration>);
 
   const shadow = rootEl.attachShadow({ mode: "closed" });
-  shadow.appendChild(makeStyles());
+  const style = document.createElement("style");
+  style.textContent = HELPER_CSS;
+  shadow.appendChild(style);
+
   for (const step of STEPS) {
-    const helper = makeHelper(step);
-    helperEls.set(step.id, helper);
-    shadow.appendChild(helper);
+    const widget = createHelperWidget({
+      text: step.text,
+      copyText: step.hasCopyButton ? DESCRIPTION_COPY : undefined,
+    });
+    widget.element.dataset.step = step.id;
+    widgets.set(step.id, widget);
+    shadow.appendChild(widget.element);
   }
 
   document.body.appendChild(rootEl);
@@ -157,7 +171,7 @@ function unmount() {
   stopTickLoop();
   rootEl.remove();
   rootEl = null;
-  helperEls.clear();
+  widgets.clear();
 }
 
 // =================================================================
@@ -185,15 +199,16 @@ function tick() {
   });
 
   for (const step of STEPS) {
-    const helper = helperEls.get(step.id);
-    if (!helper) continue;
+    const widget = widgets.get(step.id);
+    if (!widget) continue;
+    const el = widget.element;
 
     const target = step.getTarget();
     if (!target) {
-      helper.style.display = "none";
+      el.style.display = "none";
       continue;
     }
-    helper.style.display = "";
+    el.style.display = "";
 
     // Position to the left of the target. For tall fields (like
     // the description textarea) anchor near the top; for short
@@ -213,35 +228,32 @@ function tick() {
     const MIN_WIDTH = 120;
     const MAX_WIDTH = 300;
     const available = rect.left - GAP - VIEWPORT_MARGIN;
-    helper.style.maxWidth = `${Math.max(
+    el.style.maxWidth = `${Math.max(
       MIN_WIDTH,
       Math.min(MAX_WIDTH, available),
     )}px`;
 
     if (rect.height > 60) {
-      helper.style.top = `${rect.top + 8}px`;
-      helper.style.transform = "translateX(-100%)";
+      el.style.top = `${rect.top + 8}px`;
+      el.style.transform = "translateX(-100%)";
     } else {
-      helper.style.top = `${rect.top + rect.height / 2}px`;
-      helper.style.transform = "translateX(-100%) translateY(-50%)";
+      el.style.top = `${rect.top + rect.height / 2}px`;
+      el.style.transform = "translateX(-100%) translateY(-50%)";
     }
-    helper.style.left = `${rect.left - GAP}px`;
+    el.style.left = `${rect.left - GAP}px`;
 
-    // Status / state visualization.
-    const status = helper.querySelector<HTMLSpanElement>(".status");
+    // Compute the visual state for this step + push to the
+    // shared widget.
+    let state: HelperState;
     if (step.id === "submit") {
       // Three states for submit: blocked (red + X) when prereqs
       // aren't met, neutral (gray circle) when ready to click,
       // never "complete" (page navigates on click → unmount).
-      const blocked = !nonSubmitComplete;
-      helper.classList.toggle("blocked", blocked);
-      helper.classList.remove("complete");
-      if (status) status.textContent = blocked ? "✕" : "";
+      state = nonSubmitComplete ? "incomplete" : "blocked";
     } else {
-      const complete = step.isComplete(target);
-      helper.classList.toggle("complete", complete);
-      if (status) status.textContent = complete ? "✓" : "";
+      state = step.isComplete(target) ? "complete" : "incomplete";
     }
+    widget.setState(state);
   }
   rafId = requestAnimationFrame(tick);
 }
@@ -256,132 +268,6 @@ function stopTickLoop() {
     cancelAnimationFrame(rafId);
     rafId = null;
   }
-}
-
-// =================================================================
-// Helper rendering
-// =================================================================
-function makeStyles(): HTMLStyleElement {
-  const s = document.createElement("style");
-  s.textContent = `
-    .helper {
-      position: fixed;
-      box-sizing: border-box;
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 6px 10px;
-      background: rgba(20, 25, 35, 0.95);
-      color: #fff;
-      font: 12px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif;
-      letter-spacing: 0.01em;
-      border: 1px solid rgba(255, 255, 255, 0.18);
-      border-radius: 8px;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
-      pointer-events: auto;
-      transition: background 180ms ease, border-color 180ms ease;
-      /* Wrap text when narrow. max-width is set per-tick from
-         tick() so the helper never extends past the viewport's
-         left edge. overflow-wrap:anywhere catches the case where
-         the helper text contains a long unbroken token (URLs,
-         etc.) that would otherwise force horizontal overflow. */
-      white-space: normal;
-      overflow-wrap: anywhere;
-    }
-    .helper.complete {
-      background: rgba(34, 139, 60, 0.95);
-      border-color: rgba(120, 220, 150, 0.6);
-    }
-    .helper.blocked {
-      background: rgba(180, 40, 40, 0.95);
-      border-color: rgba(255, 130, 130, 0.6);
-    }
-    .helper .status {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      width: 16px;
-      height: 16px;
-      border-radius: 50%;
-      border: 1.5px solid rgba(255, 255, 255, 0.55);
-      flex-shrink: 0;
-      font-size: 11px;
-      line-height: 1;
-      transition: background 180ms ease, border-color 180ms ease, color 180ms ease;
-    }
-    .helper.complete .status {
-      background: #fff;
-      border-color: #fff;
-      color: #1a7a3a;
-    }
-    .helper.blocked .status {
-      background: #fff;
-      border-color: #fff;
-      color: #b32828;
-    }
-    .helper .copy-btn {
-      background: rgba(255, 255, 255, 0.14);
-      color: #fff;
-      border: 1px solid rgba(255, 255, 255, 0.28);
-      border-radius: 5px;
-      padding: 3px 9px;
-      font: inherit;
-      cursor: pointer;
-      flex-shrink: 0;
-      transition: background 120ms ease;
-    }
-    .helper .copy-btn:hover {
-      background: rgba(255, 255, 255, 0.24);
-    }
-    .helper .copy-btn.copied {
-      background: rgba(80, 200, 120, 0.35);
-      border-color: rgba(120, 220, 150, 0.6);
-    }
-  `;
-  return s;
-}
-
-function makeHelper(step: Step): HTMLDivElement {
-  const el = document.createElement("div");
-  el.className = "helper";
-  el.dataset.step = step.id;
-
-  const text = document.createElement("span");
-  text.textContent = step.text;
-  el.appendChild(text);
-
-  if (step.hasCopyButton) {
-    const btn = document.createElement("button");
-    btn.className = "copy-btn";
-    btn.type = "button";
-    btn.textContent = "Copy";
-    btn.addEventListener("click", () => {
-      navigator.clipboard
-        .writeText(DESCRIPTION_COPY)
-        .then(() => {
-          btn.classList.add("copied");
-          btn.textContent = "Copied!";
-          setTimeout(() => {
-            btn.classList.remove("copied");
-            btn.textContent = "Copy";
-          }, 1400);
-        })
-        .catch(() => {
-          btn.textContent = "Copy failed";
-          setTimeout(() => {
-            btn.textContent = "Copy";
-          }, 1400);
-        });
-    });
-    el.appendChild(btn);
-  }
-
-  const status = document.createElement("span");
-  status.className = "status";
-  status.textContent = "";
-  el.appendChild(status);
-
-  return el;
 }
 
 // =================================================================
