@@ -1,55 +1,88 @@
 import { invoke } from "@tauri-apps/api/core";
 
-// Reports `location.href` to the Rust side immediately and on every
-// SPA route change (history.pushState / replaceState / popstate /
-// hashchange). Returns an uninstall closure that restores the
-// original History methods and detaches the listeners — the X-App
-// handler holds onto this so subsequent mode resets can stop the
-// reporter cleanly before navigating.
-export function installSpaUrlReporter(): () => void {
-  // Dedup — page scripts often call replaceState/pushState with the
-  // same URL during init, and we don't want to spam stdout with
-  // duplicate `Output::Url` lines.
-  let last: string | undefined;
-  const report = () => {
-    if (location.href === last) return;
-    last = location.href;
-    invoke("report_url", { url: location.href }).catch(() => {
-      // best-effort — overlay must not crash because IPC failed.
-    });
-  };
+// One-time wrapping of the History methods + listeners for
+// popstate/hashchange. Done lazily on first `subscribeUrl` call so
+// importing this module has no side-effects. The wrappers stay
+// installed for the life of the JS context — when the content
+// webview does a full-document navigation, the context is torn
+// down anyway, which takes the wrappers with it.
 
-  const originals: Partial<Record<"pushState" | "replaceState", History[keyof History]>> = {};
+type Subscriber = (url: string) => void;
+
+let installed = false;
+let lastFired: string | undefined;
+const subscribers = new Set<Subscriber>();
+
+function fire() {
+  const url = location.href;
+  // Dedup — page scripts often call replaceState/pushState with the
+  // same URL during init, and there's no reason to re-do work on a
+  // same-URL change.
+  if (url === lastFired) return;
+  lastFired = url;
+  for (const cb of subscribers) {
+    try {
+      cb(url);
+    } catch {
+      // Subscribers must not break the dispatch loop for each
+      // other. Swallow.
+    }
+  }
+}
+
+function installOnce() {
+  if (installed) return;
+  installed = true;
 
   const wrap = (key: "pushState" | "replaceState") => {
     const original = history[key];
-    originals[key] = original;
     history[key] = function (
       this: History,
       ...args: Parameters<typeof original>
     ) {
       const result = original.apply(this, args);
-      report();
+      fire();
       return result;
     } as typeof original;
   };
   wrap("pushState");
   wrap("replaceState");
-  window.addEventListener("popstate", report);
-  window.addEventListener("hashchange", report);
+  window.addEventListener("popstate", fire);
+  window.addEventListener("hashchange", fire);
+}
 
-  // Report the initial URL synchronously — the overlay is mounted
-  // by the time we get here, and `location.href` is already correct.
-  report();
-
+/**
+ * Subscribe to URL changes. Returns an unsubscribe closure.
+ * Fires the callback immediately with the current URL on
+ * registration so subscribers can hydrate state without waiting
+ * for the next nav.
+ */
+export function subscribeUrl(cb: Subscriber): () => void {
+  installOnce();
+  subscribers.add(cb);
+  try {
+    cb(location.href);
+  } catch {
+    // best-effort
+  }
   return () => {
-    if (originals.pushState) {
-      history.pushState = originals.pushState as History["pushState"];
-    }
-    if (originals.replaceState) {
-      history.replaceState = originals.replaceState as History["replaceState"];
-    }
-    window.removeEventListener("popstate", report);
-    window.removeEventListener("hashchange", report);
+    subscribers.delete(cb);
   };
+}
+
+/**
+ * Reports `location.href` to the Rust side immediately and on
+ * every SPA route change. Returns an uninstall closure — held by
+ * the X-App handler so it can stop reporting before navigating on
+ * an `x_app` re-dispatch. Implemented as a `subscribeUrl`
+ * subscriber so any other module (e.g. the onboarding-helpers
+ * mount/unmount logic) can hook into the same URL stream without
+ * re-wrapping History methods.
+ */
+export function installSpaUrlReporter(): () => void {
+  return subscribeUrl((url) => {
+    invoke("report_url", { url }).catch(() => {
+      // best-effort — overlay must not crash because IPC failed.
+    });
+  });
 }

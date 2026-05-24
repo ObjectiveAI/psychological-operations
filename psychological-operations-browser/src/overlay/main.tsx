@@ -20,6 +20,7 @@ installConsoleCapture();
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type Event } from "@tauri-apps/api/event";
 import { installSpaUrlReporter } from "./spa-url";
+import { installOnboardingHelpers } from "./onboarding-helpers";
 
 type Request =
   | { type: "x_app" }
@@ -30,10 +31,16 @@ type Request =
 type Mode = { type: "x_app" } | null;
 
 let urlReporterUninstall: (() => void) | null = null;
+let onboardingHelpersUninstall: (() => void) | null = null;
 
 function stopUrlReporter() {
   urlReporterUninstall?.();
   urlReporterUninstall = null;
+}
+
+function stopOnboardingHelpers() {
+  onboardingHelpersUninstall?.();
+  onboardingHelpersUninstall = null;
 }
 
 async function respondOk(response: unknown) {
@@ -59,6 +66,7 @@ async function handleRequest(event: Event<Request>) {
       // Halt prior per-mode state. After the navigation below the
       // overlay will re-mount, query current_mode, and reinstall.
       stopUrlReporter();
+      stopOnboardingHelpers();
 
       // Navigate (or reload if already on the right origin so the
       // overlay still re-mounts on the fresh page).
@@ -106,6 +114,7 @@ async function handleRequest(event: Event<Request>) {
     const mode = await invoke<Mode>("current_mode");
     if (mode !== null) {
       urlReporterUninstall = installSpaUrlReporter();
+      onboardingHelpersUninstall = installOnboardingHelpers();
     }
   } catch {
     // Best-effort
