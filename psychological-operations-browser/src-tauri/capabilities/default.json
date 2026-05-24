@@ -17,6 +17,7 @@
     "allow-stdio-respond",
     "allow-current-mode",
     "allow-current-signed-in",
+    "allow-current-panel",
     "allow-report-url"
   ]
 }

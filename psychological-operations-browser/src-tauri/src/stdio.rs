@@ -39,11 +39,13 @@ use std::sync::mpsc;
 
 use psychological_operations_browser_sdk::mode::{self, Mode};
 use psychological_operations_browser_sdk::output::Output;
+use psychological_operations_browser_sdk::panel::PanelState;
 use psychological_operations_browser_sdk::request::Request;
 use psychological_operations_browser_sdk::response::ResponseOutcome;
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 
-use crate::signin_watcher;
+use crate::cookies_watcher;
+use crate::state::{self, SignedInPayload};
 use crate::webview;
 
 /// Tauri event channel the browser emits stdio requests on.
@@ -58,10 +60,10 @@ pub struct ReadyTx(pub Mutex<Option<mpsc::Sender<()>>>);
 /// channel. `None` when no request is awaiting a response.
 pub struct PendingAck(pub Mutex<Option<mpsc::SyncSender<ResponseOutcome>>>);
 
-/// Tauri state — the active sign-in watcher's handle, if any.
+/// Tauri state — the active cookies watcher's handle, if any.
 /// Dropping the previous handle when assigning a new one tears down
-/// its filesystem watcher + reader thread.
-pub struct SigninWatcherSlot(pub Mutex<Option<signin_watcher::Handle>>);
+/// its filesystem watcher + reader task.
+pub struct CookiesWatcherSlot(pub Mutex<Option<cookies_watcher::Handle>>);
 
 /// Spawn the stdin reader thread. It waits on `ready_rx` for the
 /// frontend's `frontend_ready` signal before opening stdin.
@@ -96,16 +98,19 @@ pub fn start<R: Runtime>(handle: AppHandle<R>, ready_rx: mpsc::Receiver<()>) {
 fn dispatch_request<R: Runtime>(handle: &AppHandle<R>, req: Request) {
     // 1. For mode-setting requests: update the SDK mode static
     //    FIRST so the ack we're about to emit (and every output
-    //    line from now on) carries the new mode. Then (re)start the
-    //    sign-in watcher scoped to that mode — dropping the old
-    //    handle tears down its filesystem watcher.
+    //    line from now on) carries the new mode. Also mirror the
+    //    mode into the panel-state Facts store so the derivation
+    //    sees the flip without waiting for the next cookie tick.
+    //    Then (re)start the cookies watcher scoped to that mode —
+    //    dropping the old handle tears down its filesystem watcher.
     if let Request::XApp = req {
         mode::set(Some(Mode::XApp));
-        let watcher_slot: tauri::State<SigninWatcherSlot> = handle.state();
+        state::set_mode(handle, Some(Mode::XApp));
+        let watcher_slot: tauri::State<CookiesWatcherSlot> = handle.state();
         *watcher_slot.0.lock().expect("watcher slot poisoned") = None; // drop old
         let data_dir = webview::x_app_data_dir(handle);
         *watcher_slot.0.lock().expect("watcher slot poisoned") =
-            signin_watcher::start(handle.clone(), &Mode::XApp, &data_dir);
+            cookies_watcher::start(handle.clone(), &Mode::XApp, &data_dir);
     }
 
     // 2. Register a pending-ack slot before emitting so the window's
@@ -173,14 +178,22 @@ pub fn current_mode() -> Result<Option<Mode>, String> {
     Ok(mode::get())
 }
 
-/// Invoked by the overlay on every mount to seed the instruction
-/// panel + redirect logic before any `psyops:signed_in` Tauri event
-/// has fired (or to recover state after a re-mount). Returns
-/// whatever the most recent watcher emission published; `None` if
-/// no watcher has run yet (e.g. no mode has been set).
+/// Legacy: returns the most recent sign-in observation derived from
+/// the sso cookie. Kept for external/CLI consumers that depended on
+/// the sign-in signal; the panel webview itself now uses
+/// [`current_panel`] / `psyops:panel` instead.
 #[tauri::command]
-pub fn current_signed_in() -> Result<Option<signin_watcher::SignedInPayload>, String> {
-    Ok(signin_watcher::current())
+pub fn current_signed_in() -> Result<Option<SignedInPayload>, String> {
+    Ok(state::current_signed_in())
+}
+
+/// Returns the current derived [`PanelState`] — what the instruction
+/// panel should be rendering right now. Invoked by the panel React
+/// on mount to seed initial state; the panel also subscribes to the
+/// `psyops:panel` Tauri event for live updates.
+#[tauri::command]
+pub fn current_panel() -> Result<Option<PanelState>, String> {
+    Ok(state::current_panel())
 }
 
 /// Invoked by the overlay for the initial URL after install and on

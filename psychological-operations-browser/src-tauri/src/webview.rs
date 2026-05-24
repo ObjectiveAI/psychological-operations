@@ -3,7 +3,8 @@
 //! One `Window` (label `x-app`) with two child `Webview`s stacked:
 //!
 //!   - `PANEL_LABEL` ("panel") at the top, sized to [`PANEL_HEIGHT`]
-//!     when signed-out (or unknown), 0 when signed-in. Loads our
+//!     when the derived [`crate::state::PanelState`] is `Show`, 0
+//!     when `Hidden` (or before any derivation has run). Loads our
 //!     local Vite-built `panel.html` (tauri:// asset protocol) so
 //!     Tauri IPC works unconditionally — no remote-URL ACL needed.
 //!
@@ -17,8 +18,8 @@
 //!     this bundle (it lives in the panel webview).
 //!
 //! Layout reflow happens (a) on window resize and (b) on every
-//! sign-in state flip via [`reflow`], called from
-//! [`crate::signin_watcher`].
+//! derived-state flip via [`reflow`], called from
+//! [`crate::state::recompute_and_publish`].
 
 use tauri::webview::{PageLoadEvent, WebviewBuilder};
 use tauri::window::WindowBuilder;
@@ -27,8 +28,9 @@ use tauri::{
     Window, WindowEvent,
 };
 
+use crate::WatcherKick;
 use crate::args::Args;
-use crate::signin_watcher::{self, WatcherKick};
+use crate::state;
 
 /// Label of the single Tauri Window the X-App lives in.
 pub const X_APP_WINDOW: &str = "x-app";
@@ -124,17 +126,19 @@ pub fn create_x_app<R: Runtime>(handle: &AppHandle<R>) -> tauri::Result<()> {
     Ok(())
 }
 
-/// Resize the panel + content webviews based on the current sign-in
-/// state. Called from the window-resize callback AND from
-/// [`crate::signin_watcher::emit_signed_in`] on every state flip.
+/// Resize the panel + content webviews based on the derived
+/// [`PanelState`]. Called from the window-resize callback AND from
+/// [`crate::state::recompute_and_publish`] on every state flip.
+///
+/// Panel is visible (height [`PANEL_HEIGHT`]) when the derivation
+/// has something to show, hidden (height 0) otherwise. Before any
+/// derivation has run (e.g. process startup, no mode set), the
+/// panel is hidden — `state::current_panel()` returns `None`.
 ///
 /// `width` / `height` are in physical pixels (window's `inner_size`).
 pub fn reflow_physical<R: Runtime>(window: &Window<R>, width: u32, height: u32) {
-    let signed_in = signin_watcher::current()
-        .map(|s| s.signed_in)
-        .unwrap_or(false);
-
-    let panel_h = if signed_in { 0 } else { PANEL_HEIGHT };
+    let visible = state::current_panel().is_some_and(|s| s.is_visible());
+    let panel_h = if visible { PANEL_HEIGHT } else { 0 };
 
     if let Some(panel) = window.get_webview(PANEL_LABEL) {
         let _ = panel.set_size(PhysicalSize::new(width, panel_h));

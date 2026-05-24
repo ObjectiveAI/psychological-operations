@@ -1,0 +1,6 @@
+"$schema" = "../gen/schemas/desktop-schema.json"
+
+[[permission]]
+identifier = "allow-current-panel"
+description = "Allows the panel webview to query the current derived PanelState on mount before any `psyops:panel` event has fired (or to recover state after a re-mount)."
+commands.allow = ["current_panel"]

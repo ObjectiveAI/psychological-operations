@@ -10,5 +10,6 @@
 pub mod console;
 pub mod mode;
 pub mod output;
+pub mod panel;
 pub mod request;
 pub mod response;

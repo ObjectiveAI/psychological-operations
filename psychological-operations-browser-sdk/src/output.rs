@@ -12,6 +12,7 @@ use std::sync::{Mutex, OnceLock};
 
 use serde::{Deserialize, Serialize};
 
+use crate::panel::PanelState;
 use crate::response::ResponseOutcome;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -55,6 +56,12 @@ pub enum Output {
         #[serde(skip_serializing_if = "Option::is_none")]
         info: Option<SignedInInfo>,
     },
+
+    /// Derived panel-condition state. Emitted whenever the state the
+    /// instruction panel should show changes — driven by the Rust
+    /// `state` module's pure derivation over raw facts (mode, cookies).
+    /// See [`crate::panel`].
+    Panel { state: PanelState },
 }
 
 /// Identifying claims extracted from the auth JWT's payload. All

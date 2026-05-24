@@ -1,17 +1,39 @@
 mod args;
-mod signin_watcher;
+mod cookies_watcher;
+mod state;
 mod stdio;
 mod webview;
 
+use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::mpsc;
 
 use clap::Parser;
 use clap::error::ErrorKind;
 use psychological_operations_browser_sdk::output::Output;
+use tokio::sync::Notify;
 
-use crate::signin_watcher::WatcherKick;
-use crate::stdio::{PendingAck, ReadyTx, SigninWatcherSlot};
+use crate::stdio::{CookiesWatcherSlot, PendingAck, ReadyTx};
+
+/// Tauri-managed state — process-global notify signal that the
+/// content webview's `on_page_load` callback fires to kick the
+/// [`cookies_watcher`] into re-checking cookies right after every
+/// navigation. Fires before WebView2's lazy cookie-store disk flush,
+/// so sign-in / sign-out / team-creation detection lands in sub-
+/// second time on any page nav.
+pub struct WatcherKick(pub Arc<Notify>);
+
+impl WatcherKick {
+    pub fn new() -> Self {
+        Self(Arc::new(Notify::new()))
+    }
+}
+
+impl Default for WatcherKick {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 /// `--help`, `--version`, and the special
 /// `DisplayHelpOnMissingArgumentOrSubcommand` case are clap's three
@@ -53,13 +75,14 @@ pub fn run() {
         .manage(args)
         .manage(ReadyTx(Mutex::new(Some(ready_tx))))
         .manage(PendingAck(Mutex::new(None)))
-        .manage(SigninWatcherSlot(Mutex::new(None)))
+        .manage(CookiesWatcherSlot(Mutex::new(None)))
         .manage(WatcherKick::new())
         .invoke_handler(tauri::generate_handler![
             stdio::frontend_ready,
             stdio::stdio_respond,
             stdio::current_mode,
             stdio::current_signed_in,
+            stdio::current_panel,
             stdio::report_url,
         ])
         .setup(move |app| {

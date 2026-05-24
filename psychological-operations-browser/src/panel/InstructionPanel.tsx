@@ -2,43 +2,31 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
-type SignedInState = {
-  signed_in: boolean;
-  info?: {
-    session_id?: string;
-    handle?: string;
-    email?: string;
-    user_id?: string;
-  };
-};
+// Wire shape mirrors `PanelState` in the Rust SDK (see
+// `psychological-operations-browser-sdk/src/panel.rs`). All
+// derivation lives Rust-side — this component only renders.
+type PanelState =
+  | { type: "hidden" }
+  | { type: "show"; condition: string; message: string };
 
 // Rendered into the panel webview's #root. The panel webview lives
 // stacked above the content webview, separate JS context, never
-// navigates — so we just listen for the `psyops:signed_in` Tauri
-// event from the Rust-side cookie watcher and render the panel
-// based on state.
-//
-// Three render branches:
-//   signed_in === true  → render nothing (Rust reflows the panel
-//                          webview to 0 height so it's visually
-//                          absent too)
-//   signed_in === false → "Sign in to X."
-//   null (unknown)      → "Sign in to X." (default-visible during
-//                          the brief window before Rust pushes; if
-//                          actually signed-in the push lands within
-//                          a frame and the panel hides)
+// navigates — so we just listen for the `psyops:panel` Tauri event
+// from the Rust-side state module and render whatever message the
+// derivation hands us. No conditions, no branches per message —
+// adding a new instruction is a Rust-only change.
 export function InstructionPanel() {
-  const [state, setState] = useState<SignedInState | null>(null);
+  const [state, setState] = useState<PanelState | null>(null);
 
   useEffect(() => {
     // Local webview → IPC is unconditional. No race / capability
     // concerns. Query current state on mount + subscribe to flips.
-    invoke<SignedInState | null>("current_signed_in")
+    invoke<PanelState | null>("current_panel")
       .then(setState)
       .catch(() => {});
 
     let unlisten: UnlistenFn | undefined;
-    listen<SignedInState>("psyops:signed_in", (e) => setState(e.payload))
+    listen<PanelState>("psyops:panel", (e) => setState(e.payload))
       .then((u) => {
         unlisten = u;
       })
@@ -46,8 +34,8 @@ export function InstructionPanel() {
     return () => unlisten?.();
   }, []);
 
-  if (state?.signed_in === true) return null;
-  return <div style={STYLE}>Sign in to X.</div>;
+  if (state?.type !== "show") return null;
+  return <div style={STYLE}>{state.message}</div>;
 }
 
 const STYLE: React.CSSProperties = {
