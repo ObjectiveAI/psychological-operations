@@ -103,11 +103,9 @@ fn dispatch_request<R: Runtime>(handle: &AppHandle<R>, req: Request) {
         mode::set(Some(Mode::XApp));
         let watcher_slot: tauri::State<SigninWatcherSlot> = handle.state();
         *watcher_slot.0.lock().expect("watcher slot poisoned") = None; // drop old
-        if let Some(window) = handle.get_webview_window(webview::X_APP_LABEL) {
-            let data_dir = webview::x_app_data_dir(handle);
-            *watcher_slot.0.lock().expect("watcher slot poisoned") =
-                signin_watcher::start(window, &Mode::XApp, &data_dir);
-        }
+        let data_dir = webview::x_app_data_dir(handle);
+        *watcher_slot.0.lock().expect("watcher slot poisoned") =
+            signin_watcher::start(handle.clone(), &Mode::XApp, &data_dir);
     }
 
     // 2. Register a pending-ack slot before emitting so the window's
@@ -173,6 +171,16 @@ pub fn stdio_respond(
 #[tauri::command]
 pub fn current_mode() -> Result<Option<Mode>, String> {
     Ok(mode::get())
+}
+
+/// Invoked by the overlay on every mount to seed the instruction
+/// panel + redirect logic before any `psyops:signed_in` Tauri event
+/// has fired (or to recover state after a re-mount). Returns
+/// whatever the most recent watcher emission published; `None` if
+/// no watcher has run yet (e.g. no mode has been set).
+#[tauri::command]
+pub fn current_signed_in() -> Result<Option<signin_watcher::SignedInPayload>, String> {
+    Ok(signin_watcher::current())
 }
 
 /// Invoked by the overlay for the initial URL after install and on

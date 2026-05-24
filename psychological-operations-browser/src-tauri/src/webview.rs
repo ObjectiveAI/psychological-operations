@@ -1,36 +1,59 @@
-//! Tauri webview construction.
+//! Tauri window + child-webview construction.
 //!
-//! The X-App webview loads `https://console.x.ai/` directly (the
-//! X developer console — same landing page the old chromium fork
-//! used for `--x-app` mode) and has our React overlay bundle
-//! injected at document-creation time via
-//! [`WebviewWindowBuilder::initialization_script`] (which maps to
-//! WebView2's `AddScriptToExecuteOnDocumentCreated` on Windows).
+//! One `Window` (label `x-app`) with two child `Webview`s stacked:
 //!
-//! URL emission is the frontend's responsibility — there is no
-//! Rust-side `on_navigation` callback. The injected overlay calls
-//! the `report_url` Tauri command in [`crate::stdio`] for both the
-//! initial URL and every subsequent change.
+//!   - `PANEL_LABEL` ("panel") at the top, sized to [`PANEL_HEIGHT`]
+//!     when signed-out (or unknown), 0 when signed-in. Loads our
+//!     local Vite-built `panel.html` (tauri:// asset protocol) so
+//!     Tauri IPC works unconditionally — no remote-URL ACL needed.
+//!
+//!   - `CONTENT_LABEL` ("content") below the panel, taking the
+//!     remaining height. Loads `https://console.x.ai/` directly with
+//!     the React/non-React overlay bundle injected via
+//!     `WebviewBuilder::initialization_script` (which maps to
+//!     WebView2's `AddScriptToExecuteOnDocumentCreated` on Windows).
+//!     The overlay handles stdio request dispatch, SPA URL
+//!     reporting, console capture; the instruction panel is NOT in
+//!     this bundle (it lives in the panel webview).
+//!
+//! Layout reflow happens (a) on window resize and (b) on every
+//! sign-in state flip via [`reflow`], called from
+//! [`crate::signin_watcher`].
 
-use tauri::{AppHandle, Manager, Runtime, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri::webview::{PageLoadEvent, WebviewBuilder};
+use tauri::window::WindowBuilder;
+use tauri::{
+    AppHandle, LogicalPosition, LogicalSize, Manager, PhysicalSize, Runtime, Url, WebviewUrl,
+    Window, WindowEvent,
+};
 
 use crate::args::Args;
+use crate::signin_watcher::{self, WatcherKick};
 
-/// Label used to look up / build the X-App webview window.
-pub const X_APP_LABEL: &str = "x-app";
+/// Label of the single Tauri Window the X-App lives in.
+pub const X_APP_WINDOW: &str = "x-app";
 
-/// Self-contained IIFE bundle of the React overlay, baked in at
-/// compile time. Produced by `yarn build` (Vite) at
-/// `psychological-operations-browser/dist/overlay.js` — so a
-/// frontend build must run before this crate compiles.
+/// Label of the panel child webview (top of the window).
+pub const PANEL_LABEL: &str = "panel";
+
+/// Label of the content child webview (rest of the window).
+pub const CONTENT_LABEL: &str = "content";
+
+/// Logical pixel height of the panel webview when visible.
+const PANEL_HEIGHT: u32 = 48;
+const DEFAULT_WIDTH: u32 = 1200;
+const DEFAULT_HEIGHT: u32 = 800;
+
+/// Self-contained IIFE bundle of the overlay (no React, no
+/// InstructionPanel — those moved to the panel webview). Produced
+/// by `yarn build` (Vite) at `dist/overlay.js` — so a frontend
+/// build must run before this crate compiles.
 const OVERLAY_JS: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../dist/overlay.js"
 ));
 
 /// Returns the X-App data-directory rooted at `--config-base-dir`.
-/// Mirrors the old chromium fork's layout (with `browser` swapped
-/// in for `chromium`).
 pub fn x_app_data_dir<R: Runtime>(handle: &AppHandle<R>) -> std::path::PathBuf {
     let args = handle.state::<Args>();
     args.config_base_dir
@@ -40,25 +63,98 @@ pub fn x_app_data_dir<R: Runtime>(handle: &AppHandle<R>) -> std::path::PathBuf {
         .join("x-app")
 }
 
-/// Create the X-App webview if it doesn't already exist. Loads
-/// `https://console.x.ai/` directly, injects the React overlay,
-/// persists session state to
-/// `<config-base-dir>/plugins/psychological-operations/browser/x-app/`.
-/// Idempotent — returns the existing webview if one is alive.
-pub fn create_x_app<R: Runtime>(handle: &AppHandle<R>) -> tauri::Result<WebviewWindow<R>> {
-    if let Some(w) = handle.get_webview_window(X_APP_LABEL) {
-        return Ok(w);
+/// Build the X-App window and its two child webviews if they don't
+/// already exist. Idempotent.
+pub fn create_x_app<R: Runtime>(handle: &AppHandle<R>) -> tauri::Result<()> {
+    if handle.get_window(X_APP_WINDOW).is_some() {
+        return Ok(());
     }
 
     let data_dir = x_app_data_dir(handle);
     std::fs::create_dir_all(&data_dir)?;
 
-    let url = Url::parse("https://console.x.ai/").expect("hardcoded URL parses");
-
-    WebviewWindowBuilder::new(handle, X_APP_LABEL, WebviewUrl::External(url))
+    // 1. Bare window — no auto-attached webview (we add children below).
+    let window = WindowBuilder::new(handle, X_APP_WINDOW)
         .title("psychological-operations-browser — X-App")
+        .inner_size(DEFAULT_WIDTH as f64, DEFAULT_HEIGHT as f64)
+        .build()?;
+
+    // 2. Panel webview on top: local Vite-built page.
+    let panel = WebviewBuilder::new(
+        PANEL_LABEL,
+        WebviewUrl::App("panel.html".into()),
+    );
+    window.add_child(
+        panel,
+        LogicalPosition::new(0.0, 0.0),
+        LogicalSize::new(DEFAULT_WIDTH as f64, PANEL_HEIGHT as f64),
+    )?;
+
+    // 3. Content webview below: remote console.x.ai + injected overlay.
+    let url = Url::parse("https://console.x.ai/").expect("hardcoded URL parses");
+    let kick = handle.state::<WatcherKick>().0.clone();
+    let content = WebviewBuilder::new(CONTENT_LABEL, WebviewUrl::External(url))
         .data_directory(data_dir)
         .initialization_script(OVERLAY_JS)
-        .inner_size(1200.0, 800.0)
-        .build()
+        .on_page_load(move |_webview, payload| {
+            // On every page navigation, kick the sign-in watcher to
+            // re-check cookies — catches sign-in / sign-out flips
+            // immediately, before WebView2's lazy cookie disk flush.
+            if matches!(payload.event(), PageLoadEvent::Finished) {
+                kick.notify_one();
+            }
+        });
+    window.add_child(
+        content,
+        LogicalPosition::new(0.0, PANEL_HEIGHT as f64),
+        LogicalSize::new(
+            DEFAULT_WIDTH as f64,
+            (DEFAULT_HEIGHT - PANEL_HEIGHT) as f64,
+        ),
+    )?;
+
+    // 4. On window resize, reflow both webviews to follow.
+    let window_for_resize = window.clone();
+    window.on_window_event(move |event| {
+        if let WindowEvent::Resized(size) = event {
+            reflow_physical(&window_for_resize, size.width, size.height);
+        }
+    });
+
+    Ok(())
+}
+
+/// Resize the panel + content webviews based on the current sign-in
+/// state. Called from the window-resize callback AND from
+/// [`crate::signin_watcher::emit_signed_in`] on every state flip.
+///
+/// `width` / `height` are in physical pixels (window's `inner_size`).
+pub fn reflow_physical<R: Runtime>(window: &Window<R>, width: u32, height: u32) {
+    let signed_in = signin_watcher::current()
+        .map(|s| s.signed_in)
+        .unwrap_or(false);
+
+    let panel_h = if signed_in { 0 } else { PANEL_HEIGHT };
+
+    if let Some(panel) = window.get_webview(PANEL_LABEL) {
+        let _ = panel.set_size(PhysicalSize::new(width, panel_h));
+    }
+    if let Some(content) = window.get_webview(CONTENT_LABEL) {
+        let _ = content.set_position(tauri::PhysicalPosition::new(0, panel_h as i32));
+        let _ = content.set_size(PhysicalSize::new(width, height.saturating_sub(panel_h)));
+    }
+}
+
+/// Reflow using the current `inner_size` of the X-App window.
+/// Convenience wrapper used by [`crate::signin_watcher`] which
+/// doesn't track the current size.
+pub fn reflow<R: Runtime>(handle: &AppHandle<R>) {
+    let Some(window) = handle.get_window(X_APP_WINDOW) else {
+        return;
+    };
+    let size = match window.inner_size() {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+    reflow_physical(&window, size.width, size.height);
 }

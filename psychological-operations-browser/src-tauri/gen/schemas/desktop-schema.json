@@ -351,6 +351,12 @@
           "markdownDescription": "Allows the injected overlay to query the active session mode so it can resume URL reporting after a navigation re-mounts it."
         },
         {
+          "description": "Allows the injected overlay to query the current sign-in state on mount before any `psyops:signed_in` event has fired (or to recover state after a re-mount).",
+          "type": "string",
+          "const": "allow-current-signed-in",
+          "markdownDescription": "Allows the injected overlay to query the current sign-in state on mount before any `psyops:signed_in` event has fired (or to recover state after a re-mount)."
+        },
+        {
           "description": "Allows the injected overlay to signal that its `psyops:request` listener is registered, unblocking the Rust stdin reader.",
           "type": "string",
           "const": "allow-frontend-ready",

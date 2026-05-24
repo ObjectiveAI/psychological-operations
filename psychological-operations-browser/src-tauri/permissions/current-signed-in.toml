@@ -1,0 +1,6 @@
+"$schema" = "../gen/schemas/desktop-schema.json"
+
+[[permission]]
+identifier = "allow-current-signed-in"
+description = "Allows the injected overlay to query the current sign-in state on mount before any `psyops:signed_in` event has fired (or to recover state after a re-mount)."
+commands.allow = ["current_signed_in"]

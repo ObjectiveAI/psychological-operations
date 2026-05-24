@@ -11,29 +11,47 @@
 //! [`Output::SignedIn`]. Same-value writes are coalesced — no
 //! emission unless the cookie we care about actually flipped.
 //!
-//! Everything runs on `tauri::async_runtime` (tokio under the hood)
-//! — the filesystem channel is `tokio::sync::mpsc`, the stop signal
-//! is `tokio::sync::Notify`, and the synchronous Tauri
-//! `cookies_for_url` call (which dispatches through the main
-//! thread) is parked behind `spawn_blocking` so the async runtime
-//! never blocks on it.
+//! Every state change publishes four side-effects:
+//!   1. JSONL line on stdout via [`Output::SignedIn::emit`]
+//!   2. process-global slot ([`current`]) — for `current_signed_in`
+//!      Tauri command callers
+//!   3. `psyops:signed_in` Tauri event to the panel webview — the
+//!      instruction panel listens for this
+//!   4. reflow of the X-App window's child webviews (panel resizes
+//!      to 0 when signed-in, [`PANEL_HEIGHT`] when not) via
+//!      [`crate::webview::reflow`]
+//!
+//! Additionally: on a `false → true` flip in X-App mode, navigate
+//! the content webview back to `https://console.x.ai/` so we land
+//! on the canonical post-sign-in page.
 
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
-use psychological_operations_browser_sdk::mode::Mode;
+use psychological_operations_browser_sdk::mode::{self, Mode};
 use psychological_operations_browser_sdk::output::{Output, SignedInInfo};
+use serde::{Deserialize, Serialize};
 use tauri::async_runtime::{JoinHandle, spawn, spawn_blocking};
-use tauri::{Runtime, Url, WebviewWindow};
+use tauri::{AppHandle, Emitter, Manager, Runtime, Url};
 use tokio::sync::Notify;
 use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
 
-/// Handle to a running watcher. Dropping it cancels the watcher
-/// (notify drops + stop signal fires, task exits at next yield).
+use crate::webview;
+
+/// Tauri event name fired on every state flip.
+const EVENT_SIGNED_IN: &str = "psyops:signed_in";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SignedInPayload {
+    pub signed_in: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub info: Option<SignedInInfo>,
+}
+
 pub struct Handle {
     _watcher: RecommendedWatcher,
     stop: Arc<Notify>,
@@ -46,17 +64,27 @@ impl Drop for Handle {
     }
 }
 
+/// Read the most recent sign-in state the watcher has observed.
+/// `None` before the first emission (e.g. process started but no
+/// mode-setting request has run yet).
+pub fn current() -> Option<SignedInPayload> {
+    current_slot()
+        .lock()
+        .expect("signed_in slot poisoned")
+        .clone()
+}
+
+fn current_slot() -> &'static Mutex<Option<SignedInPayload>> {
+    static SLOT: OnceLock<Mutex<Option<SignedInPayload>>> = OnceLock::new();
+    SLOT.get_or_init(|| Mutex::new(None))
+}
+
 /// Start the sign-in watcher for the given mode. Returns `None`
 /// for modes we haven't wired up yet (currently only [`Mode::XApp`]
-/// is supported).
-///
-/// Performs an initial cookie read synchronously on the calling
-/// thread (typically the stdio reader thread, which has free
-/// access to the main thread before any JS handler runs) and
-/// emits the baseline [`Output::SignedIn`] before spawning the
-/// async filesystem-watching task.
+/// is supported). Performs an initial synchronous cookie read +
+/// state emission before spawning the async filesystem-watch task.
 pub fn start<R: Runtime>(
-    window: WebviewWindow<R>,
+    handle: AppHandle<R>,
     mode: &Mode,
     data_dir: &Path,
 ) -> Option<Handle> {
@@ -75,15 +103,11 @@ pub fn start<R: Runtime>(
     let cookie_store_dir = data_dir.join("EBWebView").join("Default").join("Network");
     let _ = std::fs::create_dir_all(&cookie_store_dir);
 
-    // Initial sync read — at this point the JS event handler hasn't
-    // started yet (dispatch_request hasn't emitted psyops:request),
-    // so the main thread is free to service cookies_for_url.
-    let initial_token = read_cookie_sync(&window, auth_url.clone(), &cookie_name);
-    emit_signed_in(&initial_token);
+    // Initial sync read — main thread is free now (we're on the
+    // stdio reader thread, no JS dispatch in flight).
+    let initial_token = read_cookie_sync(&handle, auth_url.clone(), &cookie_name);
+    emit_signed_in(&handle, &initial_token);
 
-    // notify's recommended_watcher fires its callback from its own
-    // internal thread. Bridge to a tokio mpsc — UnboundedSender::send
-    // is sync, so safe to call from the notify thread.
     let (fs_tx, fs_rx) = unbounded_channel::<Event>();
     let mut watcher = match notify::recommended_watcher(move |res: notify::Result<Event>| {
         if let Ok(ev) = res {
@@ -99,9 +123,6 @@ pub fn start<R: Runtime>(
             return None;
         }
     };
-    // The Cookies SQLite file is rewritten via journal / WAL side
-    // files; watch the parent dir non-recursively so we catch all
-    // edge writes.
     if let Err(e) = watcher.watch(&cookie_store_dir, RecursiveMode::NonRecursive) {
         let _ = Output::Log {
             message: format!(
@@ -115,8 +136,17 @@ pub fn start<R: Runtime>(
 
     let stop = Arc::new(Notify::new());
     let stop_for_task = stop.clone();
+    let handle_for_task = handle.clone();
     let task = spawn(async move {
-        run_watcher(window, auth_url, cookie_name, initial_token, fs_rx, stop_for_task).await;
+        run_watcher(
+            handle_for_task,
+            auth_url,
+            cookie_name,
+            initial_token,
+            fs_rx,
+            stop_for_task,
+        )
+        .await;
     });
 
     Some(Handle {
@@ -126,21 +156,22 @@ pub fn start<R: Runtime>(
     })
 }
 
-/// Synchronous cookie read for the initial baseline. Returns the
-/// auth-cookie value if present, `None` otherwise.
+/// Look up the content webview's cookies for `auth_url` synchronously.
+/// Returns the auth-cookie value if present, `None` otherwise.
 fn read_cookie_sync<R: Runtime>(
-    window: &WebviewWindow<R>,
+    handle: &AppHandle<R>,
     auth_url: Url,
     cookie_name: &str,
 ) -> Option<String> {
-    match window.cookies_for_url(auth_url) {
+    let webview = handle.get_webview(webview::CONTENT_LABEL)?;
+    match webview.cookies_for_url(auth_url) {
         Ok(cookies) => cookies
             .into_iter()
             .find(|c| c.name() == cookie_name)
             .map(|c| c.value().to_string()),
         Err(e) => {
             let _ = Output::Log {
-                message: format!("signin_watcher: initial cookies_for_url err: {e}"),
+                message: format!("signin_watcher: cookies_for_url err: {e}"),
             }
             .emit();
             None
@@ -148,59 +179,129 @@ fn read_cookie_sync<R: Runtime>(
     }
 }
 
-fn emit_signed_in(token: &Option<String>) {
-    let (signed_in, info) = match token {
-        Some(t) => (true, jwt_to_info(t)),
-        None => (false, None),
+/// Publishes the current sign-in state through every channel that
+/// cares: stdout, the process-global slot, the panel webview's
+/// Tauri-event listener, the window reflow, and the post-sign-in
+/// content-webview redirect.
+fn emit_signed_in<R: Runtime>(handle: &AppHandle<R>, token: &Option<String>) {
+    let prev_signed_in = current().map(|s| s.signed_in);
+
+    let info = token.as_deref().and_then(jwt_to_info);
+    let payload = SignedInPayload {
+        signed_in: token.is_some(),
+        info,
     };
-    let _ = Output::SignedIn { signed_in, info }.emit();
+
+    let _ = Output::SignedIn {
+        signed_in: payload.signed_in,
+        info: payload.info.clone(),
+    }
+    .emit();
+
+    *current_slot()
+        .lock()
+        .expect("signed_in slot poisoned") = Some(payload.clone());
+
+    // The panel webview's React listener picks this up.
+    let _ = handle.emit_to(webview::PANEL_LABEL, EVENT_SIGNED_IN, &payload);
+
+    // Resize the panel webview based on the new state.
+    webview::reflow(handle);
+
+    // Post-sign-in redirect: when state flips false → true in X-App
+    // mode, bounce the content webview back to console.x.ai so we
+    // land on the canonical signed-in page even if the OAuth flow
+    // left us in an in-between origin.
+    if prev_signed_in == Some(false)
+        && payload.signed_in
+        && matches!(mode::get(), Some(Mode::XApp))
+    {
+        if let Some(content) = handle.get_webview(webview::CONTENT_LABEL) {
+            if let Ok(target) = Url::parse("https://console.x.ai/") {
+                let _ = content.navigate(target);
+            }
+        }
+    }
 }
 
 async fn run_watcher<R: Runtime>(
-    window: WebviewWindow<R>,
+    handle: AppHandle<R>,
     auth_url: Url,
     cookie_name: String,
     initial_token: Option<String>,
     mut fs_rx: UnboundedReceiver<Event>,
     stop: Arc<Notify>,
 ) {
-    // Initial state has been emitted by `start` before spawning;
-    // seed `last` with it so we only emit on actual changes.
     let mut last: Option<String> = initial_token;
+
+    let kick = handle.state::<WatcherKick>().0.clone();
 
     loop {
         tokio::select! {
             _ = stop.notified() => break,
+            // Filesystem-driven trigger — eventually catches the
+            // sign-out cookie clear when WebView2 flushes its
+            // in-memory store to disk (lazy; can be 5-30s).
             ev = fs_rx.recv() => {
                 match ev {
                     Some(e) if event_is_write(&e) => {
-                        // Coalesce burst writes (sqlite main file +
-                        // -journal + -wal all flip per single
-                        // commit). Sleep briefly then drain anything
-                        // that arrived during the sleep.
                         tokio::time::sleep(Duration::from_millis(150)).await;
                         while fs_rx.try_recv().is_ok() {}
-                        // `try_read_cookie` returns `None` on read
-                        // failure (timeout / dispatcher error); we
-                        // simply skip those rather than mistaking
-                        // them for a logout.
                         if let Some(state) = try_read_cookie(
-                            window.clone(),
+                            handle.clone(),
                             auth_url.clone(),
                             cookie_name.clone(),
                         )
                         .await
                         {
-                            maybe_emit(&mut last, state);
+                            maybe_emit(&handle, &mut last, state);
                         }
                     }
-                    Some(_) => {} // metadata-only event, ignore
-                    None => break, // notify watcher dropped
+                    Some(_) => {}
+                    None => break,
+                }
+            }
+            // Navigation-driven trigger — fired by the content
+            // webview's `on_page_load(Finished)` callback (see
+            // `crate::webview`). cookies_for_url queries WebView2's
+            // in-memory store directly, so this catches sign-in /
+            // sign-out flips immediately on the page navigation they
+            // typically cause — well before WebView2 gets around to
+            // flushing the disk cookie store.
+            _ = kick.notified() => {
+                if let Some(state) = try_read_cookie(
+                    handle.clone(),
+                    auth_url.clone(),
+                    cookie_name.clone(),
+                )
+                .await
+                {
+                    maybe_emit(&handle, &mut last, state);
                 }
             }
         }
     }
 }
+
+/// Tauri state — process-global notify signal that the content
+/// webview's `on_page_load` callback fires to kick the watcher into
+/// re-checking cookies right after every navigation. Fires before
+/// WebView2's lazy cookie-store disk flush, so sign-in / sign-out
+/// detection lands in sub-second time on any page nav.
+pub struct WatcherKick(pub Arc<Notify>);
+
+impl WatcherKick {
+    pub fn new() -> Self {
+        Self(Arc::new(Notify::new()))
+    }
+}
+
+impl Default for WatcherKick {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 
 fn event_is_write(ev: &Event) -> bool {
     matches!(
@@ -209,23 +310,23 @@ fn event_is_write(ev: &Event) -> bool {
     )
 }
 
-/// Async cookie read for the FS-event-triggered re-checks. Wraps
-/// the sync `cookies_for_url` (which dispatches through the
-/// webview's main thread) in `spawn_blocking` so the async runtime
-/// never blocks waiting on it; bails after a 5s timeout if the
-/// main thread is too busy. Returns:
-/// - `Some(Some(t))` — read succeeded, cookie present
-/// - `Some(None)`    — read succeeded, cookie absent (signed-out)
-/// - `None`          — read failed / timed out (skip; retry on
-///   the next filesystem event)
+/// Async cookie read for FS-event-triggered re-checks.
+///   Some(Some(t)) → read succeeded, cookie present
+///   Some(None)    → read succeeded, cookie absent (signed-out)
+///   None          → read failed / timed out (skip; retry next event)
 async fn try_read_cookie<R: Runtime>(
-    window: WebviewWindow<R>,
+    handle: AppHandle<R>,
     auth_url: Url,
     cookie_name: String,
 ) -> Option<Option<String>> {
-    let fut = spawn_blocking(move || window.cookies_for_url(auth_url));
+    let fut = spawn_blocking(move || {
+        handle
+            .get_webview(webview::CONTENT_LABEL)?
+            .cookies_for_url(auth_url)
+            .ok()
+    });
     match tokio::time::timeout(Duration::from_secs(5), fut).await {
-        Ok(Ok(Ok(cookies))) => Some(
+        Ok(Ok(Some(cookies))) => Some(
             cookies
                 .into_iter()
                 .find(|c| c.name() == cookie_name)
@@ -235,19 +336,19 @@ async fn try_read_cookie<R: Runtime>(
     }
 }
 
-fn maybe_emit(last: &mut Option<String>, token: Option<String>) {
+fn maybe_emit<R: Runtime>(
+    handle: &AppHandle<R>,
+    last: &mut Option<String>,
+    token: Option<String>,
+) {
     if token == *last {
         return;
     }
     *last = token.clone();
-    emit_signed_in(&token);
+    emit_signed_in(handle, &token);
 }
 
-/// Decode the middle (payload) segment of a JWT as base64url JSON,
-/// then map known claim names into [`SignedInInfo`]. Returns `None`
-/// if the token isn't a JWT we can parse.
-/// Decode the middle (payload) segment of a JWT as base64url JSON
-/// and map known claim names into [`SignedInInfo`]. The xAI `sso`
+/// Decode JWT payload claims into [`SignedInInfo`]. The xAI `sso`
 /// JWT carries only `session_id` today; the rest of the fields are
 /// extracted opportunistically in case the token gains them later.
 fn jwt_to_info(token: &str) -> Option<SignedInInfo> {

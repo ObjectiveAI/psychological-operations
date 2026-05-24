@@ -1,0 +1,113 @@
+import { installConsoleCapture, drainConsole } from "./console-capture";
+
+// Install console + exception capture as the FIRST thing the bundle
+// does. This bundle is injected into the X-App *content* webview
+// (which loads https://console.x.ai/ + navigates to anywhere from
+// there) via `WebviewWindowBuilder::initialization_script`, which
+// maps to WebView2's `AddScriptToExecuteOnDocumentCreated` on
+// Windows. It runs in the page's JS context *before any page
+// script*, so anything we install here catches everything the page
+// itself logs or throws.
+//
+// The instruction panel does NOT live in this bundle — it's a
+// separate webview (loaded from our local panel.html) sitting above
+// the content webview in the same window. This bundle only handles
+// content-page-scoped concerns: stdio request dispatch, SPA URL
+// reporting, console capture, and (eventually) MutationObserver-
+// driven overlay components (HandPointer, sign-in pointer, etc.).
+installConsoleCapture();
+
+import { invoke } from "@tauri-apps/api/core";
+import { listen, type Event } from "@tauri-apps/api/event";
+import { installSpaUrlReporter } from "./spa-url";
+
+type Request =
+  | { type: "x_app" }
+  | { type: "html" }
+  | { type: "console" }
+  | { type: "eval"; code: string };
+
+type Mode = { type: "x_app" } | null;
+
+let urlReporterUninstall: (() => void) | null = null;
+
+function stopUrlReporter() {
+  urlReporterUninstall?.();
+  urlReporterUninstall = null;
+}
+
+async function respondOk(response: unknown) {
+  await invoke("stdio_respond", {
+    result: { status: "ok", response },
+  }).catch(() => {});
+}
+
+async function respondErr(error: string) {
+  await invoke("stdio_respond", {
+    result: { status: "err", error },
+  }).catch(() => {});
+}
+
+async function handleRequest(event: Event<Request>) {
+  const req = event.payload;
+  switch (req.type) {
+    case "x_app": {
+      // Ack first so the host process gets the ack before any URL
+      // or other side-effects.
+      await respondOk({ type: "ack" });
+
+      // Halt prior per-mode state. After the navigation below the
+      // overlay will re-mount, query current_mode, and reinstall.
+      stopUrlReporter();
+
+      // Navigate (or reload if already on the right origin so the
+      // overlay still re-mounts on the fresh page).
+      const target = "https://console.x.ai/";
+      if (location.href === target || location.href.startsWith(target)) {
+        location.reload();
+      } else {
+        location.assign(target);
+      }
+      break;
+    }
+    case "html": {
+      const html = document.documentElement.outerHTML;
+      await respondOk({ type: "html", html });
+      break;
+    }
+    case "console": {
+      const entries = drainConsole();
+      await respondOk({ type: "console", entries });
+      break;
+    }
+    case "eval": {
+      try {
+        const result = (0, eval)(req.code);
+        const resolved = await Promise.resolve(result);
+        const safe = JSON.parse(JSON.stringify(resolved ?? null));
+        await respondOk({ type: "eval", result: safe });
+      } catch (e) {
+        await respondErr((e as Error)?.stack ?? String(e));
+      }
+      break;
+    }
+  }
+}
+
+// ---------- IPC handshake + URL reporter on mode resume ----------
+//
+// Register the listener FIRST, then invoke frontend_ready. The Rust
+// stdin reader blocks on this signal before reading; the OS pipe
+// buffers anything the host wrote during startup until then.
+(async () => {
+  try {
+    await listen<Request>("psyops:request", handleRequest);
+    await invoke("frontend_ready");
+    const mode = await invoke<Mode>("current_mode");
+    if (mode !== null) {
+      urlReporterUninstall = installSpaUrlReporter();
+    }
+  } catch {
+    // Best-effort
+  }
+})();

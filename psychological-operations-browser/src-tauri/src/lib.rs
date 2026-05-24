@@ -10,6 +10,7 @@ use clap::Parser;
 use clap::error::ErrorKind;
 use psychological_operations_browser_sdk::output::Output;
 
+use crate::signin_watcher::WatcherKick;
 use crate::stdio::{PendingAck, ReadyTx, SigninWatcherSlot};
 
 /// `--help`, `--version`, and the special
@@ -53,10 +54,12 @@ pub fn run() {
         .manage(ReadyTx(Mutex::new(Some(ready_tx))))
         .manage(PendingAck(Mutex::new(None)))
         .manage(SigninWatcherSlot(Mutex::new(None)))
+        .manage(WatcherKick::new())
         .invoke_handler(tauri::generate_handler![
             stdio::frontend_ready,
             stdio::stdio_respond,
             stdio::current_mode,
+            stdio::current_signed_in,
             stdio::report_url,
         ])
         .setup(move |app| {
