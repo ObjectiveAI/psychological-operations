@@ -53,6 +53,13 @@ pub struct Facts {
     /// `None` ⇒ signed out. Opaque session string (not a JWT) — see
     /// [`jwt_to_info`].
     pub auth_token: Option<String>,
+    /// Most recent URL the content webview's overlay reported.
+    /// **Only tracked when `mode` is `Some(Mode::XApp)`** — the
+    /// setter is a no-op in other modes, so this field stays
+    /// empty for Psyop (etc.) and [`derive`] doesn't have to
+    /// special-case those modes. Cleared by [`set_mode`] when
+    /// leaving X-App.
+    pub current_url: Option<String>,
 }
 
 /// Payload for the legacy `current_signed_in` Tauri command +
@@ -116,7 +123,9 @@ pub fn current_signed_in() -> Option<SignedInPayload> {
 
 /// Mirror a mode change into the facts store. Called from
 /// `stdio::dispatch_request` right after [`mode::set`]. One fact,
-/// one recompute — safe to use as a standalone setter.
+/// one recompute — safe to use as a standalone setter. Also
+/// clears `current_url` when leaving X-App so URL-driven
+/// conditions can't fire under a different mode using stale data.
 pub fn set_mode<R: Runtime>(handle: &AppHandle<R>, new_mode: Option<Mode>) {
     {
         let mut facts = facts_slot().lock().expect("facts slot poisoned");
@@ -124,6 +133,26 @@ pub fn set_mode<R: Runtime>(handle: &AppHandle<R>, new_mode: Option<Mode>) {
             return;
         }
         facts.mode = new_mode;
+        if !matches!(facts.mode, Some(Mode::XApp)) {
+            facts.current_url = None;
+        }
+    }
+    recompute_and_publish(handle);
+}
+
+/// Update the most-recent-URL fact from `report_url`. Only takes
+/// effect in X-App mode; in other modes the call is a no-op so
+/// the fact stays empty and [`derive`] is free to ignore it.
+pub fn set_current_url<R: Runtime>(handle: &AppHandle<R>, url: String) {
+    {
+        let mut facts = facts_slot().lock().expect("facts slot poisoned");
+        if !matches!(facts.mode, Some(Mode::XApp)) {
+            return;
+        }
+        if facts.current_url.as_deref() == Some(url.as_str()) {
+            return;
+        }
+        facts.current_url = Some(url);
     }
     recompute_and_publish(handle);
 }
@@ -164,12 +193,6 @@ pub fn set_auth_token<R: Runtime>(handle: &AppHandle<R>, token: Option<String>) 
 /// Pure mapping from raw facts to the panel state the UI should show.
 /// **The heart of the abstraction** — to add a new condition, add a
 /// [`PanelCondition`] variant in the SDK and a new arm here.
-///
-/// Today there's only the sign-in gate; the "needs app setup"
-/// condition (the equivalent of the old console.x.ai `CreateXTeam`
-/// state) is a known follow-up — once we figure out whether it's
-/// URL-driven, cookie-driven, or JS-pushed, it lands as a new arm
-/// in this same match.
 pub fn derive(facts: &Facts) -> PanelState {
     match facts.mode {
         Some(Mode::XApp) => {
@@ -179,10 +202,27 @@ pub fn derive(facts: &Facts) -> PanelState {
                     message: "Sign in to X.".into(),
                 };
             }
+            if is_onboarding(facts.current_url.as_deref()) {
+                return PanelState::Show {
+                    condition: PanelCondition::NeedsXAppSetup,
+                    message: "Set up the X app.".into(),
+                };
+            }
             PanelState::Hidden
         }
         _ => PanelState::Hidden,
     }
+}
+
+/// True when `url` is on the X-App developer-console onboarding
+/// flow (`https://console.x.com/onboarding[/...]`). Restricting
+/// the host avoids matching some unrelated `/onboarding` path on
+/// x.com proper if the user wanders there.
+fn is_onboarding(url: Option<&str>) -> bool {
+    let Some(url) = url else { return false };
+    let Ok(parsed) = Url::parse(url) else { return false };
+    parsed.host_str() == Some("console.x.com")
+        && parsed.path().starts_with("/onboarding")
 }
 
 /// Re-run [`derive`] on the current facts; if the result differs from

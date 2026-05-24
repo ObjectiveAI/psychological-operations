@@ -199,18 +199,34 @@ pub fn current_panel() -> Result<Option<PanelState>, String> {
 
 /// Invoked by the overlay for the initial URL after install and on
 /// every SPA route change (`pushState` / `replaceState` /
-/// `popstate` / `hashchange`). Emits [`Output::Url`] and kicks the
-/// cookies watcher: SPA navs often coincide with cookie changes
-/// (e.g. an action sets a session cookie then `router.push`es to a
-/// new route), and `on_page_load(Finished)` only fires for full-
-/// document loads — so SPA navs need this complementary trigger to
-/// drive the watcher in sub-second time.
+/// `popstate` / `hashchange`). Three effects:
+///
+///   1. Emits [`Output::Url`] for the JSONL stdout stream.
+///   2. Kicks the cookies watcher — SPA navs often coincide with
+///      cookie changes (e.g. an action sets a session cookie then
+///      `router.push`es to a new route), and `on_page_load(Finished)`
+///      only fires for full-document loads.
+///   3. Updates the [`state::Facts::current_url`] fact, which
+///      drives URL-keyed panel conditions (today: `NeedsXAppSetup`
+///      when on `console.x.com/onboarding`).
 #[tauri::command]
 pub fn report_url(
     url: String,
     kick: tauri::State<'_, WatcherKick>,
+    app: tauri::AppHandle,
 ) -> Result<(), String> {
-    Output::Url { url }.emit().map_err(|e| e.to_string())?;
+    Output::Url { url: url.clone() }
+        .emit()
+        .map_err(|e| e.to_string())?;
     kick.0.notify_one();
+    // Spawn so this sync command returns immediately. `set_current_url`
+    // → `recompute_and_publish` issues main-thread dispatches (emit_to,
+    // set_size, set_position); doing those synchronously from inside
+    // a Tauri command handler can deadlock the main UI thread, since
+    // the same thread is what's waiting for the command to return so
+    // it can respond to the JS `invoke`.
+    tauri::async_runtime::spawn(async move {
+        state::set_current_url(&app, url);
+    });
     Ok(())
 }
