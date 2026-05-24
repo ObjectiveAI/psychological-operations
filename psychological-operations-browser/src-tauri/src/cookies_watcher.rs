@@ -45,12 +45,13 @@ use crate::state;
 use crate::webview;
 
 /// All cookies the panel-state derivation cares about, in one place.
-/// One `cookies_for_url` call returns every cookie for the URL's
-/// domain, so we always grab them together.
+/// Currently just x.com's session token; if we ever need more we can
+/// extend the struct and the snapshot match arm together.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 struct CookieSnapshot {
-    sso: Option<String>,
-    last_team_id: Option<String>,
+    /// x.com's HttpOnly session cookie on `.x.com`. Presence means
+    /// the user is signed in to x.com / console.x.com.
+    auth_token: Option<String>,
 }
 
 pub struct Handle {
@@ -75,7 +76,7 @@ pub fn start<R: Runtime>(
     data_dir: &Path,
 ) -> Option<Handle> {
     let auth_url: Url = match mode {
-        Mode::XApp => Url::parse("https://console.x.com/").ok()?,
+        Mode::XApp => Url::parse("https://x.com/").ok()?,
         Mode::Psyop { .. } => {
             let _ = Output::Log {
                 message: "cookies_watcher: Psyop mode not yet wired".into(),
@@ -150,21 +151,20 @@ fn snapshot_sync<R: Runtime>(handle: &AppHandle<R>, auth_url: &Url) -> CookieSna
     };
     let mut snap = CookieSnapshot::default();
     for c in &cookies {
-        match c.name() {
-            "sso" => snap.sso = Some(c.value().to_string()),
-            "last-team-id" => snap.last_team_id = Some(c.value().to_string()),
-            _ => {}
+        if c.name() == "auth_token" {
+            snap.auth_token = Some(c.value().to_string());
         }
     }
     snap
 }
 
 /// Push every fact from a fresh snapshot into the [`crate::state`]
-/// store. Atomic — all cookie facts land in the store together so
-/// no intermediate `PanelState` ever leaks out between, e.g., "sso
-/// observed but `last-team-id` not yet read."
+/// store. Only one fact today, so there's no atomicity concern; if
+/// we ever track more than one cookie, switch to a batch setter
+/// like the previous `apply_cookie_facts` to avoid leaking
+/// intermediate `PanelState`s.
 fn apply_snapshot<R: Runtime>(handle: &AppHandle<R>, snap: &CookieSnapshot) {
-    state::apply_cookie_facts(handle, snap.sso.clone(), snap.last_team_id.clone());
+    state::set_auth_token(handle, snap.auth_token.clone());
 }
 
 async fn run_watcher<R: Runtime>(

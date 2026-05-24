@@ -17,14 +17,12 @@ use serde::{Deserialize, Serialize};
 /// message text lives in [`PanelState::Show::message`] and is allowed
 /// to change without breaking callers that act on the condition.
 ///
-/// Snake-case on the wire — `sign_in_to_x`, `create_x_team`, etc.
+/// Snake-case on the wire — `sign_in_to_x`, etc.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PanelCondition {
-    /// X-App mode, not signed in.
+    /// X-App mode, not signed in to x.com (no `auth_token` cookie).
     SignInToX,
-    /// X-App mode, signed in, no `last-team-id` cookie yet.
-    CreateXTeam,
 }
 
 /// Everything the panel needs to render. Either it's hidden (zero

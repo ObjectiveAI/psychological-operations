@@ -49,10 +49,10 @@ const EVENT_PANEL: &str = "psyops:panel";
 pub struct Facts {
     /// Active browser mode (set by stdio dispatch).
     pub mode: Option<Mode>,
-    /// X-App `sso` JWT value, if present. `None` ⇒ signed out.
-    pub sso_token: Option<String>,
-    /// X-App `last-team-id` cookie value, if present.
-    pub last_team_id: Option<String>,
+    /// x.com's `auth_token` HttpOnly cookie value, if present.
+    /// `None` ⇒ signed out. Opaque session string (not a JWT) — see
+    /// [`jwt_to_info`].
+    pub auth_token: Option<String>,
 }
 
 /// Payload for the legacy `current_signed_in` Tauri command +
@@ -92,9 +92,9 @@ pub fn current_panel() -> Option<PanelState> {
         .clone()
 }
 
-/// Snapshot of the current sign-in state derived from the sso cookie
-/// fact. `None` before the first panel publication (i.e. no cookie
-/// observation has landed yet).
+/// Snapshot of the current sign-in state derived from the auth-token
+/// cookie fact. `None` before the first panel publication (i.e. no
+/// cookie observation has landed yet).
 pub fn current_signed_in() -> Option<SignedInPayload> {
     // "Has anything been published yet?" is independent of "what's in
     // the facts store." Reading the panel slot first (and dropping the
@@ -105,8 +105,8 @@ pub fn current_signed_in() -> Option<SignedInPayload> {
     }
     let facts = facts_slot().lock().expect("facts slot poisoned");
     Some(SignedInPayload {
-        signed_in: facts.sso_token.is_some(),
-        info: facts.sso_token.as_deref().and_then(jwt_to_info),
+        signed_in: facts.auth_token.is_some(),
+        info: facts.auth_token.as_deref().and_then(jwt_to_info),
     })
 }
 
@@ -128,36 +128,31 @@ pub fn set_mode<R: Runtime>(handle: &AppHandle<R>, new_mode: Option<Mode>) {
     recompute_and_publish(handle);
 }
 
-/// Atomically update every cookie-sourced fact from a single
-/// observation. Cookies are read together (one
-/// `cookies_for_url` call); applying them one-at-a-time would emit
-/// intermediate `PanelState`s — e.g. a transient
-/// `Show(CreateXTeam)` between the moment we've set `sso` but not
-/// yet `last_team_id`. This entry point folds all the cookie facts
-/// into the store under a single lock, emits the legacy
-/// `Output::SignedIn` if sso flipped, then calls
-/// [`recompute_and_publish`] exactly once.
-pub fn apply_cookie_facts<R: Runtime>(
-    handle: &AppHandle<R>,
-    sso: Option<String>,
-    last_team_id: Option<String>,
-) {
-    let sso_changed_to: Option<Option<String>> = {
+/// Set the x.com auth-token observation. Emits the legacy
+/// [`Output::SignedIn`] line on every value change (for headless /
+/// CLI consumers of the JSONL stream) before triggering the panel
+/// recompute. If the cookies-watcher ever tracks more than one
+/// cookie, switch back to a batched setter that takes all the
+/// cookies together — single-cookie setters would emit
+/// intermediate `PanelState`s while the second cookie was being
+/// written.
+pub fn set_auth_token<R: Runtime>(handle: &AppHandle<R>, token: Option<String>) {
+    let token_for_emit;
+    {
         let mut facts = facts_slot().lock().expect("facts slot poisoned");
-        let sso_changed = facts.sso_token != sso;
-        facts.sso_token = sso.clone();
-        facts.last_team_id = last_team_id;
-        if sso_changed { Some(sso) } else { None }
-    };
-
-    if let Some(new_sso) = sso_changed_to {
-        let info = new_sso.as_deref().and_then(jwt_to_info);
-        let _ = Output::SignedIn {
-            signed_in: new_sso.is_some(),
-            info,
+        if facts.auth_token == token {
+            return;
         }
-        .emit();
+        facts.auth_token = token.clone();
+        token_for_emit = token;
     }
+
+    let info = token_for_emit.as_deref().and_then(jwt_to_info);
+    let _ = Output::SignedIn {
+        signed_in: token_for_emit.is_some(),
+        info,
+    }
+    .emit();
 
     recompute_and_publish(handle);
 }
@@ -169,19 +164,19 @@ pub fn apply_cookie_facts<R: Runtime>(
 /// Pure mapping from raw facts to the panel state the UI should show.
 /// **The heart of the abstraction** — to add a new condition, add a
 /// [`PanelCondition`] variant in the SDK and a new arm here.
+///
+/// Today there's only the sign-in gate; the "needs app setup"
+/// condition (the equivalent of the old console.x.ai `CreateXTeam`
+/// state) is a known follow-up — once we figure out whether it's
+/// URL-driven, cookie-driven, or JS-pushed, it lands as a new arm
+/// in this same match.
 pub fn derive(facts: &Facts) -> PanelState {
     match facts.mode {
         Some(Mode::XApp) => {
-            if facts.sso_token.is_none() {
+            if facts.auth_token.is_none() {
                 return PanelState::Show {
                     condition: PanelCondition::SignInToX,
                     message: "Sign in to X.".into(),
-                };
-            }
-            if facts.last_team_id.is_none() {
-                return PanelState::Show {
-                    condition: PanelCondition::CreateXTeam,
-                    message: "Create a team - Use any name".into(),
                 };
             }
             PanelState::Hidden
@@ -252,9 +247,12 @@ pub fn recompute_and_publish<R: Runtime>(handle: &AppHandle<R>) {
 // JWT helpers (legacy SignedInInfo extraction)
 // ---------------------------------------------------------------------
 
-/// Decode the auth JWT payload into [`SignedInInfo`]. The xAI `sso`
-/// JWT carries only `session_id` today; other fields are extracted
-/// opportunistically for forward-compat.
+/// Decode the auth token's payload into [`SignedInInfo`] if it's a
+/// JWT. x.com's `auth_token` is an opaque session string, not a
+/// JWT, so this will return `None` for it — and the legacy
+/// `Output::SignedIn`/`SignedInPayload::info` field will stay
+/// `None`. Kept as best-effort scaffolding for future modes whose
+/// auth token actually carries identity claims.
 fn jwt_to_info(token: &str) -> Option<SignedInInfo> {
     let payload_b64 = token.split('.').nth(1)?;
     let payload_bytes = URL_SAFE_NO_PAD.decode(payload_b64.as_bytes()).ok()?;
