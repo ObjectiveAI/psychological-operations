@@ -174,6 +174,16 @@ function unmount() {
 // Throttled to display refresh by `requestAnimationFrame`.
 // =================================================================
 function tick() {
+  // First pass: compute completion of every step *except* submit.
+  // The submit helper is "blocked" (red + X) until all the other
+  // steps are complete — it doesn't make sense to invite a click
+  // before the form is fillable.
+  const nonSubmitComplete = STEPS.every((s) => {
+    if (s.id === "submit") return true;
+    const t = s.getTarget();
+    return t ? s.isComplete(t) : false;
+  });
+
   for (const step of STEPS) {
     const helper = helperEls.get(step.id);
     if (!helper) continue;
@@ -185,24 +195,36 @@ function tick() {
     }
     helper.style.display = "";
 
-    // Position to the right of the target. For tall fields (like
+    // Position to the left of the target. For tall fields (like
     // the description textarea) anchor near the top; for short
-    // fields (inputs, checkboxes) vertically center.
+    // fields (inputs, checkboxes) vertically center. `translateX
+    // (-100%)` places the helper's right edge at the chosen left
+    // coordinate, so we don't have to measure helper width.
     const rect = target.getBoundingClientRect();
     if (rect.height > 60) {
       helper.style.top = `${rect.top + 8}px`;
-      helper.style.transform = "";
+      helper.style.transform = "translateX(-100%)";
     } else {
       helper.style.top = `${rect.top + rect.height / 2}px`;
-      helper.style.transform = "translateY(-50%)";
+      helper.style.transform = "translateX(-100%) translateY(-50%)";
     }
-    helper.style.left = `${rect.right + 8}px`;
+    helper.style.left = `${rect.left - 8}px`;
 
-    // Completion state.
-    const complete = step.isComplete(target);
-    helper.classList.toggle("complete", complete);
+    // Status / state visualization.
     const status = helper.querySelector<HTMLSpanElement>(".status");
-    if (status) status.textContent = complete ? "✓" : "";
+    if (step.id === "submit") {
+      // Three states for submit: blocked (red + X) when prereqs
+      // aren't met, neutral (gray circle) when ready to click,
+      // never "complete" (page navigates on click → unmount).
+      const blocked = !nonSubmitComplete;
+      helper.classList.toggle("blocked", blocked);
+      helper.classList.remove("complete");
+      if (status) status.textContent = blocked ? "✕" : "";
+    } else {
+      const complete = step.isComplete(target);
+      helper.classList.toggle("complete", complete);
+      if (status) status.textContent = complete ? "✓" : "";
+    }
   }
   rafId = requestAnimationFrame(tick);
 }
@@ -247,6 +269,10 @@ function makeStyles(): HTMLStyleElement {
       background: rgba(34, 139, 60, 0.95);
       border-color: rgba(120, 220, 150, 0.6);
     }
+    .helper.blocked {
+      background: rgba(180, 40, 40, 0.95);
+      border-color: rgba(255, 130, 130, 0.6);
+    }
     .helper .status {
       display: inline-flex;
       align-items: center;
@@ -264,6 +290,11 @@ function makeStyles(): HTMLStyleElement {
       background: #fff;
       border-color: #fff;
       color: #1a7a3a;
+    }
+    .helper.blocked .status {
+      background: #fff;
+      border-color: #fff;
+      color: #b32828;
     }
     .helper .copy-btn {
       background: rgba(255, 255, 255, 0.14);
