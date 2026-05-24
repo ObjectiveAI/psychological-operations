@@ -1,5 +1,6 @@
 mod args;
 mod cookies_watcher;
+mod credentials;
 mod state;
 mod stdio;
 mod webview;
@@ -84,6 +85,7 @@ pub fn run() {
             stdio::current_signed_in,
             stdio::current_panel,
             stdio::report_url,
+            stdio::store_x_app_credential,
         ])
         .setup(move |app| {
             // Eagerly create the X-App webview so the overlay is

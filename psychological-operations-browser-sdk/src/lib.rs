@@ -8,6 +8,7 @@
 //! not here — this crate is transport-agnostic.
 
 pub mod console;
+pub mod credentials;
 pub mod mode;
 pub mod output;
 pub mod panel;

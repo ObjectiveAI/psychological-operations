@@ -37,6 +37,7 @@ use std::io::BufRead;
 use std::sync::Mutex;
 use std::sync::mpsc;
 
+use psychological_operations_browser_sdk::credentials::XAppCredentialField;
 use psychological_operations_browser_sdk::mode::{self, Mode};
 use psychological_operations_browser_sdk::output::Output;
 use psychological_operations_browser_sdk::panel::PanelState;
@@ -46,6 +47,7 @@ use tauri::{AppHandle, Emitter, Manager, Runtime};
 
 use crate::WatcherKick;
 use crate::cookies_watcher;
+use crate::credentials;
 use crate::state::{self, SignedInPayload};
 use crate::webview;
 
@@ -228,5 +230,29 @@ pub fn report_url(
     tauri::async_runtime::spawn(async move {
         state::set_current_url(&app, url);
     });
+    Ok(())
+}
+
+/// Invoked by the content webview's overlay to ship a single
+/// X-App credential field to Rust for per-handle on-disk storage.
+/// Five-field setup is sent one call at a time, in whatever order
+/// the user copies each value out of the X developer console.
+/// Storage layout + behavior documented in [`crate::credentials`].
+///
+/// Emits a single `Output::Log` line with the resolved on-disk
+/// path on success (no credential value in the log) so the host
+/// process / test runner can confirm what landed.
+#[tauri::command]
+pub fn store_x_app_credential(
+    handle: String,
+    field: XAppCredentialField,
+    value: String,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let path = credentials::store_one(&app, &handle, field, &value)?;
+    let _ = Output::Log {
+        message: format!("credentials: wrote {}", path.display()),
+    }
+    .emit();
     Ok(())
 }
