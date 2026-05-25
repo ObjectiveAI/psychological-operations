@@ -95,7 +95,7 @@ pub fn create_x_app<R: Runtime>(handle: &AppHandle<R>) -> tauri::Result<()> {
     // 3. Content webview below: remote console.x.ai + injected overlay.
     let url = Url::parse("https://console.x.com/").expect("hardcoded URL parses");
     let kick = handle.state::<WatcherKick>().0.clone();
-    let content = WebviewBuilder::new(CONTENT_LABEL, WebviewUrl::External(url))
+    let mut content = WebviewBuilder::new(CONTENT_LABEL, WebviewUrl::External(url))
         .data_directory(data_dir)
         .initialization_script(OVERLAY_JS)
         .on_page_load(move |_webview, payload| {
@@ -106,6 +106,15 @@ pub fn create_x_app<R: Runtime>(handle: &AppHandle<R>) -> tauri::Result<()> {
                 kick.notify_one();
             }
         });
+
+    // Optional UA override from `--user-agent`. Only applied to the
+    // content webview (the one that talks to x.com); the panel
+    // webview is local tauri:// and doesn't need it. When the flag
+    // is omitted, WebView2 uses its own default UA — no behavior
+    // change.
+    if let Some(ua) = handle.state::<Args>().user_agent.as_deref() {
+        content = content.user_agent(ua);
+    }
     window.add_child(
         content,
         LogicalPosition::new(0.0, PANEL_HEIGHT as f64),

@@ -17,4 +17,13 @@ pub struct Args {
     /// `<config-base-dir>/plugins/psychological-operations/browser/<mode>/`.
     #[arg(long)]
     pub config_base_dir: PathBuf,
+
+    /// Override the User-Agent string the X-App content webview
+    /// sends. Use a real browser's UA (e.g. Firefox's) when
+    /// console.x.com / x.com are fingerprinting WebView2 and
+    /// gating login on it. Omit to let WebView2 use its own
+    /// default UA — no behavior change for callers who don't
+    /// care.
+    #[arg(long)]
+    pub user_agent: Option<String>,
 }
