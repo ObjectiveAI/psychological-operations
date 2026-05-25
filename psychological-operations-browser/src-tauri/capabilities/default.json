@@ -18,6 +18,7 @@
     "allow-current-signed-in",
     "allow-current-panel",
     "allow-report-url",
+    "allow-set-production-app-count",
     "allow-store-x-app-credential"
   ]
 }

@@ -17,7 +17,8 @@ use serde::{Deserialize, Serialize};
 /// message text lives in [`PanelState::Show::message`] and is allowed
 /// to change without breaking callers that act on the condition.
 ///
-/// Snake-case on the wire — `sign_in_to_x`, `needs_x_app_setup`, etc.
+/// Snake-case on the wire — `sign_in_to_x`, `needs_x_app_setup`,
+/// `click_apps_tab`, `click_create_app`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PanelCondition {
@@ -27,6 +28,15 @@ pub enum PanelCondition {
     /// `console.x.com/onboarding` — user hasn't yet completed the
     /// app-setup flow.
     NeedsXAppSetup,
+    /// X-App mode, signed in, past onboarding, but the content
+    /// webview is not on the Apps tab (`/accounts/<id>/apps[/...]`)
+    /// yet. Pair with the in-page sidebar pointer that points at
+    /// the Apps sidebar link.
+    ClickAppsTab,
+    /// X-App mode, on the Apps tab, but the overlay has reported
+    /// zero production apps. Pair with the in-page pointer at the
+    /// "Create App" button.
+    ClickCreateApp,
 }
 
 /// Everything the panel needs to render. Either it's hidden (zero

@@ -22,6 +22,7 @@ import { listen, type Event } from "@tauri-apps/api/event";
 import { installSpaUrlReporter } from "./spa-url";
 import { installOnboardingHelpers } from "./onboarding-helpers";
 import { installAppsTabHelper } from "./apps-tab-helper";
+import { installAppsPageHelpers } from "./apps-page-helpers";
 
 type Request =
   | { type: "x_app" }
@@ -34,6 +35,7 @@ type Mode = { type: "x_app" } | null;
 let urlReporterUninstall: (() => void) | null = null;
 let onboardingHelpersUninstall: (() => void) | null = null;
 let appsTabHelperUninstall: (() => void) | null = null;
+let appsPageHelpersUninstall: (() => void) | null = null;
 
 function stopUrlReporter() {
   urlReporterUninstall?.();
@@ -48,6 +50,11 @@ function stopOnboardingHelpers() {
 function stopAppsTabHelper() {
   appsTabHelperUninstall?.();
   appsTabHelperUninstall = null;
+}
+
+function stopAppsPageHelpers() {
+  appsPageHelpersUninstall?.();
+  appsPageHelpersUninstall = null;
 }
 
 async function respondOk(response: unknown) {
@@ -75,6 +82,7 @@ async function handleRequest(event: Event<Request>) {
       stopUrlReporter();
       stopOnboardingHelpers();
       stopAppsTabHelper();
+      stopAppsPageHelpers();
 
       // Navigate (or reload if already on the right origin so the
       // overlay still re-mounts on the fresh page).
@@ -124,6 +132,7 @@ async function handleRequest(event: Event<Request>) {
       urlReporterUninstall = installSpaUrlReporter();
       onboardingHelpersUninstall = installOnboardingHelpers();
       appsTabHelperUninstall = installAppsTabHelper();
+      appsPageHelpersUninstall = installAppsPageHelpers();
     }
   } catch {
     // Best-effort

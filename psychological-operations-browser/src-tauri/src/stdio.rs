@@ -233,6 +233,26 @@ pub fn report_url(
     Ok(())
 }
 
+/// Invoked by the content webview's overlay (apps-page helpers)
+/// to update the production-app-count fact in the Rust state
+/// store. Drives the `ClickCreateApp` panel condition when 0,
+/// hides it once the user has at least one production app, and
+/// reverts to "waiting" when called with `None` (e.g. the overlay
+/// just left /apps).
+///
+/// Spawn-and-return so this sync command doesn't block on
+/// main-thread dispatches — same pattern as `report_url`.
+#[tauri::command]
+pub fn set_production_app_count(
+    count: Option<u32>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn(async move {
+        state::set_production_app_count(&app, count);
+    });
+    Ok(())
+}
+
 /// Invoked by the content webview's overlay to ship a single
 /// X-App credential field to Rust for per-handle on-disk storage.
 /// Five-field setup is sent one call at a time, in whatever order

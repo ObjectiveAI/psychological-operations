@@ -60,6 +60,13 @@ pub struct Facts {
     /// special-case those modes. Cleared by [`set_mode`] when
     /// leaving X-App.
     pub current_url: Option<String>,
+    /// Count of *production* apps the content overlay observed
+    /// in the Apps list. `None` ⇒ the overlay hasn't reported a
+    /// count yet (we're not on /apps, or it's still scraping).
+    /// `Some(0)` triggers the `ClickCreateApp` panel condition;
+    /// `Some(n>0)` keeps the panel hidden. X-App-only, cleared
+    /// alongside `current_url` when leaving X-App.
+    pub production_app_count: Option<u32>,
 }
 
 /// Payload for the legacy `current_signed_in` Tauri command +
@@ -135,6 +142,7 @@ pub fn set_mode<R: Runtime>(handle: &AppHandle<R>, new_mode: Option<Mode>) {
         facts.mode = new_mode;
         if !matches!(facts.mode, Some(Mode::XApp)) {
             facts.current_url = None;
+            facts.production_app_count = None;
         }
     }
     recompute_and_publish(handle);
@@ -153,6 +161,28 @@ pub fn set_current_url<R: Runtime>(handle: &AppHandle<R>, url: String) {
             return;
         }
         facts.current_url = Some(url);
+    }
+    recompute_and_publish(handle);
+}
+
+/// Update the production-app count the overlay observed on
+/// `/apps`. X-App-only (matches `set_current_url`). Passing
+/// `None` clears the fact — used when the overlay leaves /apps
+/// so a stale count can't drive `ClickCreateApp` on a different
+/// page.
+pub fn set_production_app_count<R: Runtime>(
+    handle: &AppHandle<R>,
+    count: Option<u32>,
+) {
+    {
+        let mut facts = facts_slot().lock().expect("facts slot poisoned");
+        if !matches!(facts.mode, Some(Mode::XApp)) {
+            return;
+        }
+        if facts.production_app_count == count {
+            return;
+        }
+        facts.production_app_count = count;
     }
     recompute_and_publish(handle);
 }
@@ -202,13 +232,34 @@ pub fn derive(facts: &Facts) -> PanelState {
                     message: "Sign in to X.".into(),
                 };
             }
-            if is_onboarding(facts.current_url.as_deref()) {
+            let url = facts.current_url.as_deref();
+            if is_onboarding(url) {
                 return PanelState::Show {
                     condition: PanelCondition::NeedsXAppSetup,
                     message: "Set up the X app.".into(),
                 };
             }
-            PanelState::Hidden
+            if is_apps_tab(url) {
+                // On the Apps tab (list or specific app).
+                //   Some(0)   → invite the user to create one.
+                //   Some(n>0) → they already have one; hidden.
+                //   None      → overlay hasn't reported yet —
+                //               hidden to avoid flash-of-wrong-
+                //               message before the scrape lands.
+                if facts.production_app_count == Some(0) {
+                    return PanelState::Show {
+                        condition: PanelCondition::ClickCreateApp,
+                        message: "Click Create App.".into(),
+                    };
+                }
+                return PanelState::Hidden;
+            }
+            // Signed in, past onboarding, not on the Apps tab —
+            // push them to it.
+            PanelState::Show {
+                condition: PanelCondition::ClickAppsTab,
+                message: "Click the Apps tab.".into(),
+            }
         }
         _ => PanelState::Hidden,
     }
@@ -223,6 +274,23 @@ fn is_onboarding(url: Option<&str>) -> bool {
     let Ok(parsed) = Url::parse(url) else { return false };
     parsed.host_str() == Some("console.x.com")
         && parsed.path().starts_with("/onboarding")
+}
+
+/// True when `url` is on the X-App developer-console "Apps" tab
+/// — either the apps list (`/accounts/<id>/apps`) or a specific
+/// app page (`/accounts/<id>/apps/<app-id>[/...]`).
+fn is_apps_tab(url: Option<&str>) -> bool {
+    let Some(url) = url else { return false };
+    let Ok(parsed) = Url::parse(url) else { return false };
+    if parsed.host_str() != Some("console.x.com") {
+        return false;
+    }
+    // Matches /accounts/<digits>/apps and /accounts/<digits>/apps/...
+    let path = parsed.path();
+    let mut segs = path.split('/').filter(|s| !s.is_empty());
+    matches!(segs.next(), Some("accounts"))
+        && segs.next().is_some_and(|s| s.chars().all(|c| c.is_ascii_digit()))
+        && matches!(segs.next(), Some("apps"))
 }
 
 /// Re-run [`derive`] on the current facts; if the result differs from

@@ -85,6 +85,7 @@ pub fn run() {
             stdio::current_signed_in,
             stdio::current_panel,
             stdio::report_url,
+            stdio::set_production_app_count,
             stdio::store_x_app_credential,
         ])
         .setup(move |app| {
