@@ -1,6 +1,7 @@
 mod args;
 mod cookies_watcher;
 mod credentials;
+mod post_create_dialog;
 mod state;
 mod stdio;
 mod webview;
@@ -85,6 +86,7 @@ pub fn run() {
             stdio::current_signed_in,
             stdio::current_panel,
             stdio::current_user_id,
+            stdio::process_post_create_html,
             stdio::report_url,
             stdio::set_production_app_count,
             stdio::store_x_app_credential,

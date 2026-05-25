@@ -48,6 +48,7 @@ use tauri::{AppHandle, Emitter, Manager, Runtime};
 use crate::WatcherKick;
 use crate::cookies_watcher;
 use crate::credentials;
+use crate::post_create_dialog;
 use crate::state::{self, SignedInPayload};
 use crate::webview;
 
@@ -260,6 +261,64 @@ pub fn set_production_app_count(
         state::set_production_app_count(&app, count);
     });
     Ok(())
+}
+
+/// Invoked by the content webview's overlay (post-create dialog
+/// helpers) with the full document HTML when the post-create
+/// dialog is open. Rust does all the parsing: snapshots the HTML
+/// to disk for inspection, then extracts the three credentials
+/// and stores each via [`credentials::store_one`].
+///
+/// Returns the count of fields successfully stored (0-3). The
+/// overlay keeps calling this every ~2s while the dialog is
+/// open until it gets 3.
+///
+/// Errors only on infrastructure failures (no user_id available,
+/// snapshot write failure). Missing fields → partial count, not
+/// an error.
+#[tauri::command]
+pub fn process_post_create_html(
+    html: String,
+    app: tauri::AppHandle,
+) -> Result<u8, String> {
+    // Always snapshot — even if parse misses, we want the HTML
+    // on disk so we can refine selectors offline.
+    if let Err(e) = post_create_dialog::save_snapshot(&app, &html) {
+        let _ = Output::Log {
+            message: format!("post_create_dialog: snapshot write failed: {e}"),
+        }
+        .emit();
+    }
+
+    let Some(user_id) = state::current_user_id() else {
+        return Err("no user_id yet — cookies watcher hasn't observed twid".into());
+    };
+
+    let extracted = post_create_dialog::extract(&html);
+    let mut stored: u8 = 0;
+    for (field, value) in [
+        (XAppCredentialField::ConsumerKey, &extracted.consumer_key),
+        (XAppCredentialField::SecretKey, &extracted.secret_key),
+        (XAppCredentialField::BearerToken, &extracted.bearer_token),
+    ] {
+        let Some(v) = value else { continue };
+        match credentials::store_one(&app, &user_id, field, v) {
+            Ok(path) => {
+                stored += 1;
+                let _ = Output::Log {
+                    message: format!("credentials: wrote {}", path.display()),
+                }
+                .emit();
+            }
+            Err(e) => {
+                let _ = Output::Log {
+                    message: format!("credentials: write failed: {e}"),
+                }
+                .emit();
+            }
+        }
+    }
+    Ok(stored)
 }
 
 /// Invoked by the content webview's overlay to ship a single
