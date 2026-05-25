@@ -1,0 +1,6 @@
+"$schema" = "../gen/schemas/desktop-schema.json"
+
+[[permission]]
+identifier = "allow-current-user-id"
+description = "Allows the content webview's overlay to query the current X user-id (parsed from the `twid` cookie) for use as the per-user folder when storing X-App credentials."
+commands.allow = ["current_user_id"]

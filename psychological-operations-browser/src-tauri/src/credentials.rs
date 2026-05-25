@@ -62,19 +62,21 @@ pub fn store_one<R: Runtime>(
     Ok(final_path)
 }
 
-/// Normalize an X handle for use as a directory name:
+/// Normalize an X handle (or numeric user-id) for use as a
+/// directory name:
 ///
 ///   - trim surrounding whitespace
 ///   - strip leading `@` (X displays handles with one)
 ///   - lower-case (handles are case-insensitive)
-///   - validate length 1-15 and ASCII alphanumeric / underscore
-///     (X's documented handle rules)
+///   - validate length 1-64 and ASCII alphanumeric / underscore.
+///     Length cap is 64 (not 15) so X numeric user-ids parsed
+///     from the `twid` cookie also fit — they're ~19 digits.
 fn normalize_handle(raw: &str) -> Result<String, String> {
     let trimmed = raw
         .trim()
         .trim_start_matches('@')
         .to_ascii_lowercase();
-    if trimmed.is_empty() || trimmed.len() > 15 {
+    if trimmed.is_empty() || trimmed.len() > 64 {
         return Err(format!("invalid X handle: {raw:?}"));
     }
     for c in trimmed.chars() {

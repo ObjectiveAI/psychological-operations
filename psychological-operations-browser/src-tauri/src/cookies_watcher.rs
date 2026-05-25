@@ -45,13 +45,18 @@ use crate::state;
 use crate::webview;
 
 /// All cookies the panel-state derivation cares about, in one place.
-/// Currently just x.com's session token; if we ever need more we can
-/// extend the struct and the snapshot match arm together.
+/// One `cookies_for_url` call returns every cookie for the URL's
+/// domain, so we always grab them together.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 struct CookieSnapshot {
     /// x.com's HttpOnly session cookie on `.x.com`. Presence means
     /// the user is signed in to x.com / console.x.com.
     auth_token: Option<String>,
+    /// X user-id parsed from the `twid` cookie. Used by the
+    /// overlay's credential-storage flow as the per-user folder
+    /// key (different sign-ins → different twid → different
+    /// folders). Stays stable for the lifetime of a session.
+    user_id: Option<String>,
 }
 
 pub struct Handle {
@@ -151,20 +156,35 @@ fn snapshot_sync<R: Runtime>(handle: &AppHandle<R>, auth_url: &Url) -> CookieSna
     };
     let mut snap = CookieSnapshot::default();
     for c in &cookies {
-        if c.name() == "auth_token" {
-            snap.auth_token = Some(c.value().to_string());
+        match c.name() {
+            "auth_token" => snap.auth_token = Some(c.value().to_string()),
+            "twid" => snap.user_id = parse_twid(c.value()),
+            _ => {}
         }
     }
     snap
 }
 
+/// `twid` is shaped `u%3D<numeric-id>` (URL-encoded `u=<id>`).
+/// Pull out the digits. We match both the URL-encoded and decoded
+/// prefixes to be safe — different consumers of the cookie store
+/// may or may not URL-decode for us.
+fn parse_twid(raw: &str) -> Option<String> {
+    let id = raw
+        .strip_prefix("u%3D")
+        .or_else(|| raw.strip_prefix("u="))?;
+    if id.is_empty() || !id.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    Some(id.to_string())
+}
+
 /// Push every fact from a fresh snapshot into the [`crate::state`]
-/// store. Only one fact today, so there's no atomicity concern; if
-/// we ever track more than one cookie, switch to a batch setter
-/// like the previous `apply_cookie_facts` to avoid leaking
-/// intermediate `PanelState`s.
+/// store. Atomic — both cookie facts (auth_token + user_id) land
+/// under a single lock so no intermediate `PanelState` ever leaks
+/// out between them.
 fn apply_snapshot<R: Runtime>(handle: &AppHandle<R>, snap: &CookieSnapshot) {
-    state::set_auth_token(handle, snap.auth_token.clone());
+    state::apply_cookie_facts(handle, snap.auth_token.clone(), snap.user_id.clone());
 }
 
 async fn run_watcher<R: Runtime>(

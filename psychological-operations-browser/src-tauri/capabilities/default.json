@@ -17,6 +17,7 @@
     "allow-current-mode",
     "allow-current-signed-in",
     "allow-current-panel",
+    "allow-current-user-id",
     "allow-report-url",
     "allow-set-production-app-count",
     "allow-store-x-app-credential"

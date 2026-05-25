@@ -190,6 +190,15 @@ pub fn current_signed_in() -> Result<Option<SignedInPayload>, String> {
     Ok(state::current_signed_in())
 }
 
+/// Returns the current X user-id (parsed from the `twid` cookie
+/// by the cookies watcher). Used by the content overlay to pick
+/// the per-user folder when storing X-App credentials. `None` if
+/// cookies haven't been observed yet or the user is signed out.
+#[tauri::command]
+pub fn current_user_id() -> Result<Option<String>, String> {
+    Ok(state::current_user_id())
+}
+
 /// Returns the current derived [`PanelState`] — what the instruction
 /// panel should be rendering right now. Invoked by the panel React
 /// on mount to seed initial state; the panel also subscribes to the

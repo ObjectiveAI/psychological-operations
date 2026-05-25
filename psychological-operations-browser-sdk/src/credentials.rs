@@ -22,24 +22,34 @@
 use serde::{Deserialize, Serialize};
 
 /// Which X-App credential the `store_x_app_credential` call is
-/// setting. Snake-cased on the wire: `client_id`, `client_secret`,
-/// `bearer_token`, `access_token`, `access_token_secret`.
+/// setting. Snake-cased on the wire (`client_id`, `consumer_key`,
+/// `secret_key`, etc.).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum XAppCredentialField {
     /// OAuth 2.0 client identifier (also referred to as "API Key"
-    /// in some X documentation under the OAuth 2 tab).
+    /// in some X documentation under the OAuth 2 tab). Lives in a
+    /// different surface from the post-create dialog — separate
+    /// scrape flow when we get there.
     ClientId,
-    /// OAuth 2.0 client secret.
+    /// OAuth 2.0 client secret. Pairs with `ClientId`.
     ClientSecret,
-    /// OAuth 2.0 app-only bearer token (for read-only endpoints
-    /// that don't need a per-user authorization).
+    /// OAuth 2.0 app-only bearer token. Surfaced as
+    /// "Bearer Token" in X's post-create dialog.
     BearerToken,
-    /// OAuth 1.0a per-user access token.
+    /// OAuth 1.0a per-user access token. Generated separately
+    /// via a user-authorization flow — not in the post-create
+    /// dialog.
     AccessToken,
     /// OAuth 1.0a per-user access token secret. Pairs with
     /// `AccessToken` to sign per-user requests.
     AccessTokenSecret,
+    /// "Consumer Key" as labeled in X's post-create dialog. The
+    /// OAuth 1.0a app-identity public key.
+    ConsumerKey,
+    /// "Secret Key" as labeled in X's post-create dialog
+    /// (X's term for the consumer secret).
+    SecretKey,
 }
 
 impl XAppCredentialField {
@@ -55,6 +65,8 @@ impl XAppCredentialField {
             Self::BearerToken => "bearer_token.txt",
             Self::AccessToken => "access_token.txt",
             Self::AccessTokenSecret => "access_token_secret.txt",
+            Self::ConsumerKey => "consumer_key.txt",
+            Self::SecretKey => "secret_key.txt",
         }
     }
 }

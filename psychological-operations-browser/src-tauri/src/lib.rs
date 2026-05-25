@@ -84,6 +84,7 @@ pub fn run() {
             stdio::current_mode,
             stdio::current_signed_in,
             stdio::current_panel,
+            stdio::current_user_id,
             stdio::report_url,
             stdio::set_production_app_count,
             stdio::store_x_app_credential,

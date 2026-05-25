@@ -67,6 +67,12 @@ pub struct Facts {
     /// `Some(n>0)` keeps the panel hidden. X-App-only, cleared
     /// alongside `current_url` when leaving X-App.
     pub production_app_count: Option<u32>,
+    /// X user-id parsed from the `twid` cookie by the cookies
+    /// watcher. Stable per signed-in account. Used by the
+    /// overlay's per-user credential-storage flow (queried via
+    /// the `current_user_id` Tauri command). `None` ⇒ no twid
+    /// cookie yet (signed out or pre-snapshot).
+    pub user_id: Option<String>,
 }
 
 /// Payload for the legacy `current_signed_in` Tauri command +
@@ -103,6 +109,17 @@ pub fn current_panel() -> Option<PanelState> {
     panel_slot()
         .lock()
         .expect("panel slot poisoned")
+        .clone()
+}
+
+/// Snapshot of the current X user-id (parsed from the `twid`
+/// cookie). `None` if cookies haven't been observed yet or the
+/// user is signed out.
+pub fn current_user_id() -> Option<String> {
+    facts_slot()
+        .lock()
+        .expect("facts slot poisoned")
+        .user_id
         .clone()
 }
 
@@ -143,6 +160,7 @@ pub fn set_mode<R: Runtime>(handle: &AppHandle<R>, new_mode: Option<Mode>) {
         if !matches!(facts.mode, Some(Mode::XApp)) {
             facts.current_url = None;
             facts.production_app_count = None;
+            facts.user_id = None;
         }
     }
     recompute_and_publish(handle);
@@ -187,31 +205,32 @@ pub fn set_production_app_count<R: Runtime>(
     recompute_and_publish(handle);
 }
 
-/// Set the x.com auth-token observation. Emits the legacy
-/// [`Output::SignedIn`] line on every value change (for headless /
-/// CLI consumers of the JSONL stream) before triggering the panel
-/// recompute. If the cookies-watcher ever tracks more than one
-/// cookie, switch back to a batched setter that takes all the
-/// cookies together — single-cookie setters would emit
-/// intermediate `PanelState`s while the second cookie was being
-/// written.
-pub fn set_auth_token<R: Runtime>(handle: &AppHandle<R>, token: Option<String>) {
-    let token_for_emit;
-    {
+/// Atomically update every cookie-sourced fact from a single
+/// observation. Both `auth_token` and `user_id` land under a
+/// single lock so no intermediate `PanelState` leaks between them.
+/// Emits the legacy [`Output::SignedIn`] line on every auth-token
+/// value change before triggering the panel recompute.
+pub fn apply_cookie_facts<R: Runtime>(
+    handle: &AppHandle<R>,
+    auth_token: Option<String>,
+    user_id: Option<String>,
+) {
+    let token_changed_to: Option<Option<String>> = {
         let mut facts = facts_slot().lock().expect("facts slot poisoned");
-        if facts.auth_token == token {
-            return;
-        }
-        facts.auth_token = token.clone();
-        token_for_emit = token;
-    }
+        let token_changed = facts.auth_token != auth_token;
+        facts.auth_token = auth_token.clone();
+        facts.user_id = user_id;
+        if token_changed { Some(auth_token) } else { None }
+    };
 
-    let info = token_for_emit.as_deref().and_then(jwt_to_info);
-    let _ = Output::SignedIn {
-        signed_in: token_for_emit.is_some(),
-        info,
+    if let Some(new_token) = token_changed_to {
+        let info = new_token.as_deref().and_then(jwt_to_info);
+        let _ = Output::SignedIn {
+            signed_in: new_token.is_some(),
+            info,
+        }
+        .emit();
     }
-    .emit();
 
     recompute_and_publish(handle);
 }
