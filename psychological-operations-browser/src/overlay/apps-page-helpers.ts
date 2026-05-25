@@ -157,13 +157,13 @@ function tick() {
     el.style.display = "none";
   } else {
     el.style.display = "";
-    // Anchor to the RIGHT of the button — the button sits in the
-    // page's top header bar, with empty space to its right
-    // (where this pointer goes).
+    // Anchor to the LEFT of the button. `translateX(-100%)`
+    // pins the helper's right edge at the chosen left
+    // coordinate, so we don't have to measure helper width.
     const rect = btn.getBoundingClientRect();
     el.style.top = `${rect.top + rect.height / 2}px`;
-    el.style.left = `${rect.right + 8}px`;
-    el.style.transform = "translateY(-50%)";
+    el.style.left = `${rect.left - 8}px`;
+    el.style.transform = "translateX(-100%) translateY(-50%)";
   }
   rafId = requestAnimationFrame(tick);
 }
