@@ -48,8 +48,30 @@ function isOnAppsTab(url: string): boolean {
 // =================================================================
 // Minimal DOM probes — these are NOT parsing; just structural.
 // =================================================================
-function anyDialog(): HTMLElement | null {
-  return document.querySelector('[role="dialog"]');
+
+/**
+ * Find the post-create credentials dialog specifically — the one
+ * with Consumer Key / Secret Key / Bearer Token. Matching on any
+ * `[role="dialog"]` would also match the *Create New Client
+ * Application* dialog (Name + Environment + Create), which is a
+ * different dialog handled by `create-app-dialog-helpers`.
+ *
+ * Checking for the three static field-label strings is a
+ * structural distinguisher — not parsing of credential values
+ * (which still happens Rust-side after the full HTML ships).
+ */
+function findPostCreateDialog(): HTMLElement | null {
+  for (const d of document.querySelectorAll<HTMLElement>('[role="dialog"]')) {
+    const text = (d.textContent ?? "").toLowerCase();
+    if (
+      text.includes("consumer key") &&
+      text.includes("secret key") &&
+      text.includes("bearer token")
+    ) {
+      return d;
+    }
+  }
+  return null;
 }
 
 function findCloseButton(dialog: HTMLElement): HTMLButtonElement | null {
@@ -126,7 +148,7 @@ function unmount() {
 function tick() {
   if (!widget) return;
   const el = widget.element;
-  const dialog = anyDialog();
+  const dialog = findPostCreateDialog();
 
   if (!dialog) {
     el.style.display = "none";
