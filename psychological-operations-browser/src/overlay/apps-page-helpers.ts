@@ -50,12 +50,31 @@ function isOnAppsTab(url: string): boolean {
 }
 
 /** Find the global "Create App" button at the top of the apps
- *  list page. There's exactly one. */
+ *  list page. There's exactly one — scoped to exclude buttons
+ *  inside dialogs (the Create dialog also has a Create-shaped
+ *  button). */
 function findCreateAppButton(): HTMLButtonElement | null {
   for (const b of document.querySelectorAll<HTMLButtonElement>("button")) {
-    if (b.textContent?.trim() === "Create App") return b;
+    if (b.textContent?.trim() !== "Create App") continue;
+    if (b.closest('[role="dialog"]')) continue;
+    return b;
   }
   return null;
+}
+
+/** True iff the "Create New Client Application" dialog is open on
+ *  the page. Exact heading-text match — Radix dialogs render the
+ *  heading as an `<h2>` inside `[role="dialog"]`. Exported so
+ *  sibling modules (the dialog helpers) can share the predicate. */
+export function isCreateAppDialogOpen(): boolean {
+  for (const d of document.querySelectorAll('[role="dialog"]')) {
+    const heading = d.querySelector<HTMLElement>(
+      'h1, h2, h3, [role="heading"]',
+    );
+    const text = heading?.textContent?.trim() ?? "";
+    if (text === "Create New Client Application") return true;
+  }
+  return false;
 }
 
 /** Count production apps in the list. The page groups apps under
@@ -150,10 +169,12 @@ function tick() {
   const count = countProductionApps();
   reportCount(count);
 
-  // 2. Position Create App pointer (visible only when count is 0).
+  // 2. Position Create App pointer (visible only when count is 0
+  //    AND the Create dialog isn't already open — once it's up
+  //    the in-dialog helpers take over).
   const btn = findCreateAppButton();
   const el = widget.element;
-  if (!btn || count > 0) {
+  if (!btn || count > 0 || isCreateAppDialogOpen()) {
     el.style.display = "none";
   } else {
     el.style.display = "";

@@ -23,6 +23,7 @@ import { installSpaUrlReporter } from "./spa-url";
 import { installOnboardingHelpers } from "./onboarding-helpers";
 import { installAppsTabHelper } from "./apps-tab-helper";
 import { installAppsPageHelpers } from "./apps-page-helpers";
+import { installCreateAppDialogHelpers } from "./create-app-dialog-helpers";
 
 type Request =
   | { type: "x_app" }
@@ -36,6 +37,7 @@ let urlReporterUninstall: (() => void) | null = null;
 let onboardingHelpersUninstall: (() => void) | null = null;
 let appsTabHelperUninstall: (() => void) | null = null;
 let appsPageHelpersUninstall: (() => void) | null = null;
+let createAppDialogHelpersUninstall: (() => void) | null = null;
 
 function stopUrlReporter() {
   urlReporterUninstall?.();
@@ -55,6 +57,11 @@ function stopAppsTabHelper() {
 function stopAppsPageHelpers() {
   appsPageHelpersUninstall?.();
   appsPageHelpersUninstall = null;
+}
+
+function stopCreateAppDialogHelpers() {
+  createAppDialogHelpersUninstall?.();
+  createAppDialogHelpersUninstall = null;
 }
 
 async function respondOk(response: unknown) {
@@ -83,6 +90,7 @@ async function handleRequest(event: Event<Request>) {
       stopOnboardingHelpers();
       stopAppsTabHelper();
       stopAppsPageHelpers();
+      stopCreateAppDialogHelpers();
 
       // Navigate (or reload if already on the right origin so the
       // overlay still re-mounts on the fresh page).
@@ -133,6 +141,7 @@ async function handleRequest(event: Event<Request>) {
       onboardingHelpersUninstall = installOnboardingHelpers();
       appsTabHelperUninstall = installAppsTabHelper();
       appsPageHelpersUninstall = installAppsPageHelpers();
+      createAppDialogHelpersUninstall = installCreateAppDialogHelpers();
     }
   } catch {
     // Best-effort
