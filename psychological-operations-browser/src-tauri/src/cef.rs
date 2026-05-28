@@ -36,7 +36,9 @@
 //! flaky we'll route through `post_task(ThreadId::UI, ...)`.
 
 use std::path::Path;
-use std::sync::{Mutex, OnceLock};
+use std::sync::mpsc::{SyncSender, sync_channel};
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::Duration;
 
 use cef::sys::cef_window_handle_t;
 use cef::*;
@@ -298,7 +300,124 @@ fn handle_from_raw(raw: isize) -> cef_window_handle_t {
 /// Until then CEF tracks the parent's resize events.
 #[allow(dead_code, unused_variables)]
 pub fn set_browser_bounds(x: i32, y: i32, width: i32, height: i32) {
-    // TODO(phase 1.1): once we capture the browser's child handle in
+    // TODO(phase 3): once we capture the browser's child handle in
     // on_after_created, reposition it directly via
     // SetWindowPos / setFrame / XMoveResizeWindow.
+}
+
+// ---------------------------------------------------------------------
+// Cookie reading (Phase 2)
+// ---------------------------------------------------------------------
+//
+// `snapshot_cookies(url)` reads every cookie CEF has for the given URL
+// and returns them as a `Vec<(name, value)>`. Synchronous interface
+// over CEF's callback-based `CookieManager::visit_url_cookies`.
+//
+// Threading: CEF requires `visit_url_cookies` to be called on the CEF
+// UI thread, and the visitor's callbacks fire there too. We
+// [`post_task`] the work to that thread and `recv_timeout` on a
+// `sync_channel(1)` for the result. Caller blocks on a worker tokio
+// `spawn_blocking` task — never the main thread.
+//
+// Completion signalling: CEF calls `visit` once per cookie with
+// `count` (0-indexed) and `total` parameters. We detect the final
+// cookie via `count + 1 >= total` and `take()` the channel sender
+// from an `Arc<Mutex<Option<Sender>>>` so only that call delivers.
+// Zero-cookies case (visitor never fires) → caller times out after
+// 5 s and gets an empty Vec. Acceptable: the next `WatcherKick`
+// re-snapshots, and pre-signin x.com normally has > 0 cookies anyway.
+
+type CookieTx = Arc<Mutex<Option<SyncSender<Vec<(String, String)>>>>>;
+
+wrap_cookie_visitor! {
+    struct CollectingVisitor {
+        collected: Arc<Mutex<Vec<(String, String)>>>,
+        tx: CookieTx,
+    }
+
+    impl CookieVisitor {
+        fn visit(
+            &self,
+            cookie: Option<&Cookie>,
+            count: i32,
+            total: i32,
+            _delete_cookie: Option<&mut i32>,
+        ) -> i32 {
+            if let Some(c) = cookie {
+                let name = c.name.to_string();
+                let value = c.value.to_string();
+                if let Ok(mut v) = self.collected.lock() {
+                    v.push((name, value));
+                }
+            }
+            // Last cookie? Deliver.
+            if count + 1 >= total {
+                let result = self
+                    .collected
+                    .lock()
+                    .map(|v| v.clone())
+                    .unwrap_or_default();
+                if let Ok(mut g) = self.tx.lock() {
+                    if let Some(s) = g.take() {
+                        let _ = s.send(result);
+                    }
+                }
+            }
+            1 // continue iteration
+        }
+    }
+}
+
+wrap_task! {
+    struct SnapshotCookiesTask {
+        url: String,
+        tx: CookieTx,
+    }
+
+    impl Task {
+        fn execute(&self) {
+            let Some(manager) = cookie_manager_get_global_manager(None) else {
+                // No global cookie manager (CEF context not ready?).
+                if let Ok(mut g) = self.tx.lock() {
+                    if let Some(s) = g.take() { let _ = s.send(Vec::new()); }
+                }
+                return;
+            };
+            let collected = Arc::new(Mutex::new(Vec::new()));
+            let mut visitor = CollectingVisitor::new(collected, self.tx.clone());
+            let url = CefString::from(self.url.as_str());
+            let accepted = manager.visit_url_cookies(Some(&url), 1, Some(&mut visitor));
+            if accepted != 1 {
+                // Visitor rejected — deliver empty so caller doesn't block.
+                if let Ok(mut g) = self.tx.lock() {
+                    if let Some(s) = g.take() { let _ = s.send(Vec::new()); }
+                }
+            }
+            // Otherwise visitor's visit() will eventually fire and deliver.
+        }
+    }
+}
+
+/// Snapshot every cookie CEF holds for `url`, blocking up to 5
+/// seconds. Returns an empty Vec if CEF isn't initialized, if the
+/// task can't be posted, or if the request times out (e.g. zero
+/// cookies → visitor never fires).
+///
+/// Must NOT be called from CEF's UI thread (would deadlock on the
+/// sync_channel `recv`). Call from a Tokio `spawn_blocking` worker.
+pub fn snapshot_cookies(url: &str) -> Vec<(String, String)> {
+    if !is_initialized() {
+        return Vec::new();
+    }
+
+    let (tx, rx) = sync_channel::<Vec<(String, String)>>(1);
+    let tx: CookieTx = Arc::new(Mutex::new(Some(tx)));
+
+    let mut task = SnapshotCookiesTask::new(url.to_string(), tx);
+    let posted = post_task(ThreadId::UI, Some(&mut task));
+    if posted != 1 {
+        return Vec::new();
+    }
+
+    rx.recv_timeout(Duration::from_secs(5)).unwrap_or_default()
 }
