@@ -40,17 +40,22 @@ pub enum Output {
     /// lifecycle traces, etc.).
     Log { message: String },
 
-    /// The URL the active content webview is currently on. Emitted
+    /// The URL the active content surface is currently on. Emitted
     /// on the initial overlay mount + every SPA route change
     /// (`history.pushState` / `replaceState` / `popstate` /
-    /// `hashchange`) — see `src/spa-url.ts`.
+    /// `hashchange`) — see `src/overlay/spa-url.ts` — plus
+    /// CEF's `DisplayHandler::on_address_change` for full-document
+    /// loads.
     Url { url: String },
 
     /// Sign-in state of the current session. Emitted once on
-    /// startup (after the watcher's initial cookie read), then
+    /// startup (after the cookies watcher's initial read) and
     /// again every time the auth cookie's presence-or-value
-    /// changes. `info` carries identifying claims decoded from the
-    /// auth JWT when signed in; absent when signed out.
+    /// changes. `info` carries identifying claims decoded from
+    /// the auth JWT when signed in (currently always `None` for
+    /// x.com's `auth_token` which is an opaque session string,
+    /// not a JWT — kept on the wire for forward-compat with future
+    /// modes whose auth token may carry richer identity).
     SignedIn {
         signed_in: bool,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -69,25 +74,17 @@ pub enum Output {
 /// which case the value is `None`. Extensible: adding new claim
 /// fields here doesn't break the wire.
 ///
-/// As of writing, xAI's `sso` JWT carries only `session_id` — no
-/// human-friendly handle, no email, no stable user id. The other
-/// fields are kept for forward-compat (and for future modes where
-/// the auth token may carry richer identity).
+/// x.com's `auth_token` is opaque (not a JWT), so every field is
+/// `None` in the X-App mode today. Kept for forward-compat with
+/// future modes whose auth token actually carries identity.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignedInInfo {
-    /// Session identifier (UUID). For the X-App `sso` JWT this is
-    /// the `session_id` claim — the only claim the token actually
-    /// carries today.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
-    /// User handle / username — the human-friendly identifier.
-    /// `None` if the JWT doesn't carry one (current state for xAI).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub handle: Option<String>,
-    /// Email address if present in the JWT.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub email: Option<String>,
-    /// Stable user id (typically the JWT `sub` claim).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub user_id: Option<String>,
 }

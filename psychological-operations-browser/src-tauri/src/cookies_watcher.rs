@@ -38,7 +38,7 @@ use std::time::Duration;
 use psychological_operations_browser_sdk::mode::Mode;
 use psychological_operations_browser_sdk::output::Output;
 use tauri::async_runtime::{JoinHandle, spawn, spawn_blocking};
-use tauri::{AppHandle, Manager, Runtime, Url};
+use tauri::{AppHandle, Manager, Url, Wry};
 use tokio::sync::Notify;
 
 use crate::WatcherKick;
@@ -80,8 +80,8 @@ impl Drop for Handle {
 /// global `CookieManager` rather than by direct file access. The
 /// parameter is kept so per-mode (X-App vs psyop) scoping stays
 /// available to future signatures.
-pub fn start<R: Runtime>(
-    handle: AppHandle<R>,
+pub fn start(
+    handle: AppHandle<Wry>,
     mode: &Mode,
     _data_dir: &Path,
 ) -> Option<Handle> {
@@ -148,12 +148,12 @@ fn parse_twid(raw: &str) -> Option<String> {
 /// store. Atomic — both cookie facts (auth_token + user_id) land
 /// under a single lock so no intermediate `PanelState` ever leaks
 /// out between them.
-fn apply_snapshot<R: Runtime>(handle: &AppHandle<R>, snap: &CookieSnapshot) {
+fn apply_snapshot(handle: &AppHandle<Wry>, snap: &CookieSnapshot) {
     state::apply_cookie_facts(handle, snap.auth_token.clone(), snap.user_id.clone());
 }
 
-async fn run_watcher<R: Runtime>(
-    handle: AppHandle<R>,
+async fn run_watcher(
+    handle: AppHandle<Wry>,
     auth_url: Url,
     initial: CookieSnapshot,
     stop: Arc<Notify>,
@@ -208,8 +208,8 @@ async fn try_snapshot(auth_url: Url) -> Option<CookieSnapshot> {
     }
 }
 
-fn maybe_apply<R: Runtime>(
-    handle: &AppHandle<R>,
+fn maybe_apply(
+    handle: &AppHandle<Wry>,
     last: &mut CookieSnapshot,
     snap: CookieSnapshot,
 ) {

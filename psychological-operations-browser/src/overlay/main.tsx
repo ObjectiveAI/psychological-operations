@@ -1,24 +1,22 @@
 import { installConsoleCapture, drainConsole } from "./console-capture";
 
 // Install console + exception capture as the FIRST thing the bundle
-// does. This bundle is injected into the X-App *content* webview
-// (which loads https://console.x.ai/ + navigates to anywhere from
-// there) via `WebviewWindowBuilder::initialization_script`, which
-// maps to WebView2's `AddScriptToExecuteOnDocumentCreated` on
-// Windows. It runs in the page's JS context *before any page
-// script*, so anything we install here catches everything the page
+// does. This bundle is injected into the X-App *content* CEF browser
+// (which loads https://console.x.com/ + navigates to anywhere from
+// there) via `Frame::execute_javascript` from
+// `LoadHandler::on_load_start`, which fires before any page script
+// runs. So anything we install here catches everything the page
 // itself logs or throws.
 //
 // The instruction panel does NOT live in this bundle — it's a
-// separate webview (loaded from our local panel.html) sitting above
-// the content webview in the same window. This bundle only handles
-// content-page-scoped concerns: stdio request dispatch, SPA URL
-// reporting, console capture, and (eventually) MutationObserver-
-// driven overlay components (HandPointer, sign-in pointer, etc.).
+// separate webview (Tauri/WebView2, loaded from our local panel.html)
+// sitting above the CEF browser in the same window. This bundle only
+// handles content-page-scoped concerns: stdio request dispatch, SPA
+// URL reporting, console capture, and MutationObserver-driven overlay
+// components (HandPointer, sign-in pointer, etc.).
 installConsoleCapture();
 
-import { invoke } from "@tauri-apps/api/core";
-import { listen, type Event } from "@tauri-apps/api/event";
+import { invoke, registerPushHandler } from "./ipc";
 import { installSpaUrlReporter } from "./spa-url";
 import { installOnboardingHelpers } from "./onboarding-helpers";
 import { installAppsTabHelper } from "./apps-tab-helper";
@@ -83,8 +81,8 @@ async function respondErr(error: string) {
   }).catch(() => {});
 }
 
-async function handleRequest(event: Event<Request>) {
-  const req = event.payload;
+async function handleRequest(payload: unknown) {
+  const req = payload as Request;
   switch (req.type) {
     case "x_app": {
       // Ack first so the host process gets the ack before any URL
@@ -136,12 +134,17 @@ async function handleRequest(event: Event<Request>) {
 
 // ---------- IPC handshake + URL reporter on mode resume ----------
 //
-// Register the listener FIRST, then invoke frontend_ready. The Rust
-// stdin reader blocks on this signal before reading; the OS pipe
-// buffers anything the host wrote during startup until then.
+// Register the push handler FIRST, then invoke frontend_ready. The
+// Rust stdin reader blocks on this signal before reading; the OS
+// pipe buffers anything the host wrote during startup until then.
+//
+// The push handler is `window.__psyops.push` — Rust calls
+// `frame.execute_javascript("window.__psyops.push(<json>)")` to
+// deliver each request. Synchronous from JS's perspective; the ack
+// goes back via `invoke("stdio_respond", ...)` per-request.
 (async () => {
   try {
-    await listen<Request>("psyops:request", handleRequest);
+    registerPushHandler(handleRequest);
     await invoke("frontend_ready");
     const mode = await invoke<Mode>("current_mode");
     if (mode !== null) {

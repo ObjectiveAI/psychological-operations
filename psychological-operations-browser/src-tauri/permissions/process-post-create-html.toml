@@ -1,6 +1,0 @@
-"$schema" = "../gen/schemas/desktop-schema.json"
-
-[[permission]]
-identifier = "allow-process-post-create-html"
-description = "Allows the content webview's overlay to ship the full document HTML to Rust whenever the post-create dialog is open. Rust snapshots the HTML to disk for inspection and extracts the three credentials (Consumer Key, Secret Key, Bearer Token) for per-user storage."
-commands.allow = ["process_post_create_html"]

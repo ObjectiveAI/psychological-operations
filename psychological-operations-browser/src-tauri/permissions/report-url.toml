@@ -1,6 +1,0 @@
-"$schema" = "../gen/schemas/desktop-schema.json"
-
-[[permission]]
-identifier = "allow-report-url"
-description = "Allows the injected overlay to report URL changes for emission as `Output::Url` on stdout."
-commands.allow = ["report_url"]

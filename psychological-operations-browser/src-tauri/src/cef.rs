@@ -42,17 +42,22 @@ use std::time::Duration;
 
 use cef::sys::cef_window_handle_t;
 use cef::*;
+use tauri::{AppHandle, Manager, Wry};
+
+use crate::WatcherKick;
+use crate::state;
+
+/// Self-contained IIFE bundle of the overlay. Produced by `yarn
+/// build` (Vite) at `dist/overlay.js`, injected on every main-frame
+/// load via [`InjectOverlay`].
+const OVERLAY_JS: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../dist/overlay.js"
+));
 
 /// Initial URL the CEF browser loads when first created. Same target
 /// the WebView2 backend uses today.
 const INITIAL_URL: &str = "https://console.x.com/";
-
-/// Stashed parent-window handle of the embedded CEF browser as a
-/// raw `isize`. On Windows this is an HWND, on macOS an NSView
-/// pointer, on Linux an X11 Window id. Kept here so the resize
-/// callback can pass it back into CEF without holding a CEF handle
-/// across threads.
-static PARENT_HANDLE: OnceLock<Mutex<Option<isize>>> = OnceLock::new();
 
 /// Guards [`initialize`] so callers can invoke it idempotently from
 /// per-mode setup paths (X-App creation, future psyop creation). The
@@ -60,15 +65,22 @@ static PARENT_HANDLE: OnceLock<Mutex<Option<isize>>> = OnceLock::new();
 /// what we already initialized with.
 static INITIALIZED_WITH: OnceLock<std::path::PathBuf> = OnceLock::new();
 
+/// Tauri `AppHandle` stashed at [`initialize`] time so handlers
+/// running on CEF threads (`TrackUrl::on_address_change`,
+/// `cef_scheme`'s command dispatcher) can reach into Tauri-managed
+/// state. Concrete `Wry` runtime — the only runtime this binary
+/// uses.
+static APP_HANDLE: OnceLock<AppHandle<Wry>> = OnceLock::new();
+
+pub fn app_handle() -> Option<&'static AppHandle<Wry>> {
+    APP_HANDLE.get()
+}
+
 /// On macOS the CEF library is loaded dynamically. We keep the
 /// LibraryLoader alive for the lifetime of the process — dropping
 /// it would unload the framework while CEF is still using it.
 #[cfg(target_os = "macos")]
 static MAC_LIBRARY: OnceLock<library_loader::LibraryLoader> = OnceLock::new();
-
-fn parent_handle_slot() -> &'static Mutex<Option<isize>> {
-    PARENT_HANDLE.get_or_init(|| Mutex::new(None))
-}
 
 /// Has [`initialize`] already been called?
 pub fn is_initialized() -> bool {
@@ -126,11 +138,15 @@ pub fn run_helper_and_exit() -> ! {
 /// The caller (the per-mode webview-creation path in
 /// [`crate::webview`]) computes the right one.
 ///
+/// `app` is the Tauri `AppHandle` stashed for handlers that need
+/// to reach back into Tauri state (URL tracking, the psyops://
+/// scheme dispatcher).
+///
 /// Safe to call from a Tauri `setup` closure — CEF's
 /// `multi_threaded_message_loop` spawns its own UI thread, so the
 /// main thread stays available for Tauri's event loop even after
 /// init.
-pub fn initialize(cache_root: &Path) {
+pub fn initialize(cache_root: &Path, app: AppHandle<Wry>) {
     if let Some(existing) = INITIALIZED_WITH.get() {
         assert_eq!(
             existing.as_path(),
@@ -205,15 +221,26 @@ pub fn initialize(cache_root: &Path) {
     // module is also named `cef`, which would shadow when reading
     // but Rust resolves to the extern crate anyway — the explicit
     // leading `::` makes that unambiguous to readers).
+    let mut app_handler = ContentApp::new();
     let init_ret = ::cef::initialize(
         Some(main_args),
         Some(&settings),
-        None, // no App handler for Phase 1 — defaults are fine
+        Some(&mut app_handler),
         std::ptr::null_mut(),
     );
     assert_eq!(init_ret, 1, "cef::initialize failed");
 
+    // Register the `psyops://` scheme factory. Must run AFTER
+    // initialize. Domain is None → matches any domain on the
+    // scheme (`psyops://invoke/...`, `psyops://anything-else/...`
+    // would all route through).
+    let scheme_name = CefString::from("psyops");
+    let mut factory = crate::cef_scheme::PsyopsFactory::new();
+    let ok = register_scheme_handler_factory(Some(&scheme_name), None, Some(&mut factory));
+    assert_eq!(ok, 1, "register_scheme_handler_factory(psyops) failed");
+
     let _ = INITIALIZED_WITH.set(cache_root.to_path_buf());
+    let _ = APP_HANDLE.set(app);
 }
 
 /// Tear CEF down after Tauri's event loop returns. Browsers must
@@ -259,9 +286,7 @@ unsafe fn create_browser_inner(parent: isize, bounds: Rect) {
         None,
     );
 
-    if let Ok(mut slot) = parent_handle_slot().lock() {
-        *slot = Some(parent);
-    }
+    let _ = parent;
 }
 
 /// Convert a raw platform handle (isize from raw-window-handle) into
@@ -359,12 +384,98 @@ wrap_life_span_handler! {
     }
 }
 
+wrap_load_handler! {
+    struct InjectOverlay {}
+
+    impl LoadHandler {
+        fn on_load_start(
+            &self,
+            _browser: Option<&mut Browser>,
+            frame: Option<&mut Frame>,
+            _transition_type: TransitionType,
+        ) {
+            let Some(frame) = frame else { return };
+            // Only inject into the top-level frame — iframes inside
+            // x.com (auth modals, etc.) shouldn't run our overlay.
+            if frame.is_main() != 1 {
+                return;
+            }
+            let code = CefString::from(OVERLAY_JS);
+            // script_url + start_line are for DevTools stacks only.
+            let script_url = CefString::from("psyops://overlay.js");
+            frame.execute_java_script(Some(&code), Some(&script_url), 0);
+        }
+    }
+}
+
+wrap_display_handler! {
+    struct TrackUrl {}
+
+    impl DisplayHandler {
+        fn on_address_change(
+            &self,
+            _browser: Option<&mut Browser>,
+            frame: Option<&mut Frame>,
+            url: Option<&CefString>,
+        ) {
+            // Only main-frame URL changes matter for our state.
+            let Some(f) = frame else { return };
+            if f.is_main() != 1 { return; }
+            let Some(u) = url else { return };
+            let url_string = u.to_string();
+            let Some(handle) = app_handle() else { return };
+            // recompute_and_publish runs Tauri-thread-ish work
+            // (emit_to, set_size, set_position); spawn to avoid
+            // any potential CEF UI thread ↔ Tauri main thread
+            // deadlock when both sides are busy.
+            let handle_for_task = handle.clone();
+            tauri::async_runtime::spawn(async move {
+                state::set_current_url(&handle_for_task, url_string);
+            });
+            // Kick the cookies watcher — URL change often signals
+            // a sign-in / sign-out / route flip.
+            handle.state::<WatcherKick>().0.notify_one();
+        }
+    }
+}
+
 wrap_client! {
     pub struct ContentClient {}
 
     impl Client {
         fn life_span_handler(&self) -> Option<LifeSpanHandler> {
             Some(LifeSpan::new())
+        }
+        fn load_handler(&self) -> Option<LoadHandler> {
+            Some(InjectOverlay::new())
+        }
+        fn display_handler(&self) -> Option<DisplayHandler> {
+            Some(TrackUrl::new())
+        }
+    }
+}
+
+wrap_app! {
+    struct ContentApp {}
+
+    impl App {
+        fn on_register_custom_schemes(
+            &self,
+            registrar: Option<&mut SchemeRegistrar>,
+        ) {
+            let Some(r) = registrar else { return };
+            let name = CefString::from("psyops");
+            // Standard: URL parses like a normal http(s) URL.
+            // Secure: same-origin treats as a secure origin (fetch
+            //   from x.com pages won't be blocked as mixed content).
+            // CORS_ENABLED + FETCH_ENABLED: page-script fetch() can
+            //   hit this scheme. Critical for our overlay's `invoke`
+            //   helper that uses fetch("psyops://invoke/...").
+            let options = SchemeOptions::STANDARD.get_raw()
+                | SchemeOptions::SECURE.get_raw()
+                | SchemeOptions::CORS_ENABLED.get_raw()
+                | SchemeOptions::FETCH_ENABLED.get_raw();
+            r.add_custom_scheme(Some(&name), options);
         }
     }
 }
@@ -454,6 +565,69 @@ pub fn close_browser_async() {
         return;
     }
     let mut task = CloseBrowserTask::new();
+    post_task(ThreadId::UI, Some(&mut task));
+}
+
+wrap_task! {
+    struct ExecuteJsTask {
+        code: String,
+    }
+    impl Task {
+        fn execute(&self) {
+            let browser = browser_slot()
+                .lock()
+                .ok()
+                .and_then(|s| s.as_ref().cloned());
+            let Some(b) = browser else { return };
+            let Some(frame) = b.main_frame() else { return };
+            let code = CefString::from(self.code.as_str());
+            let script_url = CefString::from("psyops://stdio.js");
+            frame.execute_java_script(Some(&code), Some(&script_url), 0);
+        }
+    }
+}
+
+/// Push a snippet of JavaScript into the main frame of the
+/// embedded CEF browser. Fire-and-forget. Used by
+/// [`crate::stdio::dispatch_request`] as the Rust → JS push channel
+/// (replaces Tauri's `handle.emit("psyops:request", ...)`). The
+/// overlay registers a global `window.__psyops.push(...)` handler
+/// to receive the messages.
+pub fn execute_overlay_js(code: impl Into<String>) {
+    if !is_initialized() {
+        return;
+    }
+    let mut task = ExecuteJsTask::new(code.into());
+    post_task(ThreadId::UI, Some(&mut task));
+}
+
+wrap_task! {
+    struct NavigateTask {
+        url: String,
+    }
+    impl Task {
+        fn execute(&self) {
+            let browser = browser_slot()
+                .lock()
+                .ok()
+                .and_then(|s| s.as_ref().cloned());
+            let Some(b) = browser else { return };
+            let Some(frame) = b.main_frame() else { return };
+            let url = CefString::from(self.url.as_str());
+            frame.load_url(Some(&url));
+        }
+    }
+}
+
+/// Navigate the embedded CEF browser to `url`. Fire-and-forget.
+/// Used by [`crate::state`] post-sign-in to bounce back to
+/// `console.x.com/` even if OAuth left us in some in-between
+/// origin.
+pub fn navigate(url: impl Into<String>) {
+    if !is_initialized() {
+        return;
+    }
+    let mut task = NavigateTask::new(url.into());
     post_task(ThreadId::UI, Some(&mut task));
 }
 

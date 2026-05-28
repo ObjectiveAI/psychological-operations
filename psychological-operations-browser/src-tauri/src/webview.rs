@@ -28,8 +28,8 @@ use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use tauri::webview::WebviewBuilder;
 use tauri::window::WindowBuilder;
 use tauri::{
-    AppHandle, LogicalPosition, LogicalSize, Manager, PhysicalSize, Runtime, WebviewUrl,
-    Window, WindowEvent,
+    AppHandle, LogicalPosition, LogicalSize, Manager, PhysicalSize, WebviewUrl, Window,
+    WindowEvent, Wry,
 };
 
 use crate::args::Args;
@@ -48,7 +48,7 @@ const DEFAULT_WIDTH: u32 = 1200;
 const DEFAULT_HEIGHT: u32 = 800;
 
 /// Returns the X-App data-directory rooted at `--config-base-dir`.
-pub fn x_app_data_dir<R: Runtime>(handle: &AppHandle<R>) -> std::path::PathBuf {
+pub fn x_app_data_dir(handle: &AppHandle<Wry>) -> std::path::PathBuf {
     let args = handle.state::<Args>();
     args.config_base_dir
         .join("plugins")
@@ -59,7 +59,7 @@ pub fn x_app_data_dir<R: Runtime>(handle: &AppHandle<R>) -> std::path::PathBuf {
 
 /// Build the X-App window with its panel webview and CEF content
 /// surface if they don't already exist. Idempotent.
-pub fn create_x_app<R: Runtime>(handle: &AppHandle<R>) -> tauri::Result<()> {
+pub fn create_x_app(handle: &AppHandle<Wry>) -> tauri::Result<()> {
     if handle.get_window(X_APP_WINDOW).is_some() {
         return Ok(());
     }
@@ -88,8 +88,11 @@ pub fn create_x_app<R: Runtime>(handle: &AppHandle<R>) -> tauri::Result<()> {
     // 3. CEF browser as native child surface below the panel.
     //    Per-mode CEF cache lives under `<data_dir>/cef/`; for the
     //    X-App that's `<config-base-dir>/.../x-app/cef/`. A future
-    //    psyop mode would pass its own data dir the same way.
-    cef_embed::initialize(&data_dir.join("cef"));
+    //    psyop mode would pass its own data dir the same way. The
+    //    AppHandle is stashed by `cef::initialize` so CEF callbacks
+    //    (URL tracking, psyops:// scheme dispatch) can reach back
+    //    into Tauri-managed state.
+    cef_embed::initialize(&data_dir.join("cef"), handle.clone());
 
     let raw_parent = raw_parent_handle(&window);
     let size = window
@@ -131,7 +134,7 @@ pub fn create_x_app<R: Runtime>(handle: &AppHandle<R>) -> tauri::Result<()> {
 /// `cef_window_handle_t` doesn't carry a Wayland surface. Linux
 /// Wayland users should launch with `GDK_BACKEND=x11` so GTK gives
 /// us an XWayland X11 window.
-fn raw_parent_handle<R: Runtime>(window: &Window<R>) -> isize {
+fn raw_parent_handle(window: &Window<Wry>) -> isize {
     let handle = window.window_handle().expect("window_handle failed");
     match handle.as_raw() {
         #[cfg(target_os = "windows")]
@@ -148,7 +151,7 @@ fn raw_parent_handle<R: Runtime>(window: &Window<R>) -> isize {
 
 /// Panel height in physical pixels (it's defined in logical pixels;
 /// scale by the window's current scale factor).
-fn panel_height_physical<R: Runtime>(window: &Window<R>) -> u32 {
+fn panel_height_physical(window: &Window<Wry>) -> u32 {
     let scale = window.scale_factor().unwrap_or(1.0);
     (PANEL_HEIGHT as f64 * scale).round() as u32
 }
@@ -167,7 +170,7 @@ fn panel_height_physical<R: Runtime>(window: &Window<R>) -> u32 {
 /// `width` / `height` are in physical pixels (window's `inner_size`).
 /// The CEF browser is repositioned via [`crate::cef::set_browser_bounds`]
 /// → platform `SetWindowPos` / equivalent.
-pub fn reflow_physical<R: Runtime>(window: &Window<R>, width: u32, height: u32) {
+pub fn reflow_physical(window: &Window<Wry>, width: u32, height: u32) {
     let visible = state::current_panel().is_some_and(|s| s.is_visible());
     let panel_h_logical = if visible { PANEL_HEIGHT } else { 0 };
 
@@ -190,7 +193,7 @@ pub fn reflow_physical<R: Runtime>(window: &Window<R>, width: u32, height: u32) 
 /// Reflow using the current `inner_size` of the X-App window.
 /// Convenience wrapper used by [`crate::state::recompute_and_publish`]
 /// which doesn't track the current size.
-pub fn reflow<R: Runtime>(handle: &AppHandle<R>) {
+pub fn reflow(handle: &AppHandle<Wry>) {
     let Some(window) = handle.get_window(X_APP_WINDOW) else {
         return;
     };

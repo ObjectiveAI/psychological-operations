@@ -19,7 +19,7 @@
 //   this thing reading the user's sensitive data?" — the answer
 //   is "it ships raw HTML, the host process handles the rest."
 
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "./ipc";
 import {
   HELPER_CSS,
   createHelperWidget,

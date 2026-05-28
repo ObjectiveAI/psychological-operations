@@ -1,5 +1,6 @@
 mod args;
 pub mod cef;
+mod cef_scheme;
 mod cookies_watcher;
 mod credentials;
 mod post_create_dialog;
@@ -98,18 +99,10 @@ pub fn run() {
         .manage(PendingAck(Mutex::new(None)))
         .manage(CookiesWatcherSlot(Mutex::new(None)))
         .manage(WatcherKick::new())
-        .invoke_handler(tauri::generate_handler![
-            stdio::frontend_ready,
-            stdio::stdio_respond,
-            stdio::current_mode,
-            stdio::current_signed_in,
-            stdio::current_panel,
-            stdio::current_user_id,
-            stdio::process_post_create_html,
-            stdio::report_url,
-            stdio::set_production_app_count,
-            stdio::store_x_app_credential,
-        ])
+        // Only the panel webview uses Tauri IPC; the CEF content
+        // overlay uses the `psyops://` scheme (see `cef_scheme`).
+        // So `current_panel` is the sole registered command.
+        .invoke_handler(tauri::generate_handler![stdio::current_panel])
         .setup(move |app| {
             // Eagerly create the X-App webview so the overlay is
             // available to receive `psyops:request` events.

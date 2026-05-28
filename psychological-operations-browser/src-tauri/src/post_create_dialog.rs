@@ -15,7 +15,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use scraper::{ElementRef, Html, Selector};
-use tauri::{AppHandle, Runtime};
+use tauri::{AppHandle, Wry};
 
 use crate::webview;
 
@@ -34,7 +34,7 @@ pub struct ExtractedCredentials {
 /// Persist the latest HTML payload to disk for inspection. Always
 /// called *before* `extract`, so a parse failure still leaves the
 /// snapshot behind for selector refinement.
-pub fn save_snapshot<R: Runtime>(app: &AppHandle<R>, html: &str) -> std::io::Result<PathBuf> {
+pub fn save_snapshot(app: &AppHandle<Wry>, html: &str) -> std::io::Result<PathBuf> {
     let dir = webview::x_app_data_dir(app).join("recordings");
     fs::create_dir_all(&dir)?;
     let path = dir.join("post_create_dialog.html");

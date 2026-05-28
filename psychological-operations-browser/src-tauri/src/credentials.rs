@@ -34,15 +34,15 @@ use std::fs;
 use std::path::PathBuf;
 
 use psychological_operations_browser_sdk::credentials::XAppCredentialField;
-use tauri::{AppHandle, Runtime};
+use tauri::{AppHandle, Wry};
 
 use crate::webview;
 
 /// Write a single credential field for a given X handle. Returns
 /// the resolved path on success. Errors propagate as `String` so
 /// they can flow straight back through the Tauri command boundary.
-pub fn store_one<R: Runtime>(
-    app: &AppHandle<R>,
+pub fn store_one(
+    app: &AppHandle<Wry>,
     handle: &str,
     field: XAppCredentialField,
     value: &str,

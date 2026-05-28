@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "./ipc";
 
 // One-time wrapping of the History methods + listeners for
 // popstate/hashchange. Done lazily on first `subscribeUrl` call so

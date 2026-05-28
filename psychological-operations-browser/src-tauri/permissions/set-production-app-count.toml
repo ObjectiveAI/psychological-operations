@@ -1,6 +1,0 @@
-"$schema" = "../gen/schemas/desktop-schema.json"
-
-[[permission]]
-identifier = "allow-set-production-app-count"
-description = "Allows the content webview's overlay (apps-page helpers) to update the production-app-count fact in Rust state — drives the ClickCreateApp panel condition."
-commands.allow = ["set_production_app_count"]

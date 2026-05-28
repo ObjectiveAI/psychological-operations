@@ -1,42 +1,37 @@
 //! Process-global session state — the central fact store + derived
 //! [`PanelState`] for the instruction panel.
 //!
-//! Watchers (and the stdio dispatcher, for mode) contribute raw
-//! observations via [`set_mode`], [`set_sso`], [`set_last_team_id`].
-//! Each setter updates the [`Facts`] slot and calls
-//! [`recompute_and_publish`], which:
+//! Watchers (cookies + URL reporting) and the stdio dispatcher (for
+//! mode) contribute raw observations via [`set_mode`],
+//! [`apply_cookie_facts`], [`set_current_url`],
+//! [`set_production_app_count`]. Each setter updates the [`Facts`]
+//! slot and calls [`recompute_and_publish`], which:
 //!
 //! 1. Runs the pure [`derive`] function over the new facts.
 //! 2. Compares the result against the previously-published
 //!    [`PanelState`]; bails if unchanged.
-//! 3. Publishes the new state four places:
+//! 3. Publishes the new state three places:
 //!    - stdout as [`Output::Panel`]
 //!    - the panel webview's Tauri-event listener (`psyops:panel`)
 //!    - the X-App window reflow (panel resizes 0 ↔ [`PANEL_HEIGHT`])
-//!    - the content webview, via a post-sign-in redirect to
+//!    - the CEF content surface: post-sign-in redirect to
 //!      `https://console.x.com/` on the
-//!      `SignInToX → !SignInToX` transition.
+//!      `SignInToX → !SignInToX` transition (via
+//!      [`crate::cef::navigate`]).
 //!
 //! Adding a new panel condition: add a [`PanelCondition`] variant in
 //! the SDK + a new fact field here + a new setter + an arm in
 //! [`derive`]. The panel React and reflow logic both consume only
 //! the derived state — they need no changes.
-//!
-//! The legacy [`Output::SignedIn`] stream stays for external/CLI
-//! consumers: [`set_sso`] emits it on every sso-cookie flip in
-//! addition to the panel recompute. [`current_signed_in`] still
-//! reports a fresh [`SignedInPayload`] derived from the current sso
-//! token.
 
 use std::sync::{Mutex, OnceLock};
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use psychological_operations_browser_sdk::mode::Mode;
+use psychological_operations_browser_sdk::mode::{self, Mode};
 use psychological_operations_browser_sdk::output::{Output, SignedInInfo};
 use psychological_operations_browser_sdk::panel::{PanelCondition, PanelState};
-use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, Runtime, Url};
+use tauri::{AppHandle, Emitter, Url, Wry};
 
 use crate::webview;
 
@@ -50,10 +45,10 @@ pub struct Facts {
     /// Active browser mode (set by stdio dispatch).
     pub mode: Option<Mode>,
     /// x.com's `auth_token` HttpOnly cookie value, if present.
-    /// `None` ⇒ signed out. Opaque session string (not a JWT) — see
-    /// [`jwt_to_info`].
+    /// `None` ⇒ signed out.
     pub auth_token: Option<String>,
-    /// Most recent URL the content webview's overlay reported.
+    /// Most recent URL the content surface reported (overlay
+    /// `report_url` invoke or CEF `DisplayHandler::on_address_change`).
     /// **Only tracked when `mode` is `Some(Mode::XApp)`** — the
     /// setter is a no-op in other modes, so this field stays
     /// empty for Psyop (etc.) and [`derive`] doesn't have to
@@ -69,20 +64,9 @@ pub struct Facts {
     pub production_app_count: Option<u32>,
     /// X user-id parsed from the `twid` cookie by the cookies
     /// watcher. Stable per signed-in account. Used by the
-    /// overlay's per-user credential-storage flow (queried via
-    /// the `current_user_id` Tauri command). `None` ⇒ no twid
-    /// cookie yet (signed out or pre-snapshot).
+    /// overlay's per-user credential-storage flow. `None` ⇒ no
+    /// twid cookie yet (signed out or pre-snapshot).
     pub user_id: Option<String>,
-}
-
-/// Payload for the legacy `current_signed_in` Tauri command +
-/// `Output::SignedIn` stdout variant. Kept as a struct (rather than
-/// fields on `Facts`) because external consumers depend on this shape.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SignedInPayload {
-    pub signed_in: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub info: Option<SignedInInfo>,
 }
 
 // ---------------------------------------------------------------------
@@ -123,24 +107,6 @@ pub fn current_user_id() -> Option<String> {
         .clone()
 }
 
-/// Snapshot of the current sign-in state derived from the auth-token
-/// cookie fact. `None` before the first panel publication (i.e. no
-/// cookie observation has landed yet).
-pub fn current_signed_in() -> Option<SignedInPayload> {
-    // "Has anything been published yet?" is independent of "what's in
-    // the facts store." Reading the panel slot first (and dropping the
-    // lock before touching facts) avoids any lock-ordering hazard.
-    let panel_observed = panel_slot().lock().expect("panel slot poisoned").is_some();
-    if !panel_observed {
-        return None;
-    }
-    let facts = facts_slot().lock().expect("facts slot poisoned");
-    Some(SignedInPayload {
-        signed_in: facts.auth_token.is_some(),
-        info: facts.auth_token.as_deref().and_then(jwt_to_info),
-    })
-}
-
 // ---------------------------------------------------------------------
 // Setters (each triggers a recompute)
 // ---------------------------------------------------------------------
@@ -150,7 +116,7 @@ pub fn current_signed_in() -> Option<SignedInPayload> {
 /// one recompute — safe to use as a standalone setter. Also
 /// clears `current_url` when leaving X-App so URL-driven
 /// conditions can't fire under a different mode using stale data.
-pub fn set_mode<R: Runtime>(handle: &AppHandle<R>, new_mode: Option<Mode>) {
+pub fn set_mode(handle: &AppHandle<Wry>, new_mode: Option<Mode>) {
     {
         let mut facts = facts_slot().lock().expect("facts slot poisoned");
         if facts.mode == new_mode {
@@ -166,10 +132,11 @@ pub fn set_mode<R: Runtime>(handle: &AppHandle<R>, new_mode: Option<Mode>) {
     recompute_and_publish(handle);
 }
 
-/// Update the most-recent-URL fact from `report_url`. Only takes
-/// effect in X-App mode; in other modes the call is a no-op so
-/// the fact stays empty and [`derive`] is free to ignore it.
-pub fn set_current_url<R: Runtime>(handle: &AppHandle<R>, url: String) {
+/// Update the most-recent-URL fact from `report_url` (or CEF's
+/// `OnAddressChange`). Only takes effect in X-App mode; in other
+/// modes the call is a no-op so the fact stays empty and
+/// [`derive`] is free to ignore it.
+pub fn set_current_url(handle: &AppHandle<Wry>, url: String) {
     {
         let mut facts = facts_slot().lock().expect("facts slot poisoned");
         if !matches!(facts.mode, Some(Mode::XApp)) {
@@ -188,8 +155,8 @@ pub fn set_current_url<R: Runtime>(handle: &AppHandle<R>, url: String) {
 /// `None` clears the fact — used when the overlay leaves /apps
 /// so a stale count can't drive `ClickCreateApp` on a different
 /// page.
-pub fn set_production_app_count<R: Runtime>(
-    handle: &AppHandle<R>,
+pub fn set_production_app_count(
+    handle: &AppHandle<Wry>,
     count: Option<u32>,
 ) {
     {
@@ -208,10 +175,10 @@ pub fn set_production_app_count<R: Runtime>(
 /// Atomically update every cookie-sourced fact from a single
 /// observation. Both `auth_token` and `user_id` land under a
 /// single lock so no intermediate `PanelState` leaks between them.
-/// Emits the legacy [`Output::SignedIn`] line on every auth-token
-/// value change before triggering the panel recompute.
-pub fn apply_cookie_facts<R: Runtime>(
-    handle: &AppHandle<R>,
+/// Emits [`Output::SignedIn`] on every auth-token value change
+/// before triggering the panel recompute.
+pub fn apply_cookie_facts(
+    handle: &AppHandle<Wry>,
     auth_token: Option<String>,
     user_id: Option<String>,
 ) {
@@ -314,7 +281,7 @@ fn is_apps_tab(url: Option<&str>) -> bool {
 
 /// Re-run [`derive`] on the current facts; if the result differs from
 /// the last-published [`PanelState`], publish it everywhere that cares.
-pub fn recompute_and_publish<R: Runtime>(handle: &AppHandle<R>) {
+pub fn recompute_and_publish(handle: &AppHandle<Wry>) {
     let new_state = {
         let facts = facts_slot().lock().expect("facts slot poisoned");
         derive(&facts)
@@ -343,31 +310,38 @@ pub fn recompute_and_publish<R: Runtime>(handle: &AppHandle<R>) {
     webview::reflow(handle);
 
     // 4. post-sign-in redirect: when we transition out of the
-    //    SignInToX condition in X-App mode, bounce the content
+    //    SignInToX condition in X-App mode, bounce the CEF content
     //    surface to https://console.x.com/ so we land on the
     //    canonical signed-in page even if OAuth left us in some
     //    in-between origin.
-    //
-    //    Phase 1 stub: the redirect used to navigate the
-    //    Tauri-managed WebView2 content webview, which no longer
-    //    exists (content is CEF). Once Phase 4 wires up a CEF
-    //    navigation entry point (e.g. `crate::cef::navigate(url)`
-    //    calling `Browser::main_frame()->load_url(...)`), this
-    //    block re-enables.
-    let _ = prev_state;
-    let _ = new_state;
+    let was_signin = matches!(
+        prev_state,
+        Some(PanelState::Show {
+            condition: PanelCondition::SignInToX,
+            ..
+        })
+    );
+    let is_signin = matches!(
+        new_state,
+        PanelState::Show {
+            condition: PanelCondition::SignInToX,
+            ..
+        }
+    );
+    if was_signin && !is_signin && matches!(mode::get(), Some(Mode::XApp)) {
+        crate::cef::navigate("https://console.x.com/");
+    }
 }
 
 // ---------------------------------------------------------------------
-// JWT helpers (legacy SignedInInfo extraction)
+// JWT decoder for the `Output::SignedIn.info` field
 // ---------------------------------------------------------------------
 
 /// Decode the auth token's payload into [`SignedInInfo`] if it's a
-/// JWT. x.com's `auth_token` is an opaque session string, not a
-/// JWT, so this will return `None` for it — and the legacy
-/// `Output::SignedIn`/`SignedInPayload::info` field will stay
-/// `None`. Kept as best-effort scaffolding for future modes whose
-/// auth token actually carries identity claims.
+/// JWT. x.com's `auth_token` is an opaque session string (not a
+/// JWT) so this returns `None` and `Output::SignedIn.info` stays
+/// `None` in X-App mode. Kept as best-effort scaffolding for future
+/// modes whose auth token carries identity claims.
 fn jwt_to_info(token: &str) -> Option<SignedInInfo> {
     let payload_b64 = token.split('.').nth(1)?;
     let payload_bytes = URL_SAFE_NO_PAD.decode(payload_b64.as_bytes()).ok()?;

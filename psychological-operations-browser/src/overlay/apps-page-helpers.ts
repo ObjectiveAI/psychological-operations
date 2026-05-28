@@ -23,7 +23,7 @@
 // clipboard write (not used here). Forbidden APIs (`.value=`,
 // `.click()`, `.dispatchEvent`, fetch to x.com) are unused.
 
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "./ipc";
 import {
   HELPER_CSS,
   createHelperWidget,

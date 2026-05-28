@@ -5,33 +5,44 @@
 //! 1. At startup, [`crate::run`] creates a oneshot `mpsc` channel
 //!    and stores the sender in Tauri state as [`ReadyTx`]. It hands
 //!    the receiver to [`start`].
-//! 2. The frontend overlay, once mounted and after its
-//!    `listen("psyops:request", ...)` promise resolves, invokes
-//!    [`frontend_ready`] which sends `()` on the channel.
+//! 2. The frontend overlay, once mounted, registers
+//!    `window.__psyops.push` and then invokes [`frontend_ready`]
+//!    (via the `psyops://invoke/frontend_ready` scheme endpoint),
+//!    which sends `()` on the channel.
 //! 3. [`start`]'s thread blocks on `ready_rx.recv()` before opening
 //!    stdin. The OS pipe already buffers anything the host wrote
 //!    during startup, so no in-process buffering is needed.
 //! 4. For each parsed [`Request`], [`dispatch_request`]:
 //!    a. For mode-setting variants (currently only [`Request::XApp`]),
-//!       updates the SDK's process-global mode slot via
-//!       [`psychological_operations_browser_sdk::mode::set`] so that
-//!       the subsequent ack already carries `"mode":{"type":"x_app"}`,
-//!       then starts a new sign-in watcher scoped to that mode
-//!       (replacing any previous one).
+//!       updates the SDK's process-global mode slot so subsequent
+//!       output lines carry `"mode":{"type":"x_app"}`, then
+//!       (re)starts the cookies watcher.
 //!    b. Creates a [`std::sync::mpsc::sync_channel`] for the ack,
 //!       stashes the sender in [`PendingAck`].
-//!    c. Emits the request to the window as a `psyops:request`
-//!       Tauri event.
-//!    d. Blocks on the receiver until the overlay calls
-//!       [`stdio_respond`].
+//!    c. Pushes the request to the overlay by calling
+//!       `cef::execute_overlay_js("window.__psyops.push(<json>)")`.
+//!       The overlay handles it and calls
+//!       `psyops://invoke/stdio_respond` with the result.
+//!    d. Blocks on the receiver until the overlay's stdio_respond
+//!       lands.
 //!    e. Emits the resulting [`Output::Response`] on stdout.
-//! 5. URL output is entirely frontend-driven via [`report_url`];
-//!    there is no Rust-side `on_navigation` hook.
-//! 6. Sign-in output is fully Rust-side via [`crate::signin_watcher`],
-//!    driven by filesystem events on the WebView2 cookie store.
+//! 5. URL output is overlay-driven via [`report_url`] AND CEF's
+//!    `DisplayHandler::on_address_change` (Phase 4). Both fan
+//!    in to [`state::set_current_url`] and the cookies kick.
+//! 6. Sign-in detection is Rust-side via [`crate::cookies_watcher`],
+//!    reading CEF's `CookieManager` on every kick.
 //!
 //! Every byte the browser writes goes through [`Output::emit`] —
 //! no `println!`, no `eprintln!`, no direct stderr from our code.
+//!
+//! ## Two transports, one set of commands
+//!
+//! Each command body is factored into a plain `*_inner` Rust
+//! function that BOTH the Tauri `#[command]` wrappers AND the
+//! `psyops://invoke/<cmd>` scheme dispatcher
+//! ([`crate::cef_scheme`]) call. The panel webview (Tauri/WebView2)
+//! reaches the inner fns through the Tauri wrappers; the CEF
+//! content overlay reaches them through the scheme dispatcher.
 
 use std::io::BufRead;
 use std::sync::Mutex;
@@ -43,18 +54,15 @@ use psychological_operations_browser_sdk::output::Output;
 use psychological_operations_browser_sdk::panel::PanelState;
 use psychological_operations_browser_sdk::request::Request;
 use psychological_operations_browser_sdk::response::ResponseOutcome;
-use tauri::{AppHandle, Emitter, Manager, Runtime};
+use tauri::{AppHandle, Manager, Wry};
 
 use crate::WatcherKick;
+use crate::cef;
 use crate::cookies_watcher;
 use crate::credentials;
 use crate::post_create_dialog;
-use crate::state::{self, SignedInPayload};
+use crate::state;
 use crate::webview;
-
-/// Tauri event channel the browser emits stdio requests on.
-/// Follows the `psyops:<topic>` naming convention.
-const EVENT_REQUEST: &str = "psyops:request";
 
 /// Tauri state — the sender half of the one-shot ready signal.
 /// Taken out and consumed by the first [`frontend_ready`] call.
@@ -66,12 +74,12 @@ pub struct PendingAck(pub Mutex<Option<mpsc::SyncSender<ResponseOutcome>>>);
 
 /// Tauri state — the active cookies watcher's handle, if any.
 /// Dropping the previous handle when assigning a new one tears down
-/// its filesystem watcher + reader task.
+/// its reader task.
 pub struct CookiesWatcherSlot(pub Mutex<Option<cookies_watcher::Handle>>);
 
 /// Spawn the stdin reader thread. It waits on `ready_rx` for the
 /// frontend's `frontend_ready` signal before opening stdin.
-pub fn start<R: Runtime>(handle: AppHandle<R>, ready_rx: mpsc::Receiver<()>) {
+pub fn start(handle: AppHandle<Wry>, ready_rx: mpsc::Receiver<()>) {
     std::thread::spawn(move || {
         if ready_rx.recv().is_err() {
             // ReadyTx dropped without firing — app is tearing down.
@@ -99,14 +107,10 @@ pub fn start<R: Runtime>(handle: AppHandle<R>, ready_rx: mpsc::Receiver<()>) {
     });
 }
 
-fn dispatch_request<R: Runtime>(handle: &AppHandle<R>, req: Request) {
-    // 1. For mode-setting requests: update the SDK mode static
-    //    FIRST so the ack we're about to emit (and every output
-    //    line from now on) carries the new mode. Also mirror the
-    //    mode into the panel-state Facts store so the derivation
-    //    sees the flip without waiting for the next cookie tick.
-    //    Then (re)start the cookies watcher scoped to that mode —
-    //    dropping the old handle tears down its filesystem watcher.
+fn dispatch_request(handle: &AppHandle<Wry>, req: Request) {
+    // 1. Mode-setting requests update the SDK mode static FIRST
+    //    so subsequent output lines carry the new mode, then
+    //    (re)start the cookies watcher.
     if let Request::XApp = req {
         mode::set(Some(Mode::XApp));
         state::set_mode(handle, Some(Mode::XApp));
@@ -117,52 +121,59 @@ fn dispatch_request<R: Runtime>(handle: &AppHandle<R>, req: Request) {
             cookies_watcher::start(handle.clone(), &Mode::XApp, &data_dir);
     }
 
-    // 2. Register a pending-ack slot before emitting so the window's
-    //    stdio_respond call always finds a sender to fulfill.
+    // 2. Register a pending-ack slot before pushing so the overlay's
+    //    stdio_respond invoke always finds a sender to fulfill.
     let pending: tauri::State<PendingAck> = handle.state();
     let (tx, rx) = mpsc::sync_channel::<ResponseOutcome>(1);
     *pending.0.lock().expect("pending lock poisoned") = Some(tx);
 
-    // 3. Emit to the window. If emit itself fails, we cancel the
-    //    pending slot ourselves so it doesn't leak to the next req.
-    if let Err(e) = handle.emit(EVENT_REQUEST, &req) {
-        pending.0.lock().expect("pending lock poisoned").take();
-        let _ = Output::Response {
-            result: ResponseOutcome::Err {
-                error: format!("emit failed: {e}"),
-            },
+    // 3. Push the request to the overlay via Frame::execute_javascript.
+    //    The overlay registered `window.__psyops.push(req)` at mount.
+    match serde_json::to_string(&req) {
+        Ok(json) => cef::execute_overlay_js(format!(
+            "window.__psyops && window.__psyops.push({json})"
+        )),
+        Err(e) => {
+            pending.0.lock().expect("pending lock poisoned").take();
+            let _ = Output::Response {
+                result: ResponseOutcome::Err {
+                    error: format!("serialize request failed: {e}"),
+                },
+            }
+            .emit();
+            return;
         }
-        .emit();
-        return;
     }
 
-    // 4. Block on the ack from the window.
+    // 4. Block on the ack from the overlay.
     let outcome = rx.recv().unwrap_or_else(|e| ResponseOutcome::Err {
         error: format!("ack channel closed: {e}"),
     });
     let _ = Output::Response { result: outcome }.emit();
 }
 
-/// Invoked once by the overlay after its `psyops:request` listener
-/// is registered. Subsequent calls (e.g. after a navigation
-/// re-mounts the overlay) are no-ops.
-#[tauri::command]
-pub fn frontend_ready(ready: tauri::State<'_, ReadyTx>) -> Result<(), String> {
+// ---------------------------------------------------------------------
+// Inner command functions (transport-agnostic) + Tauri wrappers
+// ---------------------------------------------------------------------
+//
+// Each "_inner" fn is the actual command body. Two transports reach
+// it: Tauri's `#[command]` macro (used by the panel webview) and
+// the `psyops://invoke/<cmd>` scheme dispatcher in
+// [`crate::cef_scheme`] (used by the CEF content overlay).
+
+pub fn frontend_ready_inner(app: &AppHandle<Wry>) -> Result<(), String> {
+    let ready: tauri::State<ReadyTx> = app.state();
     if let Some(tx) = ready.0.lock().map_err(|e| e.to_string())?.take() {
         let _ = tx.send(()); // receiver may already be gone
     }
     Ok(())
 }
 
-/// Invoked by the overlay to fulfill an in-flight request's ack.
-/// Returns Err if there is no pending request — that's a benign
-/// race after a post-navigation re-mount where the previous overlay
-/// already acked; the caller can ignore.
-#[tauri::command]
-pub fn stdio_respond(
+pub fn stdio_respond_inner(
+    app: &AppHandle<Wry>,
     result: ResponseOutcome,
-    pending: tauri::State<'_, PendingAck>,
 ) -> Result<(), String> {
+    let pending: tauri::State<PendingAck> = app.state();
     let tx = pending
         .0
         .lock()
@@ -173,117 +184,52 @@ pub fn stdio_respond(
         .map_err(|_| "ack receiver dropped".to_string())
 }
 
-/// Invoked by the overlay on every mount. Reads from the SDK's
-/// process-global mode slot (the single source of truth) so the
-/// overlay can resume URL reporting after a navigation has
-/// re-mounted it onto a new origin.
-#[tauri::command]
-pub fn current_mode() -> Result<Option<Mode>, String> {
-    Ok(mode::get())
+pub fn current_mode_inner() -> Option<Mode> {
+    mode::get()
 }
 
-/// Legacy: returns the most recent sign-in observation derived from
-/// the sso cookie. Kept for external/CLI consumers that depended on
-/// the sign-in signal; the panel webview itself now uses
-/// [`current_panel`] / `psyops:panel` instead.
-#[tauri::command]
-pub fn current_signed_in() -> Result<Option<SignedInPayload>, String> {
-    Ok(state::current_signed_in())
+pub fn current_user_id_inner() -> Option<String> {
+    state::current_user_id()
 }
 
-/// Returns the current X user-id (parsed from the `twid` cookie
-/// by the cookies watcher). Used by the content overlay to pick
-/// the per-user folder when storing X-App credentials. `None` if
-/// cookies haven't been observed yet or the user is signed out.
-#[tauri::command]
-pub fn current_user_id() -> Result<Option<String>, String> {
-    Ok(state::current_user_id())
+pub fn current_panel_inner() -> Option<PanelState> {
+    state::current_panel()
 }
 
-/// Returns the current derived [`PanelState`] — what the instruction
-/// panel should be rendering right now. Invoked by the panel React
-/// on mount to seed initial state; the panel also subscribes to the
-/// `psyops:panel` Tauri event for live updates.
-#[tauri::command]
-pub fn current_panel() -> Result<Option<PanelState>, String> {
-    Ok(state::current_panel())
-}
-
-/// Invoked by the overlay for the initial URL after install and on
-/// every SPA route change (`pushState` / `replaceState` /
-/// `popstate` / `hashchange`). Three effects:
-///
-///   1. Emits [`Output::Url`] for the JSONL stdout stream.
-///   2. Kicks the cookies watcher — SPA navs often coincide with
-///      cookie changes (e.g. an action sets a session cookie then
-///      `router.push`es to a new route), and `on_page_load(Finished)`
-///      only fires for full-document loads.
-///   3. Updates the [`state::Facts::current_url`] fact, which
-///      drives URL-keyed panel conditions (today: `NeedsXAppSetup`
-///      when on `console.x.com/onboarding`).
-#[tauri::command]
-pub fn report_url(
-    url: String,
-    kick: tauri::State<'_, WatcherKick>,
-    app: tauri::AppHandle,
-) -> Result<(), String> {
+pub fn report_url_inner(app: &AppHandle<Wry>, url: String) -> Result<(), String> {
     Output::Url { url: url.clone() }
         .emit()
         .map_err(|e| e.to_string())?;
-    kick.0.notify_one();
-    // Spawn so this sync command returns immediately. `set_current_url`
-    // → `recompute_and_publish` issues main-thread dispatches (emit_to,
-    // set_size, set_position); doing those synchronously from inside
-    // a Tauri command handler can deadlock the main UI thread, since
-    // the same thread is what's waiting for the command to return so
-    // it can respond to the JS `invoke`.
+    app.state::<WatcherKick>().0.notify_one();
+    // Spawn so this returns immediately — `set_current_url` →
+    // `recompute_and_publish` issues main-thread dispatches
+    // (emit_to, set_size, set_position) that would deadlock when
+    // called synchronously from inside a Tauri command handler.
+    let app_for_task = app.clone();
     tauri::async_runtime::spawn(async move {
-        state::set_current_url(&app, url);
+        state::set_current_url(&app_for_task, url);
     });
     Ok(())
 }
 
-/// Invoked by the content webview's overlay (apps-page helpers)
-/// to update the production-app-count fact in the Rust state
-/// store. Drives the `ClickCreateApp` panel condition when 0,
-/// hides it once the user has at least one production app, and
-/// reverts to "waiting" when called with `None` (e.g. the overlay
-/// just left /apps).
-///
-/// Spawn-and-return so this sync command doesn't block on
-/// main-thread dispatches — same pattern as `report_url`.
-#[tauri::command]
-pub fn set_production_app_count(
+pub fn set_production_app_count_inner(
+    app: &AppHandle<Wry>,
     count: Option<u32>,
-    app: tauri::AppHandle,
 ) -> Result<(), String> {
+    let app_for_task = app.clone();
     tauri::async_runtime::spawn(async move {
-        state::set_production_app_count(&app, count);
+        state::set_production_app_count(&app_for_task, count);
     });
     Ok(())
 }
 
-/// Invoked by the content webview's overlay (post-create dialog
-/// helpers) with the full document HTML when the post-create
-/// dialog is open. Rust does all the parsing: snapshots the HTML
-/// to disk for inspection, then extracts the three credentials
-/// and stores each via [`credentials::store_one`].
-///
-/// Returns the count of fields successfully stored (0-3). The
-/// overlay keeps calling this every ~2s while the dialog is
-/// open until it gets 3.
-///
-/// Errors only on infrastructure failures (no user_id available,
-/// snapshot write failure). Missing fields → partial count, not
-/// an error.
-#[tauri::command]
-pub fn process_post_create_html(
+pub fn process_post_create_html_inner(
+    app: &AppHandle<Wry>,
     html: String,
-    app: tauri::AppHandle,
 ) -> Result<u8, String> {
-    // Always snapshot — even if parse misses, we want the HTML
-    // on disk so we can refine selectors offline.
-    if let Err(e) = post_create_dialog::save_snapshot(&app, &html) {
+    // Always snapshot — even if parse misses, we want the HTML on
+    // disk so we can refine selectors offline.
+    if let Err(e) = post_create_dialog::save_snapshot(app, &html) {
         let _ = Output::Log {
             message: format!("post_create_dialog: snapshot write failed: {e}"),
         }
@@ -302,7 +248,7 @@ pub fn process_post_create_html(
         (XAppCredentialField::BearerToken, &extracted.bearer_token),
     ] {
         let Some(v) = value else { continue };
-        match credentials::store_one(&app, &user_id, field, v) {
+        match credentials::store_one(app, &user_id, field, v) {
             Ok(path) => {
                 stored += 1;
                 let _ = Output::Log {
@@ -321,26 +267,30 @@ pub fn process_post_create_html(
     Ok(stored)
 }
 
-/// Invoked by the content webview's overlay to ship a single
-/// X-App credential field to Rust for per-handle on-disk storage.
-/// Five-field setup is sent one call at a time, in whatever order
-/// the user copies each value out of the X developer console.
-/// Storage layout + behavior documented in [`crate::credentials`].
-///
-/// Emits a single `Output::Log` line with the resolved on-disk
-/// path on success (no credential value in the log) so the host
-/// process / test runner can confirm what landed.
-#[tauri::command]
-pub fn store_x_app_credential(
+pub fn store_x_app_credential_inner(
+    app: &AppHandle<Wry>,
     handle: String,
     field: XAppCredentialField,
     value: String,
-    app: tauri::AppHandle,
 ) -> Result<(), String> {
-    let path = credentials::store_one(&app, &handle, field, &value)?;
+    let path = credentials::store_one(app, &handle, field, &value)?;
     let _ = Output::Log {
         message: format!("credentials: wrote {}", path.display()),
     }
     .emit();
     Ok(())
+}
+
+// ---------------------------------------------------------------------
+// Tauri #[command] wrapper — only `current_panel` survives.
+// All other commands are reachable solely from the CEF content
+// overlay via the `psyops://` scheme, which calls the `*_inner` fns
+// directly. The panel webview (local tauri://) keeps using Tauri's
+// IPC for `current_panel` because it lives inside Tauri's webview
+// runtime and can.
+// ---------------------------------------------------------------------
+
+#[tauri::command]
+pub fn current_panel() -> Result<Option<PanelState>, String> {
+    Ok(current_panel_inner())
 }
