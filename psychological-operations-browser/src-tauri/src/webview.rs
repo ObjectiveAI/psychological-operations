@@ -102,14 +102,19 @@ pub fn create_x_app<R: Runtime>(handle: &AppHandle<R>) -> tauri::Result<()> {
     let h = (size.height as i32 - panel_h_phys as i32).max(1);
     cef_embed::create_browser(raw_parent, x, y, w, h);
 
-    // 4. On window resize, reflow the panel; the CEF child tracks
-    //    its parent until Phase 5 plumbs explicit resize through
-    //    `cef::set_browser_bounds`.
-    let window_for_resize = window.clone();
-    window.on_window_event(move |event| {
-        if let WindowEvent::Resized(size) = event {
-            reflow_physical(&window_for_resize, size.width, size.height);
+    // 4. On window resize, reflow the panel + reposition the CEF
+    //    child surface. On close, ask CEF to close the browser BEFORE
+    //    Tauri tears the parent surface down — gives CEF time to run
+    //    `LifeSpanHandler::on_before_close` and reap subprocesses.
+    let window_for_event = window.clone();
+    window.on_window_event(move |event| match event {
+        WindowEvent::Resized(size) => {
+            reflow_physical(&window_for_event, size.width, size.height);
         }
+        WindowEvent::CloseRequested { .. } => {
+            cef_embed::close_browser_async();
+        }
+        _ => {}
     });
 
     Ok(())
@@ -148,27 +153,38 @@ fn panel_height_physical<R: Runtime>(window: &Window<R>) -> u32 {
     (PANEL_HEIGHT as f64 * scale).round() as u32
 }
 
-/// Resize the panel webview based on the derived [`PanelState`].
-/// Called from the window-resize callback AND from
+/// Resize the panel webview AND reposition the CEF content surface
+/// based on the derived [`PanelState`]. Called from the
+/// window-resize callback AND from
 /// [`crate::state::recompute_and_publish`] on every state flip.
 ///
-/// Panel is visible (height [`PANEL_HEIGHT`]) when the derivation
-/// has something to show, hidden (height 0) otherwise. Before any
-/// derivation has run (e.g. process startup, no mode set), the
-/// panel is hidden — `state::current_panel()` returns `None`.
+/// Panel is visible (logical height [`PANEL_HEIGHT`]) when the
+/// derivation has something to show, hidden (height 0) otherwise.
+/// Before any derivation has run (e.g. process startup, no mode
+/// set), the panel is hidden — `state::current_panel()` returns
+/// `None`.
 ///
 /// `width` / `height` are in physical pixels (window's `inner_size`).
-/// The CEF browser's reflow lives in [`crate::cef::set_browser_bounds`]
-/// once Phase 5 captures the child handle; until then CEF tracks the
-/// parent's WM_SIZE / equivalent automatically.
+/// The CEF browser is repositioned via [`crate::cef::set_browser_bounds`]
+/// → platform `SetWindowPos` / equivalent.
 pub fn reflow_physical<R: Runtime>(window: &Window<R>, width: u32, height: u32) {
     let visible = state::current_panel().is_some_and(|s| s.is_visible());
-    let panel_h = if visible { PANEL_HEIGHT } else { 0 };
+    let panel_h_logical = if visible { PANEL_HEIGHT } else { 0 };
+
+    // Scale the panel-height to physical for the CEF reposition.
+    let scale = window.scale_factor().unwrap_or(1.0);
+    let panel_h_phys = (panel_h_logical as f64 * scale).round() as u32;
 
     if let Some(panel) = window.get_webview(PANEL_LABEL) {
-        let _ = panel.set_size(PhysicalSize::new(width, panel_h));
+        // Tauri's set_size on a child webview takes physical pixels.
+        let _ = panel.set_size(PhysicalSize::new(width, panel_h_phys));
     }
-    let _ = height; // CEF reflow comes in Phase 5
+    cef_embed::set_browser_bounds(
+        0,
+        panel_h_phys as i32,
+        width as i32,
+        (height as i32 - panel_h_phys as i32).max(1),
+    );
 }
 
 /// Reflow using the current `inner_size` of the X-App window.

@@ -247,9 +247,12 @@ unsafe fn create_browser_inner(parent: isize, bounds: Rect) {
     let url = CefString::from(INITIAL_URL);
     let settings = BrowserSettings::default();
 
+    // Client carries the LifeSpanHandler (Phase 3); Phase 4 will
+    // extend it with LoadHandler + DisplayHandler.
+    let mut client = ContentClient::new();
     let _ = browser_host_create_browser(
         Some(&window_info),
-        None, // Phase 1: no Client handlers yet (overlay/IPC come in Phase 3+)
+        Some(&mut client),
         Some(&url),
         Some(&settings),
         None,
@@ -289,20 +292,169 @@ fn handle_from_raw(raw: isize) -> cef_window_handle_t {
     raw as cef_window_handle_t
 }
 
+// ---------------------------------------------------------------------
+// CEF Client + LifeSpanHandler (Phase 3)
+// ---------------------------------------------------------------------
+//
+// `ContentClient` is the single `Client` we pass to every
+// `browser_host_create_browser` call. It composes the per-aspect CEF
+// handlers (LifeSpan today, Load + Display + Scheme registration in
+// Phase 4).
+//
+// LifeSpan keeps two pieces of state alive at module scope:
+//   - `BROWSER`: the `Browser` handle (refcounted; cheaply Clone'd
+//     on capture). Phase 4's `cef::navigate` and Phase 3's
+//     `close_browser_async` use this to drive the embedded browser
+//     from outside the LifeSpan callback.
+//   - `BROWSER_CHILD_HWND`: the platform window handle of the
+//     embedded CEF surface. Used by `set_browser_bounds` to
+//     `SetWindowPos` the CEF area on every reflow.
+//
+// Both are cleared in `on_before_close` so post-close code paths
+// don't try to act on a dead browser.
+
+static BROWSER: OnceLock<Mutex<Option<Browser>>> = OnceLock::new();
+static BROWSER_CHILD_HWND: OnceLock<Mutex<Option<isize>>> = OnceLock::new();
+
+fn browser_slot() -> &'static Mutex<Option<Browser>> {
+    BROWSER.get_or_init(|| Mutex::new(None))
+}
+
+fn browser_child_hwnd_slot() -> &'static Mutex<Option<isize>> {
+    BROWSER_CHILD_HWND.get_or_init(|| Mutex::new(None))
+}
+
+wrap_life_span_handler! {
+    struct LifeSpan {}
+
+    impl LifeSpanHandler {
+        fn on_after_created(&self, browser: Option<&mut Browser>) {
+            let Some(b) = browser else { return };
+            // Capture child HWND/NSView/X11Window for reflow.
+            if let Some(host) = b.host() {
+                let raw = raw_from_handle(host.window_handle());
+                if let Ok(mut slot) = browser_child_hwnd_slot().lock() {
+                    *slot = Some(raw);
+                }
+            }
+            // Capture the Browser itself for close + Phase 4 navigate.
+            // Clone bumps the CEF refcount so the handle outlives the
+            // borrow we got here.
+            let cloned = b.clone();
+            if let Ok(mut slot) = browser_slot().lock() {
+                *slot = Some(cloned);
+            }
+        }
+
+        fn do_close(&self, _browser: Option<&mut Browser>) -> i32 {
+            // 0 = allow the close to proceed normally. We have no
+            // pre-close UI work to interleave.
+            0
+        }
+
+        fn on_before_close(&self, _browser: Option<&mut Browser>) {
+            if let Ok(mut slot) = browser_slot().lock() { *slot = None; }
+            if let Ok(mut slot) = browser_child_hwnd_slot().lock() { *slot = None; }
+        }
+    }
+}
+
+wrap_client! {
+    pub struct ContentClient {}
+
+    impl Client {
+        fn life_span_handler(&self) -> Option<LifeSpanHandler> {
+            Some(LifeSpan::new())
+        }
+    }
+}
+
+/// Inverse of [`handle_from_raw`]: extract the platform-native raw
+/// integer/pointer from a `cef_window_handle_t`.
+#[cfg(target_os = "windows")]
+fn raw_from_handle(h: cef_window_handle_t) -> isize {
+    h.0 as isize
+}
+
+#[cfg(target_os = "macos")]
+fn raw_from_handle(h: cef_window_handle_t) -> isize {
+    h as isize
+}
+
+#[cfg(target_os = "linux")]
+fn raw_from_handle(h: cef_window_handle_t) -> isize {
+    h as isize
+}
+
 /// Resize the embedded CEF browser child window to fill the given
 /// region inside its parent. No-op if no browser exists yet.
 ///
 /// Coordinates are physical pixels relative to the parent.
 ///
-/// Phase 1 placeholder: actual repositioning requires a
-/// LifeSpanHandler-captured browser handle so we can call the
-/// platform `SetWindowPos`/`setFrame`/`XMoveResizeWindow` directly.
-/// Until then CEF tracks the parent's resize events.
-#[allow(dead_code, unused_variables)]
+/// Windows: `SetWindowPos` directly on the captured child HWND.
+/// macOS / Linux: TODO — `setFrame` / `XMoveResizeWindow` need
+/// platform-specific dependencies we haven't pulled in yet
+/// (objc2-foundation NSRect, x11-dl for the display). Until that
+/// lands, CEF on those platforms keeps its initial bounds.
 pub fn set_browser_bounds(x: i32, y: i32, width: i32, height: i32) {
-    // TODO(phase 3): once we capture the browser's child handle in
-    // on_after_created, reposition it directly via
-    // SetWindowPos / setFrame / XMoveResizeWindow.
+    let Some(child) = browser_child_hwnd_slot()
+        .lock()
+        .ok()
+        .and_then(|s| *s)
+    else {
+        return;
+    };
+
+    #[cfg(target_os = "windows")]
+    unsafe {
+        use windows_sys::Win32::Foundation::HWND;
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            SWP_NOACTIVATE, SWP_NOZORDER, SetWindowPos,
+        };
+        let hwnd: HWND = child as HWND;
+        SetWindowPos(
+            hwnd,
+            std::ptr::null_mut(),
+            x,
+            y,
+            width,
+            height,
+            SWP_NOZORDER | SWP_NOACTIVATE,
+        );
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (child, x, y, width, height);
+    }
+}
+
+wrap_task! {
+    struct CloseBrowserTask {}
+
+    impl Task {
+        fn execute(&self) {
+            let browser = browser_slot()
+                .lock()
+                .ok()
+                .and_then(|s| s.as_ref().cloned());
+            let Some(b) = browser else { return };
+            let Some(host) = b.host() else { return };
+            host.close_browser(0); // 0 = graceful (fires onbeforeunload)
+        }
+    }
+}
+
+/// Ask CEF to close the embedded browser. Fire-and-forget — CEF
+/// posts the close to its UI thread and runs `LifeSpanHandler::do_close`
+/// → `on_before_close` asynchronously. Called from the Tauri window's
+/// `CloseRequested` handler so the close starts BEFORE the parent
+/// surface is destroyed.
+pub fn close_browser_async() {
+    if !is_initialized() {
+        return;
+    }
+    let mut task = CloseBrowserTask::new();
+    post_task(ThreadId::UI, Some(&mut task));
 }
 
 // ---------------------------------------------------------------------
