@@ -1,4 +1,5 @@
 mod args;
+pub mod cef;
 mod cookies_watcher;
 mod credentials;
 mod post_create_dialog;
@@ -17,12 +18,18 @@ use tokio::sync::Notify;
 
 use crate::stdio::{CookiesWatcherSlot, PendingAck, ReadyTx};
 
-/// Tauri-managed state — process-global notify signal that the
-/// content webview's `on_page_load` callback fires to kick the
-/// [`cookies_watcher`] into re-checking cookies right after every
-/// navigation. Fires before WebView2's lazy cookie-store disk flush,
-/// so sign-in / sign-out / team-creation detection lands in sub-
-/// second time on any page nav.
+/// Tauri-managed state — process-global notify signal that
+/// overlay-reported navigations fire to kick the [`cookies_watcher`]
+/// into re-checking cookies right after every URL change. SPA navs
+/// often coincide with cookie changes (a session-cookie-setting
+/// action immediately followed by a `router.push`), so the kick
+/// gets the watcher off its filesystem-debounce sooner than the
+/// next `notify` event would.
+///
+/// Today the kick fires from [`crate::stdio::report_url`] (overlay
+/// → Rust on every SPA nav). Phase 4 of the CEF integration will
+/// add a `CefDisplayHandler::OnAddressChange` hook that fires it
+/// too, covering full-document loads.
 pub struct WatcherKick(pub Arc<Notify>);
 
 impl WatcherKick {
@@ -64,6 +71,18 @@ pub fn run() {
             std::process::exit(e.exit_code());
         }
     };
+
+    // NOTE: CEF (Chromium Embedded Framework) initialization is
+    // deferred to the per-mode webview creation path
+    // (`crate::webview::create_x_app`) so the `cache_root` carries
+    // the correct per-mode subdirectory — for X-App `.../x-app/cef/`,
+    // for a future psyop `.../psyop/<name>/cef/`. CEF's
+    // `multi_threaded_message_loop` spawns a separate UI thread, so
+    // calling `initialize` from inside Tauri's `setup` (rather than
+    // pre-builder) is fine: the main thread stays free for Tauri's
+    // event loop. We still teardown via `cef::shutdown` after
+    // `.run()` returns iff init actually ran (defensive — startup
+    // can fail before the webview is built).
 
     // Build the frontend-ready signal BEFORE the Tauri builder so we
     // can hand the receiver to the stdin reader (started inside
@@ -110,4 +129,13 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+
+    // CEF teardown after Tauri's event loop returns. Only fire if
+    // CEF was actually initialized (the per-mode webview path may
+    // never have run e.g. if startup failed early). Browsers should
+    // already be closed (the window-close handler in `webview` asks
+    // CEF to close its browser before the parent surface goes away).
+    if cef::is_initialized() {
+        cef::shutdown();
+    }
 }

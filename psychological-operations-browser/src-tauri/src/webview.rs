@@ -1,35 +1,39 @@
-//! Tauri window + child-webview construction.
+//! Tauri window + child surface construction.
 //!
-//! One `Window` (label `x-app`) with two child `Webview`s stacked:
+//! One Tauri `Window` (label `x-app`) with:
 //!
-//!   - `PANEL_LABEL` ("panel") at the top, sized to [`PANEL_HEIGHT`]
-//!     when the derived [`crate::state::PanelState`] is `Show`, 0
-//!     when `Hidden` (or before any derivation has run). Loads our
-//!     local Vite-built `panel.html` (tauri:// asset protocol) so
-//!     Tauri IPC works unconditionally — no remote-URL ACL needed.
+//!   - A Tauri child `Webview` ([`PANEL_LABEL`]) at the top, sized
+//!     to [`PANEL_HEIGHT`] when the derived
+//!     [`crate::state::PanelState`] is `Show`, 0 when `Hidden` (or
+//!     before any derivation has run). Loads our local Vite-built
+//!     `panel.html` (tauri:// asset protocol) so Tauri IPC works
+//!     unconditionally — no remote-URL ACL needed.
 //!
-//!   - `CONTENT_LABEL` ("content") below the panel, taking the
-//!     remaining height. Loads `https://console.x.com/` directly with
-//!     the React/non-React overlay bundle injected via
-//!     `WebviewBuilder::initialization_script` (which maps to
-//!     WebView2's `AddScriptToExecuteOnDocumentCreated` on Windows).
-//!     The overlay handles stdio request dispatch, SPA URL
-//!     reporting, console capture; the instruction panel is NOT in
-//!     this bundle (it lives in the panel webview).
+//!   - A CEF (Chromium Embedded Framework) browser embedded as a
+//!     native child surface (HWND on Windows, NSView on macOS, X11
+//!     Window on Linux) below the panel, loading
+//!     `https://console.x.com/`. CEF replaces the prior
+//!     Tauri-managed WebView2 content webview — X gates login on
+//!     WebView2-specific headers, so the content surface has to be
+//!     real Chromium.
 //!
 //! Layout reflow happens (a) on window resize and (b) on every
 //! derived-state flip via [`reflow`], called from
-//! [`crate::state::recompute_and_publish`].
+//! [`crate::state::recompute_and_publish`]. Only the panel's size
+//! is updated here today; the CEF browser tracks its parent
+//! HWND/NSView/Window sizing automatically until Phase 5 wires
+//! [`crate::cef::set_browser_bounds`].
 
-use tauri::webview::{PageLoadEvent, WebviewBuilder};
+use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+use tauri::webview::WebviewBuilder;
 use tauri::window::WindowBuilder;
 use tauri::{
-    AppHandle, LogicalPosition, LogicalSize, Manager, PhysicalSize, Runtime, Url, WebviewUrl,
+    AppHandle, LogicalPosition, LogicalSize, Manager, PhysicalSize, Runtime, WebviewUrl,
     Window, WindowEvent,
 };
 
-use crate::WatcherKick;
 use crate::args::Args;
+use crate::cef as cef_embed;
 use crate::state;
 
 /// Label of the single Tauri Window the X-App lives in.
@@ -38,22 +42,10 @@ pub const X_APP_WINDOW: &str = "x-app";
 /// Label of the panel child webview (top of the window).
 pub const PANEL_LABEL: &str = "panel";
 
-/// Label of the content child webview (rest of the window).
-pub const CONTENT_LABEL: &str = "content";
-
 /// Logical pixel height of the panel webview when visible.
 const PANEL_HEIGHT: u32 = 48;
 const DEFAULT_WIDTH: u32 = 1200;
 const DEFAULT_HEIGHT: u32 = 800;
-
-/// Self-contained IIFE bundle of the overlay (no React, no
-/// InstructionPanel — those moved to the panel webview). Produced
-/// by `yarn build` (Vite) at `dist/overlay.js` — so a frontend
-/// build must run before this crate compiles.
-const OVERLAY_JS: &str = include_str!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../dist/overlay.js"
-));
 
 /// Returns the X-App data-directory rooted at `--config-base-dir`.
 pub fn x_app_data_dir<R: Runtime>(handle: &AppHandle<R>) -> std::path::PathBuf {
@@ -65,8 +57,8 @@ pub fn x_app_data_dir<R: Runtime>(handle: &AppHandle<R>) -> std::path::PathBuf {
         .join("x-app")
 }
 
-/// Build the X-App window and its two child webviews if they don't
-/// already exist. Idempotent.
+/// Build the X-App window with its panel webview and CEF content
+/// surface if they don't already exist. Idempotent.
 pub fn create_x_app<R: Runtime>(handle: &AppHandle<R>) -> tauri::Result<()> {
     if handle.get_window(X_APP_WINDOW).is_some() {
         return Ok(());
@@ -75,7 +67,8 @@ pub fn create_x_app<R: Runtime>(handle: &AppHandle<R>) -> tauri::Result<()> {
     let data_dir = x_app_data_dir(handle);
     std::fs::create_dir_all(&data_dir)?;
 
-    // 1. Bare window — no auto-attached webview (we add children below).
+    // 1. Bare window — no auto-attached webview (we add the panel
+    //    + CEF surface ourselves below).
     let window = WindowBuilder::new(handle, X_APP_WINDOW)
         .title("psychological-operations-browser — X-App")
         .inner_size(DEFAULT_WIDTH as f64, DEFAULT_HEIGHT as f64)
@@ -92,39 +85,26 @@ pub fn create_x_app<R: Runtime>(handle: &AppHandle<R>) -> tauri::Result<()> {
         LogicalSize::new(DEFAULT_WIDTH as f64, PANEL_HEIGHT as f64),
     )?;
 
-    // 3. Content webview below: remote console.x.ai + injected overlay.
-    let url = Url::parse("https://console.x.com/").expect("hardcoded URL parses");
-    let kick = handle.state::<WatcherKick>().0.clone();
-    let mut content = WebviewBuilder::new(CONTENT_LABEL, WebviewUrl::External(url))
-        .data_directory(data_dir)
-        .initialization_script(OVERLAY_JS)
-        .on_page_load(move |_webview, payload| {
-            // On every page navigation, kick the sign-in watcher to
-            // re-check cookies — catches sign-in / sign-out flips
-            // immediately, before WebView2's lazy cookie disk flush.
-            if matches!(payload.event(), PageLoadEvent::Finished) {
-                kick.notify_one();
-            }
-        });
+    // 3. CEF browser as native child surface below the panel.
+    //    Per-mode CEF cache lives under `<data_dir>/cef/`; for the
+    //    X-App that's `<config-base-dir>/.../x-app/cef/`. A future
+    //    psyop mode would pass its own data dir the same way.
+    cef_embed::initialize(&data_dir.join("cef"));
 
-    // Optional UA override from `--user-agent`. Only applied to the
-    // content webview (the one that talks to x.com); the panel
-    // webview is local tauri:// and doesn't need it. When the flag
-    // is omitted, WebView2 uses its own default UA — no behavior
-    // change.
-    if let Some(ua) = handle.state::<Args>().user_agent.as_deref() {
-        content = content.user_agent(ua);
-    }
-    window.add_child(
-        content,
-        LogicalPosition::new(0.0, PANEL_HEIGHT as f64),
-        LogicalSize::new(
-            DEFAULT_WIDTH as f64,
-            (DEFAULT_HEIGHT - PANEL_HEIGHT) as f64,
-        ),
-    )?;
+    let raw_parent = raw_parent_handle(&window);
+    let size = window
+        .inner_size()
+        .unwrap_or(PhysicalSize::new(DEFAULT_WIDTH, DEFAULT_HEIGHT));
+    let panel_h_phys = panel_height_physical(&window);
+    let x = 0_i32;
+    let y = panel_h_phys as i32;
+    let w = size.width as i32;
+    let h = (size.height as i32 - panel_h_phys as i32).max(1);
+    cef_embed::create_browser(raw_parent, x, y, w, h);
 
-    // 4. On window resize, reflow both webviews to follow.
+    // 4. On window resize, reflow the panel; the CEF child tracks
+    //    its parent until Phase 5 plumbs explicit resize through
+    //    `cef::set_browser_bounds`.
     let window_for_resize = window.clone();
     window.on_window_event(move |event| {
         if let WindowEvent::Resized(size) = event {
@@ -135,8 +115,41 @@ pub fn create_x_app<R: Runtime>(handle: &AppHandle<R>) -> tauri::Result<()> {
     Ok(())
 }
 
-/// Resize the panel + content webviews based on the derived
-/// [`PanelState`]. Called from the window-resize callback AND from
+/// Extract the platform-native parent handle (HWND / NSView / X11
+/// Window) from a Tauri window, as an `isize` for downstream
+/// platform-specific casts in [`crate::cef`].
+///
+/// Panics if the window handle is unavailable (a programming error
+/// — the window was just built) or if the variant isn't one CEF's
+/// child-window embed supports. Wayland is the notable gap: CEF's
+/// embed model is X11/HWND/NSView shaped, and the cef-rs crate's
+/// `cef_window_handle_t` doesn't carry a Wayland surface. Linux
+/// Wayland users should launch with `GDK_BACKEND=x11` so GTK gives
+/// us an XWayland X11 window.
+fn raw_parent_handle<R: Runtime>(window: &Window<R>) -> isize {
+    let handle = window.window_handle().expect("window_handle failed");
+    match handle.as_raw() {
+        #[cfg(target_os = "windows")]
+        RawWindowHandle::Win32(h) => h.hwnd.get(),
+        #[cfg(target_os = "macos")]
+        RawWindowHandle::AppKit(h) => h.ns_view.as_ptr() as isize,
+        #[cfg(target_os = "linux")]
+        RawWindowHandle::Xlib(h) => h.window as isize,
+        other => panic!(
+            "CEF backend doesn't support this window handle variant: {other:?}"
+        ),
+    }
+}
+
+/// Panel height in physical pixels (it's defined in logical pixels;
+/// scale by the window's current scale factor).
+fn panel_height_physical<R: Runtime>(window: &Window<R>) -> u32 {
+    let scale = window.scale_factor().unwrap_or(1.0);
+    (PANEL_HEIGHT as f64 * scale).round() as u32
+}
+
+/// Resize the panel webview based on the derived [`PanelState`].
+/// Called from the window-resize callback AND from
 /// [`crate::state::recompute_and_publish`] on every state flip.
 ///
 /// Panel is visible (height [`PANEL_HEIGHT`]) when the derivation
@@ -145,6 +158,9 @@ pub fn create_x_app<R: Runtime>(handle: &AppHandle<R>) -> tauri::Result<()> {
 /// panel is hidden — `state::current_panel()` returns `None`.
 ///
 /// `width` / `height` are in physical pixels (window's `inner_size`).
+/// The CEF browser's reflow lives in [`crate::cef::set_browser_bounds`]
+/// once Phase 5 captures the child handle; until then CEF tracks the
+/// parent's WM_SIZE / equivalent automatically.
 pub fn reflow_physical<R: Runtime>(window: &Window<R>, width: u32, height: u32) {
     let visible = state::current_panel().is_some_and(|s| s.is_visible());
     let panel_h = if visible { PANEL_HEIGHT } else { 0 };
@@ -152,15 +168,12 @@ pub fn reflow_physical<R: Runtime>(window: &Window<R>, width: u32, height: u32) 
     if let Some(panel) = window.get_webview(PANEL_LABEL) {
         let _ = panel.set_size(PhysicalSize::new(width, panel_h));
     }
-    if let Some(content) = window.get_webview(CONTENT_LABEL) {
-        let _ = content.set_position(tauri::PhysicalPosition::new(0, panel_h as i32));
-        let _ = content.set_size(PhysicalSize::new(width, height.saturating_sub(panel_h)));
-    }
+    let _ = height; // CEF reflow comes in Phase 5
 }
 
 /// Reflow using the current `inner_size` of the X-App window.
-/// Convenience wrapper used by [`crate::signin_watcher`] which
-/// doesn't track the current size.
+/// Convenience wrapper used by [`crate::state::recompute_and_publish`]
+/// which doesn't track the current size.
 pub fn reflow<R: Runtime>(handle: &AppHandle<R>) {
     let Some(window) = handle.get_window(X_APP_WINDOW) else {
         return;

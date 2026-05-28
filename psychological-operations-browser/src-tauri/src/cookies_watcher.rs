@@ -42,7 +42,6 @@ use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
 
 use crate::WatcherKick;
 use crate::state;
-use crate::webview;
 
 /// All cookies the panel-state derivation cares about, in one place.
 /// One `cookies_for_url` call returns every cookie for the URL's
@@ -139,36 +138,25 @@ pub fn start<R: Runtime>(
     })
 }
 
-/// Read every cookie of interest in one `cookies_for_url` call.
-fn snapshot_sync<R: Runtime>(handle: &AppHandle<R>, auth_url: &Url) -> CookieSnapshot {
-    let Some(webview) = handle.get_webview(webview::CONTENT_LABEL) else {
-        return CookieSnapshot::default();
-    };
-    let cookies = match webview.cookies_for_url(auth_url.clone()) {
-        Ok(c) => c,
-        Err(e) => {
-            let _ = Output::Log {
-                message: format!("cookies_watcher: cookies_for_url err: {e}"),
-            }
-            .emit();
-            return CookieSnapshot::default();
-        }
-    };
-    let mut snap = CookieSnapshot::default();
-    for c in &cookies {
-        match c.name() {
-            "auth_token" => snap.auth_token = Some(c.value().to_string()),
-            "twid" => snap.user_id = parse_twid(c.value()),
-            _ => {}
-        }
-    }
-    snap
+/// Read every cookie of interest in one call.
+///
+/// **Phase 1 stub.** The original implementation used Tauri's
+/// `webview.cookies_for_url(...)` on the WebView2 content webview,
+/// which no longer exists (content is CEF). Phase 2 will rewrite
+/// this against CEF's `CefCookieManager::GetCookies(url, callback)`
+/// wrapped to look synchronous. Until then we return an empty
+/// snapshot — sign-in detection won't fire, and the panel stays in
+/// `SignInToX`.
+fn snapshot_sync<R: Runtime>(_handle: &AppHandle<R>, _auth_url: &Url) -> CookieSnapshot {
+    // TODO(phase 2): call into `crate::cef` for CEF's cookie store.
+    CookieSnapshot::default()
 }
 
 /// `twid` is shaped `u%3D<numeric-id>` (URL-encoded `u=<id>`).
 /// Pull out the digits. We match both the URL-encoded and decoded
 /// prefixes to be safe — different consumers of the cookie store
 /// may or may not URL-decode for us.
+#[allow(dead_code)] // Phase 1: snapshot_sync is stubbed; Phase 2 re-enables this caller.
 fn parse_twid(raw: &str) -> Option<String> {
     let id = raw
         .strip_prefix("u%3D")

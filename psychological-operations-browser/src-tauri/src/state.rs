@@ -32,11 +32,11 @@ use std::sync::{Mutex, OnceLock};
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use psychological_operations_browser_sdk::mode::{self, Mode};
+use psychological_operations_browser_sdk::mode::Mode;
 use psychological_operations_browser_sdk::output::{Output, SignedInInfo};
 use psychological_operations_browser_sdk::panel::{PanelCondition, PanelState};
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, Manager, Runtime, Url};
+use tauri::{AppHandle, Emitter, Runtime, Url};
 
 use crate::webview;
 
@@ -342,32 +342,20 @@ pub fn recompute_and_publish<R: Runtime>(handle: &AppHandle<R>) {
     // 3. reflow — panel webview either takes its slice or collapses to 0
     webview::reflow(handle);
 
-    // 4. post-sign-in redirect: when we transition out of the SignInToX
-    //    condition (whether to Hidden or to CreateXTeam) in X-App mode,
-    //    bounce the content webview to https://console.x.ai/ so we land
-    //    on the canonical signed-in page even if OAuth left us in some
+    // 4. post-sign-in redirect: when we transition out of the
+    //    SignInToX condition in X-App mode, bounce the content
+    //    surface to https://console.x.com/ so we land on the
+    //    canonical signed-in page even if OAuth left us in some
     //    in-between origin.
-    let was_signin = matches!(
-        prev_state,
-        Some(PanelState::Show {
-            condition: PanelCondition::SignInToX,
-            ..
-        })
-    );
-    let is_signin = matches!(
-        new_state,
-        PanelState::Show {
-            condition: PanelCondition::SignInToX,
-            ..
-        }
-    );
-    if was_signin && !is_signin && matches!(mode::get(), Some(Mode::XApp)) {
-        if let Some(content) = handle.get_webview(webview::CONTENT_LABEL) {
-            if let Ok(target) = Url::parse("https://console.x.com/") {
-                let _ = content.navigate(target);
-            }
-        }
-    }
+    //
+    //    Phase 1 stub: the redirect used to navigate the
+    //    Tauri-managed WebView2 content webview, which no longer
+    //    exists (content is CEF). Once Phase 4 wires up a CEF
+    //    navigation entry point (e.g. `crate::cef::navigate(url)`
+    //    calling `Browser::main_frame()->load_url(...)`), this
+    //    block re-enables.
+    let _ = prev_state;
+    let _ = new_state;
 }
 
 // ---------------------------------------------------------------------
