@@ -36,7 +36,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use psychological_operations_browser_sdk::mode::Mode;
-use psychological_operations_browser_sdk::output::Output;
 use tauri::async_runtime::{JoinHandle, spawn, spawn_blocking};
 use tauri::{AppHandle, Manager, Url, Wry};
 use tokio::sync::Notify;
@@ -71,30 +70,23 @@ impl Drop for Handle {
     }
 }
 
-/// Start the cookies watcher for the given mode. Returns `None` for
-/// modes we haven't wired up yet (currently only [`Mode::XApp`]).
-/// Performs an initial synchronous read + dispatch before spawning
-/// the kick loop.
+/// Start the cookies watcher for the given mode. Both X-App and
+/// Psyop watch the same x.com cookies (`auth_token`, `twid`) —
+/// per-mode isolation comes from each browser's own
+/// `RequestContext`, not from watching different URLs. Performs
+/// an initial synchronous read + dispatch before spawning the
+/// kick loop.
 ///
-/// `_data_dir` is unused now — CEF's cookie store is read via the
+/// `_data_dir` is unused — CEF's cookie store is read via the
 /// global `CookieManager` rather than by direct file access. The
 /// parameter is kept so per-mode (X-App vs psyop) scoping stays
 /// available to future signatures.
 pub fn start(
     handle: AppHandle<Wry>,
-    mode: &Mode,
+    _mode: &Mode,
     _data_dir: &Path,
 ) -> Option<Handle> {
-    let auth_url: Url = match mode {
-        Mode::XApp => Url::parse("https://x.com/").ok()?,
-        Mode::Psyop { .. } => {
-            let _ = Output::Log {
-                message: "cookies_watcher: Psyop mode not yet wired".into(),
-            }
-            .emit();
-            return None;
-        }
-    };
+    let auth_url: Url = Url::parse("https://x.com/").ok()?;
 
     // Initial sync read — main thread is free here (we're on the
     // stdio reader thread, no JS dispatch in flight).

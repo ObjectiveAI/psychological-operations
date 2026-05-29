@@ -6,6 +6,7 @@
 //! ```text
 //! {"type":"html"}
 //! {"type":"x_app"}
+//! {"type":"psyop","name":"my-campaign"}
 //! {"type":"console"}
 //! {"type":"eval","code":"document.title"}
 //! ```
@@ -17,11 +18,17 @@ use serde::{Deserialize, Serialize};
 pub enum Request {
     /// Ask for the active page's serialized outer HTML.
     Html,
-    /// Place the browser in X-App (master root) mode. Triggers
-    /// navigation to `https://console.x.com/` and an Ack. (The
-    /// `XApp` name stays for wire stability even though the URL has
-    /// moved off `console.x.ai`.)
+    /// Switch the browser to X-App mode. If the browser is already
+    /// in X-App mode, no-op + Ack. Otherwise: tear down the current
+    /// CEF browser, open a new one with the X-App `RequestContext`
+    /// pointed at `https://console.x.com/`. Stdin reading blocks
+    /// until the new overlay reports ready.
     XApp,
+    /// Switch the browser to a Psyop session named `<name>`. Same
+    /// teardown / reopen flow as [`Self::XApp`], but with a
+    /// per-psyop `RequestContext` (isolated cookies / storage)
+    /// pointed at `https://x.com/`.
+    Psyop { name: String },
     /// Drain the overlay's buffered console-entry buffer. Returns
     /// every `console.log/warn/error/info/debug` call and every
     /// uncaught exception captured since the last `Console` drain.

@@ -16,7 +16,8 @@
 //! ```
 //!
 //! `<data-dir>` is the X-App mode's data root
-//! ([`crate::webview::x_app_data_dir`]). `<handle>` is the user's
+//! ([`crate::webview::mode_data_dir`] with [`Mode::XApp`]).
+//! `<handle>` is the user's
 //! X handle normalized via [`normalize_handle`] — strip leading
 //! `@`, lower-case, validate against X's handle rules (1-15 ASCII
 //! alphanumeric / underscore characters).
@@ -34,6 +35,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use psychological_operations_browser_sdk::credentials::XAppCredentialField;
+use psychological_operations_browser_sdk::mode::{self, Mode};
 use tauri::{AppHandle, Wry};
 
 use crate::webview;
@@ -41,6 +43,10 @@ use crate::webview;
 /// Write a single credential field for a given X handle. Returns
 /// the resolved path on success. Errors propagate as `String` so
 /// they can flow straight back through the Tauri command boundary.
+///
+/// Credentials only make sense in X-App mode (the X developer
+/// console is where they come from). Calls from any other mode
+/// return an error rather than writing to the wrong directory.
 pub fn store_one(
     app: &AppHandle<Wry>,
     handle: &str,
@@ -48,7 +54,10 @@ pub fn store_one(
     value: &str,
 ) -> Result<PathBuf, String> {
     let handle = normalize_handle(handle)?;
-    let dir = webview::x_app_data_dir(app)
+    if !matches!(mode::get(), Some(Mode::XApp)) {
+        return Err("credentials::store_one called outside X-App mode".into());
+    }
+    let dir = webview::mode_data_dir(app, &Mode::XApp)
         .join("handles")
         .join(&handle);
     fs::create_dir_all(&dir).map_err(|e| format!("create handle dir: {e}"))?;

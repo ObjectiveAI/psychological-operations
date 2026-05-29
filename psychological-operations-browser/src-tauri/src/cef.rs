@@ -55,15 +55,12 @@ const OVERLAY_JS: &str = include_str!(concat!(
     "/../dist/overlay.js"
 ));
 
-/// Initial URL the CEF browser loads when first created. Same target
-/// the WebView2 backend uses today.
-const INITIAL_URL: &str = "https://console.x.com/";
-
-/// Guards [`initialize`] so callers can invoke it idempotently from
-/// per-mode setup paths (X-App creation, future psyop creation). The
-/// first call wins; subsequent calls assert the cache_root matches
-/// what we already initialized with.
-static INITIALIZED_WITH: OnceLock<std::path::PathBuf> = OnceLock::new();
+/// Shared root cache path passed to `Settings.root_cache_path` at
+/// [`initialize`] time. Immutable for the process lifetime (CEF
+/// constraint). Per-account isolation comes from per-browser
+/// [`RequestContext`]s whose `cache_path` is a subdirectory of
+/// this root — see [`create_browser`].
+static CACHE_ROOT: OnceLock<std::path::PathBuf> = OnceLock::new();
 
 /// Tauri `AppHandle` stashed at [`initialize`] time so handlers
 /// running on CEF threads (`TrackUrl::on_address_change`,
@@ -84,7 +81,7 @@ static MAC_LIBRARY: OnceLock<library_loader::LibraryLoader> = OnceLock::new();
 
 /// Has [`initialize`] already been called?
 pub fn is_initialized() -> bool {
-    INITIALIZED_WITH.get().is_some()
+    CACHE_ROOT.get().is_some()
 }
 
 /// Returns true iff the current process was spawned by Chromium as
@@ -131,12 +128,14 @@ pub fn run_helper_and_exit() -> ! {
 /// Initialize CEF in the browser process. Idempotent: the first
 /// call wins, later calls assert the same `cache_root` was used.
 ///
-/// `cache_root` is where Chromium puts its profile data (cookies,
-/// local storage, cache). It is per-mode: for the X-App that's
-/// `<config-base-dir>/plugins/.../x-app/cef/`; for a future psyop
-/// it would be `<config-base-dir>/plugins/.../psyop/<name>/cef/`.
-/// The caller (the per-mode webview-creation path in
-/// [`crate::webview`]) computes the right one.
+/// `cache_root` is the SHARED parent directory under which every
+/// per-account `RequestContext` cache subdir lives. For this
+/// binary that's
+/// `<config-base-dir>/plugins/psychological-operations/browser/cef-root/`.
+/// Per-account isolation comes from [`create_browser`]'s
+/// `cache_subdir` argument — the cache root itself is process-
+/// global and CAN NOT be changed after init (CEF's
+/// `Settings.root_cache_path` is locked once set).
 ///
 /// `app` is the Tauri `AppHandle` stashed for handlers that need
 /// to reach back into Tauri state (URL tracking, the psyops://
@@ -147,7 +146,7 @@ pub fn run_helper_and_exit() -> ! {
 /// main thread stays available for Tauri's event loop even after
 /// init.
 pub fn initialize(cache_root: &Path, app: AppHandle<Wry>) {
-    if let Some(existing) = INITIALIZED_WITH.get() {
+    if let Some(existing) = CACHE_ROOT.get() {
         assert_eq!(
             existing.as_path(),
             cache_root,
@@ -239,7 +238,7 @@ pub fn initialize(cache_root: &Path, app: AppHandle<Wry>) {
     let ok = register_scheme_handler_factory(Some(&scheme_name), None, Some(&mut factory));
     assert_eq!(ok, 1, "register_scheme_handler_factory(psyops) failed");
 
-    let _ = INITIALIZED_WITH.set(cache_root.to_path_buf());
+    let _ = CACHE_ROOT.set(cache_root.to_path_buf());
     let _ = APP_HANDLE.set(app);
 }
 
@@ -252,17 +251,36 @@ pub fn shutdown() {
 }
 
 /// Create a CEF browser embedded as a child surface of `parent`
-/// at the given physical bounds, loading [`INITIAL_URL`].
+/// at the given physical bounds, loading `url` under a per-account
+/// `RequestContext` whose `cache_path` lives at
+/// `<cache_root>/<cache_subdir>/`.
 ///
 /// `parent` is platform-specific: HWND on Windows, NSView pointer
 /// on macOS, X11 Window id on Linux. The caller extracts it from
 /// the Tauri window via raw-window-handle.
-pub fn create_browser(parent: isize, x: i32, y: i32, width: i32, height: i32) {
+///
+/// `cache_subdir` should be a relative path under the cache root —
+/// e.g. `"x-app"` or `"psyop/foo"`. Each subdir = one isolated
+/// cookie / localStorage / IndexedDB profile.
+pub fn create_browser(
+    parent: isize,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+    cache_subdir: &str,
+    url: &str,
+) {
     let bounds = Rect { x, y, width, height };
-    unsafe { create_browser_inner(parent, bounds); }
+    unsafe { create_browser_inner(parent, bounds, cache_subdir, url); }
 }
 
-unsafe fn create_browser_inner(parent: isize, bounds: Rect) {
+unsafe fn create_browser_inner(
+    parent: isize,
+    bounds: Rect,
+    cache_subdir: &str,
+    url: &str,
+) {
     let cef_parent = handle_from_raw(parent);
 
     let window_info = WindowInfo {
@@ -271,11 +289,31 @@ unsafe fn create_browser_inner(parent: isize, bounds: Rect) {
     }
     .set_as_child(cef_parent, &bounds);
 
-    let url = CefString::from(INITIAL_URL);
+    let url = CefString::from(url);
     let settings = BrowserSettings::default();
 
-    // Client carries the LifeSpanHandler (Phase 3); Phase 4 will
-    // extend it with LoadHandler + DisplayHandler.
+    // Per-account RequestContext. cache_path must be a subdir of
+    // the root_cache_path passed at initialize() time, so CEF
+    // accepts it as a sibling profile.
+    let cache_root = CACHE_ROOT
+        .get()
+        .expect("cef::initialize must run before create_browser");
+    let full_cache = cache_root.join(cache_subdir);
+    std::fs::create_dir_all(&full_cache).ok();
+    let cache_path_cef = CefString::from(
+        full_cache
+            .to_str()
+            .expect("cef cache path must be valid UTF-8"),
+    );
+    let ctx_settings = RequestContextSettings {
+        cache_path: cache_path_cef,
+        persist_session_cookies: 1,
+        ..Default::default()
+    };
+    let mut request_context = request_context_create_context(Some(&ctx_settings), None)
+        .expect("request_context_create_context returned None");
+
+    // Client carries LifeSpan + Load + Display handlers.
     let mut client = ContentClient::new();
     let _ = browser_host_create_browser(
         Some(&window_info),
@@ -283,7 +321,7 @@ unsafe fn create_browser_inner(parent: isize, bounds: Rect) {
         Some(&url),
         Some(&settings),
         None,
-        None,
+        Some(&mut request_context),
     );
 
     let _ = parent;
@@ -341,12 +379,43 @@ fn handle_from_raw(raw: isize) -> cef_window_handle_t {
 static BROWSER: OnceLock<Mutex<Option<Browser>>> = OnceLock::new();
 static BROWSER_CHILD_HWND: OnceLock<Mutex<Option<isize>>> = OnceLock::new();
 
+/// One-shot channel that fires when `LifeSpan::on_before_close`
+/// runs. [`install_close_signal`] populates the sender slot before
+/// calling [`close_browser_async`]; [`stdio`]'s mode-switch waits
+/// on the receiver to know the old browser is gone before opening
+/// the new one.
+static CLOSE_SIGNAL: OnceLock<Mutex<Option<SyncSender<()>>>> = OnceLock::new();
+
 fn browser_slot() -> &'static Mutex<Option<Browser>> {
     BROWSER.get_or_init(|| Mutex::new(None))
 }
 
 fn browser_child_hwnd_slot() -> &'static Mutex<Option<isize>> {
     BROWSER_CHILD_HWND.get_or_init(|| Mutex::new(None))
+}
+
+fn close_signal_slot() -> &'static Mutex<Option<SyncSender<()>>> {
+    CLOSE_SIGNAL.get_or_init(|| Mutex::new(None))
+}
+
+/// Install a fresh one-shot channel that fires when the next
+/// `on_before_close` lands. Caller invokes this BEFORE
+/// [`close_browser_async`] and `recv_timeout`s the returned
+/// receiver to block until the old browser is fully gone (CEF
+/// has cleared its child HWND, refcount dropped, etc.).
+pub fn install_close_signal() -> std::sync::mpsc::Receiver<()> {
+    let (tx, rx) = sync_channel::<()>(1);
+    *close_signal_slot().lock().expect("close signal slot poisoned") = Some(tx);
+    rx
+}
+
+/// True iff there's a live browser captured in `BROWSER`
+/// (i.e. `on_after_created` fired and `on_before_close` hasn't).
+pub fn has_browser() -> bool {
+    browser_slot()
+        .lock()
+        .map(|s| s.is_some())
+        .unwrap_or(false)
 }
 
 wrap_life_span_handler! {
@@ -380,6 +449,12 @@ wrap_life_span_handler! {
         fn on_before_close(&self, _browser: Option<&mut Browser>) {
             if let Ok(mut slot) = browser_slot().lock() { *slot = None; }
             if let Ok(mut slot) = browser_child_hwnd_slot().lock() { *slot = None; }
+            // Wake any caller blocked on `install_close_signal()`.
+            if let Ok(mut g) = close_signal_slot().lock() {
+                if let Some(tx) = g.take() {
+                    let _ = tx.send(());
+                }
+            }
         }
     }
 }

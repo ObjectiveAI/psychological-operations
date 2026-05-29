@@ -113,9 +113,13 @@ pub fn current_user_id() -> Option<String> {
 
 /// Mirror a mode change into the facts store. Called from
 /// `stdio::dispatch_request` right after [`mode::set`]. One fact,
-/// one recompute — safe to use as a standalone setter. Also
-/// clears `current_url` when leaving X-App so URL-driven
-/// conditions can't fire under a different mode using stale data.
+/// one recompute — safe to use as a standalone setter.
+///
+/// EVERY mode change clears the cookie / URL / count facts: the
+/// new mode runs under a different CEF `RequestContext` with a
+/// different cookie store, so stale facts from the prior mode
+/// would lie about the new mode's state until fresh observations
+/// land. (X-App → X-App is a no-op early-return.)
 pub fn set_mode(handle: &AppHandle<Wry>, new_mode: Option<Mode>) {
     {
         let mut facts = facts_slot().lock().expect("facts slot poisoned");
@@ -123,11 +127,14 @@ pub fn set_mode(handle: &AppHandle<Wry>, new_mode: Option<Mode>) {
             return;
         }
         facts.mode = new_mode;
-        if !matches!(facts.mode, Some(Mode::XApp)) {
-            facts.current_url = None;
-            facts.production_app_count = None;
-            facts.user_id = None;
-        }
+        // Cross-mode facts are scoped to the prior RequestContext;
+        // drop them so derive() doesn't trust them under the new
+        // mode. Fresh cookies-watcher snapshot + first overlay
+        // report_url after the new browser comes up will refill.
+        facts.auth_token = None;
+        facts.user_id = None;
+        facts.current_url = None;
+        facts.production_app_count = None;
     }
     recompute_and_publish(handle);
 }

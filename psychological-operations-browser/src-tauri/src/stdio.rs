@@ -53,7 +53,7 @@ use psychological_operations_browser_sdk::mode::{self, Mode};
 use psychological_operations_browser_sdk::output::Output;
 use psychological_operations_browser_sdk::panel::PanelState;
 use psychological_operations_browser_sdk::request::Request;
-use psychological_operations_browser_sdk::response::ResponseOutcome;
+use psychological_operations_browser_sdk::response::{Response, ResponseOutcome};
 use tauri::{AppHandle, Manager, Wry};
 
 use crate::WatcherKick;
@@ -108,26 +108,26 @@ pub fn start(handle: AppHandle<Wry>, ready_rx: mpsc::Receiver<()>) {
 }
 
 fn dispatch_request(handle: &AppHandle<Wry>, req: Request) {
-    // 1. Mode-setting requests update the SDK mode static FIRST
-    //    so subsequent output lines carry the new mode, then
-    //    (re)start the cookies watcher.
-    if let Request::XApp = req {
-        mode::set(Some(Mode::XApp));
-        state::set_mode(handle, Some(Mode::XApp));
-        let watcher_slot: tauri::State<CookiesWatcherSlot> = handle.state();
-        *watcher_slot.0.lock().expect("watcher slot poisoned") = None; // drop old
-        let data_dir = webview::x_app_data_dir(handle);
-        *watcher_slot.0.lock().expect("watcher slot poisoned") =
-            cookies_watcher::start(handle.clone(), &Mode::XApp, &data_dir);
+    // Mode-switch requests are handled entirely on the Rust side
+    // — they tear down + reopen CEF; the overlay isn't involved
+    // in the dispatch. Stdin reading naturally pauses for the
+    // duration because we block synchronously below.
+    if let Some(new_mode) = mode_of_request(&req) {
+        switch_mode(handle, new_mode);
+        let _ = Output::Response {
+            result: ResponseOutcome::Ok { response: Response::Ack },
+        }
+        .emit();
+        return;
     }
 
-    // 2. Register a pending-ack slot before pushing so the overlay's
+    // 1. Register a pending-ack slot before pushing so the overlay's
     //    stdio_respond invoke always finds a sender to fulfill.
     let pending: tauri::State<PendingAck> = handle.state();
     let (tx, rx) = mpsc::sync_channel::<ResponseOutcome>(1);
     *pending.0.lock().expect("pending lock poisoned") = Some(tx);
 
-    // 3. Push the request to the overlay via Frame::execute_javascript.
+    // 2. Push the request to the overlay via Frame::execute_javascript.
     //    The overlay registered `window.__psyops.push(req)` at mount.
     match serde_json::to_string(&req) {
         Ok(json) => cef::execute_overlay_js(format!(
@@ -145,11 +145,66 @@ fn dispatch_request(handle: &AppHandle<Wry>, req: Request) {
         }
     }
 
-    // 4. Block on the ack from the overlay.
+    // 3. Block on the ack from the overlay.
     let outcome = rx.recv().unwrap_or_else(|e| ResponseOutcome::Err {
         error: format!("ack channel closed: {e}"),
     });
     let _ = Output::Response { result: outcome }.emit();
+}
+
+/// Map a [`Request`] to the mode it switches to, or `None` if
+/// it's not a mode-switch request.
+fn mode_of_request(req: &Request) -> Option<Mode> {
+    match req {
+        Request::XApp => Some(Mode::XApp),
+        Request::Psyop { name } => Some(Mode::Psyop { name: name.clone() }),
+        _ => None,
+    }
+}
+
+/// Synchronously switch the active CEF browser to `new_mode`.
+/// Blocks the caller (the stdin reader thread) until the new
+/// browser's overlay has invoked `frontend_ready`, so subsequent
+/// stdin lines aren't dispatched against a half-built browser.
+///
+/// If `new_mode` already matches the current mode, this is a
+/// no-op (Tauri stays, CEF stays).
+fn switch_mode(handle: &AppHandle<Wry>, new_mode: Mode) {
+    if mode::get().as_ref() == Some(&new_mode) {
+        return;
+    }
+
+    // 1. Drop the current cookies watcher — the new mode's
+    //    RequestContext has a fresh cookie store.
+    let watcher_slot: tauri::State<CookiesWatcherSlot> = handle.state();
+    *watcher_slot.0.lock().expect("watcher slot poisoned") = None;
+
+    // 2. Flip the SDK mode static + state-facts mode in lockstep.
+    //    EVERY subsequent stdout line carries the new mode.
+    mode::set(Some(new_mode.clone()));
+    state::set_mode(handle, Some(new_mode.clone()));
+
+    // 3. Replace the ReadyTx slot with a fresh oneshot so we can
+    //    wait for the NEW overlay's frontend_ready call (the old
+    //    sender was already consumed at process startup).
+    let (ready_tx, ready_rx) = mpsc::channel::<()>();
+    let ready_state: tauri::State<ReadyTx> = handle.state();
+    *ready_state.0.lock().expect("ready slot poisoned") = Some(ready_tx);
+
+    // 4. Tear down + recreate CEF. recreate_cef_content blocks on
+    //    `on_before_close` internally.
+    webview::recreate_cef_content(handle, &new_mode);
+
+    // 5. Wait for the new overlay to call frontend_ready (loaded
+    //    page + JS bundle + push handler registered + invoke went
+    //    out + Rust handled it + sender fired). 30s ceiling so a
+    //    page that never loads doesn't deadlock the stdin reader.
+    let _ = ready_rx.recv_timeout(std::time::Duration::from_secs(30));
+
+    // 6. Start a fresh cookies watcher scoped to the new mode.
+    let data_dir = webview::mode_data_dir(handle, &new_mode);
+    *watcher_slot.0.lock().expect("watcher slot poisoned") =
+        cookies_watcher::start(handle.clone(), &new_mode, &data_dir);
 }
 
 // ---------------------------------------------------------------------

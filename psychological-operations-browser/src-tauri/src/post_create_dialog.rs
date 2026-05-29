@@ -14,6 +14,7 @@
 use std::fs;
 use std::path::PathBuf;
 
+use psychological_operations_browser_sdk::mode::Mode;
 use scraper::{ElementRef, Html, Selector};
 use tauri::{AppHandle, Wry};
 
@@ -35,7 +36,9 @@ pub struct ExtractedCredentials {
 /// called *before* `extract`, so a parse failure still leaves the
 /// snapshot behind for selector refinement.
 pub fn save_snapshot(app: &AppHandle<Wry>, html: &str) -> std::io::Result<PathBuf> {
-    let dir = webview::x_app_data_dir(app).join("recordings");
+    // Always under X-App's data dir — the post-create dialog only
+    // exists on the X developer console.
+    let dir = webview::mode_data_dir(app, &Mode::XApp).join("recordings");
     fs::create_dir_all(&dir)?;
     let path = dir.join("post_create_dialog.html");
     fs::write(&path, html.as_bytes())?;

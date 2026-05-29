@@ -14,7 +14,9 @@ use std::sync::mpsc;
 
 use clap::Parser;
 use clap::error::ErrorKind;
+use psychological_operations_browser_sdk::mode;
 use psychological_operations_browser_sdk::output::Output;
+use tauri::Manager;
 use tokio::sync::Notify;
 
 use crate::stdio::{CookiesWatcherSlot, PendingAck, ReadyTx};
@@ -73,22 +75,19 @@ pub fn run() {
         }
     };
 
-    // NOTE: CEF (Chromium Embedded Framework) initialization is
-    // deferred to the per-mode webview creation path
-    // (`crate::webview::create_x_app`) so the `cache_root` carries
-    // the correct per-mode subdirectory — for X-App `.../x-app/cef/`,
-    // for a future psyop `.../psyop/<name>/cef/`. CEF's
-    // `multi_threaded_message_loop` spawns a separate UI thread, so
-    // calling `initialize` from inside Tauri's `setup` (rather than
-    // pre-builder) is fine: the main thread stays free for Tauri's
-    // event loop. We still teardown via `cef::shutdown` after
-    // `.run()` returns iff init actually ran (defensive — startup
-    // can fail before the webview is built).
+    // The CLI mode flag is required (clap's ArgGroup enforces it),
+    // so we know the initial mode before Tauri starts. Set the SDK
+    // mode static first so every subsequent `Output::*` line —
+    // even ones emitted during Tauri builder setup — carries the
+    // mode in its top-level `"mode"` field.
+    let initial_mode = args.initial_mode();
+    mode::set(Some(initial_mode.clone()));
 
-    // Build the frontend-ready signal BEFORE the Tauri builder so we
-    // can hand the receiver to the stdin reader (started inside
+    // Build the frontend-ready signal BEFORE the Tauri builder so
+    // we can hand the receiver to the stdin reader (started inside
     // `setup`) while the sender lives in Tauri-managed state for
-    // the `frontend_ready` command to consume.
+    // the first `frontend_ready` invoke to consume. Subsequent
+    // mode switches replace the sender via `ReadyTx` mutate.
     let (ready_tx, ready_rx) = mpsc::channel::<()>();
     let ready_rx = Mutex::new(Some(ready_rx));
 
@@ -104,30 +103,42 @@ pub fn run() {
         // So `current_panel` is the sole registered command.
         .invoke_handler(tauri::generate_handler![stdio::current_panel])
         .setup(move |app| {
-            // Eagerly create the X-App webview so the overlay is
-            // available to receive `psyops:request` events.
-            webview::create_x_app(app.handle())?;
+            let handle = app.handle();
 
-            // Start the stdin reader. It blocks on `ready_rx.recv()`
-            // before reading, so anything the host writes during
-            // startup stays in the OS pipe until the overlay's
-            // `frontend_ready` call.
+            // 1. Mirror the initial mode into the state-facts store
+            //    so the first `recompute_and_publish` sees it.
+            state::set_mode(handle, Some(initial_mode.clone()));
+
+            // 2. Build the Tauri window + panel webview + CEF
+            //    browser scoped to the initial mode's RequestContext.
+            //    CEF's shared root cache is initialized inside
+            //    `webview::create_x_app`.
+            webview::create_x_app(handle, &initial_mode)?;
+
+            // 3. Start the cookies watcher for the initial mode.
+            let watcher_slot: tauri::State<CookiesWatcherSlot> = handle.state();
+            let data_dir = webview::mode_data_dir(handle, &initial_mode);
+            *watcher_slot.0.lock().expect("watcher slot poisoned") =
+                cookies_watcher::start(handle.clone(), &initial_mode, &data_dir);
+
+            // 4. Start the stdin reader. It blocks on
+            //    `ready_rx.recv()` before reading, so anything the
+            //    host writes during startup stays in the OS pipe
+            //    until the overlay's `frontend_ready` call.
             let rx = ready_rx
                 .lock()
                 .expect("ready_rx lock poisoned")
                 .take()
                 .expect("ready_rx already consumed");
-            stdio::start(app.handle().clone(), rx);
+            stdio::start(handle.clone(), rx);
             Ok(())
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 
-    // CEF teardown after Tauri's event loop returns. Only fire if
-    // CEF was actually initialized (the per-mode webview path may
-    // never have run e.g. if startup failed early). Browsers should
-    // already be closed (the window-close handler in `webview` asks
-    // CEF to close its browser before the parent surface goes away).
+    // CEF teardown after Tauri's event loop returns. Browsers
+    // should already be closed (the window-close handler asks CEF
+    // to close before the parent surface goes away).
     if cef::is_initialized() {
         cef::shutdown();
     }
