@@ -21,6 +21,7 @@ import {
   type HelperWidget,
 } from "./helper-widget";
 import { subscribeUrl } from "./spa-url";
+import { isPanelCondition } from "./panel-state";
 
 const HELPER_TEXT = "Click here";
 
@@ -117,7 +118,17 @@ function tick() {
   if (!widget) return;
   const el = widget.element;
   const link = findAppsLink();
-  const show = !!link && !isOnAppsTab(location.href);
+  // Visibility is the AND of:
+  //   1. the Apps link is on the page,
+  //   2. we're not already on /apps,
+  //   3. the panel header is currently asking the user to click
+  //      the Apps tab (mirrored from Rust via panel-state.ts).
+  // The third gate keeps the pointer in lockstep with the panel
+  // — both derive from the same disk-creds fact in Rust.
+  const show =
+    !!link &&
+    !isOnAppsTab(location.href) &&
+    isPanelCondition("click_apps_tab");
 
   if (!show || !link) {
     el.style.display = "none";

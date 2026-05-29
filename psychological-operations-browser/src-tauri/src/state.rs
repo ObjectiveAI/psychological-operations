@@ -373,6 +373,16 @@ pub fn recompute_and_publish(handle: &AppHandle<Wry>) {
 
     // 3. reflow — panel webview either takes its slice or collapses to 0
     webview::reflow(handle);
+
+    // 4. mirror to the content overlay so per-pointer modules
+    //    (apps-tab, future create-app) can gate visibility on the
+    //    same fact the panel uses. Fire-and-forget; the JS setter
+    //    is undefined until the overlay mounts, and the
+    //    `&&`-guard makes that case a clean no-op.
+    let payload = serde_json::to_string(&new_state).unwrap_or_else(|_| "null".into());
+    crate::cef::execute_overlay_js(format!(
+        "window.__psyops_set_panel && window.__psyops_set_panel({payload});"
+    ));
 }
 
 // ---------------------------------------------------------------------

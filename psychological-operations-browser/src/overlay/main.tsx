@@ -22,6 +22,11 @@ import { installOnboardingHelpers } from "./onboarding-helpers";
 import { installAppsTabHelper } from "./apps-tab-helper";
 import { installCreateAppDialogHelpers } from "./create-app-dialog-helpers";
 import { installPostCreateDialogHelpers } from "./post-create-dialog-helpers";
+// Side-effect: registers `window.__psyops_set_panel` so the first
+// Rust push lands. Imported before any helper module so the setter
+// is in place by the time anyone reads `getPanelState()`.
+import type { PanelState } from "./panel-state";
+import "./panel-state";
 
 type Request =
   | { type: "x_app" }
@@ -143,6 +148,17 @@ async function handleRequest(payload: unknown) {
     console.log("[psyops-overlay] frontend_ready ok, calling current_mode");
     const mode = await invoke<Mode>("current_mode");
     console.log("[psyops-overlay] current_mode =", JSON.stringify(mode));
+    // Seed the panel-state mirror BEFORE installing helpers so the
+    // first tick of any pointer reads the actual state, not null.
+    // Subsequent updates land via the Rust→JS push registered in
+    // panel-state.ts.
+    const initialPanel = await invoke<PanelState | null>("current_panel");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (window as any).__psyops_set_panel(initialPanel);
+    console.log(
+      "[psyops-overlay] initial panel =",
+      JSON.stringify(initialPanel),
+    );
     if (mode !== null) {
       urlReporterUninstall = installSpaUrlReporter();
       onboardingHelpersUninstall = installOnboardingHelpers();
