@@ -20,10 +20,15 @@ export async function invoke<T = unknown>(
   cmd: string,
   args: unknown = {},
 ): Promise<T> {
+  // No explicit content-type header — `application/json` would
+  // trigger a CORS preflight (OPTIONS) the scheme handler isn't
+  // wired to answer. The default (text/plain) is a "simple"
+  // request that skips preflight; the body is still JSON bytes,
+  // just labeled differently — the Rust dispatcher parses bytes
+  // directly without looking at the request content-type.
   const response = await fetch(`psyops://invoke/${cmd}`, {
     method: "POST",
     body: JSON.stringify(args),
-    headers: { "content-type": "application/json" },
   });
   if (!response.ok) {
     const text = await response.text().catch(() => "");

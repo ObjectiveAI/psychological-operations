@@ -66,6 +66,10 @@ wrap_scheme_handler_factory! {
             _scheme_name: Option<&CefString>,
             _request: Option<&mut Request>,
         ) -> Option<ResourceHandler> {
+            let _ = psychological_operations_browser_sdk::output::Output::Log {
+                message: "cef_scheme: factory.create() called".into(),
+            }
+            .emit();
             Some(PsyopsHandler::new(Arc::new(Mutex::new(ResponseState::default()))))
         }
     }
@@ -92,6 +96,14 @@ wrap_resource_handler! {
             let url_userfree = request.url();
             let url = CefStringUtf16::from(&url_userfree).to_string();
             let body = extract_post_body(request);
+            let _ = psychological_operations_browser_sdk::output::Output::Log {
+                message: format!(
+                    "cef_scheme: process_request url={url} body_len={} body={:?}",
+                    body.len(),
+                    std::str::from_utf8(&body).unwrap_or("<non-utf8>")
+                ),
+            }
+            .emit();
             let state = self.state.clone();
             // `Callback` is refcounted; clone bumps the cef refcount so
             // we can hold it across the async task without it dying.
@@ -106,6 +118,13 @@ wrap_resource_handler! {
                         b"cef not initialized".to_vec(),
                     ),
                 };
+                let _ = psychological_operations_browser_sdk::output::Output::Log {
+                    message: format!(
+                        "cef_scheme: dispatched url={url} status={status} body_len={} body={:?}",
+                        body_out.len(),
+                        std::str::from_utf8(&body_out).unwrap_or("<non-utf8>")
+                    ),
+                }.emit();
                 if let Ok(mut s) = state.lock() {
                     s.body = body_out;
                     s.mime = mime;
@@ -129,11 +148,39 @@ wrap_resource_handler! {
             response.set_status(state.status);
             let mime = CefString::from(state.mime.as_str());
             response.set_mime_type(Some(&mime));
+            // CORS: the overlay runs at https://x.com origin and
+            // fetches psyops:// (cross-origin). Even "simple"
+            // requests require the response to carry
+            // `Access-Control-Allow-Origin` for the renderer to
+            // hand the response to JS — otherwise fetch() rejects
+            // with a generic "Failed to fetch".
+            let allow_origin_name = CefString::from("Access-Control-Allow-Origin");
+            let allow_origin_value = CefString::from("*");
+            response.set_header_by_name(
+                Some(&allow_origin_name),
+                Some(&allow_origin_value),
+                1, // overwrite
+            );
             if let Some(len) = response_length {
                 *len = state.body.len() as i64;
             }
         }
 
+        // Modern `read` (used by Chrome runtime). Sync impl —
+        // copy bytes immediately, return 1 for "more might be
+        // available", 0 for EOF.
+        fn read(
+            &self,
+            data_out: *mut u8,
+            bytes_to_read: i32,
+            bytes_read: Option<&mut i32>,
+            _callback: Option<&mut ResourceReadCallback>,
+        ) -> i32 {
+            self.read_inner(data_out, bytes_to_read, bytes_read)
+        }
+
+        // Legacy `read_response` (Alloy runtime / older fallback).
+        // Same body as `read`.
         fn read_response(
             &self,
             data_out: *mut u8,
@@ -141,48 +188,72 @@ wrap_resource_handler! {
             bytes_read: Option<&mut i32>,
             _callback: Option<&mut Callback>,
         ) -> i32 {
-            let Some(bytes_read_out) = bytes_read else { return 0 };
-            let Ok(mut state) = self.state.lock() else {
-                *bytes_read_out = 0;
-                return 0;
-            };
-            let remaining = state.body.len().saturating_sub(state.position);
-            if remaining == 0 {
-                *bytes_read_out = 0;
-                return 0; // EOF
-            }
-            let to_copy = remaining.min(bytes_to_read.max(0) as usize);
-            unsafe {
-                std::ptr::copy_nonoverlapping(
-                    state.body.as_ptr().add(state.position),
-                    data_out,
-                    to_copy,
-                );
-            }
-            state.position += to_copy;
-            *bytes_read_out = to_copy as i32;
-            1 // bytes available; CEF may call again
+            self.read_inner(data_out, bytes_to_read, bytes_read)
         }
+    }
+}
+
+impl PsyopsHandler {
+    /// Shared body for both `read` (modern, Chrome runtime) and
+    /// `read_response` (legacy, Alloy runtime). Copies as many
+    /// bytes as fit into `data_out` from the buffered response
+    /// body, advances the position pointer, and returns 1 if more
+    /// may be available, 0 if EOF.
+    fn read_inner(
+        &self,
+        data_out: *mut u8,
+        bytes_to_read: i32,
+        bytes_read: Option<&mut i32>,
+    ) -> i32 {
+        let Some(bytes_read_out) = bytes_read else { return 0 };
+        let Ok(mut state) = self.state.lock() else {
+            *bytes_read_out = 0;
+            return 0;
+        };
+        let remaining = state.body.len().saturating_sub(state.position);
+        if remaining == 0 {
+            *bytes_read_out = 0;
+            return 0;
+        }
+        let to_copy = remaining.min(bytes_to_read.max(0) as usize);
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                state.body.as_ptr().add(state.position),
+                data_out,
+                to_copy,
+            );
+        }
+        state.position += to_copy;
+        *bytes_read_out = to_copy as i32;
+        1
     }
 }
 
 /// Pull the request body bytes out of CEF's `PostData` → list of
 /// `PostDataElement`. Concatenates all byte-typed elements.
+///
+/// Subtle binding shape: `PostData::elements(Some(&mut vec))`
+/// uses the vec's CURRENT length as the buffer size. CEF fills
+/// up to that many slots — it does NOT resize for us. So we
+/// must pre-size the vec via `element_count()` before passing
+/// it in, otherwise CEF writes 0 elements and our body comes
+/// back empty.
 fn extract_post_body(request: &mut Request) -> Vec<u8> {
     let Some(post_data) = request.post_data() else {
         return Vec::new();
     };
-    let mut elements: Vec<Option<PostDataElement>> = Vec::new();
+    let count = post_data.element_count();
+    let mut elements: Vec<Option<PostDataElement>> = vec![None; count];
     post_data.elements(Some(&mut elements));
     let mut out = Vec::new();
     for elem in elements.into_iter().flatten() {
-        let count = elem.bytes_count();
-        if count == 0 {
+        let bytes = elem.bytes_count();
+        if bytes == 0 {
             continue;
         }
         let prev = out.len();
-        out.resize(prev + count, 0);
-        elem.bytes(count, out[prev..].as_mut_ptr());
+        out.resize(prev + bytes, 0);
+        elem.bytes(bytes, out[prev..].as_mut_ptr());
     }
     out
 }

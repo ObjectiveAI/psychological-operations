@@ -84,6 +84,32 @@ pub fn is_initialized() -> bool {
     CACHE_ROOT.get().is_some()
 }
 
+/// Convert a [`Path`] to a [`CefString`] suitable for handing to
+/// CEF (`Settings.root_cache_path`, `Settings.log_file`,
+/// `RequestContextSettings.cache_path`, etc.).
+///
+/// On Windows, Chromium's `chrome_browser_context.cc` rejects
+/// paths with forward slashes — "Cannot create profile at path
+/// ...". Rust's `PathBuf::join` preserves whatever separator was
+/// already there, so a `--config-base-dir $USERPROFILE/.psyops`
+/// CLI input (shell-expanded with `/`) joined to
+/// `plugins/.../cef-root` (back-slashed) yields a mixed path
+/// that fails CEF's validation. Normalize to all backslashes
+/// here.
+fn path_to_cef_string(path: &Path) -> CefString {
+    let s = path
+        .to_str()
+        .expect("path must be valid UTF-8 for CEF");
+    #[cfg(target_os = "windows")]
+    {
+        CefString::from(s.replace('/', "\\").as_str())
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        CefString::from(s)
+    }
+}
+
 /// Returns true iff the current process was spawned by Chromium as
 /// a helper (renderer / GPU / utility / ...). Chromium passes the
 /// helper kind via `--type=<kind>` on the command line.
@@ -112,6 +138,12 @@ pub fn is_helper_process() -> bool {
 /// finished its work); we then exit with code 0. This function never
 /// returns.
 ///
+/// We MUST pass an `App` here (not `None`) so the renderer process
+/// sees `on_register_custom_schemes` and adds `psyops://` to its
+/// own scheme registry. Without this, fetch() in the renderer
+/// rejects the URL with "scheme not supported" even though the
+/// browser-side scheme handler is registered.
+///
 /// Not defined on macOS — see module docs.
 #[cfg(not(target_os = "macos"))]
 pub fn run_helper_and_exit() -> ! {
@@ -119,9 +151,8 @@ pub fn run_helper_and_exit() -> ! {
     let args = args::Args::new();
     let main_args = args.as_main_args();
 
-    // Helper processes don't initialize CEF; `execute_process` runs
-    // the helper to completion and returns.
-    let _ret = execute_process(Some(main_args), None, std::ptr::null_mut());
+    let mut app = ContentApp::new();
+    let _ret = execute_process(Some(main_args), Some(&mut app), std::ptr::null_mut());
     std::process::exit(0);
 }
 
@@ -191,22 +222,14 @@ pub fn initialize(cache_root: &Path, app: AppHandle<Wry>) {
          (helper detection should have run before initialize)"
     );
 
-    let root_cache_path = CefString::from(
-        cache_root
-            .to_str()
-            .expect("cef cache_root must be valid UTF-8"),
-    );
+    let root_cache_path = path_to_cef_string(cache_root);
 
     // Explicit log path so devs know where to look. CEF defaults
     // to writing `debug.log` somewhere under the CWD; pinning it
     // to `<cache_root>/cef-debug.log` keeps it next to the
     // profile and per-mode caches.
     let log_path = cache_root.join("cef-debug.log");
-    let log_file = CefString::from(
-        log_path
-            .to_str()
-            .expect("cef log path must be valid UTF-8"),
-    );
+    let log_file = path_to_cef_string(&log_path);
 
     // multi_threaded_message_loop is Windows/Linux only. On macOS we
     // fall back to CEF owning the main thread, which conflicts with
@@ -366,18 +389,28 @@ unsafe fn create_browser_inner(
         .expect("cef::initialize must run before create_browser");
     let full_cache = cache_root.join(cache_subdir);
     std::fs::create_dir_all(&full_cache).ok();
-    let cache_path_cef = CefString::from(
-        full_cache
-            .to_str()
-            .expect("cef cache path must be valid UTF-8"),
-    );
     let ctx_settings = RequestContextSettings {
-        cache_path: cache_path_cef,
+        cache_path: path_to_cef_string(&full_cache),
         persist_session_cookies: 1,
         ..Default::default()
     };
     let mut request_context = request_context_create_context(Some(&ctx_settings), None)
         .expect("request_context_create_context returned None");
+
+    // Register the `psyops://` scheme handler factory on THIS
+    // RequestContext. The free `register_scheme_handler_factory`
+    // we call in `initialize()` only registers on the GLOBAL
+    // context — our per-account contexts don't inherit it, so
+    // overlay fetches would 404 against the factory registry of
+    // this context. Register here so requests routed through
+    // this RequestContext find the factory.
+    let scheme_name = CefString::from("psyops");
+    let mut factory = crate::cef_scheme::PsyopsFactory::new();
+    request_context.register_scheme_handler_factory(
+        Some(&scheme_name),
+        None,
+        Some(&mut factory),
+    );
 
     // Client carries LifeSpan + Load + Display handlers.
     let mut client = ContentClient::new();
@@ -535,12 +568,21 @@ wrap_load_handler! {
             frame: Option<&mut Frame>,
             _transition_type: TransitionType,
         ) {
-            let Some(frame) = frame else { return };
+            let Some(frame) = frame else {
+                let _ = psychological_operations_browser_sdk::output::Output::Log {
+                    message: "cef: on_load_start no frame".into(),
+                }.emit();
+                return;
+            };
+            let is_main = frame.is_main();
             // Only inject into the top-level frame — iframes inside
             // x.com (auth modals, etc.) shouldn't run our overlay.
-            if frame.is_main() != 1 {
+            if is_main != 1 {
                 return;
             }
+            let _ = psychological_operations_browser_sdk::output::Output::Log {
+                message: format!("cef: on_load_start main frame, injecting overlay ({} bytes)", OVERLAY_JS.len()),
+            }.emit();
             let code = CefString::from(OVERLAY_JS);
             // script_url + start_line are for DevTools stacks only.
             let script_url = CefString::from("psyops://overlay.js");
@@ -597,7 +639,7 @@ wrap_client! {
 }
 
 wrap_app! {
-    struct ContentApp {}
+    pub struct ContentApp {}
 
     impl App {
         fn on_register_custom_schemes(
@@ -929,8 +971,27 @@ wrap_task! {
 
     impl Task {
         fn execute(&self) {
-            let Some(manager) = cookie_manager_get_global_manager(None) else {
-                // No global cookie manager (CEF context not ready?).
+            // Get the cookie manager for the EMBEDDED BROWSER'S
+            // RequestContext, not the global default. Each
+            // `RequestContext` has its own SQLite cookie store at
+            // `<cache_path>/Network/Cookies`; the
+            // `cookie_manager_get_global_manager(None)` shortcut
+            // returns the DEFAULT context's manager which is
+            // backed by `<cache_root>/Default/Network/Cookies` —
+            // a different file, not where our browser writes.
+            //
+            // Falling back to global if we can't reach the
+            // per-context manager (e.g., browser not created yet
+            // during startup snapshot) preserves the old behavior
+            // for that edge case.
+            let per_context = browser_slot()
+                .lock()
+                .ok()
+                .and_then(|s| s.as_ref().cloned())
+                .and_then(|b| b.host())
+                .and_then(|h| h.request_context())
+                .and_then(|rc| rc.cookie_manager(None));
+            let Some(manager) = per_context.or_else(|| cookie_manager_get_global_manager(None)) else {
                 if let Ok(mut g) = self.tx.lock() {
                     if let Some(s) = g.take() { let _ = s.send(Vec::new()); }
                 }

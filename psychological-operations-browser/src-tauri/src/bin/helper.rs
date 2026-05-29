@@ -26,6 +26,7 @@
 #[cfg(target_os = "macos")]
 fn main() {
     use cef::*;
+    use psychological_operations_browser_lib::cef::ContentApp;
 
     // Load CEF framework from the parent app's
     // `Contents/Frameworks/`. The `true` flag tells LibraryLoader
@@ -41,11 +42,14 @@ fn main() {
     let args = args::Args::new();
     let _ = api_hash(sys::CEF_API_VERSION_LAST, 0);
 
-    // execute_process runs the helper's message loop to completion
-    // and returns the helper's exit code; we just propagate.
+    // Pass the same App handler the browser process uses so the
+    // renderer subprocesses see `on_register_custom_schemes` and
+    // add `psyops://` to their scheme registry — without this,
+    // fetch() in the renderer rejects the URL.
+    let mut app = ContentApp::new();
     let _ret = execute_process(
         Some(args.as_main_args()),
-        None::<&mut App>,
+        Some(&mut app),
         std::ptr::null_mut(),
     );
 }

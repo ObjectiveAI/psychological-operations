@@ -143,10 +143,14 @@ async function handleRequest(payload: unknown) {
 // deliver each request. Synchronous from JS's perspective; the ack
 // goes back via `invoke("stdio_respond", ...)` per-request.
 (async () => {
+  console.log("[psyops-overlay] mount begin");
   try {
     registerPushHandler(handleRequest);
+    console.log("[psyops-overlay] push handler registered, calling frontend_ready");
     await invoke("frontend_ready");
+    console.log("[psyops-overlay] frontend_ready ok, calling current_mode");
     const mode = await invoke<Mode>("current_mode");
+    console.log("[psyops-overlay] current_mode =", JSON.stringify(mode));
     if (mode !== null) {
       urlReporterUninstall = installSpaUrlReporter();
       onboardingHelpersUninstall = installOnboardingHelpers();
@@ -154,8 +158,9 @@ async function handleRequest(payload: unknown) {
       appsPageHelpersUninstall = installAppsPageHelpers();
       createAppDialogHelpersUninstall = installCreateAppDialogHelpers();
       postCreateDialogHelpersUninstall = installPostCreateDialogHelpers();
+      console.log("[psyops-overlay] helpers installed");
     }
-  } catch {
-    // Best-effort
+  } catch (e) {
+    console.error("[psyops-overlay] mount failed:", (e as Error)?.message ?? String(e));
   }
 })();
