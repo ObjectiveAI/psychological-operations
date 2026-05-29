@@ -35,6 +35,18 @@ export function InstructionPanel() {
   }, []);
 
   if (state?.type !== "show") return null;
+  // `loading` renders as three flashing dots — see the
+  // `psyops-dot` rules in panel.html. Message field is empty by
+  // convention for this condition.
+  if (state.condition === "loading") {
+    return (
+      <div style={STYLE}>
+        <span className="psyops-dot">.</span>
+        <span className="psyops-dot">.</span>
+        <span className="psyops-dot">.</span>
+      </div>
+    );
+  }
   return <div style={STYLE}>{state.message}</div>;
 }
 

@@ -366,7 +366,15 @@ pub fn derive(facts: &Facts) -> PanelState {
             let on_list = is_apps_list(url);
             let on_area = is_apps_tab(url);
             match (facts.credentials_complete, facts.access_tokens_complete) {
-                (None, _) => PanelState::Hidden,
+                // We don't know enough yet (cookies snapshot
+                // hasn't landed). Show Loading rather than
+                // collapsing the panel — same intent as
+                // "thinking…" so the user doesn't think the UI
+                // is broken.
+                (None, _) => PanelState::Show {
+                    condition: PanelCondition::Loading,
+                    message: String::new(),
+                },
                 (Some(false), _) => {
                     if on_list {
                         PanelState::Show {
@@ -407,7 +415,13 @@ pub fn derive(facts: &Facts) -> PanelState {
                                 condition: PanelCondition::ClickProductionApp,
                                 message: "Click your app.".into(),
                             },
-                            None => PanelState::Hidden,
+                            // Count still debouncing — same
+                            // Loading affordance as the
+                            // creds-unknown case above.
+                            None => PanelState::Show {
+                                condition: PanelCondition::Loading,
+                                message: String::new(),
+                            },
                         }
                     }
                 }

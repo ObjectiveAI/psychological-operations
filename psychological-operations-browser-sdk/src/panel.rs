@@ -44,6 +44,14 @@ pub enum PanelCondition {
     /// at least one production app. Pair with the in-page
     /// pointer at the first production app's row.
     ClickProductionApp,
+    /// X-App mode, but `derive` doesn't yet have enough facts
+    /// to pick a real condition — typically the brief window
+    /// before the first cookies snapshot lands, or while the
+    /// apps-page count is still debouncing. The panel React
+    /// renders this as three flashing dots so the user sees a
+    /// "thinking" affordance rather than the panel collapsing
+    /// to zero height. The `message` is empty by convention.
+    Loading,
 }
 
 /// Everything the panel needs to render. Either it's hidden (zero

@@ -19,6 +19,24 @@
       #root {
         height: 100%;
       }
+      /* Loading affordance: three dots that pulse one-by-one
+         so the panel never sits blank while Rust is still
+         figuring out which condition to publish.
+         InstructionPanel renders these spans when the
+         condition is `loading`. */
+      @keyframes psyops-dot-flash {
+        0%, 80%, 100% { opacity: 0.25; }
+        40%           { opacity: 1; }
+      }
+      .psyops-dot {
+        display: inline-block;
+        font-size: 18px;
+        line-height: 1;
+        margin: 0 2px;
+        animation: psyops-dot-flash 1.4s ease-in-out infinite;
+      }
+      .psyops-dot:nth-child(2) { animation-delay: 0.2s; }
+      .psyops-dot:nth-child(3) { animation-delay: 0.4s; }
     </style>
   </head>
   <body>

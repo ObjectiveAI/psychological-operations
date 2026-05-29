@@ -160,7 +160,9 @@ function mount() {
   createBtnWidget.element.style.display = "none";
   shadow.appendChild(createBtnWidget.element);
 
-  prodAppWidget = createHelperWidget({ text: HELPER_TEXT, arrow: "right" });
+  // Anchored to the RIGHT of the row, so the triangle points LEFT
+  // back at the row.
+  prodAppWidget = createHelperWidget({ text: HELPER_TEXT, arrow: "left" });
   prodAppWidget.element.style.display = "none";
   shadow.appendChild(prodAppWidget.element);
 
@@ -242,10 +244,13 @@ function tick() {
     prodEl.style.display = "none";
   } else {
     prodEl.style.display = "";
+    // Anchor to the RIGHT of the row — the production list
+    // rows hug console.x.com's left edge, so the right side
+    // has more breathing room.
     const rect = firstProd.getBoundingClientRect();
     prodEl.style.top = `${rect.top + rect.height / 2}px`;
-    prodEl.style.left = `${rect.left - 8}px`;
-    prodEl.style.transform = "translateX(-100%) translateY(-50%)";
+    prodEl.style.left = `${rect.right + 8}px`;
+    prodEl.style.transform = "translateY(-50%)";
   }
 
   rafId = requestAnimationFrame(tick);
