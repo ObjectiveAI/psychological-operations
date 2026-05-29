@@ -93,7 +93,7 @@ function mount() {
   style.textContent = HELPER_CSS;
   shadow.appendChild(style);
 
-  widget = createHelperWidget({ text: HELPER_TEXT });
+  widget = createHelperWidget({ text: HELPER_TEXT, arrow: "left" });
   shadow.appendChild(widget.element);
   // Start hidden — first tick decides if/where to show.
   widget.element.style.display = "none";

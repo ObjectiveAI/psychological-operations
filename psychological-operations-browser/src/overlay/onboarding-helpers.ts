@@ -156,6 +156,7 @@ function mount() {
     const widget = createHelperWidget({
       text: step.text,
       copyText: step.hasCopyButton ? DESCRIPTION_COPY : undefined,
+      arrow: "right",
     });
     widget.element.dataset.step = step.id;
     widgets.set(step.id, widget);

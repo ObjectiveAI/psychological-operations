@@ -195,7 +195,7 @@ function mount() {
   shadow.appendChild(style);
 
   for (const step of STEPS) {
-    const widget = createHelperWidget({ text: step.text });
+    const widget = createHelperWidget({ text: step.text, arrow: "right" });
     widget.element.dataset.step = step.id;
     widget.element.style.display = "none";
     widgets.set(step.id, widget);

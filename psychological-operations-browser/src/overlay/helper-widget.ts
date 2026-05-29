@@ -37,6 +37,10 @@ export type HelperOptions = {
   copyText?: string;
   /** Override the Copy button's label. Default: "Copy". */
   copyButtonLabel?: string;
+  /** Render a small triangle protruding from this side of the
+   *  badge, pointing at the target the consumer placed the badge
+   *  next to. Default: no arrow. */
+  arrow?: "left" | "right";
 };
 
 export interface HelperWidget {
@@ -82,7 +86,11 @@ export const HELPER_CSS = `
     border-color: rgba(255, 130, 130, 0.6);
   }
   .helper .status {
-    display: inline-flex;
+    /* Hidden by default — the empty outlined "O" carries no
+       information in the incomplete state. The complete /
+       blocked rules below flip it back on once it has a
+       meaningful glyph (✓ or ✕) to show. */
+    display: none;
     align-items: center;
     justify-content: center;
     width: 16px;
@@ -95,15 +103,43 @@ export const HELPER_CSS = `
     transition: background 180ms ease, border-color 180ms ease, color 180ms ease;
   }
   .helper.complete .status {
+    display: inline-flex;
     background: #fff;
     border-color: #fff;
     color: #1a7a3a;
   }
   .helper.blocked .status {
+    display: inline-flex;
     background: #fff;
     border-color: #fff;
     color: #b32828;
   }
+  /* Optional speech-bubble-tail arrow: opt-in via the 'arrow'
+     option on createHelperWidget. The 6px triangle sits in the
+     8px gap each consumer already leaves between badge and
+     target, so no positioning math in consumers changes. */
+  .helper.arrow-left::before,
+  .helper.arrow-right::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    border: 6px solid transparent;
+    pointer-events: none;
+    transition: border-color 180ms ease;
+  }
+  .helper.arrow-left::before {
+    right: 100%;
+    border-right-color: rgba(20, 25, 35, 0.95);
+  }
+  .helper.arrow-right::after {
+    left: 100%;
+    border-left-color: rgba(20, 25, 35, 0.95);
+  }
+  .helper.complete.arrow-left::before { border-right-color: rgba(34, 139, 60, 0.95); }
+  .helper.complete.arrow-right::after { border-left-color: rgba(34, 139, 60, 0.95); }
+  .helper.blocked.arrow-left::before  { border-right-color: rgba(180, 40, 40, 0.95); }
+  .helper.blocked.arrow-right::after  { border-left-color: rgba(180, 40, 40, 0.95); }
   .helper .copy-btn {
     background: rgba(255, 255, 255, 0.14);
     color: #fff;
@@ -130,6 +166,11 @@ export const HELPER_CSS = `
 export function createHelperWidget(opts: HelperOptions): HelperWidget {
   const root = document.createElement("div");
   root.className = "helper";
+  if (opts.arrow === "left") {
+    root.classList.add("arrow-left");
+  } else if (opts.arrow === "right") {
+    root.classList.add("arrow-right");
+  }
 
   const textEl = document.createElement("span");
   textEl.textContent = opts.text;

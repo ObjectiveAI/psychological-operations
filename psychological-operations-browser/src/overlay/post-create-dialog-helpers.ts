@@ -123,7 +123,7 @@ function mount() {
   style.textContent = HELPER_CSS;
   shadow.appendChild(style);
 
-  widget = createHelperWidget({ text: HELPER_TEXT });
+  widget = createHelperWidget({ text: HELPER_TEXT, arrow: "right" });
   widget.element.style.display = "none";
   shadow.appendChild(widget.element);
 
