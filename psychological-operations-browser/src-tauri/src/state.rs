@@ -182,8 +182,16 @@ pub fn set_production_app_count(
 /// Atomically update every cookie-sourced fact from a single
 /// observation. Both `auth_token` and `user_id` land under a
 /// single lock so no intermediate `PanelState` leaks between them.
-/// Emits [`Output::SignedIn`] on every auth-token value change
-/// before triggering the panel recompute.
+///
+/// On every `auth_token` value change:
+///   1. Emits [`Output::SignedIn`].
+///   2. If the new value is `Some(_)` (signed in), bounces the
+///      CEF content surface to the mode's canonical home — X-App
+///      → `console.x.com/`, Psyop → `x.com/`. This lands the user
+///      on a stable page even if OAuth left them on an
+///      in-between origin.
+///
+/// Then triggers the panel recompute.
 pub fn apply_cookie_facts(
     handle: &AppHandle<Wry>,
     auth_token: Option<String>,
@@ -204,9 +212,28 @@ pub fn apply_cookie_facts(
             info,
         }
         .emit();
+
+        // Just signed in? Redirect to the mode's home page. No-op
+        // on signed-in → signed-out (x.com handles its own logout
+        // navigation; we don't pin them to a login URL).
+        if new_token.is_some() {
+            if let Some(url) = home_url_for_current_mode() {
+                crate::cef::navigate(url);
+            }
+        }
     }
 
     recompute_and_publish(handle);
+}
+
+/// Canonical home URL the post-sign-in redirect bounces to per
+/// mode. Matches [`crate::webview`]'s start-URL choice for each
+/// mode at browser-creation time.
+fn home_url_for_current_mode() -> Option<&'static str> {
+    match mode::get()? {
+        Mode::XApp => Some("https://console.x.com/"),
+        Mode::Psyop { .. } => Some("https://x.com/"),
+    }
 }
 
 // ---------------------------------------------------------------------
@@ -288,21 +315,24 @@ fn is_apps_tab(url: Option<&str>) -> bool {
 
 /// Re-run [`derive`] on the current facts; if the result differs from
 /// the last-published [`PanelState`], publish it everywhere that cares.
+///
+/// Post-sign-in redirect lives in [`apply_cookie_facts`] — it's
+/// driven by the cookie change itself, not by a panel transition
+/// (psyop mode has no `SignInToX` panel condition to transition
+/// out of, so a panel-gated trigger wouldn't catch it).
 pub fn recompute_and_publish(handle: &AppHandle<Wry>) {
     let new_state = {
         let facts = facts_slot().lock().expect("facts slot poisoned");
         derive(&facts)
     };
 
-    let prev_state = {
+    {
         let mut slot = panel_slot().lock().expect("panel slot poisoned");
         if slot.as_ref() == Some(&new_state) {
             return;
         }
-        let prev = slot.clone();
         *slot = Some(new_state.clone());
-        prev
-    };
+    }
 
     // 1. stdout JSONL
     let _ = Output::Panel {
@@ -315,29 +345,6 @@ pub fn recompute_and_publish(handle: &AppHandle<Wry>) {
 
     // 3. reflow — panel webview either takes its slice or collapses to 0
     webview::reflow(handle);
-
-    // 4. post-sign-in redirect: when we transition out of the
-    //    SignInToX condition in X-App mode, bounce the CEF content
-    //    surface to https://console.x.com/ so we land on the
-    //    canonical signed-in page even if OAuth left us in some
-    //    in-between origin.
-    let was_signin = matches!(
-        prev_state,
-        Some(PanelState::Show {
-            condition: PanelCondition::SignInToX,
-            ..
-        })
-    );
-    let is_signin = matches!(
-        new_state,
-        PanelState::Show {
-            condition: PanelCondition::SignInToX,
-            ..
-        }
-    );
-    if was_signin && !is_signin && matches!(mode::get(), Some(Mode::XApp)) {
-        crate::cef::navigate("https://console.x.com/");
-    }
 }
 
 // ---------------------------------------------------------------------
