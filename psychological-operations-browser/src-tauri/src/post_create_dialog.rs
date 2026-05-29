@@ -148,12 +148,15 @@ fn find_value_for_label(dialog: ElementRef<'_>, label: &str) -> Option<String> {
 }
 
 /// Look inside `el`'s descendants for an input/textarea/code/pre
-/// carrying a credential-looking value. Skips values that are
-/// just the label text itself (defensive).
+/// or a monospace `<p>` (X renders revealed credential values as
+/// `<p class="font-mono break-all ...">VALUE</p>` rather than a
+/// form input) carrying a credential-looking value. Skips values
+/// that are just the label text itself (defensive).
 fn scan_for_value(el: ElementRef<'_>, label: &str) -> Option<String> {
     let label_lower = label.to_lowercase();
     let input_sel =
-        Selector::parse("input, textarea, code, pre").expect("valid selector");
+        Selector::parse(r#"input, textarea, code, pre, p[class*="font-mono"]"#)
+            .expect("valid selector");
     for cand in el.select(&input_sel) {
         let value = match cand.value().name() {
             "input" | "textarea" => cand
@@ -187,4 +190,39 @@ fn scan_for_value(el: ElementRef<'_>, label: &str) -> Option<String> {
 
 fn is_likely_mask(s: &str) -> bool {
     s.chars().all(|c| c == '•' || c == '*' || c == 'x' || c == 'X' || c == '·')
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Sanitized capture of the real X developer console post-create
+    // dialog (May 2026 markup). Live secrets were replaced with
+    // FIXTURE_* placeholders; structure is byte-identical otherwise.
+    // Regenerate by overwriting with a real snapshot from
+    // `<x-app data dir>/recordings/post_create_dialog.html` and
+    // re-running the redaction step described in the fixture-add
+    // commit message.
+    const POST_CREATE_DIALOG_FIXTURE: &str =
+        include_str!("../tests/fixtures/post_create_dialog.html");
+
+    #[test]
+    fn extracts_all_three_credentials_from_real_markup() {
+        let got = extract(POST_CREATE_DIALOG_FIXTURE);
+        assert_eq!(
+            got.consumer_key.as_deref(),
+            Some("FIXTURE_CONSUMER_KEY_VALUE"),
+            "Consumer Key extraction regressed — X renders the value \
+             in a <p class=\"font-mono ...\">, scan_for_value must \
+             match that selector."
+        );
+        assert_eq!(
+            got.secret_key.as_deref(),
+            Some("FIXTURE_SECRET_KEY_VALUE"),
+        );
+        assert_eq!(
+            got.bearer_token.as_deref(),
+            Some("FIXTURE_BEARER_TOKEN_VALUE"),
+        );
+    }
 }
