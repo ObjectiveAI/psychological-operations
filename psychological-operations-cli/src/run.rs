@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand};
 use envconfig::Envconfig;
 
-use crate::x_app;
+use psychological_operations_x_api::x_app;
 use crate::ingest;
 use crate::invent;
 use crate::targets;

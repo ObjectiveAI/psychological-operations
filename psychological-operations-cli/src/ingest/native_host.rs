@@ -13,7 +13,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use super::extract::IncomingPostId;
 use super::identity::{self, Identity};
-use crate::x_app::config::{self as x_app_config, XAppConfig};
+use psychological_operations_x_api::x_app::config::{self as x_app_config, XAppConfig};
 use crate::db::Db;
 
 #[derive(Debug, Deserialize)]

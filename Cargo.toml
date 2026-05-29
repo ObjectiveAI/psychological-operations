@@ -5,4 +5,5 @@ members = [
     "psychological-operations-browser-sdk",
     "psychological-operations-cli",
     "psychological-operations-mcp",
+    "psychological-operations-x-api",
 ]

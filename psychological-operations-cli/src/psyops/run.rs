@@ -31,11 +31,11 @@ use crate::db::{Db, Origin, Post};
 use crate::error::Error;
 use crate::score::{self, ScoredPost};
 use crate::tweet::Tweet;
-use crate::x::http::Http;
-use crate::x::params::tweet_expansions_parameter::TweetExpansions;
-use crate::x::params::tweet_fields_parameter::TweetFields;
-use crate::x::params::user_fields_parameter::UserFields;
-use crate::x::types::TweetId;
+use psychological_operations_x_api::x::http::Http;
+use psychological_operations_x_api::x::params::tweet_expansions_parameter::TweetExpansions;
+use psychological_operations_x_api::x::params::tweet_fields_parameter::TweetFields;
+use psychological_operations_x_api::x::params::user_fields_parameter::UserFields;
+use psychological_operations_x_api::x::types::TweetId;
 
 use super::query::SearchEndpoint;
 use super::{ForYou, PsyOp, Query};
@@ -68,7 +68,7 @@ pub async fn run_psyop(
     // mocked. Mocked psyops never touch the real X API, so requiring
     // `x_app setup` for them would be pointless friction.
     if !psyop.mock_enabled() {
-        crate::x_app::config::ensure_setup(cfg)?;
+        psychological_operations_x_api::x_app::config::ensure_setup(cfg)?;
     }
 
     let commit = match commit_override {
@@ -452,8 +452,8 @@ fn standard_tweet_fields() -> Vec<TweetFields> {
 }
 
 async fn fetch_tweet(http: &Http, id: &str) -> Result<Option<Post>, Error> {
-    use crate::x::tweets::id::get;
-    use crate::x::tweets::id::http::get as call;
+    use psychological_operations_x_api::x::tweets::id::get;
+    use psychological_operations_x_api::x::tweets::id::http::get as call;
     let req = get::Request {
         id: TweetId(id.to_string()),
         tweet_fields: Some(standard_tweet_fields()),
@@ -472,8 +472,8 @@ async fn fetch_tweet(http: &Http, id: &str) -> Result<Option<Post>, Error> {
 }
 
 async fn search_recent(http: &Http, query: &str) -> Result<Vec<Post>, Error> {
-    use crate::x::tweets::search::recent::get;
-    use crate::x::tweets::search::recent::http::get as call;
+    use psychological_operations_x_api::x::tweets::search::recent::get;
+    use psychological_operations_x_api::x::tweets::search::recent::http::get as call;
     let req = get::Request {
         query: query.to_string(),
         tweet_fields: Some(standard_tweet_fields()),
@@ -493,8 +493,8 @@ async fn search_recent(http: &Http, query: &str) -> Result<Vec<Post>, Error> {
 }
 
 fn tweet_to_post(
-    t: &crate::x::types::Tweet,
-    includes: Option<&crate::x::types::Expansions>,
+    t: &psychological_operations_x_api::x::types::Tweet,
+    includes: Option<&psychological_operations_x_api::x::types::Expansions>,
 ) -> Post {
     let id = t.id.as_ref().map(|i| i.0.clone()).unwrap_or_default();
     let handle = lookup_handle(t, includes);
@@ -527,8 +527,8 @@ fn tweet_to_post(
 }
 
 fn lookup_handle(
-    t: &crate::x::types::Tweet,
-    includes: Option<&crate::x::types::Expansions>,
+    t: &psychological_operations_x_api::x::types::Tweet,
+    includes: Option<&psychological_operations_x_api::x::types::Expansions>,
 ) -> String {
     let author_id = match &t.author_id {
         Some(a) => &a.0,
@@ -558,9 +558,9 @@ fn derive_commit(name: &str, cfg: &crate::run::Config) -> Result<String, Error> 
     Ok(head.id().to_string())
 }
 
-fn default_id_request() -> crate::x::tweets::id::get::Request {
-    use crate::x::tweets::id::get::Request;
-    use crate::x::types::TweetId;
+fn default_id_request() -> psychological_operations_x_api::x::tweets::id::get::Request {
+    use psychological_operations_x_api::x::tweets::id::get::Request;
+    use psychological_operations_x_api::x::types::TweetId;
     Request {
         id: TweetId(String::new()),
         tweet_fields: None,
@@ -572,8 +572,8 @@ fn default_id_request() -> crate::x::tweets::id::get::Request {
     }
 }
 
-fn default_recent_request() -> crate::x::tweets::search::recent::get::Request {
-    use crate::x::tweets::search::recent::get::Request;
+fn default_recent_request() -> psychological_operations_x_api::x::tweets::search::recent::get::Request {
+    use psychological_operations_x_api::x::tweets::search::recent::get::Request;
     Request {
         query: String::new(),
         start_time: None,

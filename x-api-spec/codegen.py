@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Codegen: X API v2 OpenAPI spec -> psychological-operations-cli/src/x/.
+"""Codegen: X API v2 OpenAPI spec -> psychological-operations-x-api/src/x/.
 
 Reads x-api-spec/openapi.json (sha256-verified against
 openapi.meta.json), emits Rust serde types in a path-mirrored layout.
@@ -21,7 +21,7 @@ SCRIPT_DIR = Path(__file__).parent.resolve()
 REPO_ROOT = SCRIPT_DIR.parent
 SPEC_PATH = SCRIPT_DIR / "openapi.json"
 META_PATH = SCRIPT_DIR / "openapi.meta.json"
-OUT_DIR = REPO_ROOT / "psychological-operations-cli" / "src" / "x"
+OUT_DIR = REPO_ROOT / "psychological-operations-x-api" / "src" / "x"
 
 # Stable marker — the cleaner uses `content.startswith(GENERATED_MARKER)`
 # to identify auto-generated files. Must be byte-identical across all

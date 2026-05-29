@@ -8,11 +8,8 @@ pub mod input;
 pub mod score;
 pub mod targets;
 pub mod psyops;
-pub mod x;
 pub mod ingest;
 pub mod chromium;
-pub mod x_app;
-pub mod oauth;
 pub mod publish;
 mod invent;
 

@@ -345,64 +345,10 @@
       "description": "Permission identifier",
       "oneOf": [
         {
-          "description": "Allows the injected overlay to query the active session mode so it can resume URL reporting after a navigation re-mounts it.",
-          "type": "string",
-          "const": "allow-current-mode",
-          "markdownDescription": "Allows the injected overlay to query the active session mode so it can resume URL reporting after a navigation re-mounts it."
-        },
-        {
           "description": "Allows the panel webview to query the current derived PanelState on mount before any `psyops:panel` event has fired (or to recover state after a re-mount).",
           "type": "string",
           "const": "allow-current-panel",
           "markdownDescription": "Allows the panel webview to query the current derived PanelState on mount before any `psyops:panel` event has fired (or to recover state after a re-mount)."
-        },
-        {
-          "description": "Allows the injected overlay to query the current sign-in state on mount before any `psyops:signed_in` event has fired (or to recover state after a re-mount).",
-          "type": "string",
-          "const": "allow-current-signed-in",
-          "markdownDescription": "Allows the injected overlay to query the current sign-in state on mount before any `psyops:signed_in` event has fired (or to recover state after a re-mount)."
-        },
-        {
-          "description": "Allows the content webview's overlay to query the current X user-id (parsed from the `twid` cookie) for use as the per-user folder when storing X-App credentials.",
-          "type": "string",
-          "const": "allow-current-user-id",
-          "markdownDescription": "Allows the content webview's overlay to query the current X user-id (parsed from the `twid` cookie) for use as the per-user folder when storing X-App credentials."
-        },
-        {
-          "description": "Allows the injected overlay to signal that its `psyops:request` listener is registered, unblocking the Rust stdin reader.",
-          "type": "string",
-          "const": "allow-frontend-ready",
-          "markdownDescription": "Allows the injected overlay to signal that its `psyops:request` listener is registered, unblocking the Rust stdin reader."
-        },
-        {
-          "description": "Allows the content webview's overlay to ship the full document HTML to Rust whenever the post-create dialog is open. Rust snapshots the HTML to disk for inspection and extracts the three credentials (Consumer Key, Secret Key, Bearer Token) for per-user storage.",
-          "type": "string",
-          "const": "allow-process-post-create-html",
-          "markdownDescription": "Allows the content webview's overlay to ship the full document HTML to Rust whenever the post-create dialog is open. Rust snapshots the HTML to disk for inspection and extracts the three credentials (Consumer Key, Secret Key, Bearer Token) for per-user storage."
-        },
-        {
-          "description": "Allows the injected overlay to report URL changes for emission as `Output::Url` on stdout.",
-          "type": "string",
-          "const": "allow-report-url",
-          "markdownDescription": "Allows the injected overlay to report URL changes for emission as `Output::Url` on stdout."
-        },
-        {
-          "description": "Allows the content webview's overlay (apps-page helpers) to update the production-app-count fact in Rust state — drives the ClickCreateApp panel condition.",
-          "type": "string",
-          "const": "allow-set-production-app-count",
-          "markdownDescription": "Allows the content webview's overlay (apps-page helpers) to update the production-app-count fact in Rust state — drives the ClickCreateApp panel condition."
-        },
-        {
-          "description": "Allows the injected overlay to fulfill an in-flight stdio request with a Response (Ack or err).",
-          "type": "string",
-          "const": "allow-stdio-respond",
-          "markdownDescription": "Allows the injected overlay to fulfill an in-flight stdio request with a Response (Ack or err)."
-        },
-        {
-          "description": "Allows the content webview's overlay to ship a single X-App credential field (client_id / client_secret / bearer_token / access_token / access_token_secret) to Rust for per-handle on-disk storage.",
-          "type": "string",
-          "const": "allow-store-x-app-credential",
-          "markdownDescription": "Allows the content webview's overlay to ship a single X-App credential field (client_id / client_secret / bearer_token / access_token / access_token_secret) to Rust for per-handle on-disk storage."
         },
         {
           "description": "Default core plugins set.\n#### This default permission set includes:\n\n- `core:path:default`\n- `core:event:default`\n- `core:window:default`\n- `core:webview:default`\n- `core:app:default`\n- `core:image:default`\n- `core:resources:default`\n- `core:menu:default`\n- `core:tray:default`",
