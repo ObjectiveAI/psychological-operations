@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 /// to change without breaking callers that act on the condition.
 ///
 /// Snake-case on the wire — `sign_in_to_x`, `needs_x_app_setup`,
-/// `click_apps_tab`, `click_create_app`.
+/// `click_apps_tab`, `click_create_app`, `click_production_app`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PanelCondition {
@@ -33,10 +33,17 @@ pub enum PanelCondition {
     /// yet. Pair with the in-page sidebar pointer that points at
     /// the Apps sidebar link.
     ClickAppsTab,
-    /// X-App mode, on the Apps tab, but the overlay has reported
-    /// zero production apps. Pair with the in-page pointer at the
+    /// X-App mode, on the Apps tab, but the user needs to create
+    /// a new app — either no first-three creds yet, or first three
+    /// present + no production app in the list (we fall back to
+    /// the create flow). Pair with the in-page pointer at the
     /// "Create App" button.
     ClickCreateApp,
+    /// X-App mode, on the Apps tab, the first three creds are
+    /// on disk but the access tokens aren't, and the user has
+    /// at least one production app. Pair with the in-page
+    /// pointer at the first production app's row.
+    ClickProductionApp,
 }
 
 /// Everything the panel needs to render. Either it's hidden (zero
