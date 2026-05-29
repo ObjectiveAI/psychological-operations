@@ -37,6 +37,12 @@ raw-window-handle = "0.6"
 # to a persistent dir (e.g. `$env:USERPROFILE/.local/share/cef`) to
 # avoid re-downloading on `cargo clean`.
 cef = { version = "148.2.0", default-features = false }
+# Direct dep so cargo propagates `DEP_CEF_DLL_WRAPPER_CEF_DIR`
+# (the `links = "cef_dll_wrapper"` metadata) into our build.rs.
+# We don't use cef-dll-sys types directly — they're all re-
+# exported via `cef::sys` — but cargo only sets DEP_ env vars
+# for direct consumers of the `links`-emitting crate.
+cef-dll-sys = { version = "148.2.0", default-features = false }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 # Match cef-rs's windows-sys version so HWND types are the same
@@ -50,13 +56,22 @@ windows-sys = { version = "0.61", features = [
 # CEF on macOS needs Cocoa setup (NSApplication + AppDelegate) and
 # the CEF framework must be loaded dynamically via the library_loader
 # before any CEF function is called. We also need to find the
-# parent NSView from the Tauri window via raw-window-handle.
+# parent NSView from the Tauri window via raw-window-handle, and
+# call NSView::setFrame for reflow.
 objc2 = "0.6"
-objc2-foundation = "0.3"
+# NSRect / NSPoint / NSSize live under `NSGeometry`.
+objc2-foundation = { version = "0.3", features = ["NSGeometry"] }
 objc2-app-kit = { version = "0.3", default-features = false, features = [
     "NSApplication",
     "NSResponder",
     "NSView",
     "NSWindow",
 ] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# CEF on Linux uses X11 — XMoveResizeWindow for child-surface
+# reflow. `x11-dl` loads libX11 dynamically; we pair it with the
+# shared display CEF already owns via `cef::get_xdisplay()` so we
+# don't open a second connection.
+x11-dl = "2"
 

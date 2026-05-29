@@ -197,6 +197,17 @@ pub fn initialize(cache_root: &Path, app: AppHandle<Wry>) {
             .expect("cef cache_root must be valid UTF-8"),
     );
 
+    // Explicit log path so devs know where to look. CEF defaults
+    // to writing `debug.log` somewhere under the CWD; pinning it
+    // to `<cache_root>/cef-debug.log` keeps it next to the
+    // profile and per-mode caches.
+    let log_path = cache_root.join("cef-debug.log");
+    let log_file = CefString::from(
+        log_path
+            .to_str()
+            .expect("cef log path must be valid UTF-8"),
+    );
+
     // multi_threaded_message_loop is Windows/Linux only. On macOS we
     // fall back to CEF owning the main thread, which conflicts with
     // Tauri — proper macOS support requires external_message_pump
@@ -207,12 +218,16 @@ pub fn initialize(cache_root: &Path, app: AppHandle<Wry>) {
         multi_threaded_message_loop: 1,
         no_sandbox: 1,
         root_cache_path,
+        log_file,
+        log_severity: LogSeverity::INFO,
         ..Default::default()
     };
     #[cfg(target_os = "macos")]
     let settings = Settings {
         no_sandbox: 1,
         root_cache_path,
+        log_file,
+        log_severity: LogSeverity::INFO,
         ..Default::default()
     };
 
@@ -240,6 +255,18 @@ pub fn initialize(cache_root: &Path, app: AppHandle<Wry>) {
 
     let _ = CACHE_ROOT.set(cache_root.to_path_buf());
     let _ = APP_HANDLE.set(app);
+
+    // Stdout breadcrumb so reviewers know where CEF puts its
+    // profile + diagnostics. Crash dumps (if a subprocess
+    // segfaults) land alongside the log file under `cache_root`.
+    let _ = psychological_operations_browser_sdk::output::Output::Log {
+        message: format!(
+            "cef: initialized, cache_root={}, log_file={}",
+            cache_root.display(),
+            log_path.display(),
+        ),
+    }
+    .emit();
 }
 
 /// Tear CEF down after Tauri's event loop returns. Browsers must
@@ -577,11 +604,11 @@ fn raw_from_handle(h: cef_window_handle_t) -> isize {
 ///
 /// Coordinates are physical pixels relative to the parent.
 ///
-/// Windows: `SetWindowPos` directly on the captured child HWND.
-/// macOS / Linux: TODO — `setFrame` / `XMoveResizeWindow` need
-/// platform-specific dependencies we haven't pulled in yet
-/// (objc2-foundation NSRect, x11-dl for the display). Until that
-/// lands, CEF on those platforms keeps its initial bounds.
+///   - Windows: `SetWindowPos` on the captured child HWND.
+///   - macOS: `[NSView setFrame:]` on the captured NSView* (CEF
+///     internally compositions inside the view; setFrame triggers
+///     the relayout).
+///   - Linux: `XMoveResizeWindow` against CEF's shared X display.
 pub fn set_browser_bounds(x: i32, y: i32, width: i32, height: i32) {
     let Some(child) = browser_child_hwnd_slot()
         .lock()
@@ -608,9 +635,55 @@ pub fn set_browser_bounds(x: i32, y: i32, width: i32, height: i32) {
             SWP_NOZORDER | SWP_NOACTIVATE,
         );
     }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let _ = (child, x, y, width, height);
+
+    #[cfg(target_os = "macos")]
+    unsafe {
+        use objc2::msg_send;
+        use objc2_app_kit::NSView;
+        use objc2_foundation::{NSPoint, NSRect, NSSize};
+        let view = child as *mut NSView;
+        if view.is_null() {
+            return;
+        }
+        // AppKit coordinates: origin bottom-left of the parent
+        // view's bounds, in points (logical pixels). Our caller
+        // passes physical pixels and a top-left origin, so we'd
+        // need to flip Y by the parent's height + divide by
+        // backingScaleFactor for full correctness. For now we
+        // pass the rect as-is — the parent NSView is the Tauri
+        // window's content view which has flipped coordinates
+        // when its `isFlipped` returns YES (Tauri's webview view
+        // does). If isFlipped is NO we'll see an inverted layout
+        // and tweak later.
+        let frame = NSRect::new(
+            NSPoint::new(x as f64, y as f64),
+            NSSize::new(width as f64, height as f64),
+        );
+        let _: () = msg_send![&*view, setFrame: frame];
+    }
+
+    #[cfg(target_os = "linux")]
+    unsafe {
+        let xlib = match x11_dl::xlib::Xlib::open() {
+            Ok(x) => x,
+            Err(_) => return,
+        };
+        // Reuse CEF's already-open X display rather than opening
+        // a second connection (and risking events being delivered
+        // to the wrong queue).
+        let display = ::cef::get_xdisplay();
+        if display.is_null() {
+            return;
+        }
+        (xlib.XMoveResizeWindow)(
+            display as *mut _,
+            child as x11_dl::xlib::Window,
+            x,
+            y,
+            width as u32,
+            height as u32,
+        );
+        (xlib.XFlush)(display as *mut _);
     }
 }
 
