@@ -115,49 +115,46 @@ function findProductionAppLinks(): HTMLAnchorElement[] {
   return out;
 }
 
-/** Right-edge of the visible row card containing `anchor`.
+/** Right-edge of the visible row containing `anchor`, including
+ *  any per-row action controls (Move, Delete, etc.) that may
+ *  not be `<button>` elements and may not be vertically
+ *  centered with the inner app-name anchor.
  *
- *  Two complementary strategies, take the maximum:
- *    1. **Walk-up ancestor right-edge.** Climb up to 8 levels
- *       (stopping at <section>) and track the widest right edge
- *       seen — picks up any wrapping card / row div whose right
- *       edge extends past the inner text anchor.
- *    2. **Rightmost button on the same row.** Scan every
- *       `<button>` inside the production section, keep the
- *       ones whose vertical center is within ~25 px of the
- *       anchor's vertical center (i.e. share the row), take
- *       the rightmost right-edge. This catches the Delete
- *       button at the row's far right even when no ancestor
- *       container reports a wide enough bounding rect (common
- *       when the Delete button is rendered via an absolute /
- *       portaled action menu). */
+ *  Strategy: each app row in the production section has its
+ *  own `/apps/<id>` anchor — use those as row dividers.
+ *  Our row spans from our anchor's top to the next anchor's
+ *  top (or section bottom if we're last). Then sweep every
+ *  descendant of the section whose vertical center falls in
+ *  that band and keep the rightmost right-edge. That picks
+ *  up the row's controls regardless of element type, nesting,
+ *  or whether they live in a portal-rendered popover. */
 function findRowRightEdge(anchor: HTMLAnchorElement): number {
   const aRect = anchor.getBoundingClientRect();
   let right = aRect.right;
 
-  // (1) widest right-edge among ancestors
-  let el: HTMLElement = anchor;
-  for (let i = 0; i < 8; i++) {
-    if (!el.parentElement) break;
-    if (el.parentElement.tagName === "SECTION") break;
-    el = el.parentElement;
-    const r = el.getBoundingClientRect();
-    if (r.right > right) right = r.right;
-  }
-
-  // (2) rightmost button vertically aligned with the anchor
   const section = anchor.closest("section");
-  if (section) {
-    const aCenter = (aRect.top + aRect.bottom) / 2;
-    for (const btn of section.querySelectorAll<HTMLElement>(
-      'button, [role="button"]',
-    )) {
-      const r = btn.getBoundingClientRect();
-      if (r.width < 1 || r.height < 1) continue;
-      const cy = (r.top + r.bottom) / 2;
-      if (Math.abs(cy - aCenter) > 25) continue;
-      if (r.right > right) right = r.right;
-    }
+  if (!section) return right;
+
+  // All row anchors in this section, sorted top→bottom. The
+  // next anchor's top is our row's lower bound.
+  const rowTops: { el: HTMLAnchorElement; top: number }[] = [];
+  for (const a of section.querySelectorAll<HTMLAnchorElement>("a[href]")) {
+    const href = a.getAttribute("href") ?? "";
+    if (!/^\/accounts\/\d+\/apps\/\d+/.test(href)) continue;
+    rowTops.push({ el: a, top: a.getBoundingClientRect().top });
+  }
+  rowTops.sort((x, y) => x.top - y.top);
+  const myIdx = rowTops.findIndex((x) => x.el === anchor);
+  const myTop = rowTops[myIdx]?.top ?? aRect.top;
+  const nextTop = rowTops[myIdx + 1]?.top ?? Infinity;
+
+  // Every visible element whose vertical center is in [myTop, nextTop).
+  for (const el of section.querySelectorAll<HTMLElement>("*")) {
+    const r = el.getBoundingClientRect();
+    if (r.width < 1 || r.height < 1) continue;
+    const cy = (r.top + r.bottom) / 2;
+    if (cy < myTop - 5 || cy >= nextTop - 5) continue;
+    if (r.right > right) right = r.right;
   }
 
   return right;
