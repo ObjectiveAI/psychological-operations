@@ -82,6 +82,30 @@ pub fn store_one(
 ///     from the `twid` cookie also fit — those range from
 ///     ~7 digits (early-era accounts) to ~19 digits (modern
 ///     Snowflake IDs).
+/// `true` iff all three X-App OAuth credentials we care about
+/// (consumer key, secret key, bearer token) are present on disk
+/// under `handles/<normalize_handle(user_id)>/`. Used by
+/// [`crate::state::derive`] to decide whether the panel still
+/// needs to nudge the user through the create-app flow.
+///
+/// Cheap: three `Path::exists` checks. Returns `false` on any
+/// disk error or invalid handle — anything we can't confidently
+/// read is treated as "creds missing", which is the safe default
+/// for the UX (worst case: we ask the user to redo the flow).
+pub fn all_three_present(app: &AppHandle<Wry>, user_id: &str) -> bool {
+    let Ok(handle) = normalize_handle(user_id) else { return false };
+    let dir = webview::mode_data_dir(app, &Mode::XApp)
+        .join("handles")
+        .join(&handle);
+    [
+        XAppCredentialField::ConsumerKey,
+        XAppCredentialField::SecretKey,
+        XAppCredentialField::BearerToken,
+    ]
+    .iter()
+    .all(|f| dir.join(f.file_name()).exists())
+}
+
 fn normalize_handle(raw: &str) -> Result<String, String> {
     let trimmed = raw
         .trim()

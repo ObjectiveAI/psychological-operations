@@ -20,7 +20,6 @@ import { invoke, registerPushHandler } from "./ipc";
 import { installSpaUrlReporter } from "./spa-url";
 import { installOnboardingHelpers } from "./onboarding-helpers";
 import { installAppsTabHelper } from "./apps-tab-helper";
-import { installAppsPageHelpers } from "./apps-page-helpers";
 import { installCreateAppDialogHelpers } from "./create-app-dialog-helpers";
 import { installPostCreateDialogHelpers } from "./post-create-dialog-helpers";
 
@@ -35,7 +34,6 @@ type Mode = { type: "x_app" } | null;
 let urlReporterUninstall: (() => void) | null = null;
 let onboardingHelpersUninstall: (() => void) | null = null;
 let appsTabHelperUninstall: (() => void) | null = null;
-let appsPageHelpersUninstall: (() => void) | null = null;
 let createAppDialogHelpersUninstall: (() => void) | null = null;
 let postCreateDialogHelpersUninstall: (() => void) | null = null;
 
@@ -52,11 +50,6 @@ function stopOnboardingHelpers() {
 function stopAppsTabHelper() {
   appsTabHelperUninstall?.();
   appsTabHelperUninstall = null;
-}
-
-function stopAppsPageHelpers() {
-  appsPageHelpersUninstall?.();
-  appsPageHelpersUninstall = null;
 }
 
 function stopCreateAppDialogHelpers() {
@@ -94,7 +87,6 @@ async function handleRequest(payload: unknown) {
       stopUrlReporter();
       stopOnboardingHelpers();
       stopAppsTabHelper();
-      stopAppsPageHelpers();
       stopCreateAppDialogHelpers();
       stopPostCreateDialogHelpers();
 
@@ -155,7 +147,6 @@ async function handleRequest(payload: unknown) {
       urlReporterUninstall = installSpaUrlReporter();
       onboardingHelpersUninstall = installOnboardingHelpers();
       appsTabHelperUninstall = installAppsTabHelper();
-      appsPageHelpersUninstall = installAppsPageHelpers();
       createAppDialogHelpersUninstall = installCreateAppDialogHelpers();
       postCreateDialogHelpersUninstall = installPostCreateDialogHelpers();
       console.log("[psyops-overlay] helpers installed");

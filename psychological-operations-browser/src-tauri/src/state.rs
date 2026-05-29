@@ -4,7 +4,7 @@
 //! Watchers (cookies + URL reporting) and the stdio dispatcher (for
 //! mode) contribute raw observations via [`set_mode`],
 //! [`apply_cookie_facts`], [`set_current_url`],
-//! [`set_production_app_count`]. Each setter updates the [`Facts`]
+//! [`recheck_credentials`]. Each setter updates the [`Facts`]
 //! slot and calls [`recompute_and_publish`], which:
 //!
 //! 1. Runs the pure [`derive`] function over the new facts.
@@ -55,18 +55,24 @@ pub struct Facts {
     /// special-case those modes. Cleared by [`set_mode`] when
     /// leaving X-App.
     pub current_url: Option<String>,
-    /// Count of *production* apps the content overlay observed
-    /// in the Apps list. `None` ⇒ the overlay hasn't reported a
-    /// count yet (we're not on /apps, or it's still scraping).
-    /// `Some(0)` triggers the `ClickCreateApp` panel condition;
-    /// `Some(n>0)` keeps the panel hidden. X-App-only, cleared
-    /// alongside `current_url` when leaving X-App.
-    pub production_app_count: Option<u32>,
     /// X user-id parsed from the `twid` cookie by the cookies
     /// watcher. Stable per signed-in account. Used by the
     /// overlay's per-user credential-storage flow. `None` ⇒ no
     /// twid cookie yet (signed out or pre-snapshot).
     pub user_id: Option<String>,
+    /// `Some(true)` iff all three X-App OAuth credentials
+    /// (consumer key, secret key, bearer token) are on disk
+    /// under `handles/<user_id>/` for the currently-signed-in
+    /// user. `Some(false)` ⇒ at least one is missing → the
+    /// panel pushes the user through the create-app flow.
+    /// `None` ⇒ `user_id` isn't known yet (panel stays
+    /// hidden until we can answer the question).
+    ///
+    /// Refreshed atomically inside [`apply_cookie_facts`] on
+    /// every cookie snapshot, and on-demand by
+    /// [`recheck_credentials`] after a freshly-extracted set
+    /// of credentials lands on disk.
+    pub credentials_complete: Option<bool>,
 }
 
 // ---------------------------------------------------------------------
@@ -115,7 +121,7 @@ pub fn current_user_id() -> Option<String> {
 /// `stdio::dispatch_request` right after [`mode::set`]. One fact,
 /// one recompute — safe to use as a standalone setter.
 ///
-/// EVERY mode change clears the cookie / URL / count facts: the
+/// EVERY mode change clears the cookie / URL / creds facts: the
 /// new mode runs under a different CEF `RequestContext` with a
 /// different cookie store, so stale facts from the prior mode
 /// would lie about the new mode's state until fresh observations
@@ -134,7 +140,7 @@ pub fn set_mode(handle: &AppHandle<Wry>, new_mode: Option<Mode>) {
         facts.auth_token = None;
         facts.user_id = None;
         facts.current_url = None;
-        facts.production_app_count = None;
+        facts.credentials_complete = None;
     }
     recompute_and_publish(handle);
 }
@@ -157,26 +163,34 @@ pub fn set_current_url(handle: &AppHandle<Wry>, url: String) {
     recompute_and_publish(handle);
 }
 
-/// Update the production-app count the overlay observed on
-/// `/apps`. X-App-only (matches `set_current_url`). Passing
-/// `None` clears the fact — used when the overlay leaves /apps
-/// so a stale count can't drive `ClickCreateApp` on a different
-/// page.
-pub fn set_production_app_count(
-    handle: &AppHandle<Wry>,
-    count: Option<u32>,
-) {
-    {
+/// Re-scan the on-disk credentials store under the current
+/// `user_id` and update [`Facts::credentials_complete`].
+/// Triggers a recompute only if the value changed.
+///
+/// Two callers:
+///   - [`apply_cookie_facts`] (after every cookie snapshot, so
+///     a fresh `user_id` immediately produces the right
+///     answer);
+///   - [`crate::stdio::process_post_create_html_inner`] (right
+///     after a successful triple-write, so the panel goes
+///     `Hidden` without waiting for the next cookies kick).
+pub fn recheck_credentials(handle: &AppHandle<Wry>) {
+    let changed = {
         let mut facts = facts_slot().lock().expect("facts slot poisoned");
-        if !matches!(facts.mode, Some(Mode::XApp)) {
-            return;
+        let next = facts
+            .user_id
+            .as_deref()
+            .map(|uid| crate::credentials::all_three_present(handle, uid));
+        if facts.credentials_complete == next {
+            false
+        } else {
+            facts.credentials_complete = next;
+            true
         }
-        if facts.production_app_count == count {
-            return;
-        }
-        facts.production_app_count = count;
+    };
+    if changed {
+        recompute_and_publish(handle);
     }
-    recompute_and_publish(handle);
 }
 
 /// Atomically update every cookie-sourced fact from a single
@@ -202,6 +216,13 @@ pub fn apply_cookie_facts(
         let token_changed = facts.auth_token != auth_token;
         facts.auth_token = auth_token.clone();
         facts.user_id = user_id;
+        // creds_complete is a function of user_id + disk
+        // contents; recompute under the same lock so derive()
+        // never sees a mismatched (user_id, creds_complete) pair.
+        facts.credentials_complete = facts
+            .user_id
+            .as_deref()
+            .map(|uid| crate::credentials::all_three_present(handle, uid));
         if token_changed { Some(auth_token) } else { None }
     };
 
@@ -259,26 +280,33 @@ pub fn derive(facts: &Facts) -> PanelState {
                     message: "Set up the X app.".into(),
                 };
             }
-            if is_apps_tab(url) {
-                // On the Apps tab (list or specific app).
-                //   Some(0)   → invite the user to create one.
-                //   Some(n>0) → they already have one; hidden.
-                //   None      → overlay hasn't reported yet —
-                //               hidden to avoid flash-of-wrong-
-                //               message before the scrape lands.
-                if facts.production_app_count == Some(0) {
-                    return PanelState::Show {
-                        condition: PanelCondition::ClickCreateApp,
-                        message: "Click Create App.".into(),
-                    };
+            // Source of truth for "do they need to create an
+            // app?" is the on-disk credentials store, not the
+            // page DOM. `credentials_complete` is refreshed by
+            // `apply_cookie_facts` (every cookie kick) and by
+            // `recheck_credentials` (right after a fresh write).
+            //   Some(true)  → done; hide the panel.
+            //   Some(false) → push them through the flow
+            //                 (apps tab → create app).
+            //   None        → user_id unknown — stay quiet so
+            //                 we don't flash a wrong message
+            //                 before the first cookie snapshot.
+            match facts.credentials_complete {
+                Some(true) => PanelState::Hidden,
+                Some(false) => {
+                    if is_apps_tab(url) {
+                        PanelState::Show {
+                            condition: PanelCondition::ClickCreateApp,
+                            message: "Click Create App.".into(),
+                        }
+                    } else {
+                        PanelState::Show {
+                            condition: PanelCondition::ClickAppsTab,
+                            message: "Click the Apps tab.".into(),
+                        }
+                    }
                 }
-                return PanelState::Hidden;
-            }
-            // Signed in, past onboarding, not on the Apps tab —
-            // push them to it.
-            PanelState::Show {
-                condition: PanelCondition::ClickAppsTab,
-                message: "Click the Apps tab.".into(),
+                None => PanelState::Hidden,
             }
         }
         _ => PanelState::Hidden,

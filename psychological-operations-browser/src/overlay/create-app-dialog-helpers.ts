@@ -21,10 +21,9 @@ import {
   type HelperWidget,
 } from "./helper-widget";
 import { subscribeUrl } from "./spa-url";
-import { isCreateAppDialogOpen } from "./apps-page-helpers";
 
 // =================================================================
-// URL gate (mirror of apps-page-helpers' check)
+// URL + dialog gates
 // =================================================================
 function isOnAppsTab(url: string): boolean {
   try {
@@ -36,6 +35,20 @@ function isOnAppsTab(url: string): boolean {
   } catch {
     return false;
   }
+}
+
+/** True iff the "Create New Client Application" dialog is open on
+ *  the page. Exact heading-text match — Radix dialogs render the
+ *  heading as an `<h2>` inside `[role="dialog"]`. */
+function isCreateAppDialogOpen(): boolean {
+  for (const d of document.querySelectorAll('[role="dialog"]')) {
+    const heading = d.querySelector<HTMLElement>(
+      'h1, h2, h3, [role="heading"]',
+    );
+    const text = heading?.textContent?.trim() ?? "";
+    if (text === "Create New Client Application") return true;
+  }
+  return false;
 }
 
 // =================================================================

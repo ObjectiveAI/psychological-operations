@@ -296,14 +296,7 @@ fn dispatch(app: &AppHandle<Wry>, url: &str, body: &[u8]) -> (i32, String, Vec<u
             },
             Err(e) => error(400, e),
         },
-        "set_production_app_count" => match parse_body::<SetCountArgs>(body) {
-            Ok(args) => match stdio::set_production_app_count_inner(app, args.count) {
-                Ok(()) => ok_json(&Value::Null),
-                Err(e) => error(500, e),
-            },
-            Err(e) => error(400, e),
-        },
-        "process_post_create_html" => match parse_body::<ProcessHtmlArgs>(body) {
+"process_post_create_html" => match parse_body::<ProcessHtmlArgs>(body) {
             Ok(args) => match stdio::process_post_create_html_inner(app, args.html) {
                 Ok(stored) => ok_json(&Value::from(stored)),
                 Err(e) => error(500, e),
@@ -350,11 +343,6 @@ struct StdioRespondArgs {
 #[derive(Deserialize)]
 struct ReportUrlArgs {
     url: String,
-}
-
-#[derive(Deserialize)]
-struct SetCountArgs {
-    count: Option<u32>,
 }
 
 #[derive(Deserialize)]

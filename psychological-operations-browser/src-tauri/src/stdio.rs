@@ -267,17 +267,6 @@ pub fn report_url_inner(app: &AppHandle<Wry>, url: String) -> Result<(), String>
     Ok(())
 }
 
-pub fn set_production_app_count_inner(
-    app: &AppHandle<Wry>,
-    count: Option<u32>,
-) -> Result<(), String> {
-    let app_for_task = app.clone();
-    tauri::async_runtime::spawn(async move {
-        state::set_production_app_count(&app_for_task, count);
-    });
-    Ok(())
-}
-
 pub fn process_post_create_html_inner(
     app: &AppHandle<Wry>,
     html: String,
@@ -319,6 +308,13 @@ pub fn process_post_create_html_inner(
             }
         }
     }
+    // Refresh `Facts::credentials_complete` from disk so the
+    // panel transitions to Hidden the moment the third file
+    // lands — no waiting for the next cookie kick.
+    let app_for_task = app.clone();
+    tauri::async_runtime::spawn(async move {
+        state::recheck_credentials(&app_for_task);
+    });
     Ok(stored)
 }
 
