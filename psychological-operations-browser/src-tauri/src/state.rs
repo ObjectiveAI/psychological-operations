@@ -350,15 +350,33 @@ pub fn derive(facts: &Facts) -> PanelState {
             //   → stay quiet so we don't flash a wrong
             //   message between mount and the first cookie
             //   snapshot / apps-page scrape.
-            let on_apps = is_apps_tab(url);
+            // Three URL bands:
+            //   on_list  — strictly /apps[/]?, the apps list
+            //              page. Count-driven conditions
+            //              (ClickCreateApp / ClickProductionApp)
+            //              only ever fire here.
+            //   on_area  — anywhere under /apps/* including
+            //              individual app pages. While in the
+            //              area but not on the list (i.e. inside
+            //              an app), the panel hides — the
+            //              access-token capture flow that fills
+            //              that space lands in a future plan.
+            //   else     — outside the Apps area entirely, push
+            //              them in via ClickAppsTab.
+            let on_list = is_apps_list(url);
+            let on_area = is_apps_tab(url);
             match (facts.credentials_complete, facts.access_tokens_complete) {
                 (None, _) => PanelState::Hidden,
                 (Some(false), _) => {
-                    if on_apps {
+                    if on_list {
                         PanelState::Show {
                             condition: PanelCondition::ClickCreateApp,
                             message: "Click Create App.".into(),
                         }
+                    } else if on_area {
+                        // Inside an app — quiet until the future
+                        // per-app flow has something to say.
+                        PanelState::Hidden
                     } else {
                         PanelState::Show {
                             condition: PanelCondition::ClickAppsTab,
@@ -368,11 +386,17 @@ pub fn derive(facts: &Facts) -> PanelState {
                 }
                 (Some(true), Some(true)) => PanelState::Hidden,
                 (Some(true), Some(false) | None) => {
-                    if !on_apps {
+                    if !on_area {
                         PanelState::Show {
                             condition: PanelCondition::ClickAppsTab,
                             message: "Click the Apps tab.".into(),
                         }
+                    } else if !on_list {
+                        // Inside an app — per-app access-token
+                        // capture lands in a future plan; until
+                        // then, stay quiet so we don't shove the
+                        // user back out of the page they need.
+                        PanelState::Hidden
                     } else {
                         match facts.production_app_count {
                             Some(0) => PanelState::Show {
@@ -419,6 +443,25 @@ fn is_apps_tab(url: Option<&str>) -> bool {
     matches!(segs.next(), Some("accounts"))
         && segs.next().is_some_and(|s| s.chars().all(|c| c.is_ascii_digit()))
         && matches!(segs.next(), Some("apps"))
+}
+
+/// Stricter sibling of [`is_apps_tab`]: only the apps LIST page
+/// itself (`/accounts/<id>/apps[/]?`), not any individual-app
+/// sub-route. `derive` uses it to gate count-driven panel
+/// conditions — those only make sense when the list (and its
+/// "Create App" button + production section) is the page being
+/// viewed.
+fn is_apps_list(url: Option<&str>) -> bool {
+    let Some(url) = url else { return false };
+    let Ok(parsed) = Url::parse(url) else { return false };
+    if parsed.host_str() != Some("console.x.com") {
+        return false;
+    }
+    let mut segs = parsed.path().split('/').filter(|s| !s.is_empty());
+    matches!(segs.next(), Some("accounts"))
+        && segs.next().is_some_and(|s| s.chars().all(|c| c.is_ascii_digit()))
+        && matches!(segs.next(), Some("apps"))
+        && segs.next().is_none()
 }
 
 /// Re-run [`derive`] on the current facts; if the result differs from

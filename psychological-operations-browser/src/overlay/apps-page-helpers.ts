@@ -47,12 +47,20 @@ const HELPER_TEXT = "Click here";
 // URL + DOM predicates
 // =================================================================
 
-function isOnAppsTab(url: string): boolean {
+/** Strict apps-list check — only `/apps[/]?`, not individual
+ *  app sub-routes. The count reporter + both pointers only make
+ *  sense on the list page; on an individual app's page the
+ *  production section / Create App button don't exist, and a
+ *  stale scrape there would flip the panel to ClickCreateApp.
+ *  Distinct from `apps-tab-helper`'s broad isOnAppsTab, which
+ *  intentionally includes sub-routes for "user is in the Apps
+ *  area" semantics. */
+function isOnAppsList(url: string): boolean {
   try {
     const u = new URL(url);
     return (
       u.host === "console.x.com" &&
-      /^\/accounts\/\d+\/apps(\/|$)/.test(u.pathname)
+      /^\/accounts\/\d+\/apps\/?$/.test(u.pathname)
     );
   } catch {
     return false;
@@ -120,6 +128,13 @@ let prodAppWidget: HelperWidget | null = null;
 let rafId: number | null = null;
 let urlUnsubscribe: (() => void) | null = null;
 let lastReportedCount: number | "uninit" = "uninit";
+/// Consecutive ticks where the production-app scrape returned 0.
+/// Non-zero counts are trusted immediately (a section + anchors
+/// did render). Zero counts are ambiguous — could be "page still
+/// fetching the apps list" or "user genuinely has zero apps".
+/// We require ~500ms of consistent 0s before reporting one to
+/// Rust to suppress a flash to ClickCreateApp on initial mount.
+let zeroStreak = 0;
 
 function mount() {
   if (rootEl) return;
@@ -151,6 +166,7 @@ function mount() {
 
   document.body.appendChild(rootEl);
   lastReportedCount = "uninit";
+  zeroStreak = 0;
   rafId = requestAnimationFrame(tick);
 }
 
@@ -179,9 +195,23 @@ function tick() {
   // Don't double-count while a dialog is open (the create-app
   // dialog can fade the underlying list out of the DOM in some
   // states; whatever count we'd get isn't authoritative).
-  if (!isCreateAppDialogOpen()) {
+  // Also require the Create App button — its presence is a
+  // cheap proxy for "the page header has rendered", which the
+  // React app does synchronously after mount but before the
+  // async apps-fetch resolves. Without this gate, the very
+  // first tick can scrape 0 and flip Rust to ClickCreateApp.
+  const headerReady = !!findCreateAppButton();
+  if (!isCreateAppDialogOpen() && headerReady) {
     const count = countProductionApps();
-    if (count !== lastReportedCount) {
+    if (count === 0) {
+      // Debounce 0 only — non-zero scrapes are always trustable
+      // (the production section exists if we found a row).
+      zeroStreak += 1;
+    } else {
+      zeroStreak = 0;
+    }
+    const trustable = count !== 0 || zeroStreak >= 30;
+    if (trustable && count !== lastReportedCount) {
       lastReportedCount = count;
       invoke("set_production_app_count", { count }).catch(() => {});
     }
@@ -227,7 +257,7 @@ function tick() {
 
 export function installAppsPageHelpers(): () => void {
   urlUnsubscribe = subscribeUrl((url) => {
-    if (isOnAppsTab(url)) {
+    if (isOnAppsList(url)) {
       mount();
     } else {
       unmount();
