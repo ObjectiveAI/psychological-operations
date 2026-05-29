@@ -6,4 +6,27 @@ description = "Wire types + event-name constants for the psychological-operation
 
 [dependencies]
 serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.150"
+serde_json = { version = "1.0.149", features = ["preserve_order"] }
+# Cookies module — read the on-disk CEF cookies SQLite directly so
+# external consumers (CLI, future get_auth_data wrapper) can ask
+# "who's signed in?" without going through the running browser.
+# `bundled` ships SQLite C source inside rusqlite — no system dep.
+#
+# Pinned to 0.31 to match psychological-operations-cli — Cargo's
+# `links = "sqlite3"` constraint allows only one libsqlite3-sys
+# version in the dependency graph. Bump both crates together when
+# the CLI moves.
+rusqlite = { version = "0.31.0", features = ["bundled"] }
+base64 = "0.22.1"
+aes-gcm = "0.10.3"
+
+# Chromium encrypts cookie values via AES-GCM with a key wrapped
+# in Windows DPAPI. CryptUnprotectData lives in
+# Win32_Security_Cryptography. Cross-platform decrypt support
+# (macOS Keychain, Linux libsecret) will land under their own
+# cfg branches when needed.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = [
+    "Win32_Security_Cryptography",
+    "Win32_Foundation",
+] }

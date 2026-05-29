@@ -35,6 +35,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
+use psychological_operations_browser_sdk::cookies::parse_twid;
 use psychological_operations_browser_sdk::mode::Mode;
 use tauri::async_runtime::{JoinHandle, spawn, spawn_blocking};
 use tauri::{AppHandle, Manager, Url, Wry};
@@ -120,20 +121,6 @@ fn snapshot_sync(auth_url: &Url) -> CookieSnapshot {
         }
     }
     snap
-}
-
-/// `twid` is shaped `u%3D<numeric-id>` (URL-encoded `u=<id>`).
-/// Pull out the digits. We match both the URL-encoded and decoded
-/// prefixes to be safe — different consumers of the cookie store
-/// may or may not URL-decode for us.
-fn parse_twid(raw: &str) -> Option<String> {
-    let id = raw
-        .strip_prefix("u%3D")
-        .or_else(|| raw.strip_prefix("u="))?;
-    if id.is_empty() || !id.chars().all(|c| c.is_ascii_digit()) {
-        return None;
-    }
-    Some(id.to_string())
 }
 
 /// Push every fact from a fresh snapshot into the [`crate::state`]
