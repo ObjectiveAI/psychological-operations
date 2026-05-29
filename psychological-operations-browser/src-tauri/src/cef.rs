@@ -222,13 +222,52 @@ pub fn initialize(cache_root: &Path, app: AppHandle<Wry>) {
         log_severity: LogSeverity::INFO,
         ..Default::default()
     };
+
+    // macOS: NSApplication owns the main-thread message loop;
+    // CEF can't take it over via `multi_threaded_message_loop`.
+    // Use `external_message_pump` instead — CEF calls our
+    // `BrowserProcessHandler::on_schedule_message_pump_work`
+    // ([`PumpScheduler`]) which dispatches `cef::do_message_loop_work`
+    // onto the Tauri main thread after the requested delay.
+    //
+    // The bundle paths point at the `.app` layout produced by
+    // `bundle-cef-app` (via scripts/build-macos.sh):
+    //   <App>.app/Contents/MacOS/<bin>             ← current_exe
+    //   <App>.app/Contents/Frameworks/Chromium Embedded Framework.framework
+    //   <App>.app/Contents/Frameworks/<helper>.app/Contents/MacOS/<helper>
     #[cfg(target_os = "macos")]
-    let settings = Settings {
-        no_sandbox: 1,
-        root_cache_path,
-        log_file,
-        log_severity: LogSeverity::INFO,
-        ..Default::default()
+    let settings = {
+        let exe = std::env::current_exe().expect("current_exe");
+        let bundle = exe
+            .parent()
+            .and_then(|p| p.parent())
+            .and_then(|p| p.parent())
+            .expect("current_exe not inside .app bundle layout");
+        let frameworks = bundle.join("Contents").join("Frameworks");
+        let framework = frameworks.join("Chromium Embedded Framework.framework");
+        let helper_name = "psychological_operations_browser_helper";
+        let helper_exe = frameworks
+            .join(format!("{helper_name}.app"))
+            .join("Contents")
+            .join("MacOS")
+            .join(helper_name);
+        Settings {
+            no_sandbox: 1,
+            external_message_pump: 1,
+            root_cache_path,
+            log_file,
+            log_severity: LogSeverity::INFO,
+            main_bundle_path: CefString::from(
+                bundle.to_str().expect("bundle path utf-8"),
+            ),
+            framework_dir_path: CefString::from(
+                framework.to_str().expect("framework path utf-8"),
+            ),
+            browser_subprocess_path: CefString::from(
+                helper_exe.to_str().expect("helper path utf-8"),
+            ),
+            ..Default::default()
+        }
     };
 
     // `::cef::` is the absolute path to the extern crate (this
@@ -578,6 +617,46 @@ wrap_app! {
                 | SchemeOptions::CORS_ENABLED.get_raw()
                 | SchemeOptions::FETCH_ENABLED.get_raw();
             r.add_custom_scheme(Some(&name), options);
+        }
+
+        // macOS only: hand CEF our message-pump scheduler so it
+        // can drive `do_message_loop_work` calls on the main
+        // thread (NSApplication owns the loop; we share).
+        #[cfg(target_os = "macos")]
+        fn browser_process_handler(&self) -> Option<BrowserProcessHandler> {
+            Some(PumpScheduler::new())
+        }
+    }
+}
+
+/// macOS message-pump scheduler. CEF invokes
+/// `on_schedule_message_pump_work(delay_ms)` whenever it has
+/// pending work; we delay (via tokio sleep) then post a
+/// `do_message_loop_work` call onto the Tauri main thread (which
+/// IS the NSApplication main thread).
+///
+/// Defined on all platforms (the `wrap_browser_process_handler!`
+/// macro produces a real struct, dead-code on non-macOS) so the
+/// types resolve when ContentApp's method exists conditionally.
+/// `#[cfg]` on the `default_client` here is just to mark the body
+/// — the type itself is benign cross-platform.
+#[cfg(target_os = "macos")]
+wrap_browser_process_handler! {
+    struct PumpScheduler {}
+
+    impl BrowserProcessHandler {
+        fn on_schedule_message_pump_work(&self, delay_ms: i64) {
+            let Some(handle) = app_handle() else { return };
+            let handle = handle.clone();
+            let delay = delay_ms.max(0) as u64;
+            tauri::async_runtime::spawn(async move {
+                if delay > 0 {
+                    tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                }
+                let _ = handle.run_on_main_thread(|| {
+                    ::cef::do_message_loop_work();
+                });
+            });
         }
     }
 }
