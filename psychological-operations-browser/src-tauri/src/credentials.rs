@@ -79,7 +79,9 @@ pub fn store_one(
 ///   - lower-case (handles are case-insensitive)
 ///   - validate length 1-64 and ASCII alphanumeric / underscore.
 ///     Length cap is 64 (not 15) so X numeric user-ids parsed
-///     from the `twid` cookie also fit — they're ~19 digits.
+///     from the `twid` cookie also fit — those range from
+///     ~7 digits (early-era accounts) to ~19 digits (modern
+///     Snowflake IDs).
 fn normalize_handle(raw: &str) -> Result<String, String> {
     let trimmed = raw
         .trim()
