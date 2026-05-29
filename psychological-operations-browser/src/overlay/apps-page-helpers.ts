@@ -115,35 +115,52 @@ function findProductionAppLinks(): HTMLAnchorElement[] {
   return out;
 }
 
-/** Walk up from a `/apps/<id>` link to the visible "row" / card
- *  container it lives inside, so the pointer anchors to the
- *  bigger UI element instead of just the small text link.
+/** Right-edge of the visible row card containing `anchor`.
  *
- *  Strategy: track the widest right-edge seen on the way up
- *  (capped at the production `<section>`), and return whichever
- *  ancestor pushed the right edge out the most. That covers the
- *  common Tailwind / Radix card pattern where the visible card
- *  is somewhere a couple levels above the inner text link, with
- *  every wrapping div between cumulatively contributing padding /
- *  flex layout to the card's right edge.
- *
- *  Stops at <section> — that's the column the rows live in, not
- *  the row itself. */
-function findRowContainer(anchor: HTMLAnchorElement): HTMLElement {
+ *  Two complementary strategies, take the maximum:
+ *    1. **Walk-up ancestor right-edge.** Climb up to 8 levels
+ *       (stopping at <section>) and track the widest right edge
+ *       seen — picks up any wrapping card / row div whose right
+ *       edge extends past the inner text anchor.
+ *    2. **Rightmost button on the same row.** Scan every
+ *       `<button>` inside the production section, keep the
+ *       ones whose vertical center is within ~25 px of the
+ *       anchor's vertical center (i.e. share the row), take
+ *       the rightmost right-edge. This catches the Delete
+ *       button at the row's far right even when no ancestor
+ *       container reports a wide enough bounding rect (common
+ *       when the Delete button is rendered via an absolute /
+ *       portaled action menu). */
+function findRowRightEdge(anchor: HTMLAnchorElement): number {
+  const aRect = anchor.getBoundingClientRect();
+  let right = aRect.right;
+
+  // (1) widest right-edge among ancestors
   let el: HTMLElement = anchor;
-  let bestEl: HTMLElement = anchor;
-  let bestRight = anchor.getBoundingClientRect().right;
   for (let i = 0; i < 8; i++) {
     if (!el.parentElement) break;
     if (el.parentElement.tagName === "SECTION") break;
     el = el.parentElement;
     const r = el.getBoundingClientRect();
-    if (r.right > bestRight + 0.5) {
-      bestRight = r.right;
-      bestEl = el;
+    if (r.right > right) right = r.right;
+  }
+
+  // (2) rightmost button vertically aligned with the anchor
+  const section = anchor.closest("section");
+  if (section) {
+    const aCenter = (aRect.top + aRect.bottom) / 2;
+    for (const btn of section.querySelectorAll<HTMLElement>(
+      'button, [role="button"]',
+    )) {
+      const r = btn.getBoundingClientRect();
+      if (r.width < 1 || r.height < 1) continue;
+      const cy = (r.top + r.bottom) / 2;
+      if (Math.abs(cy - aCenter) > 25) continue;
+      if (r.right > right) right = r.right;
     }
   }
-  return bestEl;
+
+  return right;
 }
 
 function countProductionApps(): number {
@@ -166,10 +183,6 @@ let lastReportedCount: number | "uninit" = "uninit";
 /// We require ~500ms of consistent 0s before reporting one to
 /// Rust to suppress a flash to ClickCreateApp on initial mount.
 let zeroStreak = 0;
-/// One-shot log of the chosen row container's tag/classes/rect,
-/// so we can tune `findRowContainer` against the actual markup
-/// without needing to inspect via devtools. Resets on `mount()`.
-let loggedRowChoice = false;
 
 function mount() {
   if (rootEl) return;
@@ -204,7 +217,6 @@ function mount() {
   document.body.appendChild(rootEl);
   lastReportedCount = "uninit";
   zeroStreak = 0;
-  loggedRowChoice = false;
   rafId = requestAnimationFrame(tick);
 }
 
@@ -280,37 +292,16 @@ function tick() {
     prodEl.style.display = "none";
   } else {
     prodEl.style.display = "";
-    // Horizontal: anchor to the right edge of the broader
-    // card / row container so the badge clears the visible
-    // card. Vertical: anchor to the inner anchor's center —
-    // if `findRowContainer` over-picks (e.g. lands on a
-    // wrapping list), vertical alignment still tracks the
-    // actual row.
-    const row = findRowContainer(firstProd);
-    const rowRect = row.getBoundingClientRect();
+    // Horizontal: right edge of the row card, computed as the
+    // max of (widest ancestor right-edge, rightmost button on
+    // the same horizontal band — the Delete button). Vertical:
+    // anchor's vertical center, so we track the row even if
+    // the rightmost button is the only thing extending out.
     const anchorRect = firstProd.getBoundingClientRect();
+    const rowRight = findRowRightEdge(firstProd);
     prodEl.style.top = `${anchorRect.top + anchorRect.height / 2}px`;
-    prodEl.style.left = `${rowRect.right + 8}px`;
+    prodEl.style.left = `${rowRight + 8}px`;
     prodEl.style.transform = "translateY(-50%)";
-    if (!loggedRowChoice) {
-      loggedRowChoice = true;
-      console.log(
-        "[psyops-overlay] row container chosen for prod-app pointer:",
-        row.tagName,
-        Array.from(row.classList).slice(0, 4).join(" "),
-        "| rect:", JSON.stringify({
-          left: Math.round(rowRect.left),
-          right: Math.round(rowRect.right),
-          width: Math.round(rowRect.width),
-          height: Math.round(rowRect.height),
-        }),
-        "| anchor rect:", JSON.stringify({
-          left: Math.round(anchorRect.left),
-          right: Math.round(anchorRect.right),
-          width: Math.round(anchorRect.width),
-        }),
-      );
-    }
   }
 
   rafId = requestAnimationFrame(tick);
