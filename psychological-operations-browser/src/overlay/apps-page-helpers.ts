@@ -115,6 +115,33 @@ function findProductionAppLinks(): HTMLAnchorElement[] {
   return out;
 }
 
+/** Walk up from a `/apps/<id>` link to the visible "row" / card
+ *  container it lives inside, so the pointer anchors to the
+ *  bigger UI element instead of just the small text link. X's
+ *  developer console renders each entry as a card with the
+ *  anchor sitting on the app name; the surrounding card extends
+ *  much further right. Heuristic:
+ *    1. Prefer the semantic `<li>` / `[role="listitem"]` ancestor
+ *       if one exists.
+ *    2. Otherwise, climb up to 6 ancestors and return the first
+ *       one whose bounding box is meaningfully wider than the
+ *       anchor (≥ 1.5×). That's the row container in almost
+ *       every Tailwind-style card layout.
+ *    3. Fall back to the anchor itself if nothing matches. */
+function findRowContainer(anchor: HTMLAnchorElement): HTMLElement {
+  const semantic = anchor.closest<HTMLElement>('li, [role="listitem"]');
+  if (semantic) return semantic;
+  const anchorWidth = anchor.getBoundingClientRect().width;
+  let el: HTMLElement = anchor;
+  for (let i = 0; i < 6; i++) {
+    if (!el.parentElement) break;
+    const pRect = el.parentElement.getBoundingClientRect();
+    if (pRect.width > anchorWidth * 1.5) return el.parentElement;
+    el = el.parentElement;
+  }
+  return anchor;
+}
+
 function countProductionApps(): number {
   return findProductionAppLinks().length;
 }
@@ -244,10 +271,12 @@ function tick() {
     prodEl.style.display = "none";
   } else {
     prodEl.style.display = "";
-    // Anchor to the RIGHT of the row — the production list
-    // rows hug console.x.com's left edge, so the right side
-    // has more breathing room.
-    const rect = firstProd.getBoundingClientRect();
+    // Anchor to the RIGHT of the full row card, not the
+    // little text link inside it. `findRowContainer` walks up
+    // to the bigger UI element so the badge clears the row's
+    // visible edge.
+    const row = findRowContainer(firstProd);
+    const rect = row.getBoundingClientRect();
     prodEl.style.top = `${rect.top + rect.height / 2}px`;
     prodEl.style.left = `${rect.right + 8}px`;
     prodEl.style.transform = "translateY(-50%)";
