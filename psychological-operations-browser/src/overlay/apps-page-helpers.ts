@@ -117,29 +117,33 @@ function findProductionAppLinks(): HTMLAnchorElement[] {
 
 /** Walk up from a `/apps/<id>` link to the visible "row" / card
  *  container it lives inside, so the pointer anchors to the
- *  bigger UI element instead of just the small text link. X's
- *  developer console renders each entry as a card with the
- *  anchor sitting on the app name; the surrounding card extends
- *  much further right. Heuristic:
- *    1. Prefer the semantic `<li>` / `[role="listitem"]` ancestor
- *       if one exists.
- *    2. Otherwise, climb up to 6 ancestors and return the first
- *       one whose bounding box is meaningfully wider than the
- *       anchor (≥ 1.5×). That's the row container in almost
- *       every Tailwind-style card layout.
- *    3. Fall back to the anchor itself if nothing matches. */
+ *  bigger UI element instead of just the small text link.
+ *
+ *  Strategy: track the widest right-edge seen on the way up
+ *  (capped at the production `<section>`), and return whichever
+ *  ancestor pushed the right edge out the most. That covers the
+ *  common Tailwind / Radix card pattern where the visible card
+ *  is somewhere a couple levels above the inner text link, with
+ *  every wrapping div between cumulatively contributing padding /
+ *  flex layout to the card's right edge.
+ *
+ *  Stops at <section> — that's the column the rows live in, not
+ *  the row itself. */
 function findRowContainer(anchor: HTMLAnchorElement): HTMLElement {
-  const semantic = anchor.closest<HTMLElement>('li, [role="listitem"]');
-  if (semantic) return semantic;
-  const anchorWidth = anchor.getBoundingClientRect().width;
   let el: HTMLElement = anchor;
-  for (let i = 0; i < 6; i++) {
+  let bestEl: HTMLElement = anchor;
+  let bestRight = anchor.getBoundingClientRect().right;
+  for (let i = 0; i < 8; i++) {
     if (!el.parentElement) break;
-    const pRect = el.parentElement.getBoundingClientRect();
-    if (pRect.width > anchorWidth * 1.5) return el.parentElement;
+    if (el.parentElement.tagName === "SECTION") break;
     el = el.parentElement;
+    const r = el.getBoundingClientRect();
+    if (r.right > bestRight + 0.5) {
+      bestRight = r.right;
+      bestEl = el;
+    }
   }
-  return anchor;
+  return bestEl;
 }
 
 function countProductionApps(): number {
@@ -162,6 +166,10 @@ let lastReportedCount: number | "uninit" = "uninit";
 /// We require ~500ms of consistent 0s before reporting one to
 /// Rust to suppress a flash to ClickCreateApp on initial mount.
 let zeroStreak = 0;
+/// One-shot log of the chosen row container's tag/classes/rect,
+/// so we can tune `findRowContainer` against the actual markup
+/// without needing to inspect via devtools. Resets on `mount()`.
+let loggedRowChoice = false;
 
 function mount() {
   if (rootEl) return;
@@ -196,6 +204,7 @@ function mount() {
   document.body.appendChild(rootEl);
   lastReportedCount = "uninit";
   zeroStreak = 0;
+  loggedRowChoice = false;
   rafId = requestAnimationFrame(tick);
 }
 
@@ -271,15 +280,37 @@ function tick() {
     prodEl.style.display = "none";
   } else {
     prodEl.style.display = "";
-    // Anchor to the RIGHT of the full row card, not the
-    // little text link inside it. `findRowContainer` walks up
-    // to the bigger UI element so the badge clears the row's
-    // visible edge.
+    // Horizontal: anchor to the right edge of the broader
+    // card / row container so the badge clears the visible
+    // card. Vertical: anchor to the inner anchor's center —
+    // if `findRowContainer` over-picks (e.g. lands on a
+    // wrapping list), vertical alignment still tracks the
+    // actual row.
     const row = findRowContainer(firstProd);
-    const rect = row.getBoundingClientRect();
-    prodEl.style.top = `${rect.top + rect.height / 2}px`;
-    prodEl.style.left = `${rect.right + 8}px`;
+    const rowRect = row.getBoundingClientRect();
+    const anchorRect = firstProd.getBoundingClientRect();
+    prodEl.style.top = `${anchorRect.top + anchorRect.height / 2}px`;
+    prodEl.style.left = `${rowRect.right + 8}px`;
     prodEl.style.transform = "translateY(-50%)";
+    if (!loggedRowChoice) {
+      loggedRowChoice = true;
+      console.log(
+        "[psyops-overlay] row container chosen for prod-app pointer:",
+        row.tagName,
+        Array.from(row.classList).slice(0, 4).join(" "),
+        "| rect:", JSON.stringify({
+          left: Math.round(rowRect.left),
+          right: Math.round(rowRect.right),
+          width: Math.round(rowRect.width),
+          height: Math.round(rowRect.height),
+        }),
+        "| anchor rect:", JSON.stringify({
+          left: Math.round(anchorRect.left),
+          right: Math.round(anchorRect.right),
+          width: Math.round(anchorRect.width),
+        }),
+      );
+    }
   }
 
   rafId = requestAnimationFrame(tick);
