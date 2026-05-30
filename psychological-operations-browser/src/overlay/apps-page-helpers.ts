@@ -80,6 +80,29 @@ function findCreateAppButton(): HTMLButtonElement | null {
   return null;
 }
 
+/** True iff *any* visible `[role="dialog"]` is in the DOM —
+ *  catches the create-app dialog, the post-create
+ *  ("Application Created Successfully") dialog, and any
+ *  future modal X adds on this page. Used internally so neither
+ *  the count reporter nor the pointer renderers fight with any
+ *  modal flow.
+ *
+ *  Bounding-rect width/height check filters out phantom dialogs
+ *  Radix-style libraries keep in the DOM between transitions
+ *  (display:none reports a 0-size rect; visible ones — even
+ *  mid-animation — report non-zero).
+ *
+ *  Not exported on purpose. `create-app-dialog-helpers` still
+ *  needs the *narrow* `isCreateAppDialogOpen` to scope its
+ *  per-field badges only to the create-app dialog. */
+function isAnyDialogOpen(): boolean {
+  for (const d of document.querySelectorAll<HTMLElement>('[role="dialog"]')) {
+    const r = d.getBoundingClientRect();
+    if (r.width >= 1 && r.height >= 1) return true;
+  }
+  return false;
+}
+
 /** True iff the "Create New Client Application" dialog is open on
  *  the page. Exact heading-text match — Radix dialogs render the
  *  heading as an `<h2>` inside `[role="dialog"]`. Exported so
@@ -228,7 +251,7 @@ function tick() {
   // async apps-fetch resolves. Without this gate, the very
   // first tick can scrape 0 and flip Rust to ClickCreateApp.
   const headerReady = !!findCreateAppButton();
-  if (!isCreateAppDialogOpen() && headerReady) {
+  if (!isAnyDialogOpen() && headerReady) {
     const count = countProductionApps();
     if (count === 0) {
       // Debounce 0 only — non-zero scrapes are always trustable
@@ -244,12 +267,12 @@ function tick() {
     }
   }
 
-  // While the Create App dialog is open, hide BOTH pointers —
-  // the dialog's own step badges take over from this point and
-  // the apps-page-level pointers would compete with them (and
-  // read as inconsistent because their arrow direction is
-  // mirrored against the dialog's).
-  const dialogOpen = isCreateAppDialogOpen();
+  // While ANY dialog is open (create-app, post-create
+  // "Application Created Successfully", future modals), hide
+  // BOTH pointers — the dialog has the user's attention and
+  // the apps-page-level pointers would compete with whatever
+  // the dialog itself renders.
+  const dialogOpen = isAnyDialogOpen();
 
   // -- Create App pointer -------------------------------------------
   const createEl = createBtnWidget.element;
