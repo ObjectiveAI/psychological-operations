@@ -133,18 +133,21 @@ export const HELPER_CSS = `
     color: #b32828;
   }
   /* Optional speech-bubble-tail arrow: opt-in via the 'arrow'
-     option on createHelperWidget. The 6px triangle sits in the
-     8px gap each consumer already leaves between badge and
-     target, so no positioning math in consumers changes. */
+     option on createHelperWidget. The 8px triangle exactly
+     fills the 8px gap each consumer leaves between badge and
+     target — tip lands at the target's edge. A colored
+     drop-shadow gives the triangle a halo so it stays
+     visible against dark page backgrounds. */
   .helper.arrow-left::before,
   .helper.arrow-right::after {
     content: "";
     position: absolute;
     top: 50%;
     transform: translateY(-50%);
-    border: 6px solid transparent;
+    border: 8px solid transparent;
     pointer-events: none;
-    transition: border-color 180ms ease;
+    transition: border-color 180ms ease, filter 180ms ease;
+    filter: drop-shadow(0 0 3px rgba(91, 148, 255, 0.85));
   }
   .helper.arrow-left::before {
     right: 100%;
@@ -154,10 +157,22 @@ export const HELPER_CSS = `
     left: 100%;
     border-left-color: rgba(20, 25, 35, 0.95);
   }
-  .helper.complete.arrow-left::before { border-right-color: rgba(34, 139, 60, 0.95); }
-  .helper.complete.arrow-right::after { border-left-color: rgba(34, 139, 60, 0.95); }
-  .helper.blocked.arrow-left::before  { border-right-color: rgba(180, 40, 40, 0.95); }
-  .helper.blocked.arrow-right::after  { border-left-color: rgba(180, 40, 40, 0.95); }
+  .helper.complete.arrow-left::before {
+    border-right-color: rgba(34, 139, 60, 0.95);
+    filter: drop-shadow(0 0 3px rgba(120, 220, 150, 0.85));
+  }
+  .helper.complete.arrow-right::after {
+    border-left-color: rgba(34, 139, 60, 0.95);
+    filter: drop-shadow(0 0 3px rgba(120, 220, 150, 0.85));
+  }
+  .helper.blocked.arrow-left::before {
+    border-right-color: rgba(180, 40, 40, 0.95);
+    filter: drop-shadow(0 0 3px rgba(255, 130, 130, 0.85));
+  }
+  .helper.blocked.arrow-right::after {
+    border-left-color: rgba(180, 40, 40, 0.95);
+    filter: drop-shadow(0 0 3px rgba(255, 130, 130, 0.85));
+  }
   .helper .copy-btn {
     background: rgba(255, 255, 255, 0.14);
     color: #fff;
