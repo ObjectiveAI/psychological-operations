@@ -90,54 +90,117 @@ function nearestSectionContainer(el: HTMLElement): HTMLElement {
   return el;
 }
 
-/** Read the text of the "selected" radio inside `container`.
- *  Tries (in order) `aria-checked="true"`,
- *  `data-state="checked"`, `[aria-selected="true"]`,
- *  `input[type=radio]:checked` (label-text fallback). */
-function readSelectedRadioText(container: HTMLElement): string | null {
+type RadioOption = { el: HTMLElement; selected: boolean };
+
+/** Is the option (or any ancestor within 3 levels) currently
+ *  selected? Checks the Radix / aria conventions and falls
+ *  back to a nested `input[type=radio]:checked`. */
+function isOptionSelected(el: HTMLElement): boolean {
+  let cur: HTMLElement | null = el;
+  for (let i = 0; i < 4 && cur; i++) {
+    if (
+      cur.getAttribute("aria-checked") === "true" ||
+      cur.getAttribute("data-state") === "checked" ||
+      cur.getAttribute("aria-selected") === "true"
+    ) {
+      return true;
+    }
+    cur = cur.parentElement;
+  }
+  const nestedRadio = el.querySelector<HTMLInputElement>(
+    'input[type="radio"]',
+  );
+  if (nestedRadio?.checked) return true;
+  return false;
+}
+
+/** Find a radio-style option whose visible text equals `value`.
+ *  Pick the smallest visible match so we land on a single
+ *  option element rather than its wrapping group. */
+function findRadioOption(value: string): RadioOption | null {
+  const cands: HTMLElement[] = [];
+  const seen = new Set<HTMLElement>();
+  function push(el: HTMLElement) {
+    if (seen.has(el) || !isVisible(el)) return;
+    seen.add(el);
+    cands.push(el);
+  }
   for (const sel of [
-    '[aria-checked="true"]',
-    '[data-state="checked"]',
-    '[aria-selected="true"]',
+    '[role="radio"]',
+    "label",
+    "button",
+    "div",
+    "span",
   ]) {
-    for (const el of container.querySelectorAll<HTMLElement>(sel)) {
-      const t = (el.textContent ?? "").trim();
-      if (t) return t;
+    for (const el of document.querySelectorAll<HTMLElement>(sel)) {
+      if ((el.textContent ?? "").trim() === value) push(el);
     }
   }
-  for (const radio of container.querySelectorAll<HTMLInputElement>(
-    'input[type="radio"]',
-  )) {
-    if (!radio.checked) continue;
-    // Try the radio's parent's text or its associated label.
-    const lbl = radio.closest("label");
-    if (lbl) return (lbl.textContent ?? "").trim();
-    const p = radio.parentElement;
-    if (p) return (p.textContent ?? "").trim();
-  }
-  return null;
+  if (cands.length === 0) return null;
+  // Smallest by area — i.e. tightest wrap around just the option.
+  cands.sort((a, b) => {
+    const ra = a.getBoundingClientRect();
+    const rb = b.getBoundingClientRect();
+    return ra.width * ra.height - rb.width * rb.height;
+  });
+  const pick = cands[0]!;
+  return { el: pick, selected: isOptionSelected(pick) };
 }
 
-/** Find the input/textarea immediately associated with a label
- *  whose text matches `labelText`. */
-function findInputByLabel(labelText: string): HTMLElement | null {
+/** Find a Website-URL / Callback-URI-style input. Three
+ *  strategies, first hit wins:
+ *    1. `<label for="…">` association (htmlFor or nesting).
+ *    2. `<input>` / `<textarea>` whose placeholder /
+ *       aria-label / name / id contains every word of the
+ *       label text (≥3 chars).
+ *    3. Heading-text → walk up to nearest section container →
+ *       first visible input inside (the original strategy). */
+function findFieldInput(labelText: string): HTMLElement | null {
+  // (1) <label> association
+  for (const lbl of document.querySelectorAll<HTMLLabelElement>("label")) {
+    if ((lbl.textContent ?? "").trim() !== labelText) continue;
+    if (lbl.htmlFor) {
+      const el = document.getElementById(lbl.htmlFor);
+      if (el && isVisible(el)) return el as HTMLElement;
+    }
+    const inside = lbl.querySelector<HTMLElement>("input, textarea");
+    if (inside && isVisible(inside)) return inside;
+  }
+
+  // (2) attribute-needle match
+  const needles = labelText
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((s) => s.length >= 3);
+  if (needles.length > 0) {
+    for (const el of document.querySelectorAll<HTMLElement>(
+      "input, textarea",
+    )) {
+      if (!isVisible(el)) continue;
+      const hay = [
+        el.getAttribute("placeholder") ?? "",
+        el.getAttribute("aria-label") ?? "",
+        el.getAttribute("name") ?? "",
+        el.getAttribute("id") ?? "",
+      ]
+        .join(" ")
+        .toLowerCase();
+      if (needles.every((n) => hay.includes(n))) return el;
+    }
+  }
+
+  // (3) heading-then-container fallback
   const heading = findByExactText(labelText);
-  if (!heading) return null;
-  const container = nearestSectionContainer(heading);
-  for (const cand of container.querySelectorAll<HTMLElement>(
-    "input, textarea",
-  )) {
-    if (isVisible(cand)) return cand;
+  if (heading) {
+    const container = nearestSectionContainer(heading);
+    for (const cand of container.querySelectorAll<HTMLElement>(
+      "input, textarea",
+    )) {
+      if (isVisible(cand)) return cand;
+    }
   }
-  return null;
-}
 
-/** Find the radio-group container associated with a section
- *  whose heading text matches `headingText`. */
-function findRadioGroupContainer(headingText: string): HTMLElement | null {
-  const heading = findByExactText(headingText);
-  if (!heading) return null;
-  return nearestSectionContainer(heading);
+  return null;
 }
 
 /** Save Changes / Save button. */
@@ -154,32 +217,39 @@ function findSaveButton(): HTMLButtonElement | null {
 // =================================================================
 // Step definitions
 // =================================================================
+/** Per-step contract: find the target element + decide
+ *  whether the step is currently satisfied. `save` steps gate
+ *  the user's click and never "complete" on their own. */
 type Step = {
   id: "permissions" | "app-type" | "website" | "callback" | "save";
   text: string;
   copyText?: string;
-  getTarget(): HTMLElement | null;
-  isComplete(el: HTMLElement): boolean;
+  resolve(): { el: HTMLElement; selected?: boolean } | null;
+  /** Override for steps whose completion isn't derivable from
+   *  the resolved element directly (radio-option selected state
+   *  is already carried in the resolve return). */
+  isComplete?(el: HTMLElement): boolean;
 };
 
 const STEPS: Step[] = [
   {
     id: "permissions",
-    text: `Set to "${REQUIRED_PERMISSIONS}"`,
-    getTarget: () => findRadioGroupContainer("App permissions"),
-    isComplete: (el) => readSelectedRadioText(el) === REQUIRED_PERMISSIONS,
+    text: "Click here",
+    resolve: () => findRadioOption(REQUIRED_PERMISSIONS),
   },
   {
     id: "app-type",
-    text: `Set to "${REQUIRED_APP_TYPE}"`,
-    getTarget: () => findRadioGroupContainer("Type of App"),
-    isComplete: (el) => readSelectedRadioText(el) === REQUIRED_APP_TYPE,
+    text: "Click here",
+    resolve: () => findRadioOption(REQUIRED_APP_TYPE),
   },
   {
     id: "website",
     text: "Click Copy then paste here",
     copyText: WEBSITE_URL_COPY,
-    getTarget: () => findInputByLabel("Website URL"),
+    resolve: () => {
+      const el = findFieldInput("Website URL");
+      return el ? { el } : null;
+    },
     isComplete: (el) =>
       (el as HTMLInputElement).value.trim() === WEBSITE_URL_COPY,
   },
@@ -187,16 +257,20 @@ const STEPS: Step[] = [
     id: "callback",
     text: "Click Copy then paste here",
     copyText: CALLBACK_URI_COPY,
-    getTarget: () => findInputByLabel("Callback URI"),
+    resolve: () => {
+      const el = findFieldInput("Callback URI");
+      return el ? { el } : null;
+    },
     isComplete: (el) =>
       (el as HTMLInputElement).value.trim() === CALLBACK_URI_COPY,
   },
   {
     id: "save",
     text: "Click Save",
-    getTarget: () => findSaveButton(),
-    // Save never auto-completes — clicking it triggers a state
-    // change that's observed via the next URL transition.
+    resolve: () => {
+      const el = findSaveButton();
+      return el ? { el } : null;
+    },
     isComplete: () => false,
   },
 ];
@@ -260,31 +334,53 @@ function tick() {
   if (!rootEl) return;
   const panelOk = isPanelCondition("configure_auth_settings");
 
-  // First pass: pre-compute completion for each non-Save step so
-  // we can gate the Save badge on them.
-  const targets = new Map<string, HTMLElement | null>();
-  const completes = new Map<string, boolean>();
+  // Resolve every step's target + completion in one pass so we
+  // can gate Save on the others.
+  type Resolved = { el: HTMLElement | null; complete: boolean };
+  const resolved = new Map<string, Resolved>();
   for (const step of STEPS) {
-    const t = step.getTarget();
-    targets.set(step.id, t);
-    completes.set(step.id, !!t && step.id !== "save" && step.isComplete(t));
+    const r = step.resolve();
+    let complete = false;
+    if (r) {
+      if (step.id === "permissions" || step.id === "app-type") {
+        complete = !!r.selected;
+      } else if (step.isComplete) {
+        complete = step.isComplete(r.el);
+      }
+    }
+    resolved.set(step.id, { el: r?.el ?? null, complete });
   }
   const nonSaveAllGreen = STEPS.every(
-    (s) => s.id === "save" || completes.get(s.id),
+    (s) => s.id === "save" || resolved.get(s.id)?.complete,
   );
 
-  for (const step of STEPS) {
+  STEPS.forEach((step, stepIndex) => {
     const widget = widgets.get(step.id);
-    if (!widget) continue;
+    if (!widget) return;
     const el = widget.element;
-    const target = targets.get(step.id) ?? null;
-    if (!panelOk || !target) {
+    const r = resolved.get(step.id)!;
+    if (!panelOk) {
       el.style.display = "none";
-      continue;
+      return;
     }
-    el.style.display = "";
 
-    const rect = target.getBoundingClientRect();
+    if (!r.el) {
+      // Diagnostic fallback so we know which finder missed.
+      // Stack in the top-right column, one badge per step.
+      el.style.display = "";
+      widget.setState("blocked");
+      widget.setText(`${step.id} target not found`);
+      el.style.top = `${12 + stepIndex * 44}px`;
+      el.style.left = `${window.innerWidth - 12}px`;
+      el.style.transform = "translateX(-100%)";
+      el.style.maxWidth = "300px";
+      return;
+    }
+
+    el.style.display = "";
+    widget.setText(step.text);
+
+    const rect = r.el.getBoundingClientRect();
     const GAP = 8;
     const VIEWPORT_MARGIN = 12;
     const MIN_WIDTH = 140;
@@ -306,11 +402,15 @@ function tick() {
     let state: HelperState;
     if (step.id === "save") {
       state = nonSaveAllGreen ? "incomplete" : "blocked";
+    } else if (step.id === "permissions" || step.id === "app-type") {
+      // Clicker pointers: red+✕ until correctly selected, then
+      // green+✓.
+      state = r.complete ? "complete" : "blocked";
     } else {
-      state = completes.get(step.id) ? "complete" : "incomplete";
+      state = r.complete ? "complete" : "incomplete";
     }
     widget.setState(state);
-  }
+  });
 
   rafId = requestAnimationFrame(tick);
 }
