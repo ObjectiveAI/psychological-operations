@@ -422,7 +422,10 @@ function tick() {
 
     let state: HelperState;
     if (step.id === "save") {
-      state = nonSaveAllGreen ? "incomplete" : "blocked";
+      // When all four prior badges are green, Save should show
+      // green + ✓ ("ready to click"), not gray-incomplete. Until
+      // then, blocked (red+✕) to make the gate obvious.
+      state = nonSaveAllGreen ? "complete" : "blocked";
     } else if (step.id === "permissions" || step.id === "app-type") {
       // Clicker pointers: red+✕ until correctly selected, then
       // green+✓.
