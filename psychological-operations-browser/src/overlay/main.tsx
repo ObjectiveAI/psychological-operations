@@ -21,6 +21,7 @@ import { installSpaUrlReporter } from "./spa-url";
 import { installOnboardingHelpers } from "./onboarding-helpers";
 import { installAppsTabHelper } from "./apps-tab-helper";
 import { installAppsPageHelpers } from "./apps-page-helpers";
+import { installAppPageHelpers } from "./app-page-helpers";
 import { installCreateAppDialogHelpers } from "./create-app-dialog-helpers";
 import { installPostCreateDialogHelpers } from "./post-create-dialog-helpers";
 // Side-effect: registers `window.__psyops_set_panel` so the first
@@ -41,6 +42,7 @@ let urlReporterUninstall: (() => void) | null = null;
 let onboardingHelpersUninstall: (() => void) | null = null;
 let appsTabHelperUninstall: (() => void) | null = null;
 let appsPageHelpersUninstall: (() => void) | null = null;
+let appPageHelpersUninstall: (() => void) | null = null;
 let createAppDialogHelpersUninstall: (() => void) | null = null;
 let postCreateDialogHelpersUninstall: (() => void) | null = null;
 
@@ -62,6 +64,11 @@ function stopAppsTabHelper() {
 function stopAppsPageHelpers() {
   appsPageHelpersUninstall?.();
   appsPageHelpersUninstall = null;
+}
+
+function stopAppPageHelpers() {
+  appPageHelpersUninstall?.();
+  appPageHelpersUninstall = null;
 }
 
 function stopCreateAppDialogHelpers() {
@@ -100,6 +107,7 @@ async function handleRequest(payload: unknown) {
       stopOnboardingHelpers();
       stopAppsTabHelper();
       stopAppsPageHelpers();
+      stopAppPageHelpers();
       stopCreateAppDialogHelpers();
       stopPostCreateDialogHelpers();
 
@@ -172,6 +180,7 @@ async function handleRequest(payload: unknown) {
       onboardingHelpersUninstall = installOnboardingHelpers();
       appsTabHelperUninstall = installAppsTabHelper();
       appsPageHelpersUninstall = installAppsPageHelpers();
+      appPageHelpersUninstall = installAppPageHelpers();
       createAppDialogHelpersUninstall = installCreateAppDialogHelpers();
       postCreateDialogHelpersUninstall = installPostCreateDialogHelpers();
       console.log("[psyops-overlay] helpers installed");

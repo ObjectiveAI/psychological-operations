@@ -52,6 +52,13 @@ pub enum PanelCondition {
     /// "thinking" affordance rather than the panel collapsing
     /// to zero height. The `message` is empty by convention.
     Loading,
+    /// X-App mode, on an individual app's overview page
+    /// (`/accounts/<id>/apps/<app-id>`, no further segments),
+    /// the first three creds are on disk but the access
+    /// tokens aren't. Pair with the in-page pointer at the
+    /// "Settings" tab — the next step toward generating
+    /// those tokens.
+    ClickSettings,
 }
 
 /// Everything the panel needs to render. Either it's hidden (zero
