@@ -115,57 +115,29 @@ function findProductionAppLinks(): HTMLAnchorElement[] {
   return out;
 }
 
-/** Right-edge of the visible row containing `anchor`.
- *
- *  Strategy:
- *    1. Walk up from `anchor` to the row container — the
- *       deepest ancestor whose parent is the section OR whose
- *       grandparent is the section (handles either
- *       `section > row` or `section > listWrapper > row`).
- *       That's the "card" the user perceives.
- *    2. Right-edge starts at the row container's right.
- *    3. Sweep descendants of the section whose **center** sits
- *       inside the row container's vertical box AND whose
- *       **left edge** is within the row container's horizontal
- *       range (rejects viewport-wide invisible spacers / sticky
- *       overlays that would otherwise blow the right edge out
- *       to the screen edge), AND whose right doesn't exceed
- *       the section's right (defensive). Keep the rightmost.
- *
- *  Picks up move/delete-style controls regardless of element
- *  type or nesting, while ignoring stray full-viewport siblings. */
-function findRowRightEdge(anchor: HTMLAnchorElement): number {
+/** Find the visible card the `anchor` lives inside. X's card
+ *  has a `bg-...` Tailwind class so its computed
+ *  `backgroundColor` is non-transparent; the wrapping divs
+ *  between the card and the section are transparent. Walk up
+ *  from the anchor and remember the OUTERMOST ancestor (still
+ *  inside the section) whose computed background-color is opaque.
+ *  That element is the card. Fall back to the anchor if no
+ *  ancestor between it and the section has a background. */
+function findVisibleCard(anchor: HTMLAnchorElement): HTMLElement {
   const section = anchor.closest("section");
-  if (!section) return anchor.getBoundingClientRect().right;
-  const sectionRight = section.getBoundingClientRect().right;
-
-  // Walk up to the row container.
-  let row: HTMLElement = anchor;
-  while (
-    row.parentElement &&
-    row.parentElement !== section &&
-    row.parentElement.parentElement !== section
-  ) {
-    row = row.parentElement;
+  let el: HTMLElement | null = anchor;
+  let card: HTMLElement = anchor;
+  let depth = 0;
+  while (el && el !== section && el.parentElement) {
+    const bg = getComputedStyle(el).backgroundColor;
+    if (bg && bg !== "rgba(0, 0, 0, 0)" && bg !== "transparent") {
+      card = el;
+    }
+    el = el.parentElement;
+    depth++;
+    if (depth > 12) break;
   }
-  const rowRect = row.getBoundingClientRect();
-  let right = rowRect.right;
-
-  // Sweep section descendants confined to the row's bounding box.
-  for (const el of section.querySelectorAll<HTMLElement>("*")) {
-    const r = el.getBoundingClientRect();
-    if (r.width < 1 || r.height < 1) continue;
-    const cy = (r.top + r.bottom) / 2;
-    if (cy < rowRect.top - 2 || cy > rowRect.bottom + 2) continue;
-    // Must start inside the row horizontally (not a full-width
-    // spacer / sticky overlay).
-    if (r.left < rowRect.left - 4) continue;
-    // Never extend past the section column.
-    if (r.right > sectionRight + 1) continue;
-    if (r.right > right) right = r.right;
-  }
-
-  return right;
+  return card;
 }
 
 function countProductionApps(): number {
@@ -297,15 +269,14 @@ function tick() {
     prodEl.style.display = "none";
   } else {
     prodEl.style.display = "";
-    // Horizontal: right edge of the row card, computed as the
-    // max of (widest ancestor right-edge, rightmost button on
-    // the same horizontal band — the Delete button). Vertical:
-    // anchor's vertical center, so we track the row even if
-    // the rightmost button is the only thing extending out.
+    // Horizontal: right edge of the visible card (detected via
+    // computed background-color — the wrapping divs are
+    // transparent, only the card itself has a `bg-...` class).
+    // Vertical: anchor's center, so the badge tracks the row.
     const anchorRect = firstProd.getBoundingClientRect();
-    const rowRight = findRowRightEdge(firstProd);
+    const cardRect = findVisibleCard(firstProd).getBoundingClientRect();
     prodEl.style.top = `${anchorRect.top + anchorRect.height / 2}px`;
-    prodEl.style.left = `${rowRight + 8}px`;
+    prodEl.style.left = `${cardRect.right + 8}px`;
     prodEl.style.transform = "translateY(-50%)";
   }
 
