@@ -5,6 +5,7 @@ mod cookies_watcher;
 mod credentials;
 mod oauth_popup;
 mod post_create_dialog;
+mod psyop_authorize;
 mod state;
 mod stdio;
 mod webview;

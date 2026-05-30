@@ -27,11 +27,16 @@ pub enum Mode {
     /// `sso`-on-`.x.ai` setup — see the cookies watcher for the
     /// current set of names being probed.
     XApp,
-    /// Per-psyop session, scoped to the named psyop. The eventual
-    /// wiring will land x.com (twitter) with per-psyop cookie
-    /// isolation; the wire shape is here now so consumers can
-    /// future-proof their dispatch.
-    Psyop { name: String },
+    /// Per-psyop session in "scrape" mode — user just browses
+    /// x.com on the persona's cookie jar. Default psyop-mode
+    /// behavior; nothing extra runs on top.
+    PsyopScrape { name: String },
+    /// Per-psyop session in "authorize" mode — Rust drives the
+    /// persona through X's OAuth 2.0 PKCE consent screen once
+    /// they sign in, captures the access/refresh token pair,
+    /// and writes it to
+    /// `<psyop-data-dir>/handles/<persona-twid>/auth.json`.
+    PsyopAuthorize { name: String },
 }
 
 /// Process-global slot for the current mode. Set by [`set`], read by

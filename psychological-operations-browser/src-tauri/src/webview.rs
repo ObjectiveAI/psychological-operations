@@ -75,7 +75,9 @@ pub fn mode_data_dir(handle: &AppHandle<Wry>, mode: &Mode) -> std::path::PathBuf
         .join("browser");
     match mode {
         Mode::XApp => base.join("x-app"),
-        Mode::Psyop { name } => base.join("psyop").join(name),
+        Mode::PsyopScrape { name } | Mode::PsyopAuthorize { name } => {
+            base.join("psyop").join(name)
+        }
     }
 }
 
@@ -98,7 +100,9 @@ pub fn cef_root_cache_dir(handle: &AppHandle<Wry>) -> std::path::PathBuf {
 fn cache_subdir_for(mode: &Mode) -> String {
     match mode {
         Mode::XApp => "x-app".to_string(),
-        Mode::Psyop { name } => format!("psyop/{name}"),
+        Mode::PsyopScrape { name } | Mode::PsyopAuthorize { name } => {
+            format!("psyop/{name}")
+        }
     }
 }
 
@@ -106,7 +110,7 @@ fn cache_subdir_for(mode: &Mode) -> String {
 fn start_url_for(mode: &Mode) -> &'static str {
     match mode {
         Mode::XApp => "https://console.x.com/",
-        Mode::Psyop { .. } => "https://x.com/",
+        Mode::PsyopScrape { .. } | Mode::PsyopAuthorize { .. } => "https://x.com/",
     }
 }
 

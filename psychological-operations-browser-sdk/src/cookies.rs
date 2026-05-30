@@ -162,7 +162,9 @@ pub(crate) fn signed_in_x_user_id(
 fn cache_subdir_for(mode: &Mode) -> String {
     match mode {
         Mode::XApp => "x-app".to_string(),
-        Mode::Psyop { name } => format!("psyop/{name}"),
+        Mode::PsyopScrape { name } | Mode::PsyopAuthorize { name } => {
+            format!("psyop/{name}")
+        }
     }
 }
 

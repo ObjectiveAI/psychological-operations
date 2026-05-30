@@ -32,6 +32,16 @@ tauri-build = { version = "2.6.2", features = [] }
 
 [dependencies]
 psychological-operations-browser-sdk = { path = "../../psychological-operations-browser-sdk", version = "0.1.0" }
+# OAuth dance pieces for the psyop authorize flow. The
+# `psychological-operations-x-api` crate has equivalents but
+# it's mid-refactor and doesn't compile standalone — so we
+# carry the pieces we need (PKCE, callback server, token POST)
+# inline in `psyop_authorize.rs`. Deps below back those bits.
+urlencoding = "2.1.3"
+reqwest = { version = "0.13.4", features = ["json", "rustls", "form"], default-features = false }
+sha2 = "0.11.0"
+rand = "0.10.1"
+chrono = { version = "0.4.39", features = ["serde"] }
 clap = { version = "4.6.1", features = ["derive"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"

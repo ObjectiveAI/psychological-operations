@@ -24,11 +24,20 @@ pub enum Request {
     /// pointed at `https://console.x.com/`. Stdin reading blocks
     /// until the new overlay reports ready.
     XApp,
-    /// Switch the browser to a Psyop session named `<name>`. Same
-    /// teardown / reopen flow as [`Self::XApp`], but with a
-    /// per-psyop `RequestContext` (isolated cookies / storage)
-    /// pointed at `https://x.com/`.
-    Psyop { name: String },
+    /// Switch the browser to a Psyop **scrape** session named
+    /// `<name>`. Same teardown / reopen flow as [`Self::XApp`],
+    /// but with a per-psyop `RequestContext` (isolated cookies
+    /// / storage) pointed at `https://x.com/`. User just
+    /// browses x.com on the persona's cookie jar; no extra
+    /// flows run.
+    PsyopScrape { name: String },
+    /// Switch the browser to a Psyop **authorize** session
+    /// named `<name>`. Same teardown / reopen flow but with
+    /// Rust additionally driving the persona through X's
+    /// OAuth 2.0 PKCE consent screen on sign-in and writing
+    /// the resulting tokens to
+    /// `<psyop-data-dir>/handles/<persona-twid>/auth.json`.
+    PsyopAuthorize { name: String },
     /// Drain the overlay's buffered console-entry buffer. Returns
     /// every `console.log/warn/error/info/debug` call and every
     /// uncaught exception captured since the last `Console` drain.

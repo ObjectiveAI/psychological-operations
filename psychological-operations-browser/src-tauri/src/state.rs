@@ -295,6 +295,11 @@ pub fn apply_cookie_facts(
             if let Some(url) = home_url_for_current_mode() {
                 crate::cef::navigate(url);
             }
+        } else {
+            // Signed out — clear the psyop-authorize one-shot
+            // so a future sign-in (potentially with a different
+            // twid) re-engages the OAuth flow.
+            crate::psyop_authorize::clear_in_flight_on_signout();
         }
     }
 
@@ -307,7 +312,7 @@ pub fn apply_cookie_facts(
 fn home_url_for_current_mode() -> Option<&'static str> {
     match mode::get()? {
         Mode::XApp => Some("https://console.x.com/"),
-        Mode::Psyop { .. } => Some("https://x.com/"),
+        Mode::PsyopScrape { .. } | Mode::PsyopAuthorize { .. } => Some("https://x.com/"),
     }
 }
 
@@ -444,7 +449,24 @@ pub fn derive(facts: &Facts) -> PanelState {
                 }
             }
         }
-        _ => PanelState::Hidden,
+        Some(Mode::PsyopScrape { .. } | Mode::PsyopAuthorize { .. }) => {
+            // Both psyop variants share the same panel logic
+            // today: nag to sign in if not signed in, otherwise
+            // hide. PsyopScrape: user just browses x.com with
+            // no overlay. PsyopAuthorize: Rust auto-navigates
+            // to X's OAuth authorize page once the persona
+            // signs in, and X's own page is the affordance —
+            // no helper widget on top.
+            if facts.auth_token.is_none() {
+                PanelState::Show {
+                    condition: PanelCondition::SignInToX,
+                    message: "Sign in to X.".into(),
+                }
+            } else {
+                PanelState::Hidden
+            }
+        }
+        None => PanelState::Hidden,
     }
 }
 

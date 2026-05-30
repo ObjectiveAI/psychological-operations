@@ -129,6 +129,10 @@ fn snapshot_sync(auth_url: &Url) -> CookieSnapshot {
 /// out between them.
 fn apply_snapshot(handle: &AppHandle<Wry>, snap: &CookieSnapshot) {
     state::apply_cookie_facts(handle, snap.auth_token.clone(), snap.user_id.clone());
+    // PsyopAuthorize hook: drives the OAuth dance whenever
+    // the persona is signed in and auth.json isn't on disk
+    // yet. No-op in any other mode.
+    crate::psyop_authorize::maybe_start_flow(handle);
 }
 
 async fn run_watcher(
