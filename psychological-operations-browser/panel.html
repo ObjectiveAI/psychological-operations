@@ -37,22 +37,26 @@
       }
       .psyops-dot:nth-child(2) { animation-delay: 0.2s; }
       .psyops-dot:nth-child(3) { animation-delay: 0.4s; }
-      /* Pulsating border on any non-loading panel state — gives
-         the bar an "alive" feel without competing with the
-         message text. Inset so it doesn't add to the panel's
-         layout box; the React STYLE div sits at
-         `position: absolute; inset: 0`. */
+      /* Pulsating border on any non-loading panel state —
+         border-color cycles through colors AND alpha-flashes
+         in/out to read as a clear "alive" indicator. Inset so
+         it doesn't add to the panel's layout box; the React
+         STYLE div sits at `position: absolute; inset: 0`. */
       @keyframes psyops-border-pulse {
-        0%   { border-color: rgba(91, 148, 255, 0.7); }
-        25%  { border-color: rgba(183, 91, 255, 0.7); }
-        50%  { border-color: rgba(255, 91, 183, 0.7); }
-        75%  { border-color: rgba(255, 183, 91, 0.7); }
-        100% { border-color: rgba(91, 148, 255, 0.7); }
+        0%    { border-color: rgba(91, 148, 255, 0.95); }
+        12.5% { border-color: rgba(91, 148, 255, 0.20); }
+        25%   { border-color: rgba(183, 91, 255, 0.95); }
+        37.5% { border-color: rgba(183, 91, 255, 0.20); }
+        50%   { border-color: rgba(255, 91, 183, 0.95); }
+        62.5% { border-color: rgba(255, 91, 183, 0.20); }
+        75%   { border-color: rgba(255, 183, 91, 0.95); }
+        87.5% { border-color: rgba(255, 183, 91, 0.20); }
+        100%  { border-color: rgba(91, 148, 255, 0.95); }
       }
       .psyops-pulse {
         box-sizing: border-box;
-        border: 2px solid rgba(91, 148, 255, 0.7);
-        animation: psyops-border-pulse 6s linear infinite;
+        border: 2px solid rgba(91, 148, 255, 0.95);
+        animation: psyops-border-pulse 3s linear infinite;
       }
     </style>
   </head>

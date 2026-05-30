@@ -59,6 +59,7 @@ const STYLE: React.CSSProperties = {
   inset: 0,
   display: "flex",
   alignItems: "center",
+  justifyContent: "center",
   padding: "0 16px",
   color: "#fff",
   font: "14px/1.4 system-ui, -apple-system, Segoe UI, sans-serif",

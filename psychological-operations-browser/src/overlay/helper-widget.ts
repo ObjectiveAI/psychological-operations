@@ -66,7 +66,7 @@ export const HELPER_CSS = `
     color: #fff;
     font: 12px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif;
     letter-spacing: 0.01em;
-    border: 1px solid rgba(255, 255, 255, 0.18);
+    border: 1.5px solid rgba(91, 148, 255, 0.95);
     border-radius: 8px;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
     pointer-events: auto;
@@ -76,52 +76,61 @@ export const HELPER_CSS = `
        so the badge does not extend past the viewport. */
     white-space: normal;
     overflow-wrap: anywhere;
+    /* Border pulses through colors AND alpha-flashes in/out
+       to read as "alive / awaiting input". The .complete and
+       .blocked overrides below halt the animation so the
+       border sticks to its definitive green/red. */
+    animation: psyops-helper-pulse 3s linear infinite;
   }
   .helper.complete {
     background: rgba(34, 139, 60, 0.95);
     border-color: rgba(120, 220, 150, 0.6);
+    animation: none;
   }
   .helper.blocked {
     background: rgba(180, 40, 40, 0.95);
     border-color: rgba(255, 130, 130, 0.6);
+    animation: none;
+  }
+  @keyframes psyops-helper-pulse {
+    0%    { border-color: rgba(91, 148, 255, 0.95); }
+    12.5% { border-color: rgba(91, 148, 255, 0.20); }
+    25%   { border-color: rgba(183, 91, 255, 0.95); }
+    37.5% { border-color: rgba(183, 91, 255, 0.20); }
+    50%   { border-color: rgba(255, 91, 183, 0.95); }
+    62.5% { border-color: rgba(255, 91, 183, 0.20); }
+    75%   { border-color: rgba(255, 183, 91, 0.95); }
+    87.5% { border-color: rgba(255, 183, 91, 0.20); }
+    100%  { border-color: rgba(91, 148, 255, 0.95); }
   }
   .helper .status {
-    /* Always visible — in the incomplete state the border
-       pulses through colors to read as a "live" indicator
-       rather than dead UI. The complete / blocked overrides
-       below halt the animation and switch to the
-       definitive green ✓ / red ✕ colors. */
-    display: inline-flex;
+    /* Hidden in the incomplete state — the empty outlined
+       circle carries no information. The complete / blocked
+       overrides below flip it back on once it has a
+       meaningful glyph (✓ or ✕) to show. */
+    display: none;
     align-items: center;
     justify-content: center;
     width: 16px;
     height: 16px;
     border-radius: 50%;
-    border: 1.5px solid rgba(91, 148, 255, 0.7);
+    border: 1.5px solid rgba(255, 255, 255, 0.55);
     flex-shrink: 0;
     font-size: 11px;
     line-height: 1;
     transition: background 180ms ease, border-color 180ms ease, color 180ms ease;
-    animation: psyops-status-pulse 4s linear infinite;
   }
   .helper.complete .status {
+    display: inline-flex;
     background: #fff;
     border-color: #fff;
     color: #1a7a3a;
-    animation: none;
   }
   .helper.blocked .status {
+    display: inline-flex;
     background: #fff;
     border-color: #fff;
     color: #b32828;
-    animation: none;
-  }
-  @keyframes psyops-status-pulse {
-    0%   { border-color: rgba(91, 148, 255, 0.7); }
-    25%  { border-color: rgba(183, 91, 255, 0.7); }
-    50%  { border-color: rgba(255, 91, 183, 0.7); }
-    75%  { border-color: rgba(255, 183, 91, 0.7); }
-    100% { border-color: rgba(91, 148, 255, 0.7); }
   }
   /* Optional speech-bubble-tail arrow: opt-in via the 'arrow'
      option on createHelperWidget. The 6px triangle sits in the
