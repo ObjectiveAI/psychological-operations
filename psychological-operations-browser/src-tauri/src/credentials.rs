@@ -106,21 +106,21 @@ pub fn all_three_present(app: &AppHandle<Wry>, user_id: &str) -> bool {
     .all(|f| dir.join(f.file_name()).exists())
 }
 
-/// `true` iff both per-user OAuth 1.0a access-token fields
-/// (`access_token`, `access_token_secret`) are on disk under
+/// `true` iff both OAuth 2.0 client-pair fields (`client_id`,
+/// `client_secret`) are on disk under
 /// `handles/<normalize_handle(user_id)>/`. The post-create dialog
-/// doesn't surface these — they're generated separately from
-/// the app's Keys & Tokens page — so this is tracked as a
-/// distinct fact from the first-three triple. Same defensive
-/// "any error → false" posture as [`all_three_present`].
-pub fn access_tokens_present(app: &AppHandle<Wry>, user_id: &str) -> bool {
+/// doesn't surface these — they fall out of the auth-settings
+/// popup after Save Changes — so this is tracked as a distinct
+/// fact from the first-three triple. Same defensive "any error →
+/// false" posture as [`all_three_present`].
+pub fn oauth_client_present(app: &AppHandle<Wry>, user_id: &str) -> bool {
     let Ok(handle) = normalize_handle(user_id) else { return false };
     let dir = webview::mode_data_dir(app, &Mode::XApp)
         .join("handles")
         .join(&handle);
     [
-        XAppCredentialField::AccessToken,
-        XAppCredentialField::AccessTokenSecret,
+        XAppCredentialField::ClientId,
+        XAppCredentialField::ClientSecret,
     ]
     .iter()
     .all(|f| dir.join(f.file_name()).exists())

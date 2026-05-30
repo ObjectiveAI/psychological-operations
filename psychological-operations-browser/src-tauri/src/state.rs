@@ -73,20 +73,20 @@ pub struct Facts {
     /// [`recheck_credentials`] after a freshly-extracted set
     /// of credentials lands on disk.
     pub credentials_complete: Option<bool>,
-    /// `Some(true)` iff both per-user OAuth 1.0a access tokens
-    /// (`access_token`, `access_token_secret`) are on disk under
-    /// the same `handles/<user_id>/` directory. Tracked
-    /// separately from `credentials_complete` because the
-    /// post-create dialog doesn't surface these — they come
-    /// from the app's own Keys & Tokens page, captured in a
-    /// follow-up flow. Refreshed in lock-step with
+    /// `Some(true)` iff both OAuth 2.0 client-pair fields
+    /// (`client_id`, `client_secret`) are on disk under the
+    /// same `handles/<user_id>/` directory. Tracked separately
+    /// from `credentials_complete` because the post-create
+    /// dialog doesn't surface these — they fall out of the
+    /// auth-settings popup after Save Changes, captured via
+    /// `process_oauth_popup_html`. Refreshed in lock-step with
     /// `credentials_complete`.
-    pub access_tokens_complete: Option<bool>,
+    pub oauth_client_complete: Option<bool>,
     /// Count of *production* apps the overlay observed in the
     /// Apps list (under the `<h3>production</h3>` section).
     /// `None` ⇒ the overlay hasn't reported yet (off `/apps`,
     /// or first tick still pending). `Some(0)` is the tie-
-    /// breaker that collapses the access-tokens flow back into
+    /// breaker that collapses the OAuth-client flow back into
     /// the create-app flow even when the first three creds are
     /// already on disk — "no production app means restart".
     /// X-App-only; cleared by `set_mode`.
@@ -159,7 +159,7 @@ pub fn set_mode(handle: &AppHandle<Wry>, new_mode: Option<Mode>) {
         facts.user_id = None;
         facts.current_url = None;
         facts.credentials_complete = None;
-        facts.access_tokens_complete = None;
+        facts.oauth_client_complete = None;
         facts.production_app_count = None;
     }
     recompute_and_publish(handle);
@@ -226,14 +226,14 @@ pub fn recheck_credentials(handle: &AppHandle<Wry>) {
         let mut facts = facts_slot().lock().expect("facts slot poisoned");
         let uid = facts.user_id.as_deref();
         let next_first = uid.map(|u| crate::credentials::all_three_present(handle, u));
-        let next_access = uid.map(|u| crate::credentials::access_tokens_present(handle, u));
+        let next_access = uid.map(|u| crate::credentials::oauth_client_present(handle, u));
         let first_changed = facts.credentials_complete != next_first;
-        let access_changed = facts.access_tokens_complete != next_access;
+        let access_changed = facts.oauth_client_complete != next_access;
         if first_changed {
             facts.credentials_complete = next_first;
         }
         if access_changed {
-            facts.access_tokens_complete = next_access;
+            facts.oauth_client_complete = next_access;
         }
         first_changed || access_changed
     };
@@ -265,18 +265,18 @@ pub fn apply_cookie_facts(
         let token_changed = facts.auth_token != auth_token;
         facts.auth_token = auth_token.clone();
         facts.user_id = user_id;
-        // creds_complete + access_tokens_complete are both
+        // creds_complete + oauth_client_complete are both
         // functions of user_id + disk contents; recompute under
         // the same lock so derive() never sees mismatched
-        // (user_id, creds_complete, access_tokens_complete).
+        // (user_id, creds_complete, oauth_client_complete).
         facts.credentials_complete = facts
             .user_id
             .as_deref()
             .map(|uid| crate::credentials::all_three_present(handle, uid));
-        facts.access_tokens_complete = facts
+        facts.oauth_client_complete = facts
             .user_id
             .as_deref()
-            .map(|uid| crate::credentials::access_tokens_present(handle, uid));
+            .map(|uid| crate::credentials::oauth_client_present(handle, uid));
         if token_changed { Some(auth_token) } else { None }
     };
 
@@ -335,7 +335,7 @@ pub fn derive(facts: &Facts) -> PanelState {
                 };
             }
             // Two-layered decision keyed on
-            // (creds_complete, access_tokens_complete):
+            // (creds_complete, oauth_client_complete):
             //
             //   creds_complete drives the first triple. If it's
             //   missing, we push the user through the create-
@@ -367,7 +367,7 @@ pub fn derive(facts: &Facts) -> PanelState {
             let on_app = is_app_page(url);
             let on_auth = is_auth_settings(url);
             let on_area = is_apps_tab(url);
-            match (facts.credentials_complete, facts.access_tokens_complete) {
+            match (facts.credentials_complete, facts.oauth_client_complete) {
                 // We don't know enough yet (cookies snapshot
                 // hasn't landed). Show Loading rather than
                 // collapsing the panel — same intent as

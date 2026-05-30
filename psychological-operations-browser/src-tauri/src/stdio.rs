@@ -333,10 +333,11 @@ pub fn process_post_create_html_inner(
 /// Twin of [`process_post_create_html_inner`] for the OAuth 2.0
 /// popup that fires after the user clicks Save Changes on the
 /// auth-settings page. Two fields here (`client_id` +
-/// `client_secret`) instead of three. No `recheck_credentials`
-/// at the end — no Fact currently tracks the OAuth client pair,
-/// so the overlay just reads the returned `stored` count to
-/// flip its close badge green.
+/// `client_secret`) instead of three. Calls
+/// [`state::recheck_credentials`] at the end so
+/// `Facts::oauth_client_complete` flips the moment both files
+/// land — same self-healing pattern as
+/// `process_post_create_html_inner`.
 pub fn process_oauth_popup_html_inner(
     app: &AppHandle<Wry>,
     html: String,
@@ -375,6 +376,13 @@ pub fn process_oauth_popup_html_inner(
             }
         }
     }
+    // Refresh `Facts::oauth_client_complete` from disk so the
+    // panel transitions to Hidden the moment both files land —
+    // no waiting for the next cookies kick.
+    let app_for_task = app.clone();
+    tauri::async_runtime::spawn(async move {
+        state::recheck_credentials(&app_for_task);
+    });
     Ok(stored)
 }
 
