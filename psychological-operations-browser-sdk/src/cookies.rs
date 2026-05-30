@@ -37,8 +37,12 @@ pub fn parse_twid(raw: &str) -> Option<String> {
 /// Errors `signed_in_x_user_id` can return. Wraps the underlying
 /// failure modes (I/O, SQLite, JSON parse of `Local State`, key
 /// material missing, DPAPI failure, AES-GCM failure).
+///
+/// Exposed publicly because [`crate::refresh_token::RefreshTokenError`]
+/// holds one as a variant — callers should pattern-match on its
+/// variants to disambiguate "no cookies DB yet" from real failures.
 #[derive(Debug)]
-pub(crate) enum CookiesError {
+pub enum CookiesError {
     Io(std::io::Error),
     Sqlite(rusqlite::Error),
     LocalState(serde_json::Error),
@@ -103,10 +107,10 @@ impl From<base64::DecodeError> for CookiesError {
 /// parse as a numeric user-id. Real I/O / decrypt failures bubble
 /// up as `Err`.
 ///
-/// Private — a forthcoming `get_auth_data(...)` will wrap this
-/// alongside the auth token + stored OAuth creds and be the
-/// public API.
-#[allow(dead_code)] // first caller (get_auth_data) lands in a follow-up
+/// Private — reached today via [`crate::refresh_token::get`] /
+/// [`crate::refresh_token::set`] to resolve the per-psyop persona
+/// twid, and intended to also back a future `get_auth_data(...)`
+/// wrapper that bundles in the auth token + stored OAuth creds.
 pub(crate) fn signed_in_x_user_id(
     config_base_dir: &Path,
     mode: &Mode,

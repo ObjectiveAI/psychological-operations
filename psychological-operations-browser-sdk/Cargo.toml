@@ -19,6 +19,8 @@ serde_json = { version = "1.0.149", features = ["preserve_order"] }
 rusqlite = { version = "0.31.0", features = ["bundled"] }
 base64 = "0.22.1"
 aes-gcm = "0.10.3"
+tokio = { version = "1.52.3", features = ["fs", "rt"] }
+fs4 = { version = "1.1.0", features = ["tokio"] }
 
 # Chromium encrypts cookie values via AES-GCM with a key wrapped
 # in Windows DPAPI. CryptUnprotectData lives in
