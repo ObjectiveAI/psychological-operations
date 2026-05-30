@@ -67,6 +67,13 @@ pub enum PanelCondition {
     /// Website URL / Callback URI fields and the Save Changes
     /// button.
     ConfigureAuthSettings,
+    /// Psyop mode (either Scrape or Authorize), signed in,
+    /// but the X account's twid already has an `auth.json`
+    /// under a *different* psyop's `handles/<twid>/`. The
+    /// user is logged into the wrong persona — sign out and
+    /// sign back in as the right one. Message carries the
+    /// conflicting psyop's name.
+    PsyopAccountInUse,
 }
 
 /// Everything the panel needs to render. Either it's hidden (zero

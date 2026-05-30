@@ -91,6 +91,13 @@ pub struct Facts {
     /// already on disk — "no production app means restart".
     /// X-App-only; cleared by `set_mode`.
     pub production_app_count: Option<u32>,
+    /// If the signed-in twid is already authorized to ANOTHER
+    /// psyop on disk (i.e. `psyop/<other>/handles/<twid>/auth.json`
+    /// exists), the conflicting psyop's name. `None` when no
+    /// conflict, no twid is known, or the current mode isn't
+    /// a psyop variant. Refreshed under the same lock as
+    /// `auth_token + user_id` in [`apply_cookie_facts`].
+    pub twid_conflict: Option<String>,
 }
 
 // ---------------------------------------------------------------------
@@ -161,6 +168,7 @@ pub fn set_mode(handle: &AppHandle<Wry>, new_mode: Option<Mode>) {
         facts.credentials_complete = None;
         facts.oauth_client_complete = None;
         facts.production_app_count = None;
+        facts.twid_conflict = None;
     }
     recompute_and_publish(handle);
 }
@@ -277,6 +285,17 @@ pub fn apply_cookie_facts(
             .user_id
             .as_deref()
             .map(|uid| crate::credentials::oauth_client_present(handle, uid));
+        // Cross-psyop guard: if this twid already has an
+        // auth.json under some OTHER psyop's handles/, record
+        // its name so derive() can render the "wrong account"
+        // nag. Only meaningful when in a psyop mode and signed
+        // in with a twid.
+        facts.twid_conflict = match (facts.auth_token.as_ref(), facts.user_id.as_deref()) {
+            (Some(_), Some(twid)) => current_psyop_name(&facts.mode).and_then(|name| {
+                crate::psyop_authorize::find_other_psyop_owning_twid(handle, &name, twid)
+            }),
+            _ => None,
+        };
         if token_changed { Some(auth_token) } else { None }
     };
 
@@ -313,6 +332,16 @@ fn home_url_for_current_mode() -> Option<&'static str> {
     match mode::get()? {
         Mode::XApp => Some("https://console.x.com/"),
         Mode::PsyopScrape { .. } | Mode::PsyopAuthorize { .. } => Some("https://x.com/"),
+    }
+}
+
+/// The current psyop's name, if any. Both psyop variants share
+/// the same on-disk dir and therefore the same conflict domain,
+/// so the variant tag doesn't matter — only the name does.
+fn current_psyop_name(mode: &Option<Mode>) -> Option<String> {
+    match mode {
+        Some(Mode::PsyopScrape { name } | Mode::PsyopAuthorize { name }) => Some(name.clone()),
+        _ => None,
     }
 }
 
@@ -461,6 +490,13 @@ pub fn derive(facts: &Facts) -> PanelState {
                 PanelState::Show {
                     condition: PanelCondition::SignInToX,
                     message: "Sign in to X.".into(),
+                }
+            } else if let Some(other) = &facts.twid_conflict {
+                PanelState::Show {
+                    condition: PanelCondition::PsyopAccountInUse,
+                    message: format!(
+                        "Sign out. This account is already in use by PsyOp {other}."
+                    ),
                 }
             } else {
                 PanelState::Hidden

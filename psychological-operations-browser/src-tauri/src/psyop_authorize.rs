@@ -85,6 +85,22 @@ pub fn maybe_start_flow(handle: &AppHandle<Wry>) {
         return;
     }
 
+    // Cross-psyop guard: if this twid already belongs to a
+    // different psyop, don't kick the dance — we'd be minting
+    // tokens onto the wrong handles/. The panel surfaces the
+    // "wrong account" nag separately; this is just the OAuth-
+    // side short-circuit. Re-evaluated on every cookies kick,
+    // so it auto-clears when the user signs back in correctly.
+    if let Some(other) = find_other_psyop_owning_twid(handle, &psyop_name, &persona_twid) {
+        let _ = Output::Log {
+            message: format!(
+                "psyop_authorize: twid {persona_twid} belongs to PsyOp {other}; not starting flow"
+            ),
+        }
+        .emit();
+        return;
+    }
+
     {
         let mut slot = match in_flight_slot().lock() {
             Ok(s) => s,
@@ -422,6 +438,54 @@ fn auth_json_path(handle: &AppHandle<Wry>, psyop_name: &str, twid: &str) -> Path
         .join("handles")
         .join(twid)
         .join("auth.json")
+}
+
+/// Scan every sibling psyop's data dir and return the name of
+/// the first one (other than `current`) whose
+/// `handles/<twid>/auth.json` exists. Sorting `read_dir` entries
+/// alphabetically gives deterministic conflict reporting if
+/// multiple owners exist.
+///
+/// Returns `None` when no conflict, `twid` is empty, or the
+/// `psyop/` root doesn't exist yet (first-ever run).
+///
+/// Cheap: a couple of `read_dir` + per-entry `Path::exists`
+/// calls. Fine to call on every cookies kick.
+pub fn find_other_psyop_owning_twid(
+    handle: &AppHandle<Wry>,
+    current: &str,
+    twid: &str,
+) -> Option<String> {
+    if twid.is_empty() {
+        return None;
+    }
+    // Walk up one level from this psyop's own data dir to reach
+    // the `psyop/` root. Both Scrape and Authorize resolve to
+    // the same dir, so either works here.
+    let current_mode = Mode::PsyopAuthorize {
+        name: current.to_string(),
+    };
+    let psyop_root = webview::mode_data_dir(handle, &current_mode).parent()?.to_path_buf();
+    let mut entries: Vec<PathBuf> = fs::read_dir(&psyop_root)
+        .ok()?
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| p.is_dir())
+        .collect();
+    entries.sort();
+    for path in entries {
+        let name = match path.file_name().and_then(|n| n.to_str()) {
+            Some(n) => n,
+            None => continue,
+        };
+        if name == current {
+            continue;
+        }
+        if path.join("handles").join(twid).join("auth.json").exists() {
+            return Some(name.to_string());
+        }
+    }
+    None
 }
 
 fn write_auth_json(
