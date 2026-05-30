@@ -244,11 +244,18 @@ function tick() {
     }
   }
 
+  // While the Create App dialog is open, hide BOTH pointers —
+  // the dialog's own step badges take over from this point and
+  // the apps-page-level pointers would compete with them (and
+  // read as inconsistent because their arrow direction is
+  // mirrored against the dialog's).
+  const dialogOpen = isCreateAppDialogOpen();
+
   // -- Create App pointer -------------------------------------------
   const createEl = createBtnWidget.element;
   const createBtn = findCreateAppButton();
   const showCreate =
-    !!createBtn && isPanelCondition("click_create_app");
+    !dialogOpen && !!createBtn && isPanelCondition("click_create_app");
   if (!showCreate || !createBtn) {
     createEl.style.display = "none";
   } else {
@@ -264,7 +271,7 @@ function tick() {
   const prodLinks = findProductionAppLinks();
   const firstProd = prodLinks[0] ?? null;
   const showProd =
-    !!firstProd && isPanelCondition("click_production_app");
+    !dialogOpen && !!firstProd && isPanelCondition("click_production_app");
   if (!showProd || !firstProd) {
     prodEl.style.display = "none";
   } else {
