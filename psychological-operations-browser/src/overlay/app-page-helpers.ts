@@ -56,15 +56,21 @@ function directText(el: HTMLElement): string {
   return s.trim();
 }
 
-/** Find the Settings nav target. Multi-strategy:
- *    1. Common interactive roles whose **whole** textContent is
- *       "Settings".
- *    2. Aria-label / title attribute exactly "Settings".
- *    3. Any element whose **direct** (own text-node only) text
- *       is "Settings" — typically a `<span>` inside a tab —
- *       climbing up to the nearest clickable ancestor.
- *  First visible hit wins. */
-function findSettingsTarget(): { el: HTMLElement; via: string } | null {
+/** Find every visible element whose own text or whose direct
+ *  child-text is exactly "Settings". Returns all of them with a
+ *  short tag + rect summary so we can pick the right one. */
+function findSettingsCandidates(): {
+  el: HTMLElement;
+  tag: string;
+  rect: DOMRect;
+}[] {
+  const out: { el: HTMLElement; tag: string; rect: DOMRect }[] = [];
+  const seen = new Set<HTMLElement>();
+  function push(el: HTMLElement, tag: string) {
+    if (seen.has(el) || !isVisible(el)) return;
+    seen.add(el);
+    out.push({ el, tag, rect: el.getBoundingClientRect() });
+  }
   for (const sel of [
     "a",
     "button",
@@ -73,26 +79,41 @@ function findSettingsTarget(): { el: HTMLElement; via: string } | null {
     '[role="button"]',
   ]) {
     for (const el of document.querySelectorAll<HTMLElement>(sel)) {
-      if ((el.textContent ?? "").trim() !== "Settings") continue;
-      if (!isVisible(el)) continue;
-      return { el, via: `text:${sel}` };
+      if ((el.textContent ?? "").trim() === "Settings") push(el, sel);
     }
   }
   for (const sel of ['[aria-label="Settings"]', '[title="Settings"]']) {
-    for (const el of document.querySelectorAll<HTMLElement>(sel)) {
-      if (!isVisible(el)) continue;
-      return { el, via: `attr:${sel}` };
-    }
+    for (const el of document.querySelectorAll<HTMLElement>(sel)) push(el, sel);
   }
   for (const el of document.querySelectorAll<HTMLElement>("*")) {
-    if (directText(el) !== "Settings") continue;
-    if (!isVisible(el)) continue;
-    const clickable = el.closest<HTMLElement>(
-      'a, button, [role="tab"], [role="button"], [role="menuitem"]',
-    );
-    return { el: clickable ?? el, via: "directText" };
+    if (directText(el) === "Settings") {
+      const clickable = el.closest<HTMLElement>(
+        'a, button, [role="tab"], [role="button"], [role="menuitem"]',
+      );
+      push(clickable ?? el, "directText");
+    }
   }
-  return null;
+  return out;
+}
+
+/** Pick the best Settings target from the candidates. We
+ *  prefer matches that are NOT inside a global nav landmark
+ *  (`<header>`, `<nav>`, `<aside>`, banner / navigation /
+ *  complementary roles), so a "Settings" link in the user
+ *  menu doesn't outrank the app's own Settings tab. Among the
+ *  remainder we take the topmost (most likely a tab/header
+ *  for this page). */
+function findSettingsTarget(): HTMLElement | null {
+  const cands = findSettingsCandidates();
+  if (cands.length === 0) return null;
+  const inGlobalNav = (el: HTMLElement) =>
+    !!el.closest(
+      'header, nav, aside, [role="banner"], [role="navigation"], [role="complementary"]',
+    );
+  const pageCands = cands.filter((c) => !inGlobalNav(c.el));
+  const pool = pageCands.length > 0 ? pageCands : cands;
+  pool.sort((a, b) => a.rect.top - b.rect.top);
+  return pool[0]?.el ?? null;
 }
 
 // =================================================================
@@ -151,22 +172,31 @@ function tick() {
     rafId = requestAnimationFrame(tick);
     return;
   }
-  const found = findSettingsTarget();
-  if (found) {
+  const cands = findSettingsCandidates();
+  const target = findSettingsTarget();
+  if (target && cands.length === 1) {
     el.style.display = "";
     widget.setText("Click here");
-    // Badge sits LEFT of the Settings target; the widget's own
-    // `arrow: "right"` makes the triangle point back at it.
-    const rect = found.el.getBoundingClientRect();
+    const rect = target.getBoundingClientRect();
+    el.style.top = `${rect.top + rect.height / 2}px`;
+    el.style.left = `${rect.left - 8}px`;
+    el.style.transform = "translateX(-100%) translateY(-50%)";
+  } else if (target) {
+    // Multiple candidates — point at the picked one but
+    // surface that there were others to choose from.
+    el.style.display = "";
+    widget.setText(`Click here • picked 1/${cands.length}`);
+    const rect = target.getBoundingClientRect();
     el.style.top = `${rect.top + rect.height / 2}px`;
     el.style.left = `${rect.left - 8}px`;
     el.style.transform = "translateX(-100%) translateY(-50%)";
   } else {
-    // TEMP: Settings element not found — surface a diagnostic
-    // badge in the top-right corner so we can tune the finder
-    // against the live DOM. Remove once positioning is right.
+    // Settings element not found — surface a diagnostic so we
+    // can tune the finder against the live DOM.
     el.style.display = "";
-    widget.setText("Settings target not found — share a screenshot of nearby UI");
+    widget.setText(
+      `No "Settings" element found (${cands.length} candidates rejected)`,
+    );
     el.style.top = `12px`;
     el.style.left = `${window.innerWidth - 12}px`;
     el.style.transform = "translateX(-100%)";
