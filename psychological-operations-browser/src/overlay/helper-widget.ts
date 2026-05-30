@@ -86,33 +86,42 @@ export const HELPER_CSS = `
     border-color: rgba(255, 130, 130, 0.6);
   }
   .helper .status {
-    /* Hidden by default — the empty outlined "O" carries no
-       information in the incomplete state. The complete /
-       blocked rules below flip it back on once it has a
-       meaningful glyph (✓ or ✕) to show. */
-    display: none;
+    /* Always visible — in the incomplete state the border
+       pulses through colors to read as a "live" indicator
+       rather than dead UI. The complete / blocked overrides
+       below halt the animation and switch to the
+       definitive green ✓ / red ✕ colors. */
+    display: inline-flex;
     align-items: center;
     justify-content: center;
     width: 16px;
     height: 16px;
     border-radius: 50%;
-    border: 1.5px solid rgba(255, 255, 255, 0.55);
+    border: 1.5px solid rgba(91, 148, 255, 0.7);
     flex-shrink: 0;
     font-size: 11px;
     line-height: 1;
     transition: background 180ms ease, border-color 180ms ease, color 180ms ease;
+    animation: psyops-status-pulse 4s linear infinite;
   }
   .helper.complete .status {
-    display: inline-flex;
     background: #fff;
     border-color: #fff;
     color: #1a7a3a;
+    animation: none;
   }
   .helper.blocked .status {
-    display: inline-flex;
     background: #fff;
     border-color: #fff;
     color: #b32828;
+    animation: none;
+  }
+  @keyframes psyops-status-pulse {
+    0%   { border-color: rgba(91, 148, 255, 0.7); }
+    25%  { border-color: rgba(183, 91, 255, 0.7); }
+    50%  { border-color: rgba(255, 91, 183, 0.7); }
+    75%  { border-color: rgba(255, 183, 91, 0.7); }
+    100% { border-color: rgba(91, 148, 255, 0.7); }
   }
   /* Optional speech-bubble-tail arrow: opt-in via the 'arrow'
      option on createHelperWidget. The 6px triangle sits in the

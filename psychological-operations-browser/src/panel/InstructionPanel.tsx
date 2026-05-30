@@ -47,7 +47,11 @@ export function InstructionPanel() {
       </div>
     );
   }
-  return <div style={STYLE}>{state.message}</div>;
+  return (
+    <div style={STYLE} className="psyops-pulse">
+      {state.message}
+    </div>
+  );
 }
 
 const STYLE: React.CSSProperties = {
