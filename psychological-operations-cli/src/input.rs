@@ -68,7 +68,7 @@ pub fn post_object_schema() -> ObjectInputSchema {
 
     ObjectInputSchema {
         r#type: ObjectInputSchemaType::Object,
-        description: Some("A scraped post with text, images, and videos.".to_string()),
+        description: Some("A read post with text, images, and videos.".to_string()),
         properties,
         required: Some(vec!["text".to_string(), "images".to_string(), "videos".to_string()]),
     }

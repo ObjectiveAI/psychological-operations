@@ -13,13 +13,13 @@ use crate::error::Error;
 
 pub fn spawn(
     chromium_binary: &Path,
-    scrape_extension_dir: &Path,
+    read_extension_dir: &Path,
     profile: &Path,
     psyop: &str,
     commit: &str,
     landing_url: &str,
 ) -> Result<Child, Error> {
-    let extension_id = crate::chromium::bundles::scrape_extension_id();
+    let extension_id = crate::chromium::bundles::read_extension_id();
 
     // Pre-seed the profile (extension pinned to the toolbar + don't
     // restore previous-session tabs on launch). Idempotent — safe on
@@ -28,7 +28,7 @@ pub fn spawn(
 
     let mut cmd = Command::new(chromium_binary);
     cmd.arg(format!("--user-data-dir={}", profile.display()));
-    cmd.arg(format!("--load-extension={}", scrape_extension_dir.display()));
+    cmd.arg(format!("--load-extension={}", read_extension_dir.display()));
     cmd.arg(format!("--allowlisted-extension-id={extension_id}"));
     cmd.arg("--no-first-run");
     cmd.arg("--no-default-browser-check");

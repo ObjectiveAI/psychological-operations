@@ -67,6 +67,14 @@ pub enum Output {
     /// `state` module's pure derivation over raw facts (mode, cookies).
     /// See [`crate::panel`].
     Panel { state: PanelState },
+
+    /// A newly-observed tweet ID. Emitted once per ID, in
+    /// observation order, by the [`crate::mode::Mode::PsyopRead`]
+    /// HTML processor as it dedups against an in-memory ordered
+    /// set. The set resets on every mode change (including
+    /// psyop swap) so a new session always starts emitting from
+    /// zero.
+    TweetId { id: String },
 }
 
 /// Identifying claims extracted from the auth JWT's payload. All

@@ -1,5 +1,5 @@
 //! Content-hash-keyed cached extraction of the embedded Chromium zip
-//! and both extension tars (scrape + auth). First call materializes
+//! and both extension tars (read + auth). First call materializes
 //! all three into `~/.psychological-operations/chromium/<hash>/`;
 //! subsequent calls short-circuit when the hash dir already exists.
 
@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use sha2::{Digest, Sha256};
 
 use super::bundles::{
-    AUTH_EXTENSION_TAR, CHROMIUM_BUNDLE, SCRAPE_EXTENSION_TAR, launch_entry,
+    AUTH_EXTENSION_TAR, CHROMIUM_BUNDLE, READ_EXTENSION_TAR, launch_entry,
 };
 use super::paths::chromium_cache_root;
 use crate::error::Error;
@@ -19,7 +19,7 @@ use crate::error::Error;
 pub struct Extracted {
     pub root: PathBuf,
     pub chromium_binary: PathBuf,
-    pub scrape_extension_dir: PathBuf,
+    pub read_extension_dir: PathBuf,
     pub auth_extension_dir: PathBuf,
 }
 
@@ -28,7 +28,7 @@ pub fn ensure_extracted(cfg: &crate::run::Config) -> Result<Extracted, Error> {
     let hash = content_hash();
     let root = chromium_cache_root(cfg).join(format!("{hash:016x}"));
     let chromium_binary = root.join("chromium").join(launch_entry());
-    let scrape_extension_dir = root.join("scrape-extension");
+    let read_extension_dir = root.join("read-extension");
     let auth_extension_dir = root.join("auth-extension");
     let sentinel = root.join(".ready");
 
@@ -44,7 +44,7 @@ pub fn ensure_extracted(cfg: &crate::run::Config) -> Result<Extracted, Error> {
         extract_zip(CHROMIUM_BUNDLE, &chromium_root)?;
 
         for (tar_bytes, dest) in [
-            (SCRAPE_EXTENSION_TAR, &scrape_extension_dir),
+            (READ_EXTENSION_TAR, &read_extension_dir),
             (AUTH_EXTENSION_TAR,   &auth_extension_dir),
         ] {
             if dest.exists() {
@@ -71,7 +71,7 @@ pub fn ensure_extracted(cfg: &crate::run::Config) -> Result<Extracted, Error> {
     Ok(Extracted {
         root,
         chromium_binary,
-        scrape_extension_dir,
+        read_extension_dir,
         auth_extension_dir,
     })
 }
@@ -82,8 +82,8 @@ fn content_hash() -> u64 {
     let mut hasher = Sha256::new();
     hasher.update(&(CHROMIUM_BUNDLE.len() as u64).to_le_bytes());
     hasher.update(CHROMIUM_BUNDLE);
-    hasher.update(&(SCRAPE_EXTENSION_TAR.len() as u64).to_le_bytes());
-    hasher.update(SCRAPE_EXTENSION_TAR);
+    hasher.update(&(READ_EXTENSION_TAR.len() as u64).to_le_bytes());
+    hasher.update(READ_EXTENSION_TAR);
     hasher.update(&(AUTH_EXTENSION_TAR.len() as u64).to_le_bytes());
     hasher.update(AUTH_EXTENSION_TAR);
     let digest = hasher.finalize();

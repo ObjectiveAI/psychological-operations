@@ -158,7 +158,7 @@ fn dispatch_request(handle: &AppHandle<Wry>, req: Request) {
 fn mode_of_request(req: &Request) -> Option<Mode> {
     match req {
         Request::XApp => Some(Mode::XApp),
-        Request::PsyopScrape { name } => Some(Mode::PsyopScrape { name: name.clone() }),
+        Request::PsyopRead { name } => Some(Mode::PsyopRead { name: name.clone() }),
         Request::PsyopAuthorize { name } => Some(Mode::PsyopAuthorize { name: name.clone() }),
         _ => None,
     }

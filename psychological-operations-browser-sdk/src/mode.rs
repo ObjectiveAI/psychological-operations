@@ -27,10 +27,11 @@ pub enum Mode {
     /// `sso`-on-`.x.ai` setup — see the cookies watcher for the
     /// current set of names being probed.
     XApp,
-    /// Per-psyop session in "scrape" mode — user just browses
-    /// x.com on the persona's cookie jar. Default psyop-mode
-    /// behavior; nothing extra runs on top.
-    PsyopScrape { name: String },
+    /// Per-psyop session in "read" mode — the overlay streams
+    /// page HTML to Rust as the user browses, Rust dedups and
+    /// emits new tweet IDs to stdout, and the instruction
+    /// panel surfaces a running "Tweets read: X" counter.
+    PsyopRead { name: String },
     /// Per-psyop session in "authorize" mode — Rust drives the
     /// persona through X's OAuth 2.0 PKCE consent screen once
     /// they sign in, captures the access/refresh token pair,

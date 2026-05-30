@@ -6,7 +6,7 @@
 //! snapshot HTML to disk *before* parsing (so a selector
 //! miss still leaves a recoverable fixture at
 //! `<x-app-data-dir>/recordings/oauth_popup.html`), then run
-//! the same dialog-find + label-walk-up scrape that
+//! the same dialog-find + label-walk-up read that
 //! post_create_dialog uses for the first three credentials.
 //! Helpers (`direct_text`, `find_value_for_label`, …) are
 //! re-exported from that module.

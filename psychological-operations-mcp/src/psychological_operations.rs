@@ -8,7 +8,7 @@ use rmcp::{
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct PsychologicalOperationsRequest {
-    #[schemars(description = "The command arguments to pass to the psychological-operations CLI (e.g. [\"psyops\", \"list\"] or [\"scrapes\", \"run\", \"--name\", \"foo\"])")]
+    #[schemars(description = "The command arguments to pass to the psychological-operations CLI (e.g. [\"psyops\", \"list\"] or [\"reads\", \"run\", \"--name\", \"foo\"])")]
     pub command: Vec<String>,
 }
 

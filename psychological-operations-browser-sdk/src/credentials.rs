@@ -30,7 +30,7 @@ pub enum XAppCredentialField {
     /// OAuth 2.0 client identifier (also referred to as "API Key"
     /// in some X documentation under the OAuth 2 tab). Lives in a
     /// different surface from the post-create dialog — separate
-    /// scrape flow when we get there.
+    /// read flow when we get there.
     ClientId,
     /// OAuth 2.0 client secret. Pairs with `ClientId`.
     ClientSecret,

@@ -27,8 +27,8 @@ use std::path::Path;
 use serde_json::json;
 
 use super::bundles::{
-    AUTH_EXTENSION_ID, NATIVE_HOST_NAME, SCRAPE_EXTENSION_ID,
-    auth_extension_id, scrape_extension_id,
+    AUTH_EXTENSION_ID, NATIVE_HOST_NAME, READ_EXTENSION_ID,
+    auth_extension_id, read_extension_id,
 };
 use super::paths::native_host_manifest_for_profile;
 use crate::error::Error;
@@ -55,7 +55,7 @@ pub fn install(profile: &Path, _cfg: &crate::run::Config) -> Result<(), Error> {
         "path": exe.to_string_lossy(),
         "type": "stdio",
         "allowed_origins": [
-            format!("chrome-extension://{}/", scrape_extension_id()),
+            format!("chrome-extension://{}/", read_extension_id()),
             format!("chrome-extension://{}/", auth_extension_id()),
         ],
     });
@@ -64,7 +64,7 @@ pub fn install(profile: &Path, _cfg: &crate::run::Config) -> Result<(), Error> {
     #[cfg(windows)]
     register_windows_native_host(&manifest_path)?;
 
-    let _ = SCRAPE_EXTENSION_ID;
+    let _ = READ_EXTENSION_ID;
     let _ = AUTH_EXTENSION_ID;
     Ok(())
 }

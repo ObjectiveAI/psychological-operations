@@ -55,12 +55,12 @@ fn main() {
         embed_dir.join("chromium-bundle.zip").display(),
     );
     println!(
-        "cargo:rustc-env=PSYOPS_SCRAPE_EXTENSION_TAR_PATH={}",
-        embed_dir.join("scrape.tar").display(),
+        "cargo:rustc-env=PSYOPS_READ_EXTENSION_TAR_PATH={}",
+        embed_dir.join("read.tar").display(),
     );
     println!(
-        "cargo:rustc-env=PSYOPS_SCRAPE_EXTENSION_ID_PATH={}",
-        embed_dir.join("scrape-id.txt").display(),
+        "cargo:rustc-env=PSYOPS_READ_EXTENSION_ID_PATH={}",
+        embed_dir.join("read-id.txt").display(),
     );
     println!(
         "cargo:rustc-env=PSYOPS_AUTH_EXTENSION_TAR_PATH={}",

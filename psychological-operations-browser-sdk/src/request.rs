@@ -6,7 +6,8 @@
 //! ```text
 //! {"type":"html"}
 //! {"type":"x_app"}
-//! {"type":"psyop","name":"my-campaign"}
+//! {"type":"psyop_read","name":"my-campaign"}
+//! {"type":"psyop_authorize","name":"my-campaign"}
 //! {"type":"console"}
 //! {"type":"eval","code":"document.title"}
 //! ```
@@ -24,13 +25,13 @@ pub enum Request {
     /// pointed at `https://console.x.com/`. Stdin reading blocks
     /// until the new overlay reports ready.
     XApp,
-    /// Switch the browser to a Psyop **scrape** session named
+    /// Switch the browser to a Psyop **read** session named
     /// `<name>`. Same teardown / reopen flow as [`Self::XApp`],
     /// but with a per-psyop `RequestContext` (isolated cookies
-    /// / storage) pointed at `https://x.com/`. User just
-    /// browses x.com on the persona's cookie jar; no extra
-    /// flows run.
-    PsyopScrape { name: String },
+    /// / storage) pointed at `https://x.com/`. The overlay
+    /// streams page HTML to Rust as the persona browses; Rust
+    /// dedups and emits new tweet IDs to stdout.
+    PsyopRead { name: String },
     /// Switch the browser to a Psyop **authorize** session
     /// named `<name>`. Same teardown / reopen flow but with
     /// Rust additionally driving the persona through X's

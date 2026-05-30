@@ -6,6 +6,7 @@ mod credentials;
 mod oauth_popup;
 mod post_create_dialog;
 mod psyop_authorize;
+mod psyop_read;
 mod state;
 mod stdio;
 mod webview;

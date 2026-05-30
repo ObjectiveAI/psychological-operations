@@ -118,7 +118,7 @@ CARGO_TOMLS=(
 )
 
 MANIFEST_JSONS=(
-  psychological-operations-chromium-extension-scrape/manifest.json
+  psychological-operations-chromium-extension-read/manifest.json
   psychological-operations-chromium-extension-auth/manifest.json
   objectiveai.json
 )

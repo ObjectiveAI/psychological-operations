@@ -25,6 +25,7 @@ import { installAppPageHelpers } from "./app-page-helpers";
 import { installAuthSettingsHelpers } from "./auth-settings-helpers";
 import { installCreateAppDialogHelpers } from "./create-app-dialog-helpers";
 import { installPostCreateDialogHelpers } from "./post-create-dialog-helpers";
+import { installPsyopReadHelpers } from "./psyop-read-helpers";
 // Side-effect: registers `window.__psyops_set_panel` so the first
 // Rust push lands. Imported before any helper module so the setter
 // is in place by the time anyone reads `getPanelState()`.
@@ -37,7 +38,11 @@ type Request =
   | { type: "console" }
   | { type: "eval"; code: string };
 
-type Mode = { type: "x_app" } | null;
+type Mode =
+  | { type: "x_app" }
+  | { type: "psyop_read"; name: string }
+  | { type: "psyop_authorize"; name: string }
+  | null;
 
 let urlReporterUninstall: (() => void) | null = null;
 let onboardingHelpersUninstall: (() => void) | null = null;
@@ -47,6 +52,7 @@ let appPageHelpersUninstall: (() => void) | null = null;
 let authSettingsHelpersUninstall: (() => void) | null = null;
 let createAppDialogHelpersUninstall: (() => void) | null = null;
 let postCreateDialogHelpersUninstall: (() => void) | null = null;
+let psyopReadHelpersUninstall: (() => void) | null = null;
 
 function stopUrlReporter() {
   urlReporterUninstall?.();
@@ -88,6 +94,11 @@ function stopPostCreateDialogHelpers() {
   postCreateDialogHelpersUninstall = null;
 }
 
+function stopPsyopReadHelpers() {
+  psyopReadHelpersUninstall?.();
+  psyopReadHelpersUninstall = null;
+}
+
 async function respondOk(response: unknown) {
   await invoke("stdio_respond", {
     result: { status: "ok", response },
@@ -118,6 +129,7 @@ async function handleRequest(payload: unknown) {
       stopAuthSettingsHelpers();
       stopCreateAppDialogHelpers();
       stopPostCreateDialogHelpers();
+      stopPsyopReadHelpers();
 
       // Navigate (or reload if already on the right origin so the
       // overlay still re-mounts on the fresh page).
@@ -184,15 +196,24 @@ async function handleRequest(payload: unknown) {
       JSON.stringify(initialPanel),
     );
     if (mode !== null) {
+      // URL reporter is mode-agnostic — useful in every mode so
+      // Rust's panel derivation has fresh `current_url` facts.
       urlReporterUninstall = installSpaUrlReporter();
-      onboardingHelpersUninstall = installOnboardingHelpers();
-      appsTabHelperUninstall = installAppsTabHelper();
-      appsPageHelpersUninstall = installAppsPageHelpers();
-      appPageHelpersUninstall = installAppPageHelpers();
-      authSettingsHelpersUninstall = installAuthSettingsHelpers();
-      createAppDialogHelpersUninstall = installCreateAppDialogHelpers();
-      postCreateDialogHelpersUninstall = installPostCreateDialogHelpers();
-      console.log("[psyops-overlay] helpers installed");
+      if (mode.type === "x_app") {
+        onboardingHelpersUninstall = installOnboardingHelpers();
+        appsTabHelperUninstall = installAppsTabHelper();
+        appsPageHelpersUninstall = installAppsPageHelpers();
+        appPageHelpersUninstall = installAppPageHelpers();
+        authSettingsHelpersUninstall = installAuthSettingsHelpers();
+        createAppDialogHelpersUninstall = installCreateAppDialogHelpers();
+        postCreateDialogHelpersUninstall = installPostCreateDialogHelpers();
+      } else if (mode.type === "psyop_read") {
+        psyopReadHelpersUninstall = installPsyopReadHelpers();
+      }
+      // psyop_authorize installs no helpers — Rust drives the
+      // OAuth navigation on its own; X's consent page is the
+      // affordance.
+      console.log("[psyops-overlay] helpers installed for mode", mode.type);
     }
   } catch (e) {
     console.error("[psyops-overlay] mount failed:", (e as Error)?.message ?? String(e));

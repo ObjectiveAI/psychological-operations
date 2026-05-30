@@ -98,6 +98,13 @@ pub struct Facts {
     /// a psyop variant. Refreshed under the same lock as
     /// `auth_token + user_id` in [`apply_cookie_facts`].
     pub twid_conflict: Option<String>,
+    /// Running count of unique tweet IDs the
+    /// [`crate::psyop_read`] dedup-emitter has observed
+    /// during this session. `None` ⇒ counter not rendered
+    /// (pre-first-HTML or non-Read mode). Driven by
+    /// [`set_tweets_read_count`]; cleared on every mode
+    /// change via [`set_mode`].
+    pub tweets_read_count: Option<u32>,
 }
 
 // ---------------------------------------------------------------------
@@ -138,6 +145,18 @@ pub fn current_user_id() -> Option<String> {
         .clone()
 }
 
+/// `true` iff the current twid belongs to some other psyop.
+/// Cheap accessor for [`crate::psyop_read::process_html`] to
+/// gate "don't dedup the wrong account's timeline into our
+/// set" without taking a fact-store dependency.
+pub fn twid_conflict_present() -> bool {
+    facts_slot()
+        .lock()
+        .expect("facts slot poisoned")
+        .twid_conflict
+        .is_some()
+}
+
 // ---------------------------------------------------------------------
 // Setters (each triggers a recompute)
 // ---------------------------------------------------------------------
@@ -169,7 +188,12 @@ pub fn set_mode(handle: &AppHandle<Wry>, new_mode: Option<Mode>) {
         facts.oauth_client_complete = None;
         facts.production_app_count = None;
         facts.twid_conflict = None;
+        facts.tweets_read_count = None;
     }
+    // Drop the in-memory seen-tweets set so a mode swap
+    // (including psyop swap) doesn't carry IDs from the
+    // prior session into the new one.
+    crate::psyop_read::clear();
     recompute_and_publish(handle);
 }
 
@@ -214,6 +238,26 @@ pub fn set_production_app_count(
             return;
         }
         facts.production_app_count = count;
+    }
+    recompute_and_publish(handle);
+}
+
+/// Update the running "tweets read" counter the PsyopRead
+/// panel surfaces. Called by [`crate::psyop_read::process_html`]
+/// every time the in-memory seen set grows. PsyopRead-only;
+/// no-op outside that mode so a late-arriving HTML invoke
+/// after a mode swap can't ghost the previous counter into
+/// the new mode's panel.
+pub fn set_tweets_read_count(handle: &AppHandle<Wry>, count: u32) {
+    {
+        let mut facts = facts_slot().lock().expect("facts slot poisoned");
+        if !matches!(facts.mode, Some(Mode::PsyopRead { .. })) {
+            return;
+        }
+        if facts.tweets_read_count == Some(count) {
+            return;
+        }
+        facts.tweets_read_count = Some(count);
     }
     recompute_and_publish(handle);
 }
@@ -331,7 +375,7 @@ pub fn apply_cookie_facts(
 fn home_url_for_current_mode() -> Option<&'static str> {
     match mode::get()? {
         Mode::XApp => Some("https://console.x.com/"),
-        Mode::PsyopScrape { .. } | Mode::PsyopAuthorize { .. } => Some("https://x.com/"),
+        Mode::PsyopRead { .. } | Mode::PsyopAuthorize { .. } => Some("https://x.com/"),
     }
 }
 
@@ -340,7 +384,7 @@ fn home_url_for_current_mode() -> Option<&'static str> {
 /// so the variant tag doesn't matter — only the name does.
 fn current_psyop_name(mode: &Option<Mode>) -> Option<String> {
     match mode {
-        Some(Mode::PsyopScrape { name } | Mode::PsyopAuthorize { name }) => Some(name.clone()),
+        Some(Mode::PsyopRead { name } | Mode::PsyopAuthorize { name }) => Some(name.clone()),
         _ => None,
     }
 }
@@ -383,7 +427,7 @@ pub fn derive(facts: &Facts) -> PanelState {
             //   `None` for either fact = "we don't know yet"
             //   → stay quiet so we don't flash a wrong
             //   message between mount and the first cookie
-            //   snapshot / apps-page scrape.
+            //   snapshot / apps-page read.
             // Three URL bands:
             //   on_list  — strictly /apps[/]?, the apps list
             //              page. Count-driven conditions
@@ -478,14 +522,43 @@ pub fn derive(facts: &Facts) -> PanelState {
                 }
             }
         }
-        Some(Mode::PsyopScrape { .. } | Mode::PsyopAuthorize { .. }) => {
-            // Both psyop variants share the same panel logic
-            // today: nag to sign in if not signed in, otherwise
-            // hide. PsyopScrape: user just browses x.com with
-            // no overlay. PsyopAuthorize: Rust auto-navigates
-            // to X's OAuth authorize page once the persona
-            // signs in, and X's own page is the affordance —
-            // no helper widget on top.
+        Some(Mode::PsyopRead { .. }) => {
+            // PsyopRead: nag to sign in if not signed in;
+            // surface the twid-conflict guard ahead of any
+            // counter so the user fixes the wrong-account
+            // problem before they assume tweet IDs are
+            // being captured under the right persona;
+            // otherwise show the running tweet counter the
+            // overlay+`psyop_read` module drives.
+            if facts.auth_token.is_none() {
+                PanelState::Show {
+                    condition: PanelCondition::SignInToX,
+                    message: "Sign in to X.".into(),
+                }
+            } else if let Some(other) = &facts.twid_conflict {
+                PanelState::Show {
+                    condition: PanelCondition::PsyopAccountInUse,
+                    message: format!(
+                        "Sign out. This account is already in use by PsyOp {other}."
+                    ),
+                }
+            } else {
+                PanelState::Show {
+                    condition: PanelCondition::TweetsRead,
+                    message: format!(
+                        "Tweets read: {}",
+                        facts.tweets_read_count.unwrap_or(0)
+                    ),
+                }
+            }
+        }
+        Some(Mode::PsyopAuthorize { .. }) => {
+            // PsyopAuthorize: Rust auto-navigates to X's
+            // OAuth authorize page once the persona signs
+            // in, and X's own page is the affordance — no
+            // helper widget on top. The only panel surface
+            // is the sign-in nag and the twid-conflict
+            // guard.
             if facts.auth_token.is_none() {
                 PanelState::Show {
                     condition: PanelCondition::SignInToX,

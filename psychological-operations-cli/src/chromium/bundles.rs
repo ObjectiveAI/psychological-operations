@@ -6,7 +6,7 @@
 //! lines pointing at each artifact in `embed/<target>/<profile>/`.
 //!
 //! Two extensions ship side-by-side, never loaded into the same
-//! Chromium profile: `scrape` (For-You DOM walker on x.com) and
+//! Chromium profile: `read` (For-You DOM walker on x.com) and
 //! `auth` (X-App credentials form on developer.x.com).
 
 pub const CHROMIUM_BUNDLE: &[u8] = include_bytes!(env!("PSYOPS_CHROMIUM_BUNDLE_PATH"));
@@ -19,19 +19,19 @@ pub fn launch_entry() -> &'static str {
     LAUNCH_ENTRY.trim()
 }
 
-// ── Scrape extension ───────────────────────────────────────────────────
+// ── Read extension ─────────────────────────────────────────────────────
 
-pub const SCRAPE_EXTENSION_TAR: &[u8] =
-    include_bytes!(env!("PSYOPS_SCRAPE_EXTENSION_TAR_PATH"));
+pub const READ_EXTENSION_TAR: &[u8] =
+    include_bytes!(env!("PSYOPS_READ_EXTENSION_TAR_PATH"));
 
 /// 32-char extension ID derived from the SPKI public key in
-/// `psychological-operations-chromium/extension-key-scrape.pem`.
+/// `psychological-operations-chromium/extension-key-read.pem`.
 /// Stable across every build because the key is committed.
-pub const SCRAPE_EXTENSION_ID: &str =
-    include_str!(env!("PSYOPS_SCRAPE_EXTENSION_ID_PATH"));
+pub const READ_EXTENSION_ID: &str =
+    include_str!(env!("PSYOPS_READ_EXTENSION_ID_PATH"));
 
-pub fn scrape_extension_id() -> &'static str {
-    SCRAPE_EXTENSION_ID.trim()
+pub fn read_extension_id() -> &'static str {
+    READ_EXTENSION_ID.trim()
 }
 
 // ── Auth extension ─────────────────────────────────────────────────────

@@ -317,6 +317,13 @@ fn dispatch(app: &AppHandle<Wry>, url: &str, body: &[u8]) -> (i32, String, Vec<u
             },
             Err(e) => error(400, e),
         },
+        "process_read_html" => match parse_body::<ProcessHtmlArgs>(body) {
+            Ok(args) => {
+                let count = crate::psyop_read::process_html(app, args.html);
+                ok_json(&Value::from(count))
+            }
+            Err(e) => error(400, e),
+        },
         "store_x_app_credential" => match parse_body::<StoreCredentialArgs>(body) {
             Ok(args) => match stdio::store_x_app_credential_inner(
                 app, args.handle, args.field, args.value,

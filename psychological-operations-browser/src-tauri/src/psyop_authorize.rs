@@ -460,7 +460,7 @@ pub fn find_other_psyop_owning_twid(
         return None;
     }
     // Walk up one level from this psyop's own data dir to reach
-    // the `psyop/` root. Both Scrape and Authorize resolve to
+    // the `psyop/` root. Both Read and Authorize resolve to
     // the same dir, so either works here.
     let current_mode = Mode::PsyopAuthorize {
         name: current.to_string(),

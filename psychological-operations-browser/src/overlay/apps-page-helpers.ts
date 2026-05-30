@@ -2,7 +2,7 @@
 //
 // Three responsibilities while the user is on the Apps list:
 //
-//   1. Scrape the production-app count and ship it to Rust via
+//   1. Read the production-app count and ship it to Rust via
 //      `set_production_app_count` so the panel can pick between
 //      `ClickCreateApp` (zero apps) and `ClickProductionApp`
 //      (one+ apps) when the user has the first three creds but
@@ -51,7 +51,7 @@ const HELPER_TEXT = "Click here";
  *  app sub-routes. The count reporter + both pointers only make
  *  sense on the list page; on an individual app's page the
  *  production section / Create App button don't exist, and a
- *  stale scrape there would flip the panel to ClickCreateApp.
+ *  stale read there would flip the panel to ClickCreateApp.
  *  Distinct from `apps-tab-helper`'s broad isOnAppsTab, which
  *  intentionally includes sub-routes for "user is in the Apps
  *  area" semantics. */
@@ -176,7 +176,7 @@ let prodAppWidget: HelperWidget | null = null;
 let rafId: number | null = null;
 let urlUnsubscribe: (() => void) | null = null;
 let lastReportedCount: number | "uninit" = "uninit";
-/// Consecutive ticks where the production-app scrape returned 0.
+/// Consecutive ticks where the production-app read returned 0.
 /// Non-zero counts are trusted immediately (a section + anchors
 /// did render). Zero counts are ambiguous — could be "page still
 /// fetching the apps list" or "user genuinely has zero apps".
@@ -249,12 +249,12 @@ function tick() {
   // cheap proxy for "the page header has rendered", which the
   // React app does synchronously after mount but before the
   // async apps-fetch resolves. Without this gate, the very
-  // first tick can scrape 0 and flip Rust to ClickCreateApp.
+  // first tick can read 0 and flip Rust to ClickCreateApp.
   const headerReady = !!findCreateAppButton();
   if (!isAnyDialogOpen() && headerReady) {
     const count = countProductionApps();
     if (count === 0) {
-      // Debounce 0 only — non-zero scrapes are always trustable
+      // Debounce 0 only — non-zero reads are always trustable
       // (the production section exists if we found a row).
       zeroStreak += 1;
     } else {
