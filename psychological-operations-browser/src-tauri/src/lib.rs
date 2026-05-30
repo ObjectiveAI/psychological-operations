@@ -3,6 +3,7 @@ pub mod cef;
 mod cef_scheme;
 mod cookies_watcher;
 mod credentials;
+mod oauth_popup;
 mod post_create_dialog;
 mod state;
 mod stdio;

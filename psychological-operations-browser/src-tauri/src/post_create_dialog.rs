@@ -99,14 +99,14 @@ fn dialog_has_all_labels(dialog: ElementRef<'_>) -> bool {
     FIELDS.iter().all(|(_, label)| text.contains(&label.to_lowercase()))
 }
 
-fn collect_text(el: ElementRef<'_>) -> String {
+pub(crate) fn collect_text(el: ElementRef<'_>) -> String {
     el.text().collect::<Vec<_>>().join(" ")
 }
 
 /// Direct text content of an element (only its own text nodes —
 /// no descendants). Used to match label-bearing elements
 /// precisely.
-fn direct_text(el: ElementRef<'_>) -> String {
+pub(crate) fn direct_text(el: ElementRef<'_>) -> String {
     use scraper::Node;
     let mut buf = String::new();
     for child in el.children() {
@@ -121,7 +121,10 @@ fn direct_text(el: ElementRef<'_>) -> String {
 /// Walks every descendant looking for one whose *direct* text
 /// matches the label (case-insensitive), then climbs ancestors
 /// to find a nearby input/code/textarea/pre/span with a value.
-fn find_value_for_label(dialog: ElementRef<'_>, label: &str) -> Option<String> {
+pub(crate) fn find_value_for_label(
+    dialog: ElementRef<'_>,
+    label: &str,
+) -> Option<String> {
     let label_lower = label.to_lowercase();
     let all_sel = Selector::parse("*").expect("valid selector");
 
@@ -152,7 +155,7 @@ fn find_value_for_label(dialog: ElementRef<'_>, label: &str) -> Option<String> {
 /// `<p class="font-mono break-all ...">VALUE</p>` rather than a
 /// form input) carrying a credential-looking value. Skips values
 /// that are just the label text itself (defensive).
-fn scan_for_value(el: ElementRef<'_>, label: &str) -> Option<String> {
+pub(crate) fn scan_for_value(el: ElementRef<'_>, label: &str) -> Option<String> {
     let label_lower = label.to_lowercase();
     let input_sel =
         Selector::parse(r#"input, textarea, code, pre, p[class*="font-mono"]"#)
@@ -188,7 +191,7 @@ fn scan_for_value(el: ElementRef<'_>, label: &str) -> Option<String> {
     None
 }
 
-fn is_likely_mask(s: &str) -> bool {
+pub(crate) fn is_likely_mask(s: &str) -> bool {
     s.chars().all(|c| c == '•' || c == '*' || c == 'x' || c == 'X' || c == '·')
 }
 

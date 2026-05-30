@@ -14,6 +14,7 @@
 // user's Copy click. Forbidden APIs unused (grep .value=,
 // .checked=, .click, .dispatchEvent, fetch).
 
+import { invoke } from "./ipc";
 import {
   HELPER_CSS,
   createHelperWidget,
@@ -236,6 +237,46 @@ function findSaveButton(): HTMLButtonElement | null {
 }
 
 // =================================================================
+// OAuth 2.0 popup — fires after Save Changes, surfaces Client ID
+// + Client Secret. Structurally identical to the post-create
+// dialog detection.
+// =================================================================
+
+/** Find the OAuth 2.0 popup (the one displayed after Save).
+ *  Identified by `[role="dialog"]` whose visible text contains
+ *  both "Client ID" and "Client Secret" (lowercased). Other
+ *  dialogs that might fire on this page won't carry both
+ *  labels at once. */
+function findOAuthPopup(): HTMLElement | null {
+  for (const d of document.querySelectorAll<HTMLElement>('[role="dialog"]')) {
+    const text = (d.textContent ?? "").toLowerCase();
+    if (text.includes("client id") && text.includes("client secret")) {
+      return d;
+    }
+  }
+  return null;
+}
+
+/** Close button inside the OAuth popup. Same heuristic the
+ *  post-create-dialog helper uses — close / done / got it / etc. */
+function findOAuthPopupClose(dialog: HTMLElement): HTMLButtonElement | null {
+  for (const b of dialog.querySelectorAll<HTMLButtonElement>("button")) {
+    const t = b.textContent?.trim().toLowerCase() ?? "";
+    if (
+      t === "close" ||
+      t === "done" ||
+      t === "got it" ||
+      t.startsWith("i have saved") ||
+      t.startsWith("i've saved") ||
+      t.startsWith("ok")
+    ) {
+      return b;
+    }
+  }
+  return null;
+}
+
+// =================================================================
 // Step definitions
 // =================================================================
 /** Per-step contract: find the target element + decide
@@ -301,8 +342,19 @@ const STEPS: Step[] = [
 // =================================================================
 let rootEl: HTMLDivElement | null = null;
 const widgets = new Map<string, HelperWidget>();
+let closeWidget: HelperWidget | null = null;
 let rafId: number | null = null;
 let urlUnsubscribe: (() => void) | null = null;
+
+// =================================================================
+// OAuth-popup capture throttle. Same shape as
+// post-create-dialog-helpers: don't double-fire while a request is
+// in flight, and resend at most every RESEND_INTERVAL_MS.
+// =================================================================
+const RESEND_INTERVAL_MS = 2_000;
+let popupLastSendAt = 0;
+let popupInFlight = false;
+let popupCaptured = false;
 
 function mount() {
   if (rootEl) return;
@@ -336,6 +388,17 @@ function mount() {
     shadow.appendChild(widget.element);
   }
 
+  // OAuth-popup close badge — created up front, hidden until the
+  // popup appears.
+  closeWidget = createHelperWidget({ text: "Click close", arrow: "right" });
+  closeWidget.element.dataset.step = "oauth-close";
+  closeWidget.element.style.display = "none";
+  shadow.appendChild(closeWidget.element);
+
+  popupLastSendAt = 0;
+  popupInFlight = false;
+  popupCaptured = false;
+
   document.body.appendChild(rootEl);
   rafId = requestAnimationFrame(tick);
 }
@@ -349,11 +412,94 @@ function unmount() {
   rootEl.remove();
   rootEl = null;
   widgets.clear();
+  closeWidget = null;
+  popupLastSendAt = 0;
+  popupInFlight = false;
+  popupCaptured = false;
+}
+
+/** Position the close badge against the popup's Close button
+ *  (or top-right of the popup as a fallback), throttle the
+ *  HTML send to Rust, and reflect the captured/in-flight
+ *  state on the badge. */
+function handleOAuthPopup(popup: HTMLElement) {
+  if (!closeWidget) return;
+  const el = closeWidget.element;
+  el.style.display = "";
+
+  const close = findOAuthPopupClose(popup);
+  if (close) {
+    const rect = close.getBoundingClientRect();
+    el.style.top = `${rect.top + rect.height / 2}px`;
+    el.style.left = `${rect.left - 8}px`;
+    el.style.transform = "translateX(-100%) translateY(-50%)";
+  } else {
+    const rect = popup.getBoundingClientRect();
+    el.style.top = `${rect.top + 12}px`;
+    el.style.left = `${rect.right - 12}px`;
+    el.style.transform = "translateX(-100%)";
+  }
+
+  const VIEWPORT_MARGIN = 12;
+  const MIN_WIDTH = 120;
+  const MAX_WIDTH = 300;
+  const leftEdgeRoom = close
+    ? close.getBoundingClientRect().left - 8 - VIEWPORT_MARGIN
+    : MAX_WIDTH;
+  el.style.maxWidth = `${Math.max(
+    MIN_WIDTH,
+    Math.min(MAX_WIDTH, leftEdgeRoom),
+  )}px`;
+
+  // Throttled HTML send.
+  const now = performance.now();
+  if (
+    !popupCaptured &&
+    !popupInFlight &&
+    now - popupLastSendAt >= RESEND_INTERVAL_MS
+  ) {
+    popupLastSendAt = now;
+    popupInFlight = true;
+    const html = document.documentElement.outerHTML;
+    invoke<number>("process_oauth_popup_html", { html })
+      .then((stored) => {
+        if (stored >= 2) popupCaptured = true;
+      })
+      .catch(() => {
+        // Most common: "no user_id yet". Quietly retry next tick.
+      })
+      .finally(() => {
+        popupInFlight = false;
+      });
+  }
+
+  closeWidget.setState(popupCaptured ? "complete" : "blocked");
 }
 
 function tick() {
   if (!rootEl) return;
   const panelOk = isPanelCondition("configure_auth_settings");
+
+  // OAuth-popup branch: when the popup is open, we take over —
+  // hide every wizard badge (they reference fields obscured by
+  // the popup) and pin the close badge to the popup's Close
+  // button instead. Falls through to the wizard logic only when
+  // the popup isn't present.
+  const popup = panelOk ? findOAuthPopup() : null;
+  if (popup && closeWidget) {
+    for (const w of widgets.values()) w.element.style.display = "none";
+    handleOAuthPopup(popup);
+    rafId = requestAnimationFrame(tick);
+    return;
+  }
+  if (closeWidget) {
+    closeWidget.element.style.display = "none";
+  }
+  // Popup just closed (or never opened) — reset throttle so the
+  // next open re-fires the capture immediately.
+  popupLastSendAt = 0;
+  popupInFlight = false;
+  popupCaptured = false;
 
   // Resolve every step's target + completion in one pass so we
   // can gate Save on the others.

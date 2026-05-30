@@ -60,6 +60,7 @@ use crate::WatcherKick;
 use crate::cef;
 use crate::cookies_watcher;
 use crate::credentials;
+use crate::oauth_popup;
 use crate::post_create_dialog;
 use crate::state;
 use crate::webview;
@@ -326,6 +327,54 @@ pub fn process_post_create_html_inner(
     tauri::async_runtime::spawn(async move {
         state::recheck_credentials(&app_for_task);
     });
+    Ok(stored)
+}
+
+/// Twin of [`process_post_create_html_inner`] for the OAuth 2.0
+/// popup that fires after the user clicks Save Changes on the
+/// auth-settings page. Two fields here (`client_id` +
+/// `client_secret`) instead of three. No `recheck_credentials`
+/// at the end — no Fact currently tracks the OAuth client pair,
+/// so the overlay just reads the returned `stored` count to
+/// flip its close badge green.
+pub fn process_oauth_popup_html_inner(
+    app: &AppHandle<Wry>,
+    html: String,
+) -> Result<u8, String> {
+    if let Err(e) = oauth_popup::save_snapshot(app, &html) {
+        let _ = Output::Log {
+            message: format!("oauth_popup: snapshot write failed: {e}"),
+        }
+        .emit();
+    }
+
+    let Some(user_id) = state::current_user_id() else {
+        return Err("no user_id yet — cookies watcher hasn't observed twid".into());
+    };
+
+    let extracted = oauth_popup::extract(&html);
+    let mut stored: u8 = 0;
+    for (field, value) in [
+        (XAppCredentialField::ClientId, &extracted.client_id),
+        (XAppCredentialField::ClientSecret, &extracted.client_secret),
+    ] {
+        let Some(v) = value else { continue };
+        match credentials::store_one(app, &user_id, field, v) {
+            Ok(path) => {
+                stored += 1;
+                let _ = Output::Log {
+                    message: format!("credentials: wrote {}", path.display()),
+                }
+                .emit();
+            }
+            Err(e) => {
+                let _ = Output::Log {
+                    message: format!("credentials: write failed: {e}"),
+                }
+                .emit();
+            }
+        }
+    }
     Ok(stored)
 }
 
