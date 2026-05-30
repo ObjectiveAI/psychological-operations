@@ -59,6 +59,14 @@ pub enum PanelCondition {
     /// "Settings" tab — the next step toward generating
     /// those tokens.
     ClickSettings,
+    /// X-App mode, on the dev console's auth-settings page
+    /// (`/accounts/<id>/apps/settings?appId=<app-id>`), the
+    /// first three creds are on disk but the access tokens
+    /// aren't. Pair with the multi-badge wizard that walks
+    /// the user through the App permissions / Type of App /
+    /// Website URL / Callback URI fields and the Save Changes
+    /// button.
+    ConfigureAuthSettings,
 }
 
 /// Everything the panel needs to render. Either it's hidden (zero

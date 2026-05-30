@@ -365,6 +365,7 @@ pub fn derive(facts: &Facts) -> PanelState {
             //              them in via ClickAppsTab.
             let on_list = is_apps_list(url);
             let on_app = is_app_page(url);
+            let on_auth = is_auth_settings(url);
             let on_area = is_apps_tab(url);
             match (facts.credentials_complete, facts.access_tokens_complete) {
                 // We don't know enough yet (cookies snapshot
@@ -426,9 +427,17 @@ pub fn derive(facts: &Facts) -> PanelState {
                             condition: PanelCondition::ClickSettings,
                             message: "Click Settings.".into(),
                         }
+                    } else if on_auth {
+                        // Auth-settings page — wizard-style
+                        // multi-badge overlay walks the user
+                        // through configuring scopes, type,
+                        // website URL, callback URI, and Save.
+                        PanelState::Show {
+                            condition: PanelCondition::ConfigureAuthSettings,
+                            message: "Configure auth settings.".into(),
+                        }
                     } else {
-                        // Sub-route of an app (e.g.
-                        // /apps/<id>/settings) — quiet until the
+                        // Other sub-routes — quiet until the
                         // per-tab capture flow lands.
                         PanelState::Hidden
                     }
@@ -487,10 +496,10 @@ fn is_apps_list(url: Option<&str>) -> bool {
 }
 
 /// Strictly the individual *app's overview* page —
-/// `/accounts/<id>/apps/<app-id>[/]?` with no further segments.
-/// `derive` fires `ClickSettings` only here so the panel goes
-/// quiet again as soon as the user navigates into a sub-route
-/// like `/apps/<id>/settings`.
+/// `/accounts/<id>/apps/<numeric-app-id>[/]?` with no further
+/// segments. App ids in the URL are numeric; the literal token
+/// `settings` is the auth-settings page and is matched
+/// separately by [`is_auth_settings`].
 fn is_app_page(url: Option<&str>) -> bool {
     let Some(url) = url else { return false };
     let Ok(parsed) = Url::parse(url) else { return false };
@@ -501,7 +510,25 @@ fn is_app_page(url: Option<&str>) -> bool {
     matches!(segs.next(), Some("accounts"))
         && segs.next().is_some_and(|s| s.chars().all(|c| c.is_ascii_digit()))
         && matches!(segs.next(), Some("apps"))
-        && segs.next().is_some()
+        && segs.next().is_some_and(|s| s.chars().all(|c| c.is_ascii_digit()))
+        && segs.next().is_none()
+}
+
+/// Strict match for the dev console's auth-settings page —
+/// `/accounts/<id>/apps/settings[/]?` (the app id lives in
+/// `?appId=…` rather than the path, so we don't read it
+/// here). Where `ConfigureAuthSettings` fires.
+fn is_auth_settings(url: Option<&str>) -> bool {
+    let Some(url) = url else { return false };
+    let Ok(parsed) = Url::parse(url) else { return false };
+    if parsed.host_str() != Some("console.x.com") {
+        return false;
+    }
+    let mut segs = parsed.path().split('/').filter(|s| !s.is_empty());
+    matches!(segs.next(), Some("accounts"))
+        && segs.next().is_some_and(|s| s.chars().all(|c| c.is_ascii_digit()))
+        && matches!(segs.next(), Some("apps"))
+        && matches!(segs.next(), Some("settings"))
         && segs.next().is_none()
 }
 

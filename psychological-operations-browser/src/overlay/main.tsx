@@ -22,6 +22,7 @@ import { installOnboardingHelpers } from "./onboarding-helpers";
 import { installAppsTabHelper } from "./apps-tab-helper";
 import { installAppsPageHelpers } from "./apps-page-helpers";
 import { installAppPageHelpers } from "./app-page-helpers";
+import { installAuthSettingsHelpers } from "./auth-settings-helpers";
 import { installCreateAppDialogHelpers } from "./create-app-dialog-helpers";
 import { installPostCreateDialogHelpers } from "./post-create-dialog-helpers";
 // Side-effect: registers `window.__psyops_set_panel` so the first
@@ -43,6 +44,7 @@ let onboardingHelpersUninstall: (() => void) | null = null;
 let appsTabHelperUninstall: (() => void) | null = null;
 let appsPageHelpersUninstall: (() => void) | null = null;
 let appPageHelpersUninstall: (() => void) | null = null;
+let authSettingsHelpersUninstall: (() => void) | null = null;
 let createAppDialogHelpersUninstall: (() => void) | null = null;
 let postCreateDialogHelpersUninstall: (() => void) | null = null;
 
@@ -69,6 +71,11 @@ function stopAppsPageHelpers() {
 function stopAppPageHelpers() {
   appPageHelpersUninstall?.();
   appPageHelpersUninstall = null;
+}
+
+function stopAuthSettingsHelpers() {
+  authSettingsHelpersUninstall?.();
+  authSettingsHelpersUninstall = null;
 }
 
 function stopCreateAppDialogHelpers() {
@@ -108,6 +115,7 @@ async function handleRequest(payload: unknown) {
       stopAppsTabHelper();
       stopAppsPageHelpers();
       stopAppPageHelpers();
+      stopAuthSettingsHelpers();
       stopCreateAppDialogHelpers();
       stopPostCreateDialogHelpers();
 
@@ -181,6 +189,7 @@ async function handleRequest(payload: unknown) {
       appsTabHelperUninstall = installAppsTabHelper();
       appsPageHelpersUninstall = installAppsPageHelpers();
       appPageHelpersUninstall = installAppPageHelpers();
+      authSettingsHelpersUninstall = installAuthSettingsHelpers();
       createAppDialogHelpersUninstall = installCreateAppDialogHelpers();
       postCreateDialogHelpersUninstall = installPostCreateDialogHelpers();
       console.log("[psyops-overlay] helpers installed");

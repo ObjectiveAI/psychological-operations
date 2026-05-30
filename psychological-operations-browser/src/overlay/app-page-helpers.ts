@@ -166,40 +166,18 @@ function unmount() {
 function tick() {
   if (!widget) return;
   const el = widget.element;
-  const panelOk = isPanelCondition("click_settings");
-  if (!panelOk) {
+  const target =
+    isPanelCondition("click_settings") ? findSettingsTarget() : null;
+  if (!target) {
     el.style.display = "none";
-    rafId = requestAnimationFrame(tick);
-    return;
-  }
-  const cands = findSettingsCandidates();
-  const target = findSettingsTarget();
-  if (target && cands.length === 1) {
-    el.style.display = "";
-    widget.setText("Click here");
-    const rect = target.getBoundingClientRect();
-    el.style.top = `${rect.top + rect.height / 2}px`;
-    el.style.left = `${rect.left - 8}px`;
-    el.style.transform = "translateX(-100%) translateY(-50%)";
-  } else if (target) {
-    // Multiple candidates — point at the picked one but
-    // surface that there were others to choose from.
-    el.style.display = "";
-    widget.setText(`Click here • picked 1/${cands.length}`);
-    const rect = target.getBoundingClientRect();
-    el.style.top = `${rect.top + rect.height / 2}px`;
-    el.style.left = `${rect.left - 8}px`;
-    el.style.transform = "translateX(-100%) translateY(-50%)";
   } else {
-    // Settings element not found — surface a diagnostic so we
-    // can tune the finder against the live DOM.
     el.style.display = "";
-    widget.setText(
-      `No "Settings" element found (${cands.length} candidates rejected)`,
-    );
-    el.style.top = `12px`;
-    el.style.left = `${window.innerWidth - 12}px`;
-    el.style.transform = "translateX(-100%)";
+    // Badge sits LEFT of the Settings target; the widget's own
+    // `arrow: "right"` makes the triangle point back at it.
+    const rect = target.getBoundingClientRect();
+    el.style.top = `${rect.top + rect.height / 2}px`;
+    el.style.left = `${rect.left - 8}px`;
+    el.style.transform = "translateX(-100%) translateY(-50%)";
   }
   rafId = requestAnimationFrame(tick);
 }
