@@ -28,7 +28,7 @@ import { isPanelCondition } from "./panel-state";
 // =================================================================
 const WEBSITE_URL_COPY =
   "https://github.com/ObjectiveAI/psychological-operations";
-const CALLBACK_URI_COPY = "http://127.0.0.1/callback";
+const CALLBACK_URI_COPY = "http://127.0.0.1/psychological-operations/callback";
 const REQUIRED_PERMISSIONS = "Read and write and Direct message";
 // X actually consolidates "Web App", "Automated App", and "Bot" into
 // a single option labeled "Web App, Automated App or Bot" — the

@@ -5,7 +5,8 @@
 //!   - The per-psyop Chromium profile (`<psyops_dir>/<name>/chromium-profiles/<name>`)
 //!     was created earlier via `psychological-operations browse --psyop <name>`
 //!     and the operator manually signed into X with the target account.
-//!   - The X App on console.x.com has `http://127.0.0.1/callback`
+//!   - The X App on console.x.com has
+//!     `http://127.0.0.1/psychological-operations/callback`
 //!     (host-only, no port) registered as a Callback URL.
 
 use std::time::Duration;
@@ -45,7 +46,8 @@ pub async fn run(psyop_name: &str, cfg: &crate::run::Config) -> Result<crate::Ou
 
     // Bind the callback listener; OS picks a free ephemeral port.
     let (port, callback_fut) = server::bind_and_await(CALLBACK_TIMEOUT).await?;
-    let redirect_uri = format!("http://127.0.0.1:{port}/callback");
+    let redirect_uri =
+        format!("http://127.0.0.1:{port}/psychological-operations/callback");
 
     // Build the authorize URL.
     let authorize_url = format!(

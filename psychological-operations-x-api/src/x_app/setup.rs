@@ -55,8 +55,9 @@ pub async fn run(cfg: &crate::run::Config) -> Result<crate::Output, Error> {
               create a Project + App and provision credits.\n\
             - on \"User authentication settings\": set up as a Web App with \
               \"Read and write\" permissions and register \
-              `http://127.0.0.1/callback` (host only, no port) as a \
-              Callback URI. Required for `psyops oauth <name>`.\n\
+              `http://127.0.0.1/psychological-operations/callback` \
+              (host only, no port) as a Callback URI. Required for \
+              `psyops oauth <name>`.\n\
             - paste the OAuth 2.0 Client ID + Client Secret (from User \
               authentication settings) and the Bearer Token (from Keys \
               and Tokens) into the extension popup form. Click Save. \
