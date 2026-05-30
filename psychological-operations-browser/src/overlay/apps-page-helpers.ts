@@ -115,45 +115,53 @@ function findProductionAppLinks(): HTMLAnchorElement[] {
   return out;
 }
 
-/** Right-edge of the visible row containing `anchor`, including
- *  any per-row action controls (Move, Delete, etc.) that may
- *  not be `<button>` elements and may not be vertically
- *  centered with the inner app-name anchor.
+/** Right-edge of the visible row containing `anchor`.
  *
- *  Strategy: each app row in the production section has its
- *  own `/apps/<id>` anchor — use those as row dividers.
- *  Our row spans from our anchor's top to the next anchor's
- *  top (or section bottom if we're last). Then sweep every
- *  descendant of the section whose vertical center falls in
- *  that band and keep the rightmost right-edge. That picks
- *  up the row's controls regardless of element type, nesting,
- *  or whether they live in a portal-rendered popover. */
+ *  Strategy:
+ *    1. Walk up from `anchor` to the row container — the
+ *       deepest ancestor whose parent is the section OR whose
+ *       grandparent is the section (handles either
+ *       `section > row` or `section > listWrapper > row`).
+ *       That's the "card" the user perceives.
+ *    2. Right-edge starts at the row container's right.
+ *    3. Sweep descendants of the section whose **center** sits
+ *       inside the row container's vertical box AND whose
+ *       **left edge** is within the row container's horizontal
+ *       range (rejects viewport-wide invisible spacers / sticky
+ *       overlays that would otherwise blow the right edge out
+ *       to the screen edge), AND whose right doesn't exceed
+ *       the section's right (defensive). Keep the rightmost.
+ *
+ *  Picks up move/delete-style controls regardless of element
+ *  type or nesting, while ignoring stray full-viewport siblings. */
 function findRowRightEdge(anchor: HTMLAnchorElement): number {
-  const aRect = anchor.getBoundingClientRect();
-  let right = aRect.right;
-
   const section = anchor.closest("section");
-  if (!section) return right;
+  if (!section) return anchor.getBoundingClientRect().right;
+  const sectionRight = section.getBoundingClientRect().right;
 
-  // All row anchors in this section, sorted top→bottom. The
-  // next anchor's top is our row's lower bound.
-  const rowTops: { el: HTMLAnchorElement; top: number }[] = [];
-  for (const a of section.querySelectorAll<HTMLAnchorElement>("a[href]")) {
-    const href = a.getAttribute("href") ?? "";
-    if (!/^\/accounts\/\d+\/apps\/\d+/.test(href)) continue;
-    rowTops.push({ el: a, top: a.getBoundingClientRect().top });
+  // Walk up to the row container.
+  let row: HTMLElement = anchor;
+  while (
+    row.parentElement &&
+    row.parentElement !== section &&
+    row.parentElement.parentElement !== section
+  ) {
+    row = row.parentElement;
   }
-  rowTops.sort((x, y) => x.top - y.top);
-  const myIdx = rowTops.findIndex((x) => x.el === anchor);
-  const myTop = rowTops[myIdx]?.top ?? aRect.top;
-  const nextTop = rowTops[myIdx + 1]?.top ?? Infinity;
+  const rowRect = row.getBoundingClientRect();
+  let right = rowRect.right;
 
-  // Every visible element whose vertical center is in [myTop, nextTop).
+  // Sweep section descendants confined to the row's bounding box.
   for (const el of section.querySelectorAll<HTMLElement>("*")) {
     const r = el.getBoundingClientRect();
     if (r.width < 1 || r.height < 1) continue;
     const cy = (r.top + r.bottom) / 2;
-    if (cy < myTop - 5 || cy >= nextTop - 5) continue;
+    if (cy < rowRect.top - 2 || cy > rowRect.bottom + 2) continue;
+    // Must start inside the row horizontally (not a full-width
+    // spacer / sticky overlay).
+    if (r.left < rowRect.left - 4) continue;
+    // Never extend past the section column.
+    if (r.right > sectionRight + 1) continue;
     if (r.right > right) right = r.right;
   }
 
