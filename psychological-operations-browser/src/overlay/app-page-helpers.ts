@@ -43,17 +43,54 @@ function isOnAppPage(url: string): boolean {
   }
 }
 
-/** Find the Settings nav target. X's dev portal renders the
- *  app's nav as either anchors, buttons, or `[role="tab"]`
- *  elements — try all three with an exact textContent match.
- *  First visible match wins. */
-function findSettingsTarget(): HTMLElement | null {
-  const sel = 'a, button, [role="tab"]';
-  for (const el of document.querySelectorAll<HTMLElement>(sel)) {
-    if ((el.textContent ?? "").trim() !== "Settings") continue;
-    const r = el.getBoundingClientRect();
-    if (r.width < 1 || r.height < 1) continue;
-    return el;
+function isVisible(el: HTMLElement): boolean {
+  const r = el.getBoundingClientRect();
+  return r.width >= 1 && r.height >= 1;
+}
+
+function directText(el: HTMLElement): string {
+  let s = "";
+  for (const n of el.childNodes) {
+    if (n.nodeType === Node.TEXT_NODE) s += n.textContent ?? "";
+  }
+  return s.trim();
+}
+
+/** Find the Settings nav target. Multi-strategy:
+ *    1. Common interactive roles whose **whole** textContent is
+ *       "Settings".
+ *    2. Aria-label / title attribute exactly "Settings".
+ *    3. Any element whose **direct** (own text-node only) text
+ *       is "Settings" — typically a `<span>` inside a tab —
+ *       climbing up to the nearest clickable ancestor.
+ *  First visible hit wins. */
+function findSettingsTarget(): { el: HTMLElement; via: string } | null {
+  for (const sel of [
+    "a",
+    "button",
+    '[role="tab"]',
+    '[role="menuitem"]',
+    '[role="button"]',
+  ]) {
+    for (const el of document.querySelectorAll<HTMLElement>(sel)) {
+      if ((el.textContent ?? "").trim() !== "Settings") continue;
+      if (!isVisible(el)) continue;
+      return { el, via: `text:${sel}` };
+    }
+  }
+  for (const sel of ['[aria-label="Settings"]', '[title="Settings"]']) {
+    for (const el of document.querySelectorAll<HTMLElement>(sel)) {
+      if (!isVisible(el)) continue;
+      return { el, via: `attr:${sel}` };
+    }
+  }
+  for (const el of document.querySelectorAll<HTMLElement>("*")) {
+    if (directText(el) !== "Settings") continue;
+    if (!isVisible(el)) continue;
+    const clickable = el.closest<HTMLElement>(
+      'a, button, [role="tab"], [role="button"], [role="menuitem"]',
+    );
+    return { el: clickable ?? el, via: "directText" };
   }
   return null;
 }
@@ -108,18 +145,31 @@ function unmount() {
 function tick() {
   if (!widget) return;
   const el = widget.element;
-  const target = findSettingsTarget();
-  const show = !!target && isPanelCondition("click_settings");
-  if (!show || !target) {
+  const panelOk = isPanelCondition("click_settings");
+  if (!panelOk) {
     el.style.display = "none";
-  } else {
+    rafId = requestAnimationFrame(tick);
+    return;
+  }
+  const found = findSettingsTarget();
+  if (found) {
     el.style.display = "";
+    widget.setText("Click here");
     // Badge sits LEFT of the Settings target; the widget's own
     // `arrow: "right"` makes the triangle point back at it.
-    const rect = target.getBoundingClientRect();
+    const rect = found.el.getBoundingClientRect();
     el.style.top = `${rect.top + rect.height / 2}px`;
     el.style.left = `${rect.left - 8}px`;
     el.style.transform = "translateX(-100%) translateY(-50%)";
+  } else {
+    // TEMP: Settings element not found — surface a diagnostic
+    // badge in the top-right corner so we can tune the finder
+    // against the live DOM. Remove once positioning is right.
+    el.style.display = "";
+    widget.setText("Settings target not found — share a screenshot of nearby UI");
+    el.style.top = `12px`;
+    el.style.left = `${window.innerWidth - 12}px`;
+    el.style.transform = "translateX(-100%)";
   }
   rafId = requestAnimationFrame(tick);
 }
