@@ -30,7 +30,10 @@ const WEBSITE_URL_COPY =
   "https://github.com/ObjectiveAI/psychological-operations";
 const CALLBACK_URI_COPY = "http://127.0.0.1/callback";
 const REQUIRED_PERMISSIONS = "Read and write and Direct message";
-const REQUIRED_APP_TYPE = "Web App";
+// X actually consolidates "Web App", "Automated App", and "Bot" into
+// a single option labeled "Web App, Automated App or Bot" — the
+// other choice is "Native App", which we don't want.
+const REQUIRED_APP_TYPE = "Web App, Automated App or Bot";
 
 // =================================================================
 // URL gate
@@ -92,10 +95,20 @@ function nearestSectionContainer(el: HTMLElement): HTMLElement {
 
 type RadioOption = { el: HTMLElement; selected: boolean };
 
-/** Is the option (or any ancestor within 3 levels) currently
- *  selected? Checks the Radix / aria conventions and falls
- *  back to a nested `input[type=radio]:checked`. */
+/** Is the option currently selected?
+ *
+ *  X's dev portal uses a `<button>` per option with Tailwind
+ *  classes that flip between `border-blue-500` (selected) and
+ *  `border-gray-700` (unselected). No `aria-checked` /
+ *  `data-state` on these — we have to read the className.
+ *  Fall back to the Radix conventions for the case where the
+ *  page does use ARIA. */
 function isOptionSelected(el: HTMLElement): boolean {
+  // 1. Tailwind class indicator — X's actual pattern.
+  // Exclude `hover:border-blue-500/N` (different token).
+  const classes = (el.className || "").split(/\s+/);
+  if (classes.includes("border-blue-500")) return true;
+  // 2. ARIA / data-state (Radix and similar) on self + 3 ancestors.
   let cur: HTMLElement | null = el;
   for (let i = 0; i < 4 && cur; i++) {
     if (
@@ -107,6 +120,7 @@ function isOptionSelected(el: HTMLElement): boolean {
     }
     cur = cur.parentElement;
   }
+  // 3. Nested native radio input.
   const nestedRadio = el.querySelector<HTMLInputElement>(
     'input[type="radio"]',
   );
@@ -115,29 +129,33 @@ function isOptionSelected(el: HTMLElement): boolean {
 }
 
 /** Find a radio-style option whose visible text equals `value`.
- *  Pick the smallest visible match so we land on a single
- *  option element rather than its wrapping group. */
+ *  X renders each option as a `<button>` containing an `<h3>`
+ *  title — we match on heading-level elements so wrapping
+ *  containers (which also include the description paragraph and
+ *  fail the exact-text check) don't trip us up; then climb to
+ *  the nearest `<button>` ancestor so the badge anchors to the
+ *  whole clickable option, not just its tiny title text. */
 function findRadioOption(value: string): RadioOption | null {
-  const cands: HTMLElement[] = [];
   const seen = new Set<HTMLElement>();
-  function push(el: HTMLElement) {
-    if (seen.has(el) || !isVisible(el)) return;
-    seen.add(el);
-    cands.push(el);
-  }
+  const cands: HTMLElement[] = [];
   for (const sel of [
+    "h1, h2, h3, h4, h5, h6",
     '[role="radio"]',
     "label",
     "button",
-    "div",
-    "span",
+    "div, span",
   ]) {
     for (const el of document.querySelectorAll<HTMLElement>(sel)) {
-      if ((el.textContent ?? "").trim() === value) push(el);
+      if ((el.textContent ?? "").trim() !== value) continue;
+      if (!isVisible(el)) continue;
+      const btn = el.closest("button") as HTMLElement | null;
+      const anchor = btn ?? el;
+      if (seen.has(anchor)) continue;
+      seen.add(anchor);
+      cands.push(anchor);
     }
   }
   if (cands.length === 0) return null;
-  // Smallest by area — i.e. tightest wrap around just the option.
   cands.sort((a, b) => {
     const ra = a.getBoundingClientRect();
     const rb = b.getBoundingClientRect();
@@ -156,9 +174,12 @@ function findRadioOption(value: string): RadioOption | null {
  *    3. Heading-text → walk up to nearest section container →
  *       first visible input inside (the original strategy). */
 function findFieldInput(labelText: string): HTMLElement | null {
-  // (1) <label> association
+  // (1) <label> association. Match by `startsWith` so a label like
+  // "Callback URI / Redirect URL(required)" (text + nested
+  // (required) span) still matches a query for "Callback URI".
   for (const lbl of document.querySelectorAll<HTMLLabelElement>("label")) {
-    if ((lbl.textContent ?? "").trim() !== labelText) continue;
+    const lblText = (lbl.textContent ?? "").trim();
+    if (!lblText.startsWith(labelText)) continue;
     if (lbl.htmlFor) {
       const el = document.getElementById(lbl.htmlFor);
       if (el && isVisible(el)) return el as HTMLElement;
