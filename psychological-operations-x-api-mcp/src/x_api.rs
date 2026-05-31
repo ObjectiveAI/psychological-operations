@@ -458,33 +458,58 @@ fn attachment_from_media(m: &MediaUnion) -> Option<Attachment> {
             kind: AttachmentKind::Photo,
             url: p.url.as_ref()?.to_string(),
         }),
-        MediaUnion::Video(v) => best_mp4_variant(v.variants.as_deref()).map(|url| Attachment {
+        MediaUnion::Video(v) => best_video_variant(v.variants.as_deref()).map(|url| Attachment {
             kind: AttachmentKind::Video,
             url,
         }),
-        MediaUnion::AnimatedGif(a) => best_mp4_variant(a.variants.as_deref()).map(|url| Attachment {
+        MediaUnion::AnimatedGif(a) => best_video_variant(a.variants.as_deref()).map(|url| Attachment {
             kind: AttachmentKind::AnimatedGif,
             url,
         }),
     }
 }
 
-/// Pick the **lowest**-bit-rate `video/mp4` rendition X served
-/// for this media. Trades quality for size — the agent gets the
-/// smallest base64 payload that still decodes as a valid mp4.
-/// Variants missing `bit_rate` or `url` are skipped (the field
-/// is always populated for real X-served variants).
-fn best_mp4_variant(variants: Option<&[Variant]>) -> Option<String> {
-    variants?
+/// Pick a playable video variant for this media — preferring
+/// the lowest-bit-rate `video/*` rendition X served (trades
+/// quality for transfer size; `open_attachment`'s base64 payload
+/// back to the agent is dominated by raw bytes). If none of the
+/// video variants carry a `bit_rate`, falls back to the first
+/// video variant with a URL. Returns `None` when no `video/*`
+/// variant exists at all — `attachment_from_media` then returns
+/// `None` and `collect_attachments`'s `filter_map` drops the
+/// attachment from the agent-facing Tweet.
+///
+/// The `video/` filter excludes `application/x-mpegURL` HLS
+/// playlists (X serves those alongside the real video bytes but
+/// they're text manifests, not self-contained playable bytes).
+fn best_video_variant(variants: Option<&[Variant]>) -> Option<String> {
+    let variants = variants?;
+    let is_video = |v: &&Variant| {
+        v.content_type
+            .as_deref()
+            .is_some_and(|ct| ct.starts_with("video/"))
+    };
+
+    // 1. Lowest-bit-rate among video variants that have a bit_rate.
+    let lowest = variants
         .iter()
-        .filter(|v| v.content_type.as_deref() == Some("video/mp4"))
+        .filter(is_video)
         .filter_map(|v| {
             let url = v.url.as_ref()?.to_string();
             let bit_rate = v.bit_rate?;
             Some((bit_rate, url))
         })
         .min_by_key(|(br, _)| *br)
-        .map(|(_, url)| url)
+        .map(|(_, url)| url);
+    if lowest.is_some() {
+        return lowest;
+    }
+
+    // 2. Fallback — first video variant with a URL (no bit_rate).
+    variants
+        .iter()
+        .filter(is_video)
+        .find_map(|v| v.url.as_ref().map(|u| u.to_string()))
 }
 
 fn lookup_attachment(
