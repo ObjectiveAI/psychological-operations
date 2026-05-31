@@ -3,7 +3,7 @@
 
 //! HTTP call helpers for /2/users/{id}/muting.
 #[allow(unused_imports)]
-use crate::x::http::Http;
+use crate::x::client::Client;
 #[allow(unused_imports)]
 use crate::x::Error;
 #[allow(unused_imports)]
@@ -11,21 +11,19 @@ use reqwest::Method;
 
 /// GET /2/users/{id}/muting
 pub async fn get(
-    http: &Http,
+    client: &Client,
     req: &super::get::Request,
-    cache: bool,
 ) -> Result<super::get::Response, Error> {
     let path = format!("users/{}/muting", urlencoding::encode(&req.id.to_string()));
-    http.send_with_query(Method::GET, &path, req, cache).await
+    client.send_with_query(Method::GET, &path, req, true).await
 }
 
 /// POST /2/users/{id}/muting
 pub async fn post(
-    http: &Http,
+    client: &Client,
     req: &super::post::Request,
-    cache: bool,
 ) -> Result<super::post::Response, Error> {
     let path = format!("users/{}/muting", urlencoding::encode(&req.id.to_string()));
-    http.send(Method::POST, &path, req.body.as_ref(), cache).await
+    client.send(Method::POST, &path, req.body.as_ref(), true).await
 }
 

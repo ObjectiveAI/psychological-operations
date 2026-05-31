@@ -3,7 +3,7 @@
 
 //! HTTP call helpers for /2/lists.
 #[allow(unused_imports)]
-use crate::x::http::Http;
+use crate::x::client::Client;
 #[allow(unused_imports)]
 use crate::x::Error;
 #[allow(unused_imports)]
@@ -11,11 +11,10 @@ use reqwest::Method;
 
 /// POST /2/lists
 pub async fn post(
-    http: &Http,
+    client: &Client,
     req: &super::post::Request,
-    cache: bool,
 ) -> Result<super::post::Response, Error> {
     let path = "lists";
-    http.send(Method::POST, path, req.body.as_ref(), cache).await
+    client.send(Method::POST, path, req.body.as_ref(), true).await
 }
 

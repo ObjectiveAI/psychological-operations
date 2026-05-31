@@ -10,12 +10,14 @@
 
 #![allow(non_camel_case_types, non_snake_case, dead_code)]
 
+pub mod auth;
 pub mod cache;
+pub mod client;
+pub mod locker;
 pub mod serde_helpers;
 pub mod types;
 pub mod params;
 pub mod error;
-pub mod http;
 pub mod mock;
 
 pub mod x_app;

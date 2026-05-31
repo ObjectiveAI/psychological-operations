@@ -3,7 +3,7 @@
 
 //! HTTP call helpers for /2/users/{source_user_id}/following/{target_user_id}.
 #[allow(unused_imports)]
-use crate::x::http::Http;
+use crate::x::client::Client;
 #[allow(unused_imports)]
 use crate::x::Error;
 #[allow(unused_imports)]
@@ -11,11 +11,10 @@ use reqwest::Method;
 
 /// DELETE /2/users/{source_user_id}/following/{target_user_id}
 pub async fn delete(
-    http: &Http,
+    client: &Client,
     req: &super::delete::Request,
-    cache: bool,
 ) -> Result<super::delete::Response, Error> {
     let path = format!("users/{}/following/{}", urlencoding::encode(&req.source_user_id.to_string()), urlencoding::encode(&req.target_user_id.to_string()));
-    http.send::<_, ()>(Method::DELETE, &path, None, cache).await
+    client.send::<_, ()>(Method::DELETE, &path, None, true).await
 }
 

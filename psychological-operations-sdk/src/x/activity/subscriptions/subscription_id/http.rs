@@ -3,7 +3,7 @@
 
 //! HTTP call helpers for /2/activity/subscriptions/{subscription_id}.
 #[allow(unused_imports)]
-use crate::x::http::Http;
+use crate::x::client::Client;
 #[allow(unused_imports)]
 use crate::x::Error;
 #[allow(unused_imports)]
@@ -11,21 +11,19 @@ use reqwest::Method;
 
 /// PUT /2/activity/subscriptions/{subscription_id}
 pub async fn put(
-    http: &Http,
+    client: &Client,
     req: &super::put::Request,
-    cache: bool,
 ) -> Result<super::put::Response, Error> {
     let path = format!("activity/subscriptions/{}", urlencoding::encode(&req.subscription_id.to_string()));
-    http.send(Method::PUT, &path, req.body.as_ref(), cache).await
+    client.send(Method::PUT, &path, req.body.as_ref(), true).await
 }
 
 /// DELETE /2/activity/subscriptions/{subscription_id}
 pub async fn delete(
-    http: &Http,
+    client: &Client,
     req: &super::delete::Request,
-    cache: bool,
 ) -> Result<super::delete::Response, Error> {
     let path = format!("activity/subscriptions/{}", urlencoding::encode(&req.subscription_id.to_string()));
-    http.send::<_, ()>(Method::DELETE, &path, None, cache).await
+    client.send::<_, ()>(Method::DELETE, &path, None, true).await
 }
 

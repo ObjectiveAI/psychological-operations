@@ -10,13 +10,13 @@
 //! keeps the four the agent actually consumes (id, handle, content,
 //! attachments).
 //!
-//! Binary media bytes come from `Http::fetch_url` — the SDK's sole
+//! Binary media bytes come from `Client::fetch_url` — the SDK's sole
 //! hand-written non-codegen call (twimg has no OpenAPI surface).
 
 use std::sync::Arc;
 
 use base64::Engine;
-use psychological_operations_sdk::x::http::Http;
+use psychological_operations_sdk::x::client::Client;
 use psychological_operations_sdk::x::params;
 use psychological_operations_sdk::x::tweets::id as tweets_id;
 use psychological_operations_sdk::x::tweets::search::recent as tweets_search_recent;
@@ -72,7 +72,7 @@ struct FetchedAttachment {
 #[derive(Clone)]
 pub struct PsychologicalOperationsXApiMcp {
     pub tool_router: ToolRouter<Self>,
-    http: Arc<Http>,
+    http: Arc<Client>,
 }
 
 impl std::fmt::Debug for PsychologicalOperationsXApiMcp {
@@ -136,7 +136,7 @@ pub struct RunQueryRequest {
 
 #[tool_router]
 impl PsychologicalOperationsXApiMcp {
-    pub fn new(http: Arc<Http>) -> Self {
+    pub fn new(http: Arc<Client>) -> Self {
         Self {
             tool_router: Self::tool_router(),
             http,
@@ -160,7 +160,7 @@ impl PsychologicalOperationsXApiMcp {
             user_fields: None,
             place_fields: None,
         };
-        let resp = match tweets_id::http::get(&self.http, &creq, true).await {
+        let resp = match tweets_id::http::get(&self.http, &creq).await {
             Ok(r) => r,
             Err(e) => return format!("error: {e}"),
         };
@@ -197,7 +197,7 @@ impl PsychologicalOperationsXApiMcp {
             user_fields: None,
             place_fields: None,
         };
-        let resp = match tweets_search_recent::http::get(&self.http, &creq, true).await {
+        let resp = match tweets_search_recent::http::get(&self.http, &creq).await {
             Ok(r) => r,
             Err(e) => return format!("error: {e}"),
         };
@@ -230,7 +230,7 @@ impl PsychologicalOperationsXApiMcp {
             expansions: None,
             tweet_fields: None,
         };
-        match users_by_username::http::get(&self.http, &creq, true).await {
+        match users_by_username::http::get(&self.http, &creq).await {
             Ok(r) => r.data.and_then(|u| u.description).unwrap_or_default(),
             Err(e) => format!("error: {e}"),
         }
@@ -250,7 +250,7 @@ impl PsychologicalOperationsXApiMcp {
             expansions: None,
             tweet_fields: None,
         };
-        match users_by_username::http::get(&self.http, &creq, true).await {
+        match users_by_username::http::get(&self.http, &creq).await {
             Ok(r) => r
                 .data
                 .and_then(|u| u.profile_image_url.map(|url| url.to_string()))
@@ -261,11 +261,11 @@ impl PsychologicalOperationsXApiMcp {
 
     #[tool(
         name = "get_tweet",
-        description = "Fetch a tweet by ID. Returns JSON: { tweet_id, handle, content, attachments: [{ kind, url }, ...] }. The kind field is one of `photo` | `video` | `animated_gif`. Attachments are tiny references — pass an attachment URL plus the tweet_id to open_attachment to retrieve the actual bytes."
+        description = "Fetch a tweet by ID."
     )]
     async fn get_tweet(&self, Parameters(req): Parameters<GetTweetRequest>) -> String {
         let creq = standard_tweet_request(&req.tweet_id);
-        let resp = match tweets_id::http::get(&self.http, &creq, true).await {
+        let resp = match tweets_id::http::get(&self.http, &creq).await {
             Ok(r) => r,
             Err(e) => return format!("error: {e}"),
         };
@@ -279,14 +279,14 @@ impl PsychologicalOperationsXApiMcp {
 
     #[tool(
         name = "open_attachment",
-        description = "Fetch the bytes for one tweet attachment. Returns an MCP image content block for photos, or a text content block carrying a `data:<mime>;base64,...` URI for videos and animated GIFs. The tweet_id is required so the SDK can look the URL up authoritatively against the tweet's media expansion."
+        description = "Fetch one tweet attachment."
     )]
     async fn open_attachment(
         &self,
         Parameters(req): Parameters<OpenAttachmentRequest>,
     ) -> Content {
         let creq = standard_tweet_request(&req.tweet_id);
-        let resp = match tweets_id::http::get(&self.http, &creq, true).await {
+        let resp = match tweets_id::http::get(&self.http, &creq).await {
             Ok(r) => r,
             Err(e) => return Content::text(format!("error: {e}")),
         };
@@ -298,7 +298,7 @@ impl PsychologicalOperationsXApiMcp {
                 req.tweet_id, req.url,
             ));
         };
-        let bytes = match self.http.fetch_url(&req.url, true).await {
+        let bytes = match self.http.fetch_url(&req.url).await {
             Ok(b) => b,
             Err(e) => return Content::text(format!("error: {e}")),
         };
@@ -314,11 +314,11 @@ impl PsychologicalOperationsXApiMcp {
 
     #[tool(
         name = "run_query",
-        description = "Run an X v2 recent search. Returns a JSON array of projected tweets (tweet_id, handle, content, attachments)."
+        description = "Run an X v2 recent search. Returns a list of tweets."
     )]
     async fn run_query(&self, Parameters(req): Parameters<RunQueryRequest>) -> String {
         let creq = standard_search_request(req.query);
-        let resp = match tweets_search_recent::http::get(&self.http, &creq, true).await {
+        let resp = match tweets_search_recent::http::get(&self.http, &creq).await {
             Ok(r) => r,
             Err(e) => return format!("error: {e}"),
         };

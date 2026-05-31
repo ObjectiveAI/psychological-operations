@@ -3,7 +3,7 @@
 
 //! HTTP call helpers for /2/users/{id}/bookmarks/folders/{folder_id}.
 #[allow(unused_imports)]
-use crate::x::http::Http;
+use crate::x::client::Client;
 #[allow(unused_imports)]
 use crate::x::Error;
 #[allow(unused_imports)]
@@ -11,11 +11,10 @@ use reqwest::Method;
 
 /// GET /2/users/{id}/bookmarks/folders/{folder_id}
 pub async fn get(
-    http: &Http,
+    client: &Client,
     req: &super::get::Request,
-    cache: bool,
 ) -> Result<super::get::Response, Error> {
     let path = format!("users/{}/bookmarks/folders/{}", urlencoding::encode(&req.id.to_string()), urlencoding::encode(&req.folder_id.to_string()));
-    http.send::<_, ()>(Method::GET, &path, None, cache).await
+    client.send::<_, ()>(Method::GET, &path, None, true).await
 }
 

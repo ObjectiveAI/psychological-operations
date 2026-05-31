@@ -49,7 +49,7 @@ pub enum Subject<'a> {
 /// Dispatch one destination. Used by `targets::drain_queue`
 /// row-by-row, capturing errors to bump / delete the queued row.
 /// `rt` is the runtime config — only the X destination needs it
-/// (for `Http::for_psyop`'s OAuth-token loading), but every
+/// (for `Client::for_psyop`'s OAuth-token loading), but every
 /// destination's send takes the same shape for uniformity.
 pub async fn send_one(
     dest: &Destination,

@@ -3,7 +3,7 @@
 
 //! HTTP call helpers for /2/tweets/{tweet_id}/hidden.
 #[allow(unused_imports)]
-use crate::x::http::Http;
+use crate::x::client::Client;
 #[allow(unused_imports)]
 use crate::x::Error;
 #[allow(unused_imports)]
@@ -11,11 +11,10 @@ use reqwest::Method;
 
 /// PUT /2/tweets/{tweet_id}/hidden
 pub async fn put(
-    http: &Http,
+    client: &Client,
     req: &super::put::Request,
-    cache: bool,
 ) -> Result<super::put::Response, Error> {
     let path = format!("tweets/{}/hidden", urlencoding::encode(&req.tweet_id.to_string()));
-    http.send(Method::PUT, &path, req.body.as_ref(), cache).await
+    client.send(Method::PUT, &path, req.body.as_ref(), true).await
 }
 

@@ -109,10 +109,9 @@ impl From<base64::DecodeError> for CookiesError {
 ///
 /// Public so the browser's `authorize::maybe_start_flow` can
 /// resolve the X-App account's twid (via `Mode::XApp`) for the
-/// `auth_json::set` write, in addition to the SDK-internal use
-/// from [`crate::browser::auth_json::get`] /
-/// [`crate::browser::auth_json::get_or_refresh`] that auto-resolve
-/// both the persona twid and the X-App twid.
+/// `Client::write_auth` write, in addition to the SDK-internal use
+/// from `Client::for_psyop` (which resolves both twids at
+/// construction time to bind a [`super::auth::PersonaKey`]).
 pub async fn signed_in_x_user_id(
     config_base_dir: &Path,
     mode: &Mode,

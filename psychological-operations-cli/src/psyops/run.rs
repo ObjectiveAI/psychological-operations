@@ -31,7 +31,7 @@ use crate::db::{Db, Origin, Post};
 use crate::error::Error;
 use crate::score::{self, ScoredPost};
 use crate::tweet::Tweet;
-use psychological_operations_sdk::x::http::Http;
+use psychological_operations_sdk::x::client::Client;
 use psychological_operations_sdk::x::params::tweet_expansions_parameter::TweetExpansions;
 use psychological_operations_sdk::x::params::tweet_fields_parameter::TweetFields;
 use psychological_operations_sdk::x::params::user_fields_parameter::UserFields;
@@ -267,7 +267,7 @@ fn score_pipeline(
 
 async fn hydrate_for_you(
     db: &Db,
-    http: &Http,
+    http: &Client,
     name: &str,
     commit: &str,
 ) -> Result<(), Error> {
@@ -396,7 +396,7 @@ fn bucket_sort(psyop: &PsyOp, accepted: Vec<Accepted>) -> Result<Vec<Tweet>, Err
 async fn run_queries(
     psyop: &PsyOp,
     db: &Db,
-    http: &Http,
+    http: &Client,
     name: &str,
     commit: &str,
 ) -> Result<(), Error> {
@@ -440,19 +440,19 @@ async fn run_queries(
 
 // -- X API --------------------------------------------------------------------
 
-async fn make_http_client(mock: bool, cfg: &crate::run::Config) -> Result<Http, Error> {
-    Http::app_only(
+async fn make_http_client(mock: bool, cfg: &crate::run::Config) -> Result<Client, Error> {
+    Client::app_only(
         reqwest::Client::new(),
         mock,
         &cfg.objectiveai_base_dir(),
         // Bytes — explicit per-call size budget for the future SQLite
-        // response cache. No `DEFAULT_*` constant — `Http::*` makes
+        // response cache. No `DEFAULT_*` constant — `Client::*` makes
         // this a required arg and every CLI callsite picks its own
         // value.
         256 * 1024 * 1024,
     )
     .await
-    .map_err(|e| Error::Other(format!("Http::app_only: {e}")))
+    .map_err(|e| Error::Other(format!("Client::app_only: {e}")))
 }
 
 fn standard_tweet_fields() -> Vec<TweetFields> {
@@ -463,7 +463,7 @@ fn standard_tweet_fields() -> Vec<TweetFields> {
     ]
 }
 
-async fn fetch_tweet(http: &Http, id: &str) -> Result<Option<Post>, Error> {
+async fn fetch_tweet(http: &Client, id: &str) -> Result<Option<Post>, Error> {
     use psychological_operations_sdk::x::tweets::id::get;
     use psychological_operations_sdk::x::tweets::id::http::get as call;
     let req = get::Request {
@@ -473,7 +473,7 @@ async fn fetch_tweet(http: &Http, id: &str) -> Result<Option<Post>, Error> {
         user_fields: Some(vec![UserFields::Username]),
         ..default_id_request()
     };
-    let resp = call(http, &req, true).await.map_err(|e| {
+    let resp = call(http, &req).await.map_err(|e| {
         Error::Other(format!("X /2/tweets/{id} failed: {e}"))
     })?;
     let tweet = match resp.data {
@@ -483,7 +483,7 @@ async fn fetch_tweet(http: &Http, id: &str) -> Result<Option<Post>, Error> {
     Ok(Some(tweet_to_post(&tweet, resp.includes.as_ref())))
 }
 
-async fn search_recent(http: &Http, query: &str) -> Result<Vec<Post>, Error> {
+async fn search_recent(http: &Client, query: &str) -> Result<Vec<Post>, Error> {
     use psychological_operations_sdk::x::tweets::search::recent::get;
     use psychological_operations_sdk::x::tweets::search::recent::http::get as call;
     let req = get::Request {
@@ -494,7 +494,7 @@ async fn search_recent(http: &Http, query: &str) -> Result<Vec<Post>, Error> {
         max_results: Some(100),
         ..default_recent_request()
     };
-    let resp = call(http, &req, true).await.map_err(|e| {
+    let resp = call(http, &req).await.map_err(|e| {
         Error::Other(format!("X /2/tweets/search/recent failed: {e}"))
     })?;
     let tweets = resp.data.unwrap_or_default();

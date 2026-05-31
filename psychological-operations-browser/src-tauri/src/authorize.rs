@@ -238,16 +238,31 @@ async fn run_flow(
     .map_err(|e| format!("token exchange: {e}"))?;
 
     let config_base_dir = handle.state::<Args>().config_base_dir.clone();
-    auth_json::set(
+    // Use the SDK's app-only Client to write auth.json under the
+    // two-tier lock — single seam for cross-process write coordination.
+    let max_size: u64 = 256 * 1024 * 1024;
+    let client = psychological_operations_sdk::x::client::Client::app_only(
+        reqwest::Client::new(),
+        false,
         &config_base_dir,
-        kind,
-        &persona_name,
-        &persona_twid,
-        &x_app_twid,
-        &tokens,
+        max_size,
     )
     .await
-    .map_err(|e| format!("write auth.json: {e}"))?;
+    .map_err(|e| format!("Client::app_only: {e}"))?;
+    let persona = psychological_operations_sdk::x::auth::PersonaKey {
+        kind,
+        name: persona_name.clone(),
+        persona_twid: persona_twid.clone(),
+        x_app_twid: x_app_twid.clone(),
+    };
+    let lock = client
+        .lock_auth(&persona)
+        .await
+        .map_err(|e| format!("lock auth.json: {e}"))?;
+    client
+        .write_auth(lock, &tokens)
+        .await
+        .map_err(|e| format!("write auth.json: {e}"))?;
     let _ = Output::Log {
         message: format!(
             "authorize: wrote auth.json for {persona_twid} (expires_at={:?})",
@@ -625,5 +640,5 @@ pub async fn find_other_psyop_owning_twid(
     None
 }
 
-// auth.json is written via `auth_json::set` from the SDK; the
+// auth.json is written via `Client::write_auth` from the SDK; the
 // browser owns no on-disk `Tokens` writer of its own.

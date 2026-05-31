@@ -884,7 +884,7 @@ class Codegen:
             f.write(self._header())
             url_paths = ", ".join(sorted({m["url_path"] for m in methods}))
             f.write(f"//! HTTP call helpers for {url_paths}.\n")
-            f.write("#[allow(unused_imports)]\nuse crate::x::http::Http;\n")
+            f.write("#[allow(unused_imports)]\nuse crate::x::client::Client;\n")
             f.write("#[allow(unused_imports)]\nuse crate::x::Error;\n")
             f.write("#[allow(unused_imports)]\nuse reqwest::Method;\n\n")
             for meta in methods:
@@ -898,6 +898,10 @@ class Codegen:
         has_body = meta["has_body"]
         body_required = meta["body_required"]
         has_response = meta["has_response"]
+        # Cache decision is hard-coded per endpoint from
+        # `cache-opt-out.json`. Callers no longer pass a `cache: bool`
+        # — the codegen owns that policy.
+        cache_lit = "true" if meta.get("default_cache", True) else "false"
 
         # Determine whether `req` is referenced in the body. It is unused
         # only when there are no path params, no query params, and no body
@@ -907,9 +911,8 @@ class Codegen:
 
         f.write(f"/// {method.upper()} {meta['url_path']}\n")
         f.write(f"pub async fn {method}(\n")
-        f.write("    http: &Http,\n")
+        f.write("    client: &Client,\n")
         f.write(f"    {req_ident}: &super::{method}::Request,\n")
-        f.write("    cache: bool,\n")
         f.write(f") -> Result<super::{method}::Response, Error> {{\n")
 
         # ---- Build the path string ----
@@ -932,42 +935,42 @@ class Codegen:
             # Rare: POST + query + body. body_required is true for the
             # only known case (POST /2/tweets/search/stream/rules).
             f.write(
-                f"    http.send_with_query_and_body({method_const}, "
-                f"{path_expr}, req, &req.body, cache).await\n"
+                f"    client.send_with_query_and_body({method_const}, "
+                f"{path_expr}, req, &req.body, {cache_lit}).await\n"
             )
         elif has_query:
             # GET (always uses this branch since GETs always have query),
             # plus the rare non-GET with query but no body.
             if has_response:
                 f.write(
-                    f"    http.send_with_query({method_const}, {path_expr}, req, cache).await\n"
+                    f"    client.send_with_query({method_const}, {path_expr}, req, {cache_lit}).await\n"
                 )
             else:
                 f.write(
-                    f"    http.send_with_query_no_response({method_const}, "
-                    f"{path_expr}, req, cache).await?;\n"
+                    f"    client.send_with_query_no_response({method_const}, "
+                    f"{path_expr}, req, {cache_lit}).await?;\n"
                 )
                 f.write(f"    Ok(super::{method}::Response)\n")
         elif has_body:
             body_arg = self._body_arg_expr(body_required)
             if has_response:
                 f.write(
-                    f"    http.send({method_const}, {path_expr}, {body_arg}, cache).await\n"
+                    f"    client.send({method_const}, {path_expr}, {body_arg}, {cache_lit}).await\n"
                 )
             else:
                 f.write(
-                    f"    http.send_no_response({method_const}, {path_expr}, {body_arg}, cache).await?;\n"
+                    f"    client.send_no_response({method_const}, {path_expr}, {body_arg}, {cache_lit}).await?;\n"
                 )
                 f.write(f"    Ok(super::{method}::Response)\n")
         else:
             # No body, no query — typical DELETE.
             if has_response:
                 f.write(
-                    f"    http.send::<_, ()>({method_const}, {path_expr}, None, cache).await\n"
+                    f"    client.send::<_, ()>({method_const}, {path_expr}, None, {cache_lit}).await\n"
                 )
             else:
                 f.write(
-                    f"    http.send_no_response::<()>({method_const}, {path_expr}, None, cache).await?;\n"
+                    f"    client.send_no_response::<()>({method_const}, {path_expr}, None, {cache_lit}).await?;\n"
                 )
                 f.write(f"    Ok(super::{method}::Response)\n")
 

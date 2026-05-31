@@ -3,7 +3,7 @@
 
 //! HTTP call helpers for /2/trends/by/woeid/{woeid}.
 #[allow(unused_imports)]
-use crate::x::http::Http;
+use crate::x::client::Client;
 #[allow(unused_imports)]
 use crate::x::Error;
 #[allow(unused_imports)]
@@ -11,11 +11,10 @@ use reqwest::Method;
 
 /// GET /2/trends/by/woeid/{woeid}
 pub async fn get(
-    http: &Http,
+    client: &Client,
     req: &super::get::Request,
-    cache: bool,
 ) -> Result<super::get::Response, Error> {
     let path = format!("trends/by/woeid/{}", urlencoding::encode(&req.woeid.to_string()));
-    http.send_with_query(Method::GET, &path, req, cache).await
+    client.send_with_query(Method::GET, &path, req, true).await
 }
 

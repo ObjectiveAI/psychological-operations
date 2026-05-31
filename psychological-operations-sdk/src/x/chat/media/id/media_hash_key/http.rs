@@ -3,7 +3,7 @@
 
 //! HTTP call helpers for /2/chat/media/{id}/{media_hash_key}.
 #[allow(unused_imports)]
-use crate::x::http::Http;
+use crate::x::client::Client;
 #[allow(unused_imports)]
 use crate::x::Error;
 #[allow(unused_imports)]
@@ -11,12 +11,11 @@ use reqwest::Method;
 
 /// GET /2/chat/media/{id}/{media_hash_key}
 pub async fn get(
-    http: &Http,
+    client: &Client,
     req: &super::get::Request,
-    cache: bool,
 ) -> Result<super::get::Response, Error> {
     let path = format!("chat/media/{}/{}", urlencoding::encode(&req.id.to_string()), urlencoding::encode(&req.media_hash_key.to_string()));
-    http.send_no_response::<()>(Method::GET, &path, None, cache).await?;
+    client.send_no_response::<()>(Method::GET, &path, None, true).await?;
     Ok(super::get::Response)
 }
 

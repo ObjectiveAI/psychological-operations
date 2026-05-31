@@ -3,7 +3,7 @@
 
 //! HTTP call helpers for /2/account_activity/subscriptions/count.
 #[allow(unused_imports)]
-use crate::x::http::Http;
+use crate::x::client::Client;
 #[allow(unused_imports)]
 use crate::x::Error;
 #[allow(unused_imports)]
@@ -11,11 +11,10 @@ use reqwest::Method;
 
 /// GET /2/account_activity/subscriptions/count
 pub async fn get(
-    http: &Http,
+    client: &Client,
     _req: &super::get::Request,
-    cache: bool,
 ) -> Result<super::get::Response, Error> {
     let path = "account_activity/subscriptions/count";
-    http.send::<_, ()>(Method::GET, path, None, cache).await
+    client.send::<_, ()>(Method::GET, path, None, true).await
 }
 

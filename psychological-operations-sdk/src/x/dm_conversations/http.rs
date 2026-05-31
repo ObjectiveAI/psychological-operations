@@ -3,7 +3,7 @@
 
 //! HTTP call helpers for /2/dm_conversations.
 #[allow(unused_imports)]
-use crate::x::http::Http;
+use crate::x::client::Client;
 #[allow(unused_imports)]
 use crate::x::Error;
 #[allow(unused_imports)]
@@ -11,11 +11,10 @@ use reqwest::Method;
 
 /// POST /2/dm_conversations
 pub async fn post(
-    http: &Http,
+    client: &Client,
     req: &super::post::Request,
-    cache: bool,
 ) -> Result<super::post::Response, Error> {
     let path = "dm_conversations";
-    http.send(Method::POST, path, req.body.as_ref(), cache).await
+    client.send(Method::POST, path, req.body.as_ref(), true).await
 }
 

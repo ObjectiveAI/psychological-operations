@@ -3,7 +3,7 @@
 
 //! HTTP call helpers for /2/tweets/{id}/quote_tweets.
 #[allow(unused_imports)]
-use crate::x::http::Http;
+use crate::x::client::Client;
 #[allow(unused_imports)]
 use crate::x::Error;
 #[allow(unused_imports)]
@@ -11,11 +11,10 @@ use reqwest::Method;
 
 /// GET /2/tweets/{id}/quote_tweets
 pub async fn get(
-    http: &Http,
+    client: &Client,
     req: &super::get::Request,
-    cache: bool,
 ) -> Result<super::get::Response, Error> {
     let path = format!("tweets/{}/quote_tweets", urlencoding::encode(&req.id.to_string()));
-    http.send_with_query(Method::GET, &path, req, cache).await
+    client.send_with_query(Method::GET, &path, req, true).await
 }
 
