@@ -8,11 +8,10 @@
 //!   1. Bails when the twid-conflict guard is active — we
 //!      don't want the wrong account's timeline polluting the
 //!      seen set.
-//!   2. Parses tweet IDs out of the HTML
-//!      ([`parse_tweet_ids`] — currently stubbed to return
-//!      empty; real parser is a follow-up. Grab a sample HTML
-//!      via the stdin `{"type":"html"}` request when ready to
-//!      design it).
+//!   2. Parses tweet IDs out of the HTML via
+//!      [`parse_tweet_ids`] — walks
+//!      `article[data-testid="tweet"]` elements and picks
+//!      each one's first `/status/<digits>` descendant URL.
 //!   3. For each *new* ID, pushes onto the ordered list and
 //!      emits an `Output::TweetId { id }` line on stdout.
 //!   4. Updates [`crate::state::set_tweets_read_count`] so
@@ -28,6 +27,7 @@ use std::sync::{Mutex, OnceLock};
 
 use psychological_operations_browser_sdk::mode::Mode;
 use psychological_operations_browser_sdk::output::Output;
+use scraper::{Html, Selector};
 use tauri::{AppHandle, Wry};
 
 use crate::state;
@@ -104,11 +104,53 @@ fn current_count() -> u32 {
         .unwrap_or(0)
 }
 
-/// Tweet-ID extractor. **DEFERRED** — returns empty until we
-/// design the real selector. When ready, grab a sample of the
-/// page HTML via the stdin `{"type":"html"}` request and fill
-/// in the body here (likely a `scraper::Selector` over the
-/// tweet article DOM).
-fn parse_tweet_ids(_html: &str) -> Vec<String> {
-    Vec::new()
+/// Extract tweet IDs from the For-You feed HTML.
+///
+/// Walks every `<article data-testid="tweet">` (one per
+/// feed item) and picks the first `<a href="…/status/<id>…">`
+/// inside it. The first `/status/` URL per article is always
+/// the wrapper tweet's own ID; subsequent ones are media
+/// affordances (`/status/<id>/photo/1`,
+/// `/status/<id>/retweets`, …) or — for quote-tweets — the
+/// quoted inner article, which we deliberately drop here.
+///
+/// Returns IDs in document order (= feed order).
+fn parse_tweet_ids(html: &str) -> Vec<String> {
+    static ARTICLE_SEL: OnceLock<Selector> = OnceLock::new();
+    static LINK_SEL: OnceLock<Selector> = OnceLock::new();
+    let article_sel = ARTICLE_SEL.get_or_init(|| {
+        Selector::parse(r#"article[data-testid="tweet"]"#).expect("article selector")
+    });
+    let link_sel = LINK_SEL
+        .get_or_init(|| Selector::parse(r#"a[href*="/status/"]"#).expect("link selector"));
+
+    let doc = Html::parse_document(html);
+    let mut ids = Vec::new();
+    for article in doc.select(article_sel) {
+        for link in article.select(link_sel) {
+            if let Some(href) = link.value().attr("href") {
+                if let Some(id) = extract_status_id(href) {
+                    ids.push(id);
+                    break;
+                }
+            }
+        }
+    }
+    ids
+}
+
+/// Pull the numeric tweet ID out of a `/status/<id>…` URL.
+///
+/// Accepts the bare-path form (`/handle/status/123…`) that x.com
+/// emits inline. Uses the *rightmost* `/status/` segment so a
+/// hypothetical future href like `/i/status/<x>/status/<y>` would
+/// resolve to the inner ID; in practice x.com's anchors are
+/// always the simple form.
+fn extract_status_id(href: &str) -> Option<String> {
+    let after = href.rfind("/status/")? + "/status/".len();
+    let id: String = href[after..]
+        .chars()
+        .take_while(|c| c.is_ascii_digit())
+        .collect();
+    if id.is_empty() { None } else { Some(id) }
 }

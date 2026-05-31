@@ -66,6 +66,7 @@ cef = { version = "148.2.0", default-features = false }
 # for direct consumers of the `links`-emitting crate.
 cef-dll-sys = { version = "148.2.0", default-features = false }
 futures = { version = "0.3.32", default-features = false, features = ["alloc", "async-await"] }
+scraper = "0.27.0"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 # Match cef-rs's windows-sys version so HWND types are the same
