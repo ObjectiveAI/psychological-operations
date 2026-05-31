@@ -42,6 +42,7 @@ type Mode =
   | { type: "x_app" }
   | { type: "psyop_read"; name: string }
   | { type: "psyop_authorize"; name: string }
+  | { type: "agent_authorize"; name: string }
   | null;
 
 async function respondOk(response: unknown) {
@@ -132,9 +133,9 @@ async function handleRequest(payload: unknown) {
       } else if (mode.type === "psyop_read") {
         installPsyopReadHelpers();
       }
-      // psyop_authorize installs no helpers — Rust drives the
-      // OAuth navigation on its own; X's consent page is the
-      // affordance.
+      // psyop_authorize + agent_authorize install no helpers
+      // — Rust drives the OAuth navigation on its own; X's
+      // consent page is the affordance.
       console.log("[psyops-overlay] helpers installed for mode", mode.type);
     }
   } catch (e) {

@@ -287,7 +287,7 @@ pub async fn apply_cookie_facts(
             let conflict_fut = async {
                 match (auth_token.as_ref(), conflict_psyop.as_deref()) {
                     (Some(_), Some(name)) => {
-                        crate::psyop_authorize::find_other_psyop_owning_twid(
+                        crate::authorize::find_other_psyop_owning_twid(
                             handle, name, uid,
                         )
                         .await
@@ -331,7 +331,7 @@ pub async fn apply_cookie_facts(
             // Signed out — clear the psyop-authorize one-shot
             // so a future sign-in (potentially with a different
             // twid) re-engages the OAuth flow.
-            crate::psyop_authorize::clear_in_flight_on_signout();
+            crate::authorize::clear_in_flight_on_signout();
         }
     }
 
@@ -344,7 +344,9 @@ pub async fn apply_cookie_facts(
 fn home_url_for_current_mode() -> Option<&'static str> {
     match mode::get()? {
         Mode::XApp => Some("https://console.x.com/"),
-        Mode::PsyopRead { .. } | Mode::PsyopAuthorize { .. } => Some("https://x.com/"),
+        Mode::PsyopRead { .. }
+        | Mode::PsyopAuthorize { .. }
+        | Mode::AgentAuthorize { .. } => Some("https://x.com/"),
     }
 }
 
@@ -540,6 +542,21 @@ pub fn derive(facts: &Facts) -> PanelState {
                     message: format!(
                         "Sign out. This account is already in use by PsyOp {other}."
                     ),
+                }
+            } else {
+                PanelState::Hidden
+            }
+        }
+        Some(Mode::AgentAuthorize { .. }) => {
+            // AgentAuthorize: same shape as PsyopAuthorize —
+            // Rust auto-navigates to X's OAuth authorize page
+            // once the persona signs in. No twid-conflict
+            // guard for agents (per design: multiple agents
+            // can share the same X account).
+            if facts.auth_token.is_none() {
+                PanelState::Show {
+                    condition: PanelCondition::SignInToX,
+                    message: "Sign in to X.".into(),
                 }
             } else {
                 PanelState::Hidden

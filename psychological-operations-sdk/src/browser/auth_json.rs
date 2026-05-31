@@ -59,6 +59,32 @@ use tokio::fs;
 use super::cookies::{self, CookiesError};
 use super::mode::Mode;
 
+/// Which family of named persona a set of OAuth tokens belongs
+/// to. Determines the on-disk root the auth-json APIs read from /
+/// write to: `<config>/.../browser/psyop/<name>/handles/<twid>/`
+/// vs `<config>/.../browser/agent/<name>/handles/<twid>/`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PersonaKind {
+    Psyop,
+    Agent,
+}
+
+impl PersonaKind {
+    fn dir_segment(self) -> &'static str {
+        match self {
+            PersonaKind::Psyop => "psyop",
+            PersonaKind::Agent => "agent",
+        }
+    }
+
+    fn to_mode(self, name: &str) -> Mode {
+        match self {
+            PersonaKind::Psyop => Mode::PsyopAuthorize { name: name.to_string() },
+            PersonaKind::Agent => Mode::AgentAuthorize { name: name.to_string() },
+        }
+    }
+}
+
 /// `access_token` is treated as expired if it lives this much
 /// longer or less. Centralised so every consumer of `auth.json`
 /// (browser, CLI, future SDK users) agrees on freshness.
@@ -132,10 +158,11 @@ impl From<serde_json::Error> for AuthJsonError {
 /// been minted).
 pub async fn get(
     config_base_dir: &Path,
-    psyop_name: &str,
+    kind: PersonaKind,
+    name: &str,
 ) -> Result<Option<Tokens>, AuthJsonError> {
-    let twid = resolve_twid(config_base_dir, psyop_name).await?;
-    let dir = persona_dir(config_base_dir, psyop_name, &twid);
+    let twid = resolve_twid(config_base_dir, kind, name).await?;
+    let dir = persona_dir(config_base_dir, kind, name, &twid);
     fs::create_dir_all(&dir).await?;
     let auth_path = dir.join("auth.json");
     let lock_path = dir.join("auth.json.lock");
@@ -166,11 +193,12 @@ pub async fn get(
 /// back in mid-flow.
 pub async fn set(
     config_base_dir: &Path,
-    psyop_name: &str,
+    kind: PersonaKind,
+    name: &str,
     twid: &str,
     tokens: &Tokens,
 ) -> Result<(), AuthJsonError> {
-    let dir = persona_dir(config_base_dir, psyop_name, twid);
+    let dir = persona_dir(config_base_dir, kind, name, twid);
     fs::create_dir_all(&dir).await?;
     let auth_path = dir.join("auth.json");
     let tmp_path = dir.join("auth.json.tmp");
@@ -193,10 +221,11 @@ pub async fn set(
 /// `try_exists`. No I/O; no directory creation.
 pub fn path_for(
     config_base_dir: &Path,
-    psyop_name: &str,
+    kind: PersonaKind,
+    name: &str,
     twid: &str,
 ) -> PathBuf {
-    persona_dir(config_base_dir, psyop_name, twid).join("auth.json")
+    persona_dir(config_base_dir, kind, name, twid).join("auth.json")
 }
 
 /// Read `auth.json` for the persona currently signed into
@@ -217,15 +246,16 @@ pub fn path_for(
 /// on disk to refresh against.
 pub async fn get_or_refresh<F, Fut>(
     config_base_dir: &Path,
-    psyop_name: &str,
+    kind: PersonaKind,
+    name: &str,
     refresh: F,
 ) -> Result<Tokens, AuthJsonError>
 where
     F: FnOnce(Tokens) -> Fut,
     Fut: Future<Output = Result<Tokens, AuthJsonError>>,
 {
-    let twid = resolve_twid(config_base_dir, psyop_name).await?;
-    let dir = persona_dir(config_base_dir, psyop_name, &twid);
+    let twid = resolve_twid(config_base_dir, kind, name).await?;
+    let dir = persona_dir(config_base_dir, kind, name, &twid);
     fs::create_dir_all(&dir).await?;
     let auth_path = dir.join("auth.json");
     let tmp_path = dir.join("auth.json.tmp");
@@ -285,15 +315,16 @@ async fn read_auth_json(path: &Path) -> Result<Option<Tokens>, AuthJsonError> {
 
 fn persona_dir(
     config_base_dir: &Path,
-    psyop_name: &str,
+    kind: PersonaKind,
+    name: &str,
     twid: &str,
 ) -> PathBuf {
     config_base_dir
         .join("plugins")
         .join("psychological-operations")
         .join("browser")
-        .join("psyop")
-        .join(psyop_name)
+        .join(kind.dir_segment())
+        .join(name)
         .join("handles")
         .join(twid)
 }
@@ -303,10 +334,11 @@ fn persona_dir(
 /// doesn't park the async runtime.
 async fn resolve_twid(
     config_base_dir: &Path,
-    psyop_name: &str,
+    kind: PersonaKind,
+    name: &str,
 ) -> Result<String, AuthJsonError> {
     let base = config_base_dir.to_path_buf();
-    let mode = Mode::PsyopAuthorize { name: psyop_name.to_string() };
+    let mode = kind.to_mode(name);
     tokio::task::spawn_blocking(move || cookies::signed_in_x_user_id(&base, &mode))
         .await
         .map_err(AuthJsonError::Join)?

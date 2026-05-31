@@ -63,6 +63,7 @@ pub fn mode_data_dir(handle: &AppHandle<Wry>, mode: &Mode) -> std::path::PathBuf
         Mode::PsyopRead { name } | Mode::PsyopAuthorize { name } => {
             base.join("psyop").join(name)
         }
+        Mode::AgentAuthorize { name } => base.join("agent").join(name),
     }
 }
 
@@ -88,11 +89,13 @@ fn cache_subdir_for(mode: &Mode) -> String {
         // Flat single-segment subdir — CEF's Chrome runtime rejects
         // nested profile paths (`psyop/<name>`) with "Cannot create
         // profile at path …" and silently falls back to an in-memory
-        // profile, breaking cookie persistence. `psyop-<name>` keeps
-        // psyops under a flat namespace just like `x-app`.
+        // profile, breaking cookie persistence. `psyop-<name>` /
+        // `agent-<name>` keep them under a flat namespace just like
+        // `x-app`.
         Mode::PsyopRead { name } | Mode::PsyopAuthorize { name } => {
             format!("psyop-{name}")
         }
+        Mode::AgentAuthorize { name } => format!("agent-{name}"),
     }
 }
 
@@ -100,7 +103,9 @@ fn cache_subdir_for(mode: &Mode) -> String {
 fn start_url_for(mode: &Mode) -> &'static str {
     match mode {
         Mode::XApp => "https://console.x.com/",
-        Mode::PsyopRead { .. } | Mode::PsyopAuthorize { .. } => "https://x.com/",
+        Mode::PsyopRead { .. }
+        | Mode::PsyopAuthorize { .. }
+        | Mode::AgentAuthorize { .. } => "https://x.com/",
     }
 }
 

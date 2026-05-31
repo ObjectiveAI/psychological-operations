@@ -141,6 +141,7 @@ impl Http {
             .expect("ensure_setup guarantees client_secret");
         let tokens = auth_json::get_or_refresh(
             config_base_dir,
+            auth_json::PersonaKind::Psyop,
             psyop_name,
             move |stale| async move {
                 let rt = stale.refresh_token.as_deref().ok_or_else(|| {

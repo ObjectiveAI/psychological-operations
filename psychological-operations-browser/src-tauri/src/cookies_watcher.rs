@@ -136,7 +136,7 @@ fn snapshot_sync(auth_url: &Url) -> CookieSnapshot {
 async fn apply_snapshot(handle: &AppHandle<Wry>, snap: &CookieSnapshot) {
     tokio::join!(
         state::apply_cookie_facts(handle, snap.auth_token.clone(), snap.user_id.clone()),
-        crate::psyop_authorize::maybe_start_flow(handle),
+        crate::authorize::maybe_start_flow(handle),
     );
 }
 

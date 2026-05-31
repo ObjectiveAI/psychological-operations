@@ -168,6 +168,9 @@ fn cache_subdir_for(mode: &Mode) -> String {
         Mode::PsyopRead { name } | Mode::PsyopAuthorize { name } => {
             format!("psyop-{name}")
         }
+        Mode::AgentAuthorize { name } => {
+            format!("agent-{name}")
+        }
     }
 }
 

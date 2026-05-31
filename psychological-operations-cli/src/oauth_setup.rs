@@ -143,9 +143,15 @@ pub async fn run(psyop_name: &str, cfg: &crate::run::Config) -> Result<crate::Ou
     // CLI's chromium cookie store.
     let twid = resolve_user_id(&tokens.access_token).await?;
 
-    auth_json::set(&config_base_dir, psyop_name, &twid, &tokens)
-        .await
-        .map_err(|e| Error::Other(format!("auth_json::set: {e}")))?;
+    auth_json::set(
+        &config_base_dir,
+        auth_json::PersonaKind::Psyop,
+        psyop_name,
+        &twid,
+        &tokens,
+    )
+    .await
+    .map_err(|e| Error::Other(format!("auth_json::set: {e}")))?;
 
     crate::emit::emit(crate::events::Event::OauthTokensSaved {
         psyop: psyop_name.to_string(),

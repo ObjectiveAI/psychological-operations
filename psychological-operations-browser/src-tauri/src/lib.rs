@@ -4,7 +4,7 @@ mod cef_scheme;
 mod cef_v8;
 mod cookies_watcher;
 mod credentials;
-mod psyop_authorize;
+mod authorize;
 mod psyop_read;
 mod state;
 mod stdio;

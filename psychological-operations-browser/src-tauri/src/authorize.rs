@@ -32,7 +32,7 @@ use std::time::Duration;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::Utc;
-use psychological_operations_sdk::browser::auth_json::{self, Tokens};
+use psychological_operations_sdk::browser::auth_json::{self, PersonaKind, Tokens};
 use psychological_operations_sdk::browser::mode::Mode;
 use psychological_operations_sdk::browser::output::Output;
 use rand::Rng;
@@ -79,8 +79,9 @@ pub fn clear_in_flight_on_signout() {
 // Public entry point — called from cookies_watcher::apply_snapshot
 // =================================================================
 pub async fn maybe_start_flow(handle: &AppHandle<Wry>) {
-    let psyop_name = match psychological_operations_sdk::browser::mode::get() {
-        Some(Mode::PsyopAuthorize { name }) => name,
+    let (kind, persona_name) = match psychological_operations_sdk::browser::mode::get() {
+        Some(Mode::PsyopAuthorize { name }) => (PersonaKind::Psyop, name),
+        Some(Mode::AgentAuthorize { name }) => (PersonaKind::Agent, name),
         _ => return,
     };
     let Some(persona_twid) = state::current_user_id() else {
@@ -88,30 +89,36 @@ pub async fn maybe_start_flow(handle: &AppHandle<Wry>) {
     };
 
     let config_base_dir = handle.state::<Args>().config_base_dir.clone();
-    let auth_path = auth_json::path_for(&config_base_dir, &psyop_name, &persona_twid);
+    let auth_path =
+        auth_json::path_for(&config_base_dir, kind, &persona_name, &persona_twid);
 
     // Concurrent: check whether we already have auth.json AND
-    // probe the cross-psyop conflict. Both are disk-bound,
-    // independent — running them via `tokio::join!` halves
-    // the latency on every cookies kick where either probe
-    // is non-trivial.
+    // (for psyops only) probe the cross-psyop conflict. Both
+    // disk-bound + independent — `tokio::join!` halves the
+    // latency on every cookies kick where either probe is
+    // non-trivial. Agents skip the conflict scan because the
+    // same X account can be signed into multiple agents (and
+    // psyops too) without complaint.
+    let conflict_fut = async {
+        match kind {
+            PersonaKind::Psyop => {
+                find_other_psyop_owning_twid(handle, &persona_name, &persona_twid)
+                    .await
+            }
+            PersonaKind::Agent => None,
+        }
+    };
     let (auth_exists, conflict) = tokio::join!(
         async { tokio::fs::try_exists(&auth_path).await.unwrap_or(false) },
-        find_other_psyop_owning_twid(handle, &psyop_name, &persona_twid),
+        conflict_fut,
     );
     if auth_exists {
         return;
     }
-    // Cross-psyop guard: if this twid already belongs to a
-    // different psyop, don't kick the dance — we'd be minting
-    // tokens onto the wrong handles/. The panel surfaces the
-    // "wrong account" nag separately; this is just the OAuth-
-    // side short-circuit. Re-evaluated on every cookies kick,
-    // so it auto-clears when the user signs back in correctly.
     if let Some(other) = conflict {
         let _ = Output::Log {
             message: format!(
-                "psyop_authorize: twid {persona_twid} belongs to PsyOp {other}; not starting flow"
+                "authorize: twid {persona_twid} belongs to PsyOp {other}; not starting flow"
             ),
         }
         .emit();
@@ -131,9 +138,9 @@ pub async fn maybe_start_flow(handle: &AppHandle<Wry>) {
 
     let handle_for_task = handle.clone();
     tauri::async_runtime::spawn(async move {
-        if let Err(e) = run_flow(handle_for_task, psyop_name, persona_twid).await {
+        if let Err(e) = run_flow(handle_for_task, kind, persona_name, persona_twid).await {
             let _ = Output::Log {
-                message: format!("psyop_authorize: flow failed: {e}"),
+                message: format!("authorize: flow failed: {e}"),
             }
             .emit();
             if let Ok(mut s) = in_flight_slot().lock() {
@@ -145,7 +152,8 @@ pub async fn maybe_start_flow(handle: &AppHandle<Wry>) {
 
 async fn run_flow(
     handle: AppHandle<Wry>,
-    psyop_name: String,
+    kind: PersonaKind,
+    persona_name: String,
     persona_twid: String,
 ) -> Result<(), String> {
     let (client_id, client_secret) = read_x_app_creds(&handle).await?;
@@ -165,7 +173,7 @@ async fn run_flow(
 
     let _ = Output::Log {
         message: format!(
-            "psyop_authorize: navigating to authorize URL on port {port}"
+            "authorize: navigating to authorize URL on port {port}"
         ),
     }
     .emit();
@@ -196,12 +204,12 @@ async fn run_flow(
     .map_err(|e| format!("token exchange: {e}"))?;
 
     let config_base_dir = handle.state::<Args>().config_base_dir.clone();
-    auth_json::set(&config_base_dir, &psyop_name, &persona_twid, &tokens)
+    auth_json::set(&config_base_dir, kind, &persona_name, &persona_twid, &tokens)
         .await
         .map_err(|e| format!("write auth.json: {e}"))?;
     let _ = Output::Log {
         message: format!(
-            "psyop_authorize: wrote auth.json for {persona_twid} (expires_at={:?})",
+            "authorize: wrote auth.json for {persona_twid} (expires_at={:?})",
             tokens.expires_at
         ),
     }
@@ -514,7 +522,7 @@ pub async fn find_other_psyop_owning_twid(
         let auth_path = path
             .file_name()
             .and_then(|n| n.to_str())
-            .map(|name| auth_json::path_for(&config_base_dir, name, twid));
+            .map(|name| auth_json::path_for(&config_base_dir, PersonaKind::Psyop, name, twid));
         async move {
             match auth_path {
                 Some(p) => tokio::fs::try_exists(&p).await.unwrap_or(false),

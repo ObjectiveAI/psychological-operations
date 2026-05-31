@@ -4,15 +4,13 @@
 //! front — there's no "blank" CEF browser without a mode because
 //! the mode determines which `CefRequestContext` (and therefore
 //! which per-account cookie / cache directory) the browser uses.
-//! Exactly one of `--x-app`, `--psyop-read <NAME>`, or
-//! `--psyop-authorize <NAME>` must be set; multiple or none is
-//! a clap error.
+//! Exactly one of `--x-app`, `--psyop-read <NAME>`,
+//! `--psyop-authorize <NAME>`, or `--agent-authorize <NAME>`
+//! must be set; multiple or none is a clap error.
 //!
-//! After startup the host can switch the browser to a different
-//! mode by sending a [`psychological_operations_sdk::browser::request::Request::XApp`],
-//! [`psychological_operations_sdk::browser::request::Request::PsyopRead`],
-//! or [`psychological_operations_sdk::browser::request::Request::PsyopAuthorize`]
-//! line on stdin (see [`crate::stdio`]).
+//! Mode is locked at process startup — there is no runtime
+//! mode swap. To change mode, kill the browser and relaunch
+//! with a different flag.
 
 use std::path::PathBuf;
 
@@ -22,7 +20,7 @@ use psychological_operations_sdk::browser::mode::Mode;
 #[derive(Debug, Parser)]
 #[command(name = "psychological-operations-browser")]
 #[command(about = "Tauri+CEF webview shell for psychological-operations sessions.")]
-#[command(group = ArgGroup::new("mode").required(true).multiple(false).args(["x_app", "psyop_read", "psyop_authorize"]))]
+#[command(group = ArgGroup::new("mode").required(true).multiple(false).args(["x_app", "psyop_read", "psyop_authorize", "agent_authorize"]))]
 pub struct Args {
     /// Base directory for psych-ops state. Mode-specific session
     /// data (cookies, IndexedDB, cache, ...) lives under
@@ -53,6 +51,15 @@ pub struct Args {
     /// `<psyop-data-dir>/handles/<persona-twid>/auth.json`.
     #[arg(long, group = "mode", value_name = "NAME")]
     pub psyop_authorize: Option<String>,
+
+    /// Launch in Agent **authorize** mode, scoped to the given
+    /// agent name. Operationally mirrors `--psyop-authorize`
+    /// (auto-fires the OAuth dance on sign-in, writes
+    /// `<agent-data-dir>/handles/<twid>/auth.json`) but uses
+    /// the `agent/` data root instead of `psyop/`, and the
+    /// twid-conflict guard never fires for agents.
+    #[arg(long, group = "mode", value_name = "NAME")]
+    pub agent_authorize: Option<String>,
 }
 
 impl Args {
@@ -67,6 +74,8 @@ impl Args {
             Mode::PsyopRead { name: name.clone() }
         } else if let Some(name) = self.psyop_authorize.as_ref() {
             Mode::PsyopAuthorize { name: name.clone() }
+        } else if let Some(name) = self.agent_authorize.as_ref() {
+            Mode::AgentAuthorize { name: name.clone() }
         } else {
             unreachable!("clap ArgGroup mode required=true, multiple=false")
         }

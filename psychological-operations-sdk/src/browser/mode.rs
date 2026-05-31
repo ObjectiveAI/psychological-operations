@@ -2,8 +2,9 @@
 //! lifetime.
 //!
 //! Mode is locked at startup by the browser binary's CLI flag
-//! (`--x-app` / `--psyop-read <name>` / `--psyop-authorize <name>`)
-//! and held in a process-global [`OnceLock`] so anything that
+//! (`--x-app` / `--psyop-read <name>` / `--psyop-authorize <name>`
+//! / `--agent-authorize <name>`) and held in a process-global
+//! [`OnceLock`] so anything that
 //! needs it can read it without a host-supplied parameter.
 //! There is no runtime way to change mode — to switch, kill the
 //! process and relaunch with a different flag.
@@ -33,6 +34,16 @@ pub enum Mode {
     /// and writes it to
     /// `<psyop-data-dir>/handles/<persona-twid>/auth.json`.
     PsyopAuthorize { name: String },
+    /// Per-agent OAuth-authorize session. Mirrors
+    /// [`PsyopAuthorize`] operationally — Rust auto-fires X's
+    /// OAuth 2.0 PKCE consent on sign-in and writes the
+    /// resulting tokens to
+    /// `<agent-data-dir>/handles/<twid>/auth.json`. Unlike
+    /// psyops, agents don't participate in the twid-conflict
+    /// guard: the same X account can be signed into multiple
+    /// agents (and into psyops too) simultaneously without
+    /// the panel blocking.
+    AgentAuthorize { name: String },
 }
 
 /// Process-global once-only slot for the session mode.
