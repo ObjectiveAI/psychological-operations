@@ -12,7 +12,7 @@ pub struct ActivityStreamingResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data: Option<ActivityStreamingResponseData>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub errors: Option<Vec<Problem>>,
+    pub errors: Option<Vec<ProblemUnion>>,
 }
 
 

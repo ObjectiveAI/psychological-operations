@@ -22,6 +22,6 @@ pub struct TweetComplianceStreamResponseVariant0 {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TweetComplianceStreamResponseVariant1 {
-    pub errors: Vec<Problem>,
+    pub errors: Vec<ProblemUnion>,
 }
 

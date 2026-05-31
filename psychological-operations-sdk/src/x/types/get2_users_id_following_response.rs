@@ -11,7 +11,7 @@ pub struct Get2UsersIdFollowingResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data: Option<Vec<User>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub errors: Option<Vec<Problem>>,
+    pub errors: Option<Vec<ProblemUnion>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub includes: Option<Expansions>,
     #[serde(skip_serializing_if = "Option::is_none")]

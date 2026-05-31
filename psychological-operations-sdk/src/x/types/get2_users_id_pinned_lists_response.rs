@@ -11,7 +11,7 @@ pub struct Get2UsersIdPinnedListsResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data: Option<Vec<List>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub errors: Option<Vec<Problem>>,
+    pub errors: Option<Vec<ProblemUnion>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub includes: Option<Expansions>,
     #[serde(skip_serializing_if = "Option::is_none")]

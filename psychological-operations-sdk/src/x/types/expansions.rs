@@ -9,7 +9,7 @@ use super::*;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Expansions {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub media: Option<Vec<Media>>,
+    pub media: Option<Vec<MediaUnion>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub places: Option<Vec<Place>>,
     #[serde(skip_serializing_if = "Option::is_none")]

@@ -9,8 +9,8 @@ use super::*;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Get2MediaMediaKeyResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub data: Option<Media>,
+    pub data: Option<MediaUnion>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub errors: Option<Vec<Problem>>,
+    pub errors: Option<Vec<ProblemUnion>>,
 }
 

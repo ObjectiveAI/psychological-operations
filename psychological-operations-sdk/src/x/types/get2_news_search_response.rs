@@ -11,7 +11,7 @@ pub struct Get2NewsSearchResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data: Option<Vec<News>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub errors: Option<Vec<Problem>>,
+    pub errors: Option<Vec<ProblemUnion>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub meta: Option<Get2NewsSearchResponseMeta>,
 }

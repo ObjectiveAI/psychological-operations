@@ -14,7 +14,50 @@ pub struct Problem {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<i32>,
     pub title: String,
-    #[serde(rename = "type")]
-    pub type_: String,
+    #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
+    pub type_: Option<String>,
+}
+
+
+/// Polymorphic view of [`Problem`] discriminated by `type`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum ProblemUnion {
+    #[serde(rename = "about:blank")]
+    AboutBlank(GenericProblem),
+    #[serde(rename = "https://api.twitter.com/2/problems/client-disconnected")]
+    HttpsApiTwitterCom2ProblemsClientDisconnected(ClientDisconnectedProblem),
+    #[serde(rename = "https://api.twitter.com/2/problems/client-forbidden")]
+    HttpsApiTwitterCom2ProblemsClientForbidden(ClientForbiddenProblem),
+    #[serde(rename = "https://api.twitter.com/2/problems/conflict")]
+    HttpsApiTwitterCom2ProblemsConflict(ConflictProblem),
+    #[serde(rename = "https://api.twitter.com/2/problems/disallowed-resource")]
+    HttpsApiTwitterCom2ProblemsDisallowedResource(DisallowedResourceProblem),
+    #[serde(rename = "https://api.twitter.com/2/problems/duplicate-rules")]
+    HttpsApiTwitterCom2ProblemsDuplicateRules(DuplicateRuleProblem),
+    #[serde(rename = "https://api.twitter.com/2/problems/invalid-request")]
+    HttpsApiTwitterCom2ProblemsInvalidRequest(InvalidRequestProblem),
+    #[serde(rename = "https://api.twitter.com/2/problems/invalid-rules")]
+    HttpsApiTwitterCom2ProblemsInvalidRules(InvalidRuleProblem),
+    #[serde(rename = "https://api.twitter.com/2/problems/noncompliant-rules")]
+    HttpsApiTwitterCom2ProblemsNoncompliantRules(NonCompliantRulesProblem),
+    #[serde(rename = "https://api.twitter.com/2/problems/not-authorized-for-field")]
+    HttpsApiTwitterCom2ProblemsNotAuthorizedForField(FieldUnauthorizedProblem),
+    #[serde(rename = "https://api.twitter.com/2/problems/not-authorized-for-resource")]
+    HttpsApiTwitterCom2ProblemsNotAuthorizedForResource(ResourceUnauthorizedProblem),
+    #[serde(rename = "https://api.twitter.com/2/problems/operational-disconnect")]
+    HttpsApiTwitterCom2ProblemsOperationalDisconnect(OperationalDisconnectProblem),
+    #[serde(rename = "https://api.twitter.com/2/problems/resource-not-found")]
+    HttpsApiTwitterCom2ProblemsResourceNotFound(ResourceNotFoundProblem),
+    #[serde(rename = "https://api.twitter.com/2/problems/resource-unavailable")]
+    HttpsApiTwitterCom2ProblemsResourceUnavailable(ResourceUnavailableProblem),
+    #[serde(rename = "https://api.twitter.com/2/problems/rule-cap")]
+    HttpsApiTwitterCom2ProblemsRuleCap(RulesCapProblem),
+    #[serde(rename = "https://api.twitter.com/2/problems/streaming-connection")]
+    HttpsApiTwitterCom2ProblemsStreamingConnection(ConnectionExceptionProblem),
+    #[serde(rename = "https://api.twitter.com/2/problems/unsupported-authentication")]
+    HttpsApiTwitterCom2ProblemsUnsupportedAuthentication(UnsupportedAuthenticationProblem),
+    #[serde(rename = "https://api.twitter.com/2/problems/usage-capped")]
+    HttpsApiTwitterCom2ProblemsUsageCapped(UsageCapExceededProblem),
 }
 

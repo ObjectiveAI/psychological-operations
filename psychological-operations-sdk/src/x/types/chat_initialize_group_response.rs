@@ -11,7 +11,7 @@ pub struct ChatInitializeGroupResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data: Option<ChatInitializeGroupResponseData>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub errors: Option<Vec<Problem>>,
+    pub errors: Option<Vec<ProblemUnion>>,
 }
 
 

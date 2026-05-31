@@ -1,20 +1,29 @@
 //! `PsychologicalOperationsXApiMcp` — RMCP server wrapping the X v2 API
-//! through the workspace's SDK (`psychological_operations_sdk::x::*`).
+//! through the workspace SDK (`psychological_operations_sdk::x::*`).
 //!
-//! Seven tools: tweet lookup, reply chain traversal, user bio + profile
-//! picture, search, and a singular media-attachment opener. All
-//! tweet + media handling delegates to the SDK's `x::tweet` module —
-//! the MCP file stays thin and never owns its own HTTP client or
-//! JSON-walking logic. The cache lives entirely in the SDK.
+//! Every tool drives the codegen'd `Request`/`Response` types directly
+//! via the codegen'd per-endpoint `http` helpers (which already know
+//! the URL template, encoding, and the `send_with_query` call). The
+//! only custom tweet struct anywhere in this codebase lives here —
+//! [`Tweet`] is the small, agent-facing projection that drops the
+//! ~30 optional fields the X spec carries on its Tweet schema and
+//! keeps the four the agent actually consumes (id, handle, content,
+//! attachments).
+//!
+//! Binary media bytes come from `Http::fetch_url` — the SDK's sole
+//! hand-written non-codegen call (twimg has no OpenAPI surface).
 
 use std::sync::Arc;
 
 use base64::Engine;
 use psychological_operations_sdk::x::http::Http;
-use psychological_operations_sdk::x::tweet::{
-    self, AttachmentKind, FetchedAttachment, Tweet,
+use psychological_operations_sdk::x::params;
+use psychological_operations_sdk::x::tweets::id as tweets_id;
+use psychological_operations_sdk::x::tweets::search::recent as tweets_search_recent;
+use psychological_operations_sdk::x::types::{
+    self as x_types, MediaUnion, TweetId, TweetReferencedTweetsItemType, Variant,
 };
-use reqwest::Method;
+use psychological_operations_sdk::x::users::by::username::username as users_by_username;
 use rmcp::{
     ServerHandler,
     handler::server::router::tool::ToolRouter,
@@ -26,7 +35,39 @@ use rmcp::{
     schemars, tool, tool_handler, tool_router,
 };
 use serde::Serialize;
-use serde_json::Value;
+
+// =====================================================================
+// MCP-local types — the *only* custom Tweet struct in the workspace.
+// =====================================================================
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum AttachmentKind {
+    Photo,
+    Video,
+    AnimatedGif,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct Attachment {
+    kind: AttachmentKind,
+    url: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct Tweet {
+    tweet_id: String,
+    handle: String,
+    content: String,
+    attachments: Vec<Attachment>,
+}
+
+#[derive(Debug, Clone)]
+struct FetchedAttachment {
+    kind: AttachmentKind,
+    mime: String,
+    bytes: Vec<u8>,
+}
 
 #[derive(Clone)]
 pub struct PsychologicalOperationsXApiMcp {
@@ -42,8 +83,7 @@ impl std::fmt::Debug for PsychologicalOperationsXApiMcp {
 }
 
 // =====================================================================
-// Per-tool request schemas (RMCP turns these into the tool input JSON
-// Schema via schemars).
+// Per-tool request schemas.
 // =====================================================================
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
@@ -111,25 +151,25 @@ impl PsychologicalOperationsXApiMcp {
         &self,
         Parameters(req): Parameters<GetRepliedToIdRequest>,
     ) -> String {
-        match self.fetch_tweet_value(&req.tweet_id).await {
-            Ok(v) => {
-                let referenced = v
-                    .pointer("/data/referenced_tweets")
-                    .and_then(Value::as_array);
-                match referenced {
-                    Some(items) => items
-                        .iter()
-                        .find(|item| {
-                            item.get("type").and_then(Value::as_str) == Some("replied_to")
-                        })
-                        .and_then(|item| item.get("id").and_then(Value::as_str))
-                        .map(|s| s.to_string())
-                        .unwrap_or_default(),
-                    None => String::new(),
-                }
-            }
-            Err(e) => format!("error: {e}"),
-        }
+        let creq = tweets_id::get::Request {
+            id: TweetId(req.tweet_id.clone()),
+            tweet_fields: Some(vec![params::TweetFields::ReferencedTweets]),
+            expansions: Some(vec![params::TweetExpansions::ReferencedTweetsId]),
+            media_fields: None,
+            poll_fields: None,
+            user_fields: None,
+            place_fields: None,
+        };
+        let resp = match tweets_id::http::get(&self.http, &creq, true).await {
+            Ok(r) => r,
+            Err(e) => return format!("error: {e}"),
+        };
+        let Some(t) = resp.data else { return String::new() };
+        let Some(refs) = t.referenced_tweets else { return String::new() };
+        refs.into_iter()
+            .find(|r| matches!(r.type_, TweetReferencedTweetsItemType::RepliedTo))
+            .map(|r| r.id.0)
+            .unwrap_or_default()
     }
 
     #[tool(
@@ -140,51 +180,43 @@ impl PsychologicalOperationsXApiMcp {
         &self,
         Parameters(req): Parameters<ListReplyIdsRequest>,
     ) -> String {
-        let query = format!("conversation_id:{}", req.tweet_id);
-        #[derive(Serialize)]
-        struct Q<'a> {
-            query: &'a str,
-            #[serde(rename = "tweet.fields")]
-            tweet_fields: &'a str,
-            max_results: u32,
-        }
-        let q = Q {
-            query: &query,
-            tweet_fields: "referenced_tweets",
-            max_results: 100,
+        let creq = tweets_search_recent::get::Request {
+            query: format!("conversation_id:{}", req.tweet_id),
+            start_time: None,
+            end_time: None,
+            since_id: None,
+            until_id: None,
+            max_results: Some(100),
+            next_token: None,
+            pagination_token: None,
+            sort_order: None,
+            tweet_fields: Some(vec![params::TweetFields::ReferencedTweets]),
+            expansions: None,
+            media_fields: None,
+            poll_fields: None,
+            user_fields: None,
+            place_fields: None,
         };
-        let raw: Result<Value, _> = self
-            .http
-            .send_with_query::<Value, _>(Method::GET, "tweets/search/recent", &q, true)
-            .await;
-        match raw {
-            Ok(v) => {
-                let mut ids = Vec::new();
-                if let Some(arr) = v.pointer("/data").and_then(Value::as_array) {
-                    for t in arr {
-                        let is_reply_to_us = t
-                            .get("referenced_tweets")
-                            .and_then(Value::as_array)
-                            .map(|refs| {
-                                refs.iter().any(|r| {
-                                    r.get("type").and_then(Value::as_str) == Some("replied_to")
-                                        && r.get("id").and_then(Value::as_str)
-                                            == Some(req.tweet_id.as_str())
-                                })
-                            })
-                            .unwrap_or(false);
-                        if is_reply_to_us {
-                            if let Some(id) = t.get("id").and_then(Value::as_str) {
-                                ids.push(id.to_string());
-                            }
-                        }
-                    }
-                }
-                serde_json::to_string(&ids)
-                    .unwrap_or_else(|e| format!("error: serialize ids: {e}"))
-            }
-            Err(e) => format!("error: {e}"),
-        }
+        let resp = match tweets_search_recent::http::get(&self.http, &creq, true).await {
+            Ok(r) => r,
+            Err(e) => return format!("error: {e}"),
+        };
+        let target = req.tweet_id;
+        let ids: Vec<String> = resp
+            .data
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|t| {
+                let id = t.id.as_ref()?.0.clone();
+                let refs = t.referenced_tweets.as_ref()?;
+                refs.iter().any(|r| {
+                    matches!(r.type_, TweetReferencedTweetsItemType::RepliedTo)
+                        && r.id.0 == target
+                }).then_some(id)
+            })
+            .collect();
+        serde_json::to_string(&ids)
+            .unwrap_or_else(|e| format!("error: serialize ids: {e}"))
     }
 
     #[tool(
@@ -192,12 +224,14 @@ impl PsychologicalOperationsXApiMcp {
         description = "Return the X user's bio."
     )]
     async fn get_bio(&self, Parameters(req): Parameters<GetBioRequest>) -> String {
-        match self.fetch_user_value(&req.handle, "description").await {
-            Ok(v) => v
-                .pointer("/data/description")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string(),
+        let creq = users_by_username::get::Request {
+            username: req.handle,
+            user_fields: Some(vec![params::UserFields::Description]),
+            expansions: None,
+            tweet_fields: None,
+        };
+        match users_by_username::http::get(&self.http, &creq, true).await {
+            Ok(r) => r.data.and_then(|u| u.description).unwrap_or_default(),
             Err(e) => format!("error: {e}"),
         }
     }
@@ -210,51 +244,69 @@ impl PsychologicalOperationsXApiMcp {
         &self,
         Parameters(req): Parameters<GetProfilePictureRequest>,
     ) -> String {
-        match self.fetch_user_value(&req.handle, "profile_image_url").await {
-            Ok(v) => v
-                .pointer("/data/profile_image_url")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string(),
+        let creq = users_by_username::get::Request {
+            username: req.handle,
+            user_fields: Some(vec![params::UserFields::ProfileImageUrl]),
+            expansions: None,
+            tweet_fields: None,
+        };
+        match users_by_username::http::get(&self.http, &creq, true).await {
+            Ok(r) => r
+                .data
+                .and_then(|u| u.profile_image_url.map(|url| url.to_string()))
+                .unwrap_or_default(),
             Err(e) => format!("error: {e}"),
         }
     }
 
     #[tool(
         name = "get_tweet",
-        description = "Fetch a tweet by ID. Returns JSON: { tweet_id, handle, content, attachments: [{ kind, url }, ...] }. Attachments are tiny references — pass an attachment URL plus the tweet_id to open_attachment to retrieve the actual bytes."
+        description = "Fetch a tweet by ID. Returns JSON: { tweet_id, handle, content, attachments: [{ kind, url }, ...] }. The kind field is one of `photo` | `video` | `animated_gif`. Attachments are tiny references — pass an attachment URL plus the tweet_id to open_attachment to retrieve the actual bytes."
     )]
     async fn get_tweet(&self, Parameters(req): Parameters<GetTweetRequest>) -> String {
-        match tweet::get_tweet(&self.http, &req.tweet_id, true).await {
-            Ok(t) => serde_json::to_string(&t)
-                .unwrap_or_else(|e| format!("error: serialize tweet: {e}")),
-            Err(e) => format!("error: {e}"),
-        }
+        let creq = standard_tweet_request(&req.tweet_id);
+        let resp = match tweets_id::http::get(&self.http, &creq, true).await {
+            Ok(r) => r,
+            Err(e) => return format!("error: {e}"),
+        };
+        let Some(t) = resp.data else {
+            return format!("error: tweet {} response had no data", req.tweet_id);
+        };
+        let projected = project_tweet(&t, resp.includes.as_ref());
+        serde_json::to_string(&projected)
+            .unwrap_or_else(|e| format!("error: serialize tweet: {e}"))
     }
 
     #[tool(
         name = "open_attachment",
-        description = "Fetch the bytes for one tweet attachment. Returns an MCP image content block for photos, or a text content block carrying a `data:<mime>;base64,...` URI for videos / animated GIFs. The tweet_id is required so the SDK can look the URL up authoritatively against the tweet's media expansion."
+        description = "Fetch the bytes for one tweet attachment. Returns an MCP image content block for photos, or a text content block carrying a `data:<mime>;base64,...` URI for videos and animated GIFs. The tweet_id is required so the SDK can look the URL up authoritatively against the tweet's media expansion."
     )]
     async fn open_attachment(
         &self,
         Parameters(req): Parameters<OpenAttachmentRequest>,
     ) -> Content {
-        let fetched: FetchedAttachment = match tweet::fetch_attachment(
-            &self.http,
-            &req.tweet_id,
-            &req.url,
-            true,
-        )
-        .await
-        {
-            Ok(a) => a,
+        let creq = standard_tweet_request(&req.tweet_id);
+        let resp = match tweets_id::http::get(&self.http, &creq, true).await {
+            Ok(r) => r,
             Err(e) => return Content::text(format!("error: {e}")),
         };
+        let Some((kind, mime)) =
+            lookup_attachment(resp.includes.as_ref(), &req.url)
+        else {
+            return Content::text(format!(
+                "error: attachment URL not on tweet {}: {}",
+                req.tweet_id, req.url,
+            ));
+        };
+        let bytes = match self.http.fetch_url(&req.url, true).await {
+            Ok(b) => b,
+            Err(e) => return Content::text(format!("error: {e}")),
+        };
+        let fetched = FetchedAttachment { kind, mime, bytes };
         let b64 = base64::engine::general_purpose::STANDARD.encode(&fetched.bytes);
         match fetched.kind {
             AttachmentKind::Photo => Content::image(b64, fetched.mime),
-            AttachmentKind::Video => {
+            AttachmentKind::Video | AttachmentKind::AnimatedGif => {
                 Content::text(format!("data:{};base64,{}", fetched.mime, b64))
             }
         }
@@ -262,68 +314,221 @@ impl PsychologicalOperationsXApiMcp {
 
     #[tool(
         name = "run_query",
-        description = "Run an X v2 recent search. Returns a JSON array of canonical tweets (tweet_id, handle, content, attachments)."
+        description = "Run an X v2 recent search. Returns a JSON array of projected tweets (tweet_id, handle, content, attachments)."
     )]
     async fn run_query(&self, Parameters(req): Parameters<RunQueryRequest>) -> String {
-        match tweet::search_recent(&self.http, &req.query, true).await {
-            Ok(tweets) => serde_json::to_string::<Vec<Tweet>>(&tweets)
-                .unwrap_or_else(|e| format!("error: serialize tweets: {e}")),
-            Err(e) => format!("error: {e}"),
-        }
-    }
-}
-
-// =====================================================================
-// Internal helpers — kept only for the tools that still walk raw Value
-// (get_replied_to_id / list_reply_ids / get_bio / get_profile_picture).
-// =====================================================================
-
-impl PsychologicalOperationsXApiMcp {
-    async fn fetch_tweet_value(&self, tweet_id: &str) -> Result<Value, String> {
-        #[derive(Serialize)]
-        struct Q<'a> {
-            #[serde(rename = "tweet.fields")]
-            tweet_fields: &'a str,
-            expansions: &'a str,
-        }
-        let q = Q {
-            tweet_fields: "referenced_tweets",
-            expansions: "referenced_tweets.id",
+        let creq = standard_search_request(req.query);
+        let resp = match tweets_search_recent::http::get(&self.http, &creq, true).await {
+            Ok(r) => r,
+            Err(e) => return format!("error: {e}"),
         };
-        let path = format!("tweets/{}", urlencoding_encode(tweet_id));
-        self.http
-            .send_with_query::<Value, _>(Method::GET, &path, &q, true)
-            .await
-            .map_err(|e| e.to_string())
-    }
-
-    async fn fetch_user_value(&self, handle: &str, fields: &str) -> Result<Value, String> {
-        #[derive(Serialize)]
-        struct Q<'a> {
-            #[serde(rename = "user.fields")]
-            user_fields: &'a str,
-        }
-        let q = Q { user_fields: fields };
-        let path = format!("users/by/username/{}", urlencoding_encode(handle));
-        self.http
-            .send_with_query::<Value, _>(Method::GET, &path, &q, true)
-            .await
-            .map_err(|e| e.to_string())
+        let includes = resp.includes.as_ref();
+        let projected: Vec<Tweet> = resp
+            .data
+            .unwrap_or_default()
+            .iter()
+            .map(|t| project_tweet(t, includes))
+            .collect();
+        serde_json::to_string(&projected)
+            .unwrap_or_else(|e| format!("error: serialize tweets: {e}"))
     }
 }
 
-fn urlencoding_encode(raw: &str) -> String {
-    // Tiny inline percent-encoder for path segments.
-    let mut out = String::with_capacity(raw.len());
-    for b in raw.as_bytes() {
-        match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                out.push(*b as char);
+// =====================================================================
+// Request builders — bake the standard "tweet + media + author"
+// expansion set so every read-side tool sees the same shape.
+// =====================================================================
+
+fn standard_tweet_request(tweet_id: &str) -> tweets_id::get::Request {
+    tweets_id::get::Request {
+        id: TweetId(tweet_id.to_string()),
+        tweet_fields: Some(vec![
+            params::TweetFields::Attachments,
+            params::TweetFields::AuthorId,
+            params::TweetFields::Text,
+        ]),
+        expansions: Some(vec![
+            params::TweetExpansions::AttachmentsMediaKeys,
+            params::TweetExpansions::AuthorId,
+        ]),
+        media_fields: Some(vec![
+            params::MediaFields::Url,
+            params::MediaFields::Variants,
+            params::MediaFields::PreviewImageUrl,
+            params::MediaFields::Type,
+        ]),
+        poll_fields: None,
+        user_fields: Some(vec![params::UserFields::Username]),
+        place_fields: None,
+    }
+}
+
+fn standard_search_request(query: String) -> tweets_search_recent::get::Request {
+    tweets_search_recent::get::Request {
+        query,
+        start_time: None,
+        end_time: None,
+        since_id: None,
+        until_id: None,
+        max_results: Some(100),
+        next_token: None,
+        pagination_token: None,
+        sort_order: None,
+        tweet_fields: Some(vec![
+            params::TweetFields::Attachments,
+            params::TweetFields::AuthorId,
+            params::TweetFields::Text,
+        ]),
+        expansions: Some(vec![
+            params::TweetExpansions::AttachmentsMediaKeys,
+            params::TweetExpansions::AuthorId,
+        ]),
+        media_fields: Some(vec![
+            params::MediaFields::Url,
+            params::MediaFields::Variants,
+            params::MediaFields::PreviewImageUrl,
+            params::MediaFields::Type,
+        ]),
+        poll_fields: None,
+        user_fields: Some(vec![params::UserFields::Username]),
+        place_fields: None,
+    }
+}
+
+// =====================================================================
+// Projection: codegen Tweet + Expansions → agent-facing Tweet.
+// =====================================================================
+
+fn project_tweet(t: &x_types::Tweet, includes: Option<&x_types::Expansions>) -> Tweet {
+    let tweet_id = t.id.as_ref().map(|i| i.0.clone()).unwrap_or_default();
+    let content = t.text.as_ref().map(|tx| tx.0.clone()).unwrap_or_default();
+    let handle = resolve_handle(t.author_id.as_ref(), includes);
+    let attachments = collect_attachments(t, includes);
+    Tweet { tweet_id, handle, content, attachments }
+}
+
+fn resolve_handle(
+    author_id: Option<&x_types::UserId>,
+    includes: Option<&x_types::Expansions>,
+) -> String {
+    let Some(aid) = author_id else { return String::new() };
+    let Some(users) = includes.and_then(|i| i.users.as_ref()) else {
+        return String::new();
+    };
+    users
+        .iter()
+        .find(|u| u.id.0 == aid.0)
+        .map(|u| u.username.0.clone())
+        .unwrap_or_default()
+}
+
+fn collect_attachments(
+    t: &x_types::Tweet,
+    includes: Option<&x_types::Expansions>,
+) -> Vec<Attachment> {
+    let Some(media_keys) = t.attachments.as_ref().and_then(|a| a.media_keys.as_ref()) else {
+        return Vec::new();
+    };
+    let Some(media) = includes.and_then(|i| i.media.as_ref()) else {
+        return Vec::new();
+    };
+    media_keys
+        .iter()
+        .filter_map(|mk| {
+            media
+                .iter()
+                .find(|m| media_key_matches(m, mk))
+                .and_then(attachment_from_media)
+        })
+        .collect()
+}
+
+fn media_key_matches(m: &MediaUnion, mk: &x_types::MediaKey) -> bool {
+    let inner_key = match m {
+        MediaUnion::Photo(p) => p.flatten_0.media_key.as_ref(),
+        MediaUnion::Video(v) => v.flatten_0.media_key.as_ref(),
+        MediaUnion::AnimatedGif(a) => a.flatten_0.media_key.as_ref(),
+    };
+    inner_key.map(|k| k.0 == mk.0).unwrap_or(false)
+}
+
+fn attachment_from_media(m: &MediaUnion) -> Option<Attachment> {
+    match m {
+        MediaUnion::Photo(p) => Some(Attachment {
+            kind: AttachmentKind::Photo,
+            url: p.url.as_ref()?.to_string(),
+        }),
+        MediaUnion::Video(v) => best_mp4_variant(v.variants.as_deref()).map(|url| Attachment {
+            kind: AttachmentKind::Video,
+            url,
+        }),
+        MediaUnion::AnimatedGif(a) => best_mp4_variant(a.variants.as_deref()).map(|url| Attachment {
+            kind: AttachmentKind::AnimatedGif,
+            url,
+        }),
+    }
+}
+
+fn best_mp4_variant(variants: Option<&[Variant]>) -> Option<String> {
+    variants?
+        .iter()
+        .filter(|v| v.content_type.as_deref() == Some("video/mp4"))
+        .filter_map(|v| {
+            let url = v.url.as_ref()?.to_string();
+            Some((v.bit_rate.unwrap_or(0), url))
+        })
+        .max_by_key(|(br, _)| *br)
+        .map(|(_, url)| url)
+}
+
+fn lookup_attachment(
+    includes: Option<&x_types::Expansions>,
+    url: &str,
+) -> Option<(AttachmentKind, String)> {
+    let media = includes?.media.as_ref()?;
+    for m in media {
+        match m {
+            MediaUnion::Photo(p) => {
+                if p.url.as_ref().map(|u| u.as_str()) == Some(url) {
+                    return Some((AttachmentKind::Photo, mime_for_photo_url(url).to_string()));
+                }
             }
-            _ => out.push_str(&format!("%{b:02X}")),
+            MediaUnion::Video(v) => {
+                if let Some(found) = match_variant_url(v.variants.as_deref(), url) {
+                    return Some((AttachmentKind::Video, found));
+                }
+            }
+            MediaUnion::AnimatedGif(a) => {
+                if let Some(found) = match_variant_url(a.variants.as_deref(), url) {
+                    return Some((AttachmentKind::AnimatedGif, found));
+                }
+            }
         }
     }
-    out
+    None
+}
+
+fn match_variant_url(variants: Option<&[Variant]>, target: &str) -> Option<String> {
+    variants?.iter().find_map(|v| {
+        if v.url.as_ref().map(|u| u.as_str()) == Some(target) {
+            Some(v.content_type.clone().unwrap_or_else(|| "video/mp4".to_string()))
+        } else {
+            None
+        }
+    })
+}
+
+fn mime_for_photo_url(url: &str) -> &'static str {
+    let lower = url.to_ascii_lowercase();
+    if lower.ends_with(".png") {
+        "image/png"
+    } else if lower.ends_with(".webp") {
+        "image/webp"
+    } else if lower.ends_with(".gif") {
+        "image/gif"
+    } else {
+        "image/jpeg"
+    }
 }
 
 #[tool_handler]

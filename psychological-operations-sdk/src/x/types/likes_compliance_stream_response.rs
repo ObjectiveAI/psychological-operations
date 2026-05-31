@@ -22,6 +22,6 @@ pub struct LikesComplianceStreamResponseVariant0 {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LikesComplianceStreamResponseVariant1 {
-    pub errors: Vec<Problem>,
+    pub errors: Vec<ProblemUnion>,
 }
 

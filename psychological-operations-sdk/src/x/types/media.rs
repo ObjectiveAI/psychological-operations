@@ -12,9 +12,22 @@ pub struct Media {
     pub height: Option<MediaHeight>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub media_key: Option<MediaKey>,
-    #[serde(rename = "type")]
-    pub type_: String,
+    #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
+    pub type_: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub width: Option<MediaWidth>,
+}
+
+
+/// Polymorphic view of [`Media`] discriminated by `type`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum MediaUnion {
+    #[serde(rename = "animated_gif")]
+    AnimatedGif(AnimatedGif),
+    #[serde(rename = "photo")]
+    Photo(Photo),
+    #[serde(rename = "video")]
+    Video(Video),
 }
 

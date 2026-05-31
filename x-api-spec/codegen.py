@@ -111,6 +111,25 @@ class Codegen:
         self.parameters: dict[str, dict] = spec["components"].get("parameters", {})
         self.kinds: dict[str, str] = {}     # schema_name -> kind
         self.classify()
+        # Bare `type: object` schemas that carry a `discriminator` with a
+        # `mapping` pointing at sibling subtypes (Media, Problem) get an
+        # extra tagged-union enum emitted alongside the base struct, and
+        # field references to such bases resolve to the union instead.
+        self.discriminated_bases: dict[str, dict] = {}
+        for sname, ss in self.schemas.items():
+            if self.kinds.get(sname) != "struct":
+                continue
+            disc = ss.get("discriminator") or {}
+            mapping = disc.get("mapping") or {}
+            if not mapping:
+                continue
+            if not all(self.ref_name(r) in self.schemas for r in mapping.values()):
+                continue
+            self.discriminated_bases[sname] = {
+                "propertyName": disc.get("propertyName", "type"),
+                "mapping": mapping,
+                "union_type_name": safe_type_name(sname) + "Union",
+            }
         self.emitted_types: set[str] = set()
         self.lifted_types: dict[str, list[tuple[str, dict]]] = {}  # parent_file -> [(name, schema)]
 
@@ -161,7 +180,14 @@ class Codegen:
         if not schema:
             return "serde_json::Value"
         if "$ref" in schema:
-            return safe_type_name(self.ref_name(schema["$ref"]))
+            ref = self.ref_name(schema["$ref"])
+            # Discriminated bases (e.g. Media, Problem) are referenced as
+            # their polymorphic union enum when used as a field type, so
+            # callers see Photo / Video / AnimatedGif variants rather than
+            # the bare base struct (which silently drops subtype fields).
+            if ref in self.discriminated_bases:
+                return self.discriminated_bases[ref]["union_type_name"]
+            return safe_type_name(ref)
         if "oneOf" in schema or "anyOf" in schema or "allOf" in schema:
             # lift to a sibling type
             return self._lift(schema, hint, parent_file)
@@ -365,6 +391,11 @@ class Codegen:
         kind = self.kinds[name]
         if kind == "struct":
             body_lines.extend(self._render_object_struct(safe_type_name(name), schema, file_stem))
+            # Discriminated bases get a sibling tagged-union enum so the
+            # spec's polymorphism is reachable through the typed surface.
+            if name in self.discriminated_bases:
+                body_lines.append("\n")
+                body_lines.extend(self._render_discriminated_base_union(name))
         elif kind == "tagged_union":
             body_lines.extend(self._render_tagged_union(safe_type_name(name), schema, file_stem))
         elif kind == "untagged_union":
@@ -419,6 +450,16 @@ class Codegen:
         out.append("#[derive(Debug, Clone, Serialize, Deserialize)]\n")
         out.append(f"pub struct {type_name} {{\n")
         required = set(schema.get("required", []))
+        # If this struct is a discriminated base (Media, Problem), demote
+        # its discriminator field from required to Option. The companion
+        # union enum (emitted by `_render_discriminated_base_union`)
+        # consumes that field as its serde tag, so when subtypes flatten
+        # this base in via `allOf` they would otherwise fail to find the
+        # tag field at deserialize time.
+        for _base_name, _info in self.discriminated_bases.items():
+            if safe_type_name(_base_name) == type_name:
+                required.discard(_info["propertyName"])
+                break
         props = schema.get("properties", {}) or {}
         emitted: set[str] = set()
         for prop_name, prop_schema in props.items():
@@ -489,6 +530,42 @@ class Codegen:
                     hint = type_name + "Variant"
                     inner = self.rust_type(branch, hint=hint, parent_file=file_stem)
                     out.append(f"    {hint}({inner}),\n")
+        out.append("}\n\n")
+        return out
+
+    def _render_discriminated_base_union(self, base_name: str) -> list[str]:
+        """Sibling tagged-union enum for a discriminated base struct.
+
+        The base struct (e.g. `Media`) is kept — it remains the flatten
+        target inside each subtype's `allOf` — but field references to
+        the base from elsewhere (e.g. `Expansions::media`) resolve to
+        this union instead via `rust_type`'s ref substitution.
+        """
+        info = self.discriminated_bases[base_name]
+        union_name = info["union_type_name"]
+        prop_clean = info["propertyName"].split("/")[-1]
+        out: list[str] = []
+        out.append(
+            f"/// Polymorphic view of [`{safe_type_name(base_name)}`] "
+            f"discriminated by `{prop_clean}`.\n"
+        )
+        out.append("#[derive(Debug, Clone, Serialize, Deserialize)]\n")
+        out.append(f'#[serde(tag = "{prop_clean}")]\n')
+        out.append(f"pub enum {union_name} {{\n")
+        seen: set[str] = set()
+        for tag_value, ref in info["mapping"].items():
+            vname_base = to_pascal(re.sub(r"[^A-Za-z0-9]+", "_", tag_value).strip("_"))
+            if not vname_base:
+                vname_base = "Variant"
+            vname = vname_base
+            i = 1
+            while vname in seen:
+                i += 1
+                vname = f"{vname_base}{i}"
+            seen.add(vname)
+            inner = safe_type_name(self.ref_name(ref))
+            out.append(f"    #[serde(rename = {json.dumps(tag_value)})]\n")
+            out.append(f"    {vname}({inner}),\n")
         out.append("}\n\n")
         return out
 
