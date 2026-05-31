@@ -9,10 +9,10 @@
 
 pub mod console;
 pub mod cookies;
-pub mod credentials;
 pub mod mode;
 pub mod output;
 pub mod panel;
 pub mod refresh_token;
 pub mod request;
 pub mod response;
+pub mod x_app_credentials;

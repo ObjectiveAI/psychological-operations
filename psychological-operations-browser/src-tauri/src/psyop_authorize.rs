@@ -19,7 +19,6 @@
 //! pulling it in as a dep wasn't an option.
 
 use std::collections::HashMap;
-use std::fs;
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
@@ -71,7 +70,7 @@ pub fn clear_in_flight_on_signout() {
 // =================================================================
 // Public entry point — called from cookies_watcher::apply_snapshot
 // =================================================================
-pub fn maybe_start_flow(handle: &AppHandle<Wry>) {
+pub async fn maybe_start_flow(handle: &AppHandle<Wry>) {
     let psyop_name = match psychological_operations_browser_sdk::mode::get() {
         Some(Mode::PsyopAuthorize { name }) => name,
         _ => return,
@@ -81,17 +80,26 @@ pub fn maybe_start_flow(handle: &AppHandle<Wry>) {
     };
 
     let auth_path = auth_json_path(handle, &psyop_name, &persona_twid);
-    if auth_path.exists() {
+
+    // Concurrent: check whether we already have auth.json AND
+    // probe the cross-psyop conflict. Both are disk-bound,
+    // independent — running them via `tokio::join!` halves
+    // the latency on every cookies kick where either probe
+    // is non-trivial.
+    let (auth_exists, conflict) = tokio::join!(
+        async { tokio::fs::try_exists(&auth_path).await.unwrap_or(false) },
+        find_other_psyop_owning_twid(handle, &psyop_name, &persona_twid),
+    );
+    if auth_exists {
         return;
     }
-
     // Cross-psyop guard: if this twid already belongs to a
     // different psyop, don't kick the dance — we'd be minting
     // tokens onto the wrong handles/. The panel surfaces the
     // "wrong account" nag separately; this is just the OAuth-
     // side short-circuit. Re-evaluated on every cookies kick,
     // so it auto-clears when the user signs back in correctly.
-    if let Some(other) = find_other_psyop_owning_twid(handle, &psyop_name, &persona_twid) {
+    if let Some(other) = conflict {
         let _ = Output::Log {
             message: format!(
                 "psyop_authorize: twid {persona_twid} belongs to PsyOp {other}; not starting flow"
@@ -131,7 +139,7 @@ async fn run_flow(
     psyop_name: String,
     persona_twid: String,
 ) -> Result<(), String> {
-    let (client_id, client_secret) = read_x_app_creds(&handle)?;
+    let (client_id, client_secret) = read_x_app_creds(&handle).await?;
     let pkce = pkce_generate();
     let state_nonce = random_state();
     let (port, callback_fut) = bind_callback_server(CALLBACK_TIMEOUT)
@@ -178,7 +186,7 @@ async fn run_flow(
     .await
     .map_err(|e| format!("token exchange: {e}"))?;
 
-    write_auth_json(&handle, &psyop_name, &persona_twid, &tokens)?;
+    write_auth_json(&handle, &psyop_name, &persona_twid, &tokens).await?;
     let _ = Output::Log {
         message: format!(
             "psyop_authorize: wrote auth.json for {persona_twid} (expires_at={:?})",
@@ -391,39 +399,67 @@ async fn exchange_code_for_tokens(
 // =================================================================
 // Disk helpers
 // =================================================================
-fn read_x_app_creds(handle: &AppHandle<Wry>) -> Result<(String, String), String> {
+async fn read_x_app_creds(
+    handle: &AppHandle<Wry>,
+) -> Result<(String, String), String> {
+    use psychological_operations_browser_sdk::x_app_credentials::OAuthPopup;
+
     let handles_dir = webview::mode_data_dir(handle, &Mode::XApp).join("handles");
-    let entries: Vec<_> = fs::read_dir(&handles_dir)
-        .map_err(|e| format!("read {}: {e}", handles_dir.display()))?
-        .filter_map(|e| e.ok())
-        .filter(|e| e.path().is_dir())
-        .collect();
-    if entries.is_empty() {
+
+    // Async directory walk: gather every subdir under handles/.
+    let mut rd = tokio::fs::read_dir(&handles_dir)
+        .await
+        .map_err(|e| format!("read {}: {e}", handles_dir.display()))?;
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    while let Ok(Some(ent)) = rd.next_entry().await {
+        let path = ent.path();
+        if tokio::fs::metadata(&path).await.is_ok_and(|m| m.is_dir()) {
+            dirs.push(path);
+        }
+    }
+    if dirs.is_empty() {
         return Err(format!("no X-App handles under {}", handles_dir.display()));
     }
-    let mut owner = entries
+
+    // Fan out per-dir mtime fetches concurrently — each
+    // `metadata().modified()` is an independent stat.
+    let mtimes = futures::future::join_all(dirs.iter().map(|dir| {
+        let snap = dir.join(crate::credentials::OAUTH_POPUP_FILE);
+        async move {
+            tokio::fs::metadata(&snap)
+                .await
+                .ok()
+                .and_then(|m| m.modified().ok())
+        }
+    }))
+    .await;
+
+    let mut owner: Vec<_> = dirs
         .into_iter()
-        .filter_map(|e| {
-            let cid = e.path().join("client_id.txt");
-            let mtime = cid.metadata().ok().and_then(|m| m.modified().ok())?;
-            Some((mtime, e.path()))
-        })
-        .collect::<Vec<_>>();
+        .zip(mtimes)
+        .filter_map(|(dir, mt)| mt.map(|t| (t, dir)))
+        .collect();
     owner.sort_by_key(|(t, _)| *t);
     let (_, dir) = owner.pop().ok_or_else(|| {
         format!(
-            "no client_id.txt under any X-App handle dir in {}",
+            "no {} under any X-App handle dir in {}",
+            crate::credentials::OAUTH_POPUP_FILE,
             handles_dir.display()
         )
     })?;
-    let client_id = fs::read_to_string(dir.join("client_id.txt"))
-        .map_err(|e| format!("read client_id.txt: {e}"))?
-        .trim()
-        .to_string();
-    let client_secret = fs::read_to_string(dir.join("client_secret.txt"))
-        .map_err(|e| format!("read client_secret.txt: {e}"))?
-        .trim()
-        .to_string();
+    let popup_path = dir.join(crate::credentials::OAUTH_POPUP_FILE);
+    let popup = OAuthPopup::load(&popup_path)
+        .await
+        .map_err(|e| format!("read {}: {e}", popup_path.display()))?
+        .ok_or_else(|| {
+            format!("{} disappeared mid-read", popup_path.display())
+        })?;
+    let client_id = popup
+        .client_id
+        .ok_or_else(|| format!("{} missing client_id", popup_path.display()))?;
+    let client_secret = popup.client_secret.ok_or_else(|| {
+        format!("{} missing client_secret", popup_path.display())
+    })?;
     if client_id.is_empty() || client_secret.is_empty() {
         return Err("client_id or client_secret is empty".into());
     }
@@ -442,16 +478,14 @@ fn auth_json_path(handle: &AppHandle<Wry>, psyop_name: &str, twid: &str) -> Path
 
 /// Scan every sibling psyop's data dir and return the name of
 /// the first one (other than `current`) whose
-/// `handles/<twid>/auth.json` exists. Sorting `read_dir` entries
+/// `handles/<twid>/auth.json` exists. Sorting entries
 /// alphabetically gives deterministic conflict reporting if
-/// multiple owners exist.
+/// multiple owners exist; per-entry presence checks fan out
+/// concurrently via [`futures::future::join_all`].
 ///
 /// Returns `None` when no conflict, `twid` is empty, or the
 /// `psyop/` root doesn't exist yet (first-ever run).
-///
-/// Cheap: a couple of `read_dir` + per-entry `Path::exists`
-/// calls. Fine to call on every cookies kick.
-pub fn find_other_psyop_owning_twid(
+pub async fn find_other_psyop_owning_twid(
     handle: &AppHandle<Wry>,
     current: &str,
     twid: &str,
@@ -465,30 +499,44 @@ pub fn find_other_psyop_owning_twid(
     let current_mode = Mode::PsyopAuthorize {
         name: current.to_string(),
     };
-    let psyop_root = webview::mode_data_dir(handle, &current_mode).parent()?.to_path_buf();
-    let mut entries: Vec<PathBuf> = fs::read_dir(&psyop_root)
-        .ok()?
-        .filter_map(|e| e.ok())
-        .map(|e| e.path())
-        .filter(|p| p.is_dir())
-        .collect();
+    let psyop_root = webview::mode_data_dir(handle, &current_mode)
+        .parent()?
+        .to_path_buf();
+
+    let mut rd = tokio::fs::read_dir(&psyop_root).await.ok()?;
+    let mut entries: Vec<PathBuf> = Vec::new();
+    while let Ok(Some(ent)) = rd.next_entry().await {
+        let path = ent.path();
+        if tokio::fs::metadata(&path).await.is_ok_and(|m| m.is_dir()) {
+            entries.push(path);
+        }
+    }
     entries.sort();
-    for path in entries {
-        let name = match path.file_name().and_then(|n| n.to_str()) {
-            Some(n) => n,
-            None => continue,
+
+    let checks = entries.iter().map(|path| {
+        let auth_path = path.join("handles").join(twid).join("auth.json");
+        async move {
+            tokio::fs::try_exists(&auth_path).await.unwrap_or(false)
+        }
+    });
+    let existence = futures::future::join_all(checks).await;
+
+    for (path, exists) in entries.iter().zip(existence) {
+        if !exists {
+            continue;
+        }
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
         };
         if name == current {
             continue;
         }
-        if path.join("handles").join(twid).join("auth.json").exists() {
-            return Some(name.to_string());
-        }
+        return Some(name.to_string());
     }
     None
 }
 
-fn write_auth_json(
+async fn write_auth_json(
     handle: &AppHandle<Wry>,
     psyop_name: &str,
     twid: &str,
@@ -496,13 +544,18 @@ fn write_auth_json(
 ) -> Result<(), String> {
     let path = auth_json_path(handle, psyop_name, twid);
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
+        tokio::fs::create_dir_all(parent)
+            .await
             .map_err(|e| format!("create {}: {e}", parent.display()))?;
     }
     let json = serde_json::to_string_pretty(tokens)
         .map_err(|e| format!("serialize tokens: {e}"))?;
     let tmp = path.with_extension("json.tmp");
-    fs::write(&tmp, json + "\n").map_err(|e| format!("write tmp: {e}"))?;
-    fs::rename(&tmp, &path).map_err(|e| format!("rename: {e}"))?;
+    tokio::fs::write(&tmp, json + "\n")
+        .await
+        .map_err(|e| format!("write tmp: {e}"))?;
+    tokio::fs::rename(&tmp, &path)
+        .await
+        .map_err(|e| format!("rename: {e}"))?;
     Ok(())
 }

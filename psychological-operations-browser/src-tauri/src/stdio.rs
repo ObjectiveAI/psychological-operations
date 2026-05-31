@@ -48,20 +48,18 @@ use std::io::BufRead;
 use std::sync::Mutex;
 use std::sync::mpsc;
 
-use psychological_operations_browser_sdk::credentials::XAppCredentialField;
 use psychological_operations_browser_sdk::mode::{self, Mode};
 use psychological_operations_browser_sdk::output::Output;
 use psychological_operations_browser_sdk::panel::PanelState;
 use psychological_operations_browser_sdk::request::Request;
 use psychological_operations_browser_sdk::response::{Response, ResponseOutcome};
+use psychological_operations_browser_sdk::x_app_credentials::{OAuthPopup, PostCreateDialog};
 use tauri::{AppHandle, Manager, Wry};
 
 use crate::WatcherKick;
 use crate::cef;
 use crate::cookies_watcher;
 use crate::credentials;
-use crate::oauth_popup;
-use crate::post_create_dialog;
 use crate::state;
 use crate::webview;
 
@@ -280,125 +278,75 @@ pub fn set_production_app_count_inner(
     Ok(())
 }
 
-pub fn process_post_create_html_inner(
+/// Save the post-create dialog HTML snapshot, re-load it through
+/// the shared SDK parser, and return the parsed field count so the
+/// frontend's green-state signal reflects "snapshot persisted AND
+/// re-parses cleanly via the same code every other consumer uses"
+/// — not just "bytes hit disk".
+pub async fn process_post_create_html_inner(
     app: &AppHandle<Wry>,
     html: String,
 ) -> Result<u8, String> {
-    // Always snapshot — even if parse misses, we want the HTML on
-    // disk so we can refine selectors offline.
-    if let Err(e) = post_create_dialog::save_snapshot(app, &html) {
-        let _ = Output::Log {
-            message: format!("post_create_dialog: snapshot write failed: {e}"),
-        }
-        .emit();
-    }
-
     let Some(user_id) = state::current_user_id() else {
         return Err("no user_id yet — cookies watcher hasn't observed twid".into());
     };
 
-    let extracted = post_create_dialog::extract(&html);
-    let mut stored: u8 = 0;
-    for (field, value) in [
-        (XAppCredentialField::ConsumerKey, &extracted.consumer_key),
-        (XAppCredentialField::SecretKey, &extracted.secret_key),
-        (XAppCredentialField::BearerToken, &extracted.bearer_token),
-    ] {
-        let Some(v) = value else { continue };
-        match credentials::store_one(app, &user_id, field, v) {
-            Ok(path) => {
-                stored += 1;
-                let _ = Output::Log {
-                    message: format!("credentials: wrote {}", path.display()),
-                }
-                .emit();
-            }
-            Err(e) => {
-                let _ = Output::Log {
-                    message: format!("credentials: write failed: {e}"),
-                }
-                .emit();
-            }
-        }
+    let path = credentials::save_post_create_dialog(app, &user_id, &html).await?;
+    let parsed = PostCreateDialog::load(&path)
+        .await
+        .map_err(|e| format!("re-parse snapshot: {e}"))?
+        .unwrap_or_default();
+
+    let _ = Output::Log {
+        message: format!(
+            "credentials: wrote {} ({} / 3 fields parsed)",
+            path.display(),
+            parsed.parsed_count(),
+        ),
     }
-    // Refresh `Facts::credentials_complete` from disk so the
-    // panel transitions to Hidden the moment the third file
-    // lands — no waiting for the next cookie kick.
+    .emit();
+
+    // Refresh `Facts::credentials_complete` from disk so the panel
+    // transitions to Hidden the moment the snapshot lands — no
+    // waiting for the next cookie kick.
     let app_for_task = app.clone();
     tauri::async_runtime::spawn(async move {
-        state::recheck_credentials(&app_for_task);
+        state::recheck_credentials(&app_for_task).await;
     });
-    Ok(stored)
+    Ok(parsed.parsed_count())
 }
 
 /// Twin of [`process_post_create_html_inner`] for the OAuth 2.0
-/// popup that fires after the user clicks Save Changes on the
-/// auth-settings page. Two fields here (`client_id` +
-/// `client_secret`) instead of three. Calls
-/// [`state::recheck_credentials`] at the end so
-/// `Facts::oauth_client_complete` flips the moment both files
-/// land — same self-healing pattern as
-/// `process_post_create_html_inner`.
-pub fn process_oauth_popup_html_inner(
+/// popup. Same save-then-verify-via-SDK pattern, two fields
+/// (`client_id`, `client_secret`).
+pub async fn process_oauth_popup_html_inner(
     app: &AppHandle<Wry>,
     html: String,
 ) -> Result<u8, String> {
-    if let Err(e) = oauth_popup::save_snapshot(app, &html) {
-        let _ = Output::Log {
-            message: format!("oauth_popup: snapshot write failed: {e}"),
-        }
-        .emit();
-    }
-
     let Some(user_id) = state::current_user_id() else {
         return Err("no user_id yet — cookies watcher hasn't observed twid".into());
     };
 
-    let extracted = oauth_popup::extract(&html);
-    let mut stored: u8 = 0;
-    for (field, value) in [
-        (XAppCredentialField::ClientId, &extracted.client_id),
-        (XAppCredentialField::ClientSecret, &extracted.client_secret),
-    ] {
-        let Some(v) = value else { continue };
-        match credentials::store_one(app, &user_id, field, v) {
-            Ok(path) => {
-                stored += 1;
-                let _ = Output::Log {
-                    message: format!("credentials: wrote {}", path.display()),
-                }
-                .emit();
-            }
-            Err(e) => {
-                let _ = Output::Log {
-                    message: format!("credentials: write failed: {e}"),
-                }
-                .emit();
-            }
-        }
-    }
-    // Refresh `Facts::oauth_client_complete` from disk so the
-    // panel transitions to Hidden the moment both files land —
-    // no waiting for the next cookies kick.
-    let app_for_task = app.clone();
-    tauri::async_runtime::spawn(async move {
-        state::recheck_credentials(&app_for_task);
-    });
-    Ok(stored)
-}
+    let path = credentials::save_oauth_popup(app, &user_id, &html).await?;
+    let parsed = OAuthPopup::load(&path)
+        .await
+        .map_err(|e| format!("re-parse snapshot: {e}"))?
+        .unwrap_or_default();
 
-pub fn store_x_app_credential_inner(
-    app: &AppHandle<Wry>,
-    handle: String,
-    field: XAppCredentialField,
-    value: String,
-) -> Result<(), String> {
-    let path = credentials::store_one(app, &handle, field, &value)?;
     let _ = Output::Log {
-        message: format!("credentials: wrote {}", path.display()),
+        message: format!(
+            "credentials: wrote {} ({} / 2 fields parsed)",
+            path.display(),
+            parsed.parsed_count(),
+        ),
     }
     .emit();
-    Ok(())
+
+    let app_for_task = app.clone();
+    tauri::async_runtime::spawn(async move {
+        state::recheck_credentials(&app_for_task).await;
+    });
+    Ok(parsed.parsed_count())
 }
 
 // ---------------------------------------------------------------------

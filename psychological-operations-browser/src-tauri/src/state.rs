@@ -263,22 +263,35 @@ pub fn set_tweets_read_count(handle: &AppHandle<Wry>, count: u32) {
 }
 
 /// Re-scan the on-disk credentials store under the current
-/// `user_id` and update [`Facts::credentials_complete`].
-/// Triggers a recompute only if the value changed.
+/// `user_id` and update [`Facts::credentials_complete`] +
+/// [`Facts::oauth_client_complete`]. Both presence checks run
+/// concurrently. Triggers a recompute only if either value changed.
 ///
 /// Two callers:
 ///   - [`apply_cookie_facts`] (after every cookie snapshot, so
 ///     a fresh `user_id` immediately produces the right
 ///     answer);
 ///   - [`crate::stdio::process_post_create_html_inner`] (right
-///     after a successful triple-write, so the panel goes
+///     after a successful snapshot write, so the panel goes
 ///     `Hidden` without waiting for the next cookies kick).
-pub fn recheck_credentials(handle: &AppHandle<Wry>) {
+pub async fn recheck_credentials(handle: &AppHandle<Wry>) {
+    let uid = facts_slot()
+        .lock()
+        .expect("facts slot poisoned")
+        .user_id
+        .clone();
+    let (next_first, next_access) = match uid.as_deref() {
+        Some(u) => {
+            let (a, b) = tokio::join!(
+                crate::credentials::post_create_present(handle, u),
+                crate::credentials::oauth_popup_present(handle, u),
+            );
+            (Some(a), Some(b))
+        }
+        None => (None, None),
+    };
     let changed = {
         let mut facts = facts_slot().lock().expect("facts slot poisoned");
-        let uid = facts.user_id.as_deref();
-        let next_first = uid.map(|u| crate::credentials::all_three_present(handle, u));
-        let next_access = uid.map(|u| crate::credentials::oauth_client_present(handle, u));
         let first_changed = facts.credentials_complete != next_first;
         let access_changed = facts.oauth_client_complete != next_access;
         if first_changed {
@@ -307,39 +320,55 @@ pub fn recheck_credentials(handle: &AppHandle<Wry>) {
 ///      in-between origin.
 ///
 /// Then triggers the panel recompute.
-pub fn apply_cookie_facts(
+pub async fn apply_cookie_facts(
     handle: &AppHandle<Wry>,
     auth_token: Option<String>,
     user_id: Option<String>,
 ) {
+    // Pull the current mode + decide whether we'll need a twid
+    // conflict probe, all without taking the facts lock yet —
+    // every disk-reading step below is async and must finish
+    // before we re-acquire the lock to write facts.
+    let current_mode = facts_slot()
+        .lock()
+        .expect("facts slot poisoned")
+        .mode
+        .clone();
+
+    // Concurrent: presence-check both snapshot files + (if
+    // applicable) the cross-psyop conflict walk. All three are
+    // disk-bound and independent — `tokio::join!` runs them in
+    // parallel.
+    let conflict_psyop = current_psyop_name(&current_mode);
+    let (creds_complete, oauth_complete, twid_conflict) = match user_id.as_deref() {
+        Some(uid) => {
+            let post_create_fut = crate::credentials::post_create_present(handle, uid);
+            let oauth_fut = crate::credentials::oauth_popup_present(handle, uid);
+            let conflict_fut = async {
+                match (auth_token.as_ref(), conflict_psyop.as_deref()) {
+                    (Some(_), Some(name)) => {
+                        crate::psyop_authorize::find_other_psyop_owning_twid(
+                            handle, name, uid,
+                        )
+                        .await
+                    }
+                    _ => None,
+                }
+            };
+            let (a, b, c) = tokio::join!(post_create_fut, oauth_fut, conflict_fut);
+            (Some(a), Some(b), c)
+        }
+        None => (None, None, None),
+    };
+
     let token_changed_to: Option<Option<String>> = {
         let mut facts = facts_slot().lock().expect("facts slot poisoned");
         let token_changed = facts.auth_token != auth_token;
         facts.auth_token = auth_token.clone();
         facts.user_id = user_id;
-        // creds_complete + oauth_client_complete are both
-        // functions of user_id + disk contents; recompute under
-        // the same lock so derive() never sees mismatched
-        // (user_id, creds_complete, oauth_client_complete).
-        facts.credentials_complete = facts
-            .user_id
-            .as_deref()
-            .map(|uid| crate::credentials::all_three_present(handle, uid));
-        facts.oauth_client_complete = facts
-            .user_id
-            .as_deref()
-            .map(|uid| crate::credentials::oauth_client_present(handle, uid));
-        // Cross-psyop guard: if this twid already has an
-        // auth.json under some OTHER psyop's handles/, record
-        // its name so derive() can render the "wrong account"
-        // nag. Only meaningful when in a psyop mode and signed
-        // in with a twid.
-        facts.twid_conflict = match (facts.auth_token.as_ref(), facts.user_id.as_deref()) {
-            (Some(_), Some(twid)) => current_psyop_name(&facts.mode).and_then(|name| {
-                crate::psyop_authorize::find_other_psyop_owning_twid(handle, &name, twid)
-            }),
-            _ => None,
-        };
+        facts.credentials_complete = creds_complete;
+        facts.oauth_client_complete = oauth_complete;
+        facts.twid_conflict = twid_conflict;
         if token_changed { Some(auth_token) } else { None }
     };
 

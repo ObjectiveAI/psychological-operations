@@ -21,6 +21,7 @@ base64 = "0.22.1"
 aes-gcm = "0.10.3"
 tokio = { version = "1.52.3", features = ["fs", "rt"] }
 fs4 = { version = "1.1.0", features = ["tokio"] }
+scraper = "0.27.0"
 
 # Chromium encrypts cookie values via AES-GCM with a key wrapped
 # in Windows DPAPI. CryptUnprotectData lives in

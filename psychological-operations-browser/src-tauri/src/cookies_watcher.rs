@@ -90,14 +90,17 @@ pub fn start(
     let auth_url: Url = Url::parse("https://x.com/").ok()?;
 
     // Initial sync read — main thread is free here (we're on the
-    // stdio reader thread, no JS dispatch in flight).
+    // stdio reader thread, no JS dispatch in flight). The
+    // async-only `apply_snapshot` runs inside the spawned task
+    // below so `start` itself stays sync (called from Tauri's
+    // sync `setup` closure).
     let initial = snapshot_sync(&auth_url);
-    apply_snapshot(&handle, &initial);
 
     let stop = Arc::new(Notify::new());
     let stop_for_task = stop.clone();
     let handle_for_task = handle.clone();
     let task = spawn(async move {
+        apply_snapshot(&handle_for_task, &initial).await;
         run_watcher(handle_for_task, auth_url, initial, stop_for_task).await;
     });
 
@@ -124,15 +127,17 @@ fn snapshot_sync(auth_url: &Url) -> CookieSnapshot {
 }
 
 /// Push every fact from a fresh snapshot into the [`crate::state`]
-/// store. Atomic — both cookie facts (auth_token + user_id) land
-/// under a single lock so no intermediate `PanelState` ever leaks
-/// out between them.
-fn apply_snapshot(handle: &AppHandle<Wry>, snap: &CookieSnapshot) {
-    state::apply_cookie_facts(handle, snap.auth_token.clone(), snap.user_id.clone());
-    // PsyopAuthorize hook: drives the OAuth dance whenever
-    // the persona is signed in and auth.json isn't on disk
-    // yet. No-op in any other mode.
-    crate::psyop_authorize::maybe_start_flow(handle);
+/// store, then kick the PsyopAuthorize OAuth dance. Both halves
+/// are independent disk-touching async work — `tokio::join!` runs
+/// them concurrently. `apply_cookie_facts` lands `auth_token` +
+/// `user_id` atomically inside its own lock so no intermediate
+/// `PanelState` leaks out between them. `maybe_start_flow` no-ops
+/// outside PsyopAuthorize mode.
+async fn apply_snapshot(handle: &AppHandle<Wry>, snap: &CookieSnapshot) {
+    tokio::join!(
+        state::apply_cookie_facts(handle, snap.auth_token.clone(), snap.user_id.clone()),
+        crate::psyop_authorize::maybe_start_flow(handle),
+    );
 }
 
 async fn run_watcher(
@@ -172,7 +177,7 @@ async fn run_watcher(
                 if let Some(snap) =
                     try_snapshot(auth_url.clone()).await
                 {
-                    maybe_apply(&handle, &mut last, snap);
+                    maybe_apply(&handle, &mut last, snap).await;
                 }
             }
         }
@@ -191,7 +196,7 @@ async fn try_snapshot(auth_url: Url) -> Option<CookieSnapshot> {
     }
 }
 
-fn maybe_apply(
+async fn maybe_apply(
     handle: &AppHandle<Wry>,
     last: &mut CookieSnapshot,
     snap: CookieSnapshot,
@@ -200,5 +205,5 @@ fn maybe_apply(
         return;
     }
     *last = snap.clone();
-    apply_snapshot(handle, &snap);
+    apply_snapshot(handle, &snap).await;
 }

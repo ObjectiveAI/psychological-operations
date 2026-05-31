@@ -61,8 +61,7 @@ fn parent_handle_slot() -> &'static Mutex<Option<isize>> {
 
 /// Returns the data-directory for the given mode rooted at
 /// `--config-base-dir`. Mirrors the structure of CEF's per-mode
-/// cache subdir so credentials / recordings live alongside the
-/// browser profile.
+/// cache subdir so credentials live alongside the browser profile.
 ///
 ///   - X-App: `<config>/.../browser/x-app/`
 ///   - Psyop "foo": `<config>/.../browser/psyop/foo/`

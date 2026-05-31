@@ -109,9 +109,9 @@ wrap_resource_handler! {
             // we can hold it across the async task without it dying.
             let callback = callback.clone();
 
-            tauri::async_runtime::spawn_blocking(move || {
+            tauri::async_runtime::spawn(async move {
                 let (status, mime, body_out) = match crate::cef::app_handle() {
-                    Some(app) => dispatch(app, &url, &body),
+                    Some(app) => dispatch(app, &url, &body).await,
                     None => (
                         503,
                         "text/plain; charset=utf-8".to_string(),
@@ -261,7 +261,7 @@ fn extract_post_body(request: &mut Request) -> Vec<u8> {
 /// Route a single `psyops://invoke/<cmd>` request to the right
 /// inner-command function in [`crate::stdio`]. Returns
 /// `(status, mime, body)` for the HTTP-ish response.
-fn dispatch(app: &AppHandle<Wry>, url: &str, body: &[u8]) -> (i32, String, Vec<u8>) {
+async fn dispatch(app: &AppHandle<Wry>, url: &str, body: &[u8]) -> (i32, String, Vec<u8>) {
     // url looks like `psyops://invoke/<cmd>` (no host, no query).
     let cmd = url
         .strip_prefix("psyops://invoke/")
@@ -304,14 +304,14 @@ fn dispatch(app: &AppHandle<Wry>, url: &str, body: &[u8]) -> (i32, String, Vec<u
             Err(e) => error(400, e),
         },
         "process_post_create_html" => match parse_body::<ProcessHtmlArgs>(body) {
-            Ok(args) => match stdio::process_post_create_html_inner(app, args.html) {
+            Ok(args) => match stdio::process_post_create_html_inner(app, args.html).await {
                 Ok(stored) => ok_json(&Value::from(stored)),
                 Err(e) => error(500, e),
             },
             Err(e) => error(400, e),
         },
         "process_oauth_popup_html" => match parse_body::<ProcessHtmlArgs>(body) {
-            Ok(args) => match stdio::process_oauth_popup_html_inner(app, args.html) {
+            Ok(args) => match stdio::process_oauth_popup_html_inner(app, args.html).await {
                 Ok(stored) => ok_json(&Value::from(stored)),
                 Err(e) => error(500, e),
             },
@@ -322,15 +322,6 @@ fn dispatch(app: &AppHandle<Wry>, url: &str, body: &[u8]) -> (i32, String, Vec<u
                 let count = crate::psyop_read::process_html(app, args.html);
                 ok_json(&Value::from(count))
             }
-            Err(e) => error(400, e),
-        },
-        "store_x_app_credential" => match parse_body::<StoreCredentialArgs>(body) {
-            Ok(args) => match stdio::store_x_app_credential_inner(
-                app, args.handle, args.field, args.value,
-            ) {
-                Ok(()) => ok_json(&Value::Null),
-                Err(e) => error(500, e),
-            },
             Err(e) => error(400, e),
         },
         _ => error(404, format!("unknown command: {cmd}")),
@@ -374,11 +365,4 @@ struct SetCountArgs {
 #[derive(Deserialize)]
 struct ProcessHtmlArgs {
     html: String,
-}
-
-#[derive(Deserialize)]
-struct StoreCredentialArgs {
-    handle: String,
-    field: psychological_operations_browser_sdk::credentials::XAppCredentialField,
-    value: String,
 }

@@ -1,73 +1,115 @@
-//! Per-handle X-App credential storage.
+//! Per-handle X-App credential snapshot storage.
 //!
-//! The content webview's overlay calls
-//! [`store_one`] (via the `store_x_app_credential` Tauri command in
-//! [`crate::stdio`]) one field at a time as the user copies each
-//! credential out of the X developer console. Each field lands in
-//! its own `<field>.txt` file under a per-handle directory:
+//! Each of the two X developer-console credential surfaces — the
+//! post-create dialog and the OAuth 2.0 settings popup — is
+//! captured as a raw HTML snapshot at:
 //!
 //! ```text
 //! <data-dir>/handles/<handle>/
-//!   ├── client_id.txt
-//!   ├── client_secret.txt
-//!   ├── bearer_token.txt
-//!   ├── access_token.txt
-//!   └── access_token_secret.txt
+//!   ├── post_create_dialog.html   (covers consumer_key, secret_key, bearer_token)
+//!   └── oauth_popup.html          (covers client_id, client_secret)
 //! ```
 //!
 //! `<data-dir>` is the X-App mode's data root
 //! ([`crate::webview::mode_data_dir`] with [`Mode::XApp`]).
-//! `<handle>` is the user's
-//! X handle normalized via [`normalize_handle`] — strip leading
-//! `@`, lower-case, validate against X's handle rules (1-15 ASCII
-//! alphanumeric / underscore characters).
+//! `<handle>` is the user's X handle normalized via
+//! [`normalize_handle`] (strip leading `@`, lower-case, validate).
 //!
-//! Each file contains exactly the raw credential string — no
-//! quoting, no JSON envelope, no trailing newline. Writes go
-//! through `<field>.txt.tmp` + atomic rename so a crash mid-write
-//! can't leave a truncated value.
-//!
-//! Partial state is intentional: only the fields the overlay has
-//! sent yet are on disk. The CLI later reads what's there and
-//! treats missing files as "not set yet."
+//! Writes go through `<file>.tmp` + atomic rename so a crash
+//! mid-write can't leave a truncated file on disk. Parsing lives
+//! in [`psychological_operations_browser_sdk::x_app_credentials`];
+//! callers reach the values through that module.
 
-use std::fs;
 use std::path::PathBuf;
 
-use psychological_operations_browser_sdk::credentials::XAppCredentialField;
-use psychological_operations_browser_sdk::mode::{self, Mode};
+use psychological_operations_browser_sdk::mode::Mode;
 use tauri::{AppHandle, Wry};
+use tokio::fs;
 
 use crate::webview;
 
-/// Write a single credential field for a given X handle. Returns
-/// the resolved path on success. Errors propagate as `String` so
-/// they can flow straight back through the Tauri command boundary.
-///
-/// Credentials only make sense in X-App mode (the X developer
-/// console is where they come from). Calls from any other mode
-/// return an error rather than writing to the wrong directory.
-pub fn store_one(
+pub const POST_CREATE_DIALOG_FILE: &str = "post_create_dialog.html";
+pub const OAUTH_POPUP_FILE: &str = "oauth_popup.html";
+
+/// Write the post-create dialog HTML snapshot for `handle`. Returns
+/// the resolved final path on success.
+pub async fn save_post_create_dialog(
     app: &AppHandle<Wry>,
     handle: &str,
-    field: XAppCredentialField,
-    value: &str,
+    html: &str,
 ) -> Result<PathBuf, String> {
-    let handle = normalize_handle(handle)?;
-    if !matches!(mode::get(), Some(Mode::XApp)) {
-        return Err("credentials::store_one called outside X-App mode".into());
+    save(app, handle, POST_CREATE_DIALOG_FILE, html).await
+}
+
+/// Write the OAuth 2.0 settings popup HTML snapshot for `handle`.
+/// Returns the resolved final path on success.
+pub async fn save_oauth_popup(
+    app: &AppHandle<Wry>,
+    handle: &str,
+    html: &str,
+) -> Result<PathBuf, String> {
+    save(app, handle, OAUTH_POPUP_FILE, html).await
+}
+
+/// Resolve the per-handle snapshot path without writing. `None`
+/// only when `handle` fails to normalize (invalid X handle shape).
+/// Used by [`crate::state`] for presence-check derivation and by
+/// readers that just want the path.
+pub fn snapshot_path(
+    app: &AppHandle<Wry>,
+    handle: &str,
+    file_name: &str,
+) -> Option<PathBuf> {
+    let handle_norm = normalize_handle(handle).ok()?;
+    Some(
+        webview::mode_data_dir(app, &Mode::XApp)
+            .join("handles")
+            .join(handle_norm)
+            .join(file_name),
+    )
+}
+
+/// Presence check for the post-create dialog snapshot under
+/// `handle`. `false` on any error or invalid handle — matches the
+/// defensive posture the old per-field presence checks used.
+pub async fn post_create_present(app: &AppHandle<Wry>, handle: &str) -> bool {
+    match snapshot_path(app, handle, POST_CREATE_DIALOG_FILE) {
+        Some(p) => fs::try_exists(&p).await.unwrap_or(false),
+        None => false,
     }
+}
+
+/// Presence check for the OAuth popup snapshot under `handle`.
+/// Same defensive posture as [`post_create_present`].
+pub async fn oauth_popup_present(app: &AppHandle<Wry>, handle: &str) -> bool {
+    match snapshot_path(app, handle, OAUTH_POPUP_FILE) {
+        Some(p) => fs::try_exists(&p).await.unwrap_or(false),
+        None => false,
+    }
+}
+
+async fn save(
+    app: &AppHandle<Wry>,
+    handle: &str,
+    file_name: &str,
+    html: &str,
+) -> Result<PathBuf, String> {
+    let handle_norm = normalize_handle(handle)?;
     let dir = webview::mode_data_dir(app, &Mode::XApp)
         .join("handles")
-        .join(&handle);
-    fs::create_dir_all(&dir).map_err(|e| format!("create handle dir: {e}"))?;
+        .join(&handle_norm);
+    fs::create_dir_all(&dir)
+        .await
+        .map_err(|e| format!("create handle dir: {e}"))?;
 
-    let final_path = dir.join(field.file_name());
-    let tmp_path = dir.join(format!("{}.tmp", field.file_name()));
-    fs::write(&tmp_path, value.as_bytes())
-        .map_err(|e| format!("write tmp credential: {e}"))?;
+    let final_path = dir.join(file_name);
+    let tmp_path = dir.join(format!("{file_name}.tmp"));
+    fs::write(&tmp_path, html.as_bytes())
+        .await
+        .map_err(|e| format!("write tmp snapshot: {e}"))?;
     fs::rename(&tmp_path, &final_path)
-        .map_err(|e| format!("rename tmp credential: {e}"))?;
+        .await
+        .map_err(|e| format!("rename tmp snapshot: {e}"))?;
     Ok(final_path)
 }
 
@@ -82,55 +124,8 @@ pub fn store_one(
 ///     from the `twid` cookie also fit — those range from
 ///     ~7 digits (early-era accounts) to ~19 digits (modern
 ///     Snowflake IDs).
-/// `true` iff all three X-App OAuth credentials we care about
-/// (consumer key, secret key, bearer token) are present on disk
-/// under `handles/<normalize_handle(user_id)>/`. Used by
-/// [`crate::state::derive`] to decide whether the panel still
-/// needs to nudge the user through the create-app flow.
-///
-/// Cheap: three `Path::exists` checks. Returns `false` on any
-/// disk error or invalid handle — anything we can't confidently
-/// read is treated as "creds missing", which is the safe default
-/// for the UX (worst case: we ask the user to redo the flow).
-pub fn all_three_present(app: &AppHandle<Wry>, user_id: &str) -> bool {
-    let Ok(handle) = normalize_handle(user_id) else { return false };
-    let dir = webview::mode_data_dir(app, &Mode::XApp)
-        .join("handles")
-        .join(&handle);
-    [
-        XAppCredentialField::ConsumerKey,
-        XAppCredentialField::SecretKey,
-        XAppCredentialField::BearerToken,
-    ]
-    .iter()
-    .all(|f| dir.join(f.file_name()).exists())
-}
-
-/// `true` iff both OAuth 2.0 client-pair fields (`client_id`,
-/// `client_secret`) are on disk under
-/// `handles/<normalize_handle(user_id)>/`. The post-create dialog
-/// doesn't surface these — they fall out of the auth-settings
-/// popup after Save Changes — so this is tracked as a distinct
-/// fact from the first-three triple. Same defensive "any error →
-/// false" posture as [`all_three_present`].
-pub fn oauth_client_present(app: &AppHandle<Wry>, user_id: &str) -> bool {
-    let Ok(handle) = normalize_handle(user_id) else { return false };
-    let dir = webview::mode_data_dir(app, &Mode::XApp)
-        .join("handles")
-        .join(&handle);
-    [
-        XAppCredentialField::ClientId,
-        XAppCredentialField::ClientSecret,
-    ]
-    .iter()
-    .all(|f| dir.join(f.file_name()).exists())
-}
-
 fn normalize_handle(raw: &str) -> Result<String, String> {
-    let trimmed = raw
-        .trim()
-        .trim_start_matches('@')
-        .to_ascii_lowercase();
+    let trimmed = raw.trim().trim_start_matches('@').to_ascii_lowercase();
     if trimmed.is_empty() || trimmed.len() > 64 {
         return Err(format!("invalid X handle: {raw:?}"));
     }
@@ -141,3 +136,4 @@ fn normalize_handle(raw: &str) -> Result<String, String> {
     }
     Ok(trimmed)
 }
+
