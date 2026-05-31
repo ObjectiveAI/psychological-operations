@@ -110,8 +110,8 @@ impl From<base64::DecodeError> for CookiesError {
 /// Public so the browser's `authorize::maybe_start_flow` can
 /// resolve the X-App account's twid (via `Mode::XApp`) for the
 /// `Client::write_auth` write, in addition to the SDK-internal use
-/// from `Client::for_psyop` (which resolves both twids at
-/// construction time to bind a [`super::auth::PersonaKey`]).
+/// from `Client::current_bearer_token` (which resolves both twids
+/// from cookies on every persona-bound API call).
 pub async fn signed_in_x_user_id(
     config_base_dir: &Path,
     mode: &Mode,

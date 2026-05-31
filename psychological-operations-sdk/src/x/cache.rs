@@ -12,7 +12,6 @@
 //! key spaces.
 
 use std::path::Path;
-use std::sync::Arc;
 use std::time::Duration;
 
 use reqwest::Method;
@@ -220,18 +219,3 @@ pub(crate) async fn open_pool(config_base_dir: &Path) -> Result<SqlitePool, Erro
         .map_err(|e| Error::Other(format!("cache pool open {}: {e}", path.display())))
 }
 
-/// Build an `Arc<Cache>` for a given config root (only when
-/// `max_size > 0`). Used by `Http::{app_only, for_psyop}` so they
-/// don't each re-implement the cache-or-not branch.
-pub(crate) async fn open_optional(
-    config_base_dir: &Path,
-    max_size: u64,
-    cache_ttl: Duration,
-) -> Result<Option<Arc<Cache>>, Error> {
-    if max_size == 0 {
-        return Ok(None);
-    }
-    Ok(Some(Arc::new(
-        Cache::open(config_base_dir, max_size, cache_ttl).await?,
-    )))
-}

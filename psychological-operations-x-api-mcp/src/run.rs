@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use envconfig::Envconfig;
-use psychological_operations_sdk::x::client::Client;
+use psychological_operations_sdk::x::client::{AuthMode, Client};
 use rmcp::transport::streamable_http_server::{
     StreamableHttpServerConfig, StreamableHttpService,
     session::local::LocalSessionManager,
@@ -94,13 +94,13 @@ pub struct Config {
     pub port:             u16,
     pub suppress_output:  bool,
     /// Outer root for the x-api cache + `x_app.json`. Same shape the SDK's
-    /// `auth_json` / `Client::app_only` expect. Default `~/.objectiveai`.
+    /// `auth_json` / `Client::new` expect. Default `~/.objectiveai`.
     pub config_base_dir:  PathBuf,
-    /// Bytes — x-api response-cache size budget (`Client::app_only`'s
-    /// `max_size`). Default 256 MB.
+    /// Bytes — x-api response-cache size budget (`Client::new`'s
+    /// `cache_max_size`). Default 256 MB.
     pub max_cache_size:   u64,
-    /// Seconds — per-entry cache TTL (`Client::app_only`'s
-    /// `cache_ttl`). Currently plumbed but unused. Default 3600 (1 h).
+    /// Seconds — per-entry cache TTL (`Client::new`'s `cache_ttl`).
+    /// Currently plumbed but unused. Default 3600 (1 h).
     pub cache_ttl_secs:   u64,
 }
 
@@ -114,15 +114,14 @@ pub async fn setup(config: Config) -> std::io::Result<(tokio::net::TcpListener, 
         cache_ttl_secs,
     } = config;
 
-    let http = Client::app_only(
+    let http = Client::new(
         reqwest::Client::new(),
         /* mock */ false,
-        &config_base_dir,
         max_cache_size,
         std::time::Duration::from_secs(cache_ttl_secs),
-    )
-    .await
-    .map_err(|e| std::io::Error::other(format!("x-api Client::app_only: {e}")))?;
+        config_base_dir,
+        AuthMode::XApp,
+    );
 
     let server = PsychologicalOperationsXApiMcp::new(Arc::new(http));
     let ct = CancellationToken::new();

@@ -31,7 +31,7 @@ use crate::db::{Db, Origin, Post};
 use crate::error::Error;
 use crate::score::{self, ScoredPost};
 use crate::tweet::Tweet;
-use psychological_operations_sdk::x::client::Client;
+use psychological_operations_sdk::x::client::{AuthMode, Client};
 use psychological_operations_sdk::x::params::tweet_expansions_parameter::TweetExpansions;
 use psychological_operations_sdk::x::params::tweet_fields_parameter::TweetFields;
 use psychological_operations_sdk::x::params::user_fields_parameter::UserFields;
@@ -78,7 +78,7 @@ pub async fn run_psyop(
     };
 
     let db = Db::open(cfg)?;
-    let http = make_http_client(psyop.mock_enabled(), cfg).await?;
+    let http = make_http_client(psyop.mock_enabled(), cfg);
 
     // Capture whether the for_you_queue was non-empty at run start —
     // the `query_when_for_you_queued` policy reads this on the
@@ -440,11 +440,10 @@ async fn run_queries(
 
 // -- X API --------------------------------------------------------------------
 
-async fn make_http_client(mock: bool, cfg: &crate::run::Config) -> Result<Client, Error> {
-    Client::app_only(
+fn make_http_client(mock: bool, cfg: &crate::run::Config) -> Client {
+    Client::new(
         reqwest::Client::new(),
         mock,
-        &cfg.objectiveai_base_dir(),
         // Bytes — explicit per-call size budget for the SQLite response
         // cache. No `DEFAULT_*` constant — `Client::*` makes this a
         // required arg and every CLI callsite picks its own value.
@@ -452,9 +451,9 @@ async fn make_http_client(mock: bool, cfg: &crate::run::Config) -> Result<Client
         // Cache entry TTL — plumbed but unused today (future
         // time-based eviction will consume it).
         std::time::Duration::from_secs(3600),
+        cfg.objectiveai_base_dir(),
+        AuthMode::XApp,
     )
-    .await
-    .map_err(|e| Error::Other(format!("Client::app_only: {e}")))
 }
 
 fn standard_tweet_fields() -> Vec<TweetFields> {

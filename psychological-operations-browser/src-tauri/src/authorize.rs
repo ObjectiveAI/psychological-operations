@@ -241,17 +241,16 @@ async fn run_flow(
     let config_base_dir = args.config_base_dir.clone();
     let cache_max_size = args.cache_max_size;
     let cache_ttl = std::time::Duration::from_secs(args.cache_ttl);
-    // Use the SDK's app-only Client to write auth.json under the
+    // Use an XApp-mode SDK Client to write auth.json under the
     // two-tier lock — single seam for cross-process write coordination.
-    let client = psychological_operations_sdk::x::client::Client::app_only(
+    let client = psychological_operations_sdk::x::client::Client::new(
         reqwest::Client::new(),
         false,
-        &config_base_dir,
         cache_max_size,
         cache_ttl,
-    )
-    .await
-    .map_err(|e| format!("Client::app_only: {e}"))?;
+        config_base_dir,
+        psychological_operations_sdk::x::client::AuthMode::XApp,
+    );
     let persona = psychological_operations_sdk::x::auth::PersonaKey {
         kind,
         name: persona_name.clone(),

@@ -27,7 +27,7 @@ pub struct XAppConfig {
     /// client token exchange.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub client_secret: Option<String>,
-    /// App-only Bearer token. Used by `crate::x::client::Client::app_only`
+    /// App-only Bearer token. Used by `Client::new(..., AuthMode::XApp)`
     /// for read-only endpoints (search, tweet lookup) that don't need
     /// user context.
     #[serde(default, skip_serializing_if = "Option::is_none")]

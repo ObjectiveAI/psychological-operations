@@ -15,7 +15,7 @@ use chrono::{Duration as ChronoDuration, Utc};
 
 use psychological_operations_sdk::browser::auth_json::{PersonaKind, Tokens};
 use psychological_operations_sdk::x::auth::PersonaKey;
-use psychological_operations_sdk::x::client::Client;
+use psychological_operations_sdk::x::client::{AuthMode, Client};
 
 fn tmp_root(name: &str) -> PathBuf {
     let mut p = std::env::temp_dir();
@@ -35,7 +35,7 @@ fn unix_now_nanos() -> u128 {
         .unwrap_or(0)
 }
 
-/// Seed an `x_app.json` under `config_base_dir` so `Client::app_only`
+/// Seed an `x_app.json` under `config_base_dir` so `Client::new` with `AuthMode::XApp`
 /// finds a bearer to use.
 fn seed_x_app(config_base_dir: &std::path::Path) {
     use std::io::Write;
@@ -75,15 +75,14 @@ fn fake_persona() -> PersonaKey {
 
 async fn build_client(root: &std::path::Path) -> Client {
     seed_x_app(root);
-    Client::app_only(
+    Client::new(
         reqwest::Client::new(),
         false,
-        root,
         256 * 1024 * 1024,
         Duration::from_secs(3600),
+        root.to_path_buf(),
+        AuthMode::XApp,
     )
-    .await
-    .expect("Client::app_only")
 }
 
 #[tokio::test]

@@ -23,7 +23,7 @@ pub enum XType {
 }
 
 pub async fn send(cfg: &X, subject: &Subject<'_>, rt: &crate::run::Config) -> Result<(), crate::error::Error> {
-    use psychological_operations_sdk::x::client::Client;
+    use psychological_operations_sdk::x::client::{AuthMode, Client};
     use psychological_operations_sdk::x::types::{
         TweetId, UserIdMatchesAuthenticatedUser,
         UsersLikesCreateRequest, UsersRetweetsCreateRequest,
@@ -31,11 +31,9 @@ pub async fn send(cfg: &X, subject: &Subject<'_>, rt: &crate::run::Config) -> Re
 
     let Subject::Psyop { name, psyop, output } = subject;
 
-    let client = Client::for_psyop(
+    let client = Client::new(
         reqwest::Client::new(),
-        name,
         psyop.mock_enabled(),
-        &rt.objectiveai_base_dir(),
         // Bytes — explicit per-call size budget for the SQLite response
         // cache. No `DEFAULT_*` constant — `Client::*` makes this a
         // required arg and every CLI callsite picks its own value.
@@ -43,9 +41,9 @@ pub async fn send(cfg: &X, subject: &Subject<'_>, rt: &crate::run::Config) -> Re
         // Cache entry TTL — plumbed but unused today (future
         // time-based eviction will consume it).
         std::time::Duration::from_secs(3600),
-    )
-    .await
-    .map_err(|e| crate::error::Error::Other(format!("Client::for_psyop: {e}")))?;
+        rt.objectiveai_base_dir(),
+        AuthMode::Psyop(name.to_string()),
+    );
 
     // Resolve the acting user via /2/users/me so the like/retweet
     // URLs can fill the {id} path segment.

@@ -1,229 +1,145 @@
 //! X v2 API client.
 //!
-//! Owns the reqwest client, base URL, response cache, and the
-//! two-tier auth-file lock. The codegen'd per-endpoint helpers in
+//! Single constructor [`Client::new`] — **infallible** and
+//! **synchronous**. No I/O happens at construction time: the
+//! SQLite cache + auth locker open lazily on first use via
+//! `tokio::sync::OnceCell`, and the wire bearer is resolved per
+//! request by reading the auth files referenced by
+//! [`Client::auth_mode`] ("on the fly"). Live changes to the
+//! signed-in X-App or persona (browser sign-out / sign-in) are
+//! picked up on the next request without rebuilding the Client.
+//!
+//! Auth file ownership lives here too: [`Client::read_auth`] is
+//! a cheap lockless read, [`Client::lock_auth`] acquires the
+//! two-tier (in-process tokio mutex + cross-process SQLite
+//! `locks` table) lock, and [`Client::write_auth`] consumes the
+//! lock and atomically writes the file. The
+//! [`super::auth::AuthLock`] returned by `lock_auth` cannot be
+//! constructed externally — `lock_auth` is its only producer.
+//!
+//! The codegen'd per-endpoint helpers in
 //! `crate::x::*::{get,post,put,delete}::http` route through the
 //! `pub(crate)` `send_*` family on this type — external callers
 //! drive everything via the codegen helpers, never the generic
 //! methods.
-//!
-//! Auth file (`auth.json`) ownership lives here too:
-//! [`Client::read_auth`] is a cheap lockless read, [`Client::lock_auth`]
-//! acquires the two-tier lock, [`Client::write_auth`] consumes the
-//! lock and atomically writes the file. The [`super::auth::AuthLock`]
-//! returned by `lock_auth` cannot be constructed externally — only
-//! `lock_auth` produces one.
-//!
-//! For [`AuthMode::Persona`] clients, every request resolves the
-//! bearer dynamically via `current_bearer_token`:
-//!
-//!   1. Cheap read of `auth.json` (no lock).
-//!   2. If `expires_at` is more than 30 s away, use the token as-is.
-//!   3. Otherwise acquire the auth lock, re-read (someone else
-//!      may have refreshed while we waited), and if STILL stale,
-//!      refresh via X's OAuth token endpoint and write back via
-//!      `write_auth` (which releases the lock).
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
 use reqwest::{Client as ReqwestClient, Method, StatusCode};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
+use tokio::sync::OnceCell;
 
 use super::Error;
 use super::auth::{self, AuthLock, PersonaKey};
-use super::cache::{self, Cache, request_key};
+use super::cache::{Cache, request_key};
 use super::locker::Locker;
 use crate::browser::auth_json::{self, PersonaKind, Tokens};
 use crate::browser::cookies;
 use crate::browser::mode::Mode;
 use crate::x::types::Problem;
 
-/// Default base URL for the X v2 API.
+/// Default base URL for the X v2 API. Inlined where used —
+/// no caller currently overrides it.
 pub const DEFAULT_BASE_URL: &str = "https://api.x.com/2";
+
+/// What kind of credentials this Client uses on the wire.
+///
+/// Resolution happens per-request, not at construction —
+/// changing the signed-in X-App or persona at runtime is
+/// reflected on the next call without rebuilding the Client.
+///
+/// * `XApp` — durable App-only Bearer from `x_app.json`. For
+///   read-only endpoints; never refreshed.
+/// * `Psyop(name)` — per-persona OAuth tokens stored in
+///   `<config>/.../browser/psyop/<name>/handles/<persona_twid>/<x_app_twid>/auth.json`.
+///   Refreshed via X's token endpoint when expiring within
+///   [`auth_json::FRESHNESS_BUFFER`].
+/// * `Agent(name)` — same shape, rooted under
+///   `browser/agent/<name>/`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum AuthMode {
+    XApp,
+    Psyop(String),
+    Agent(String),
+}
 
 /// X v2 API client. See module docs.
 #[derive(Debug, Clone)]
 pub struct Client {
     pub(crate) client: ReqwestClient,
-    pub(crate) base_url: String,
-    pub(crate) auth: AuthMode,
     /// When true, every `send*` short-circuits to
-    /// `crate::x::mock::*` instead of hitting the real X API.
+    /// `crate::x::mock::*` instead of hitting the real X API,
+    /// and `lock_auth`/`write_auth` reject with an error.
     pub(crate) mock: bool,
-    pub(crate) max_size: u64,
-    /// Plumbed but unused — see [`Cache.cache_ttl`].
+    /// Bytes — cache size budget. 0 means "no eviction cap"
+    /// (entries still get stored; the LRU loop is skipped).
+    pub(crate) cache_max_size: u64,
+    /// Plumbed but unused today — see [`Cache.cache_ttl`].
     pub(crate) cache_ttl: Duration,
-    pub(crate) cache: Option<Arc<Cache>>,
-    /// Locker for the persona auth lock. `Some` whenever
-    /// `cache` is `Some` (they share the SQLite pool); `None`
-    /// in mock / no-cache mode.
-    pub(crate) auth_locker: Option<Arc<Locker>>,
-    /// Process-wide config_base_dir the constructors were given.
-    /// Used to compute auth.json paths. `None` in mock mode.
-    pub(crate) config_base_dir: Option<Arc<PathBuf>>,
-}
-
-/// How this `Client` produces a Bearer for outgoing requests.
-#[derive(Debug, Clone)]
-pub(crate) enum AuthMode {
-    /// Static `x_app.bearer_token`. No refresh; the token is the
-    /// permanent app-only key.
-    AppOnly { token: Arc<String> },
-    /// Per-persona OAuth tokens stored in
-    /// `<config>/.../handles/<persona_twid>/<x_app_twid>/auth.json`.
-    /// Refreshed on demand when expiring within
-    /// [`auth_json::FRESHNESS_BUFFER`].
-    Persona {
-        persona: PersonaKey,
-        client_id: Arc<String>,
-        client_secret: Arc<String>,
-    },
+    pub(crate) config_base_dir: Arc<PathBuf>,
+    pub(crate) auth_mode: AuthMode,
+    pub(crate) cache: OnceCell<Arc<Cache>>,
+    pub(crate) auth_locker: OnceCell<Arc<Locker>>,
 }
 
 impl Client {
-    /// Low-level constructor — `pub(crate)` so external callers go
-    /// through [`Client::app_only`] or [`Client::for_psyop`].
-    pub(crate) fn new(
+    /// Build an X v2 API client. **Infallible** and
+    /// **synchronous** — no I/O happens here. The SQLite
+    /// cache + auth locker open lazily on first use; the bearer
+    /// is resolved per request from the auth files referenced
+    /// by `auth_mode`.
+    pub fn new(
         client: ReqwestClient,
-        base_url: Option<impl Into<String>>,
-        auth: AuthMode,
-        max_size: u64,
+        mock: bool,
+        cache_max_size: u64,
         cache_ttl: Duration,
-        cache: Option<Arc<Cache>>,
-        auth_locker: Option<Arc<Locker>>,
-        config_base_dir: Option<Arc<PathBuf>>,
+        config_base_dir: PathBuf,
+        auth_mode: AuthMode,
     ) -> Self {
         Self {
             client,
-            base_url: base_url
-                .map(Into::into)
-                .unwrap_or_else(|| DEFAULT_BASE_URL.to_string()),
-            auth,
-            mock: false,
-            max_size,
+            mock,
+            cache_max_size,
             cache_ttl,
-            cache,
-            auth_locker,
-            config_base_dir,
+            config_base_dir: Arc::new(config_base_dir),
+            auth_mode,
+            cache: OnceCell::new(),
+            auth_locker: OnceCell::new(),
         }
     }
 
-    /// Mock factory — produces a Client that short-circuits every
-    /// `send*` to the mock layer. No auth, no cache, no locker.
-    fn new_mock(client: ReqwestClient) -> Self {
-        Self {
-            client,
-            base_url: DEFAULT_BASE_URL.to_string(),
-            auth: AuthMode::AppOnly { token: Arc::new(String::new()) },
-            mock: true,
-            max_size: 0,
-            cache_ttl: Duration::ZERO,
-            cache: None,
-            auth_locker: None,
-            config_base_dir: None,
-        }
-    }
+    // ===================================================================
+    // Lazy accessors for the SQLite cache + auth locker.
+    // ===================================================================
 
-    /// Construct a Client for app-only use. Reads
-    /// `x_app.json::bearer_token` (durable, not OAuth-refreshable).
-    /// When `mock` is true, skips the read and mocks every send.
-    pub async fn app_only(
-        client: ReqwestClient,
-        mock: bool,
-        config_base_dir: &Path,
-        max_size: u64,
-        cache_ttl: Duration,
-    ) -> Result<Self, Error> {
-        if mock {
-            return Ok(Self::new_mock(client));
-        }
-        let x_app = super::x_app::config::load(config_base_dir)?;
-        let bearer = x_app.bearer_token.ok_or_else(|| {
-            Error::Other(
-                "x_app.json has no bearer_token — re-run \
-                 `psychological-operations x_app setup` and capture it".into(),
-            )
-        })?;
-        let cache = cache::open_optional(config_base_dir, max_size, cache_ttl).await?;
-        let auth_locker = cache
-            .as_ref()
-            .map(|c| Arc::new(Locker::new(c.pool().clone())));
-        Ok(Self::new(
-            client,
-            None::<&str>,
-            AuthMode::AppOnly { token: Arc::new(bearer) },
-            max_size,
-            cache_ttl,
-            cache,
-            auth_locker,
-            Some(Arc::new(config_base_dir.to_path_buf())),
-        ))
-    }
-
-    /// Construct a Client authorized as the per-psyop X user.
-    /// Resolves both twids (persona + X-App) from the CEF cookie
-    /// jars at construction time, then builds an `AuthMode::Persona`.
-    /// The actual bearer is resolved lazily on every API call via
-    /// `current_bearer_token` — auth.json is read fresh each time,
-    /// and refreshed when expiring within
-    /// [`auth_json::FRESHNESS_BUFFER`].
-    pub async fn for_psyop(
-        client: ReqwestClient,
-        psyop_name: &str,
-        mock: bool,
-        config_base_dir: &Path,
-        max_size: u64,
-        cache_ttl: Duration,
-    ) -> Result<Self, Error> {
-        if mock {
-            return Ok(Self::new_mock(client));
-        }
-        let x_app = super::x_app::config::ensure_setup(config_base_dir)?;
-        let client_id = x_app.client_id.expect("ensure_setup guarantees client_id");
-        let client_secret = x_app.client_secret.expect("ensure_setup guarantees client_secret");
-
-        let persona_twid = cookies::signed_in_x_user_id(
-            config_base_dir,
-            &Mode::PsyopAuthorize { name: psyop_name.to_string() },
-        )
-        .await
-        .map_err(|e| Error::Other(format!("persona cookies: {e}")))?
-        .ok_or_else(|| Error::Other(format!(
-            "no persona signed in for psyop '{psyop_name}'",
-        )))?;
-        let x_app_twid = cookies::signed_in_x_user_id(config_base_dir, &Mode::XApp)
+    /// Open the SQLite cache + table on first call; subsequent
+    /// calls return the cached `Arc`.
+    pub(crate) async fn cache(&self) -> Result<&Arc<Cache>, Error> {
+        self.cache
+            .get_or_try_init(|| async {
+                let c = Cache::open(
+                    &self.config_base_dir,
+                    self.cache_max_size,
+                    self.cache_ttl,
+                )
+                .await?;
+                Ok::<_, Error>(Arc::new(c))
+            })
             .await
-            .map_err(|e| Error::Other(format!("x-app cookies: {e}")))?
-            .ok_or_else(|| Error::Other("no X-App account signed in".into()))?;
+    }
 
-        let persona = PersonaKey {
-            kind: PersonaKind::Psyop,
-            name: psyop_name.to_string(),
-            persona_twid,
-            x_app_twid,
-        };
-
-        let cache = cache::open_optional(config_base_dir, max_size, cache_ttl).await?;
-        let auth_locker = cache
-            .as_ref()
-            .map(|c| Arc::new(Locker::new(c.pool().clone())));
-        Ok(Self::new(
-            client,
-            None::<&str>,
-            AuthMode::Persona {
-                persona,
-                client_id: Arc::new(client_id),
-                client_secret: Arc::new(client_secret),
-            },
-            max_size,
-            cache_ttl,
-            cache,
-            auth_locker,
-            Some(Arc::new(config_base_dir.to_path_buf())),
-        ))
+    /// Auth locker shares the cache's pool. Initialized on first
+    /// call; transitively initializes [`cache`].
+    pub(crate) async fn auth_locker(&self) -> Result<&Arc<Locker>, Error> {
+        self.auth_locker
+            .get_or_try_init(|| async {
+                let cache = self.cache().await?;
+                Ok::<_, Error>(Arc::new(Locker::new(cache.pool().clone())))
+            })
+            .await
     }
 
     // ===================================================================
@@ -234,7 +150,7 @@ impl Client {
     /// resolution — just opens the file and parses. Returns
     /// `Ok(None)` if the file doesn't exist.
     pub fn read_auth(&self, persona: &PersonaKey) -> Result<Option<Tokens>, Error> {
-        let auth_path = self.auth_path(persona)?;
+        let auth_path = self.auth_path(persona);
         match std::fs::read(&auth_path) {
             Ok(bytes) => {
                 let tokens: Tokens = serde_json::from_slice(&bytes).map_err(|e| {
@@ -253,14 +169,15 @@ impl Client {
     /// Acquire the two-tier auth lock for `persona`. Returned
     /// `AuthLock` is consumed by [`Self::write_auth`] (or dropped
     /// for best-effort release without writing). The lock cannot
-    /// be constructed externally — `lock_auth` is the only producer.
+    /// be constructed externally — `lock_auth` is the only
+    /// producer.
     pub async fn lock_auth(&self, persona: &PersonaKey) -> Result<AuthLock, Error> {
-        let locker = self.auth_locker.as_ref().ok_or_else(|| {
-            Error::Other(
-                "no auth_locker on this Client — mock or no-cache mode \
-                 doesn't support lock_auth".into(),
-            )
-        })?;
+        if self.mock {
+            return Err(Error::Other(
+                "lock_auth not supported in mock mode".into(),
+            ));
+        }
+        let locker = self.auth_locker().await?;
         let key = auth::auth_lock_key(persona);
         let guard = locker.acquire(&key).await?;
         Ok(AuthLock::new(guard, persona.clone()))
@@ -269,15 +186,17 @@ impl Client {
     /// Write `new_data` to the persona's auth.json (atomic via
     /// tempfile + rename), then release the lock (real `DELETE`
     /// of the SQLite row, then drop inproc — awaited).
-    ///
-    /// The persona is taken from `lock.persona()`; you can only
-    /// write to the persona you locked.
     pub async fn write_auth(
         &self,
         lock: AuthLock,
         new_data: &Tokens,
     ) -> Result<(), Error> {
-        let auth_path = self.auth_path(lock.persona())?;
+        if self.mock {
+            return Err(Error::Other(
+                "write_auth not supported in mock mode".into(),
+            ));
+        }
+        let auth_path = self.auth_path(lock.persona());
         let dir = auth_path
             .parent()
             .ok_or_else(|| Error::Other("auth.json has no parent dir".into()))?;
@@ -298,66 +217,126 @@ impl Client {
         Ok(())
     }
 
-    /// Compute the auth.json path for `persona`. Requires the
-    /// Client was constructed with a `config_base_dir` (i.e. not
-    /// mock mode).
-    fn auth_path(&self, persona: &PersonaKey) -> Result<PathBuf, Error> {
-        let base = self.config_base_dir.as_ref().ok_or_else(|| {
-            Error::Other(
-                "no config_base_dir on this Client — mock mode doesn't \
-                 support auth file methods".into(),
-            )
-        })?;
-        Ok(auth_json::path_for(
-            base.as_path(),
+    /// Compute the auth.json path for `persona`.
+    fn auth_path(&self, persona: &PersonaKey) -> PathBuf {
+        auth_json::path_for(
+            self.config_base_dir.as_path(),
             persona.kind,
             &persona.name,
             &persona.persona_twid,
             &persona.x_app_twid,
-        ))
+        )
     }
 
-    /// Run the read-or-refresh dance and return the current
-    /// access token to attach as Bearer.
+    // ===================================================================
+    // Per-call auth resolution.
+    // ===================================================================
+
+    /// Resolve the current Bearer based on [`self.auth_mode`] —
+    /// reads `x_app.json` for `XApp`, runs the read/lock/double-
+    /// check/refresh dance for `Psyop`/`Agent`. All I/O happens
+    /// here on every call.
     async fn current_bearer_token(&self) -> Result<String, Error> {
-        match &self.auth {
-            AuthMode::AppOnly { token } => Ok((**token).clone()),
-            AuthMode::Persona { persona, client_id, client_secret } => {
-                // 1. Cheap, lockless read.
-                if let Some(t) = self.read_auth(persona)? {
-                    if auth_json::is_fresh(&t) {
-                        return Ok(t.access_token);
-                    }
-                }
-                // 2. Stale (or missing) — acquire the two-tier lock.
-                let lock = self.lock_auth(persona).await?;
-                // 3. Re-read after the lock — someone else may have refreshed.
-                let stale = match self.read_auth(persona)? {
-                    Some(t) if auth_json::is_fresh(&t) => {
-                        drop(lock);
-                        return Ok(t.access_token);
-                    }
-                    Some(t) => t,
-                    None => {
-                        drop(lock);
-                        return Err(Error::Other(format!(
-                            "no auth.json for persona '{}' — run the OAuth flow first",
-                            persona.name,
-                        )));
-                    }
-                };
-                let refresh_token = stale.refresh_token.as_deref().ok_or_else(|| {
-                    Error::Other("auth.json has no refresh_token to refresh against".into())
-                })?;
-                // 4. Refresh via X's OAuth token endpoint.
-                let new_tokens =
-                    super::oauth::tokens::refresh(client_id, client_secret, refresh_token).await?;
-                let access = new_tokens.access_token.clone();
-                self.write_auth(lock, &new_tokens).await?;
-                Ok(access)
+        match &self.auth_mode {
+            AuthMode::XApp => {
+                let x_app = super::x_app::config::load(&self.config_base_dir)?;
+                x_app.bearer_token.ok_or_else(|| {
+                    Error::Other(
+                        "x_app.json has no bearer_token — re-run \
+                         `psychological-operations x_app setup` and capture it"
+                            .into(),
+                    )
+                })
+            }
+            AuthMode::Psyop(name) => {
+                self.persona_bearer(PersonaKind::Psyop, name).await
+            }
+            AuthMode::Agent(name) => {
+                self.persona_bearer(PersonaKind::Agent, name).await
             }
         }
     }
+
+    /// Resolve twids fresh from cookies, read auth.json, refresh
+    /// through the two-tier lock if stale. Shared by `Psyop` /
+    /// `Agent` variants.
+    async fn persona_bearer(
+        &self,
+        kind: PersonaKind,
+        name: &str,
+    ) -> Result<String, Error> {
+        let cookie_mode = match kind {
+            PersonaKind::Psyop => Mode::PsyopAuthorize { name: name.to_string() },
+            PersonaKind::Agent => Mode::AgentAuthorize { name: name.to_string() },
+        };
+        let persona_twid = cookies::signed_in_x_user_id(
+            &self.config_base_dir,
+            &cookie_mode,
+        )
+        .await
+        .map_err(|e| Error::Other(format!("persona cookies: {e}")))?
+        .ok_or_else(|| {
+            Error::Other(format!("no persona signed in for {kind:?} '{name}'"))
+        })?;
+        let x_app_twid = cookies::signed_in_x_user_id(
+            &self.config_base_dir,
+            &Mode::XApp,
+        )
+        .await
+        .map_err(|e| Error::Other(format!("x-app cookies: {e}")))?
+        .ok_or_else(|| Error::Other("no X-App account signed in".into()))?;
+        let persona = PersonaKey {
+            kind,
+            name: name.to_string(),
+            persona_twid,
+            x_app_twid,
+        };
+
+        // 1. Cheap, lockless read.
+        if let Some(t) = self.read_auth(&persona)? {
+            if auth_json::is_fresh(&t) {
+                return Ok(t.access_token);
+            }
+        }
+        // 2. Stale or missing — acquire the two-tier lock.
+        let lock = self.lock_auth(&persona).await?;
+        // 3. Re-read after the lock — someone else may have refreshed.
+        let stale = match self.read_auth(&persona)? {
+            Some(t) if auth_json::is_fresh(&t) => {
+                drop(lock);
+                return Ok(t.access_token);
+            }
+            Some(t) => t,
+            None => {
+                drop(lock);
+                return Err(Error::Other(format!(
+                    "no auth.json for persona '{name}' — run the OAuth flow first",
+                )));
+            }
+        };
+        let refresh_token = stale.refresh_token.as_deref().ok_or_else(|| {
+            Error::Other("auth.json has no refresh_token to refresh against".into())
+        })?;
+        // 4. Refresh via X's OAuth token endpoint.
+        let x_app = super::x_app::config::ensure_setup(&self.config_base_dir)?;
+        let client_id = x_app.client_id.expect("ensure_setup guarantees client_id");
+        let client_secret = x_app
+            .client_secret
+            .expect("ensure_setup guarantees client_secret");
+        let new_tokens = super::oauth::tokens::refresh(
+            &client_id,
+            &client_secret,
+            refresh_token,
+        )
+        .await?;
+        let access = new_tokens.access_token.clone();
+        self.write_auth(lock, &new_tokens).await?;
+        Ok(access)
+    }
+
+    // ===================================================================
+    // Generic send / fetch surface (pub(crate); codegen-driven).
+    // ===================================================================
 
     /// Build an authorized `RequestBuilder` for `path`. `pub(crate)`
     /// — only the codegen helpers + the SDK's own send methods
@@ -370,7 +349,7 @@ impl Client {
         let token = self.current_bearer_token().await?;
         let url = format!(
             "{}/{}",
-            self.base_url.trim_end_matches('/'),
+            DEFAULT_BASE_URL.trim_end_matches('/'),
             path.trim_start_matches('/'),
         );
         let bare = token.strip_prefix("Bearer ").unwrap_or(token.as_str()).to_string();
@@ -521,18 +500,17 @@ impl Client {
         cache: bool,
     ) -> Result<Vec<u8>, Error> {
         let req = rb.build().map_err(Error::RequestBuild)?;
-        match (cache, self.cache.as_ref()) {
-            (true, Some(c)) => {
-                let key = key_from_request(&req);
-                let client = self.client.clone();
-                let cache = c.clone();
-                cache
-                    .get_or_fetch(&key, move || async move {
-                        run_request_raw(client, req).await
-                    })
-                    .await
-            }
-            _ => run_request_raw(self.client.clone(), req).await,
+        if cache {
+            let cache = self.cache().await?.clone();
+            let key = key_from_request(&req);
+            let client = self.client.clone();
+            cache
+                .get_or_fetch(&key, move || async move {
+                    run_request_raw(client, req).await
+                })
+                .await
+        } else {
+            run_request_raw(self.client.clone(), req).await
         }
     }
 }
