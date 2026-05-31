@@ -13,7 +13,9 @@ use reqwest::Method;
 pub async fn post(
     http: &Http,
     _req: &super::post::Request,
+    cache: bool,
 ) -> Result<super::post::Response, Error> {
+    let _ = cache;
     let path = "chat/conversations/group/initialize";
     http.send::<_, ()>(Method::POST, path, None).await
 }

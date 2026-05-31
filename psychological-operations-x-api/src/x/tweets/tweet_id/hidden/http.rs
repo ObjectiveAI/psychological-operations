@@ -13,7 +13,9 @@ use reqwest::Method;
 pub async fn put(
     http: &Http,
     req: &super::put::Request,
+    cache: bool,
 ) -> Result<super::put::Response, Error> {
+    let _ = cache;
     let path = format!("tweets/{}/hidden", urlencoding::encode(&req.tweet_id.to_string()));
     http.send(Method::PUT, &path, req.body.as_ref()).await
 }

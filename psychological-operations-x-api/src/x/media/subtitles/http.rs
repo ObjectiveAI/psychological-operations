@@ -13,7 +13,9 @@ use reqwest::Method;
 pub async fn post(
     http: &Http,
     req: &super::post::Request,
+    cache: bool,
 ) -> Result<super::post::Response, Error> {
+    let _ = cache;
     let path = "media/subtitles";
     http.send(Method::POST, path, req.body.as_ref()).await
 }
@@ -22,7 +24,9 @@ pub async fn post(
 pub async fn delete(
     http: &Http,
     req: &super::delete::Request,
+    cache: bool,
 ) -> Result<super::delete::Response, Error> {
+    let _ = cache;
     let path = "media/subtitles";
     http.send(Method::DELETE, path, req.body.as_ref()).await
 }

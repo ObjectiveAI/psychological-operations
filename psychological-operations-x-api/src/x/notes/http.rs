@@ -13,7 +13,9 @@ use reqwest::Method;
 pub async fn post(
     http: &Http,
     req: &super::post::Request,
+    cache: bool,
 ) -> Result<super::post::Response, Error> {
+    let _ = cache;
     let path = "notes";
     http.send(Method::POST, path, req.body.as_ref()).await
 }

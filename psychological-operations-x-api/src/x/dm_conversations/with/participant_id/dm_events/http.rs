@@ -13,7 +13,9 @@ use reqwest::Method;
 pub async fn get(
     http: &Http,
     req: &super::get::Request,
+    cache: bool,
 ) -> Result<super::get::Response, Error> {
+    let _ = cache;
     let path = format!("dm_conversations/with/{}/dm_events", urlencoding::encode(&req.participant_id.to_string()));
     http.send_with_query(Method::GET, &path, req).await
 }

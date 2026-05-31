@@ -13,7 +13,9 @@ use reqwest::Method;
 pub async fn get(
     http: &Http,
     req: &super::get::Request,
+    cache: bool,
 ) -> Result<super::get::Response, Error> {
+    let _ = cache;
     let path = "activity/subscriptions";
     http.send_with_query(Method::GET, path, req).await
 }
@@ -22,7 +24,9 @@ pub async fn get(
 pub async fn post(
     http: &Http,
     req: &super::post::Request,
+    cache: bool,
 ) -> Result<super::post::Response, Error> {
+    let _ = cache;
     let path = "activity/subscriptions";
     http.send(Method::POST, path, req.body.as_ref()).await
 }
@@ -31,7 +35,9 @@ pub async fn post(
 pub async fn delete(
     http: &Http,
     req: &super::delete::Request,
+    cache: bool,
 ) -> Result<super::delete::Response, Error> {
+    let _ = cache;
     let path = "activity/subscriptions";
     http.send_with_query(Method::DELETE, path, req).await
 }

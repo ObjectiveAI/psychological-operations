@@ -441,8 +441,18 @@ async fn run_queries(
 // -- X API --------------------------------------------------------------------
 
 async fn make_http_client(mock: bool, cfg: &crate::run::Config) -> Result<Http, Error> {
-    Http::app_only(reqwest::Client::new(), mock, &cfg.objectiveai_base_dir()).await
-        .map_err(|e| Error::Other(format!("Http::app_only: {e}")))
+    Http::app_only(
+        reqwest::Client::new(),
+        mock,
+        &cfg.objectiveai_base_dir(),
+        // Bytes — explicit per-call size budget for the future SQLite
+        // response cache. No `DEFAULT_*` constant — `Http::*` makes
+        // this a required arg and every CLI callsite picks its own
+        // value.
+        256 * 1024 * 1024,
+    )
+    .await
+    .map_err(|e| Error::Other(format!("Http::app_only: {e}")))
 }
 
 fn standard_tweet_fields() -> Vec<TweetFields> {
@@ -463,7 +473,7 @@ async fn fetch_tweet(http: &Http, id: &str) -> Result<Option<Post>, Error> {
         user_fields: Some(vec![UserFields::Username]),
         ..default_id_request()
     };
-    let resp = call(http, &req).await.map_err(|e| {
+    let resp = call(http, &req, true).await.map_err(|e| {
         Error::Other(format!("X /2/tweets/{id} failed: {e}"))
     })?;
     let tweet = match resp.data {
@@ -484,7 +494,7 @@ async fn search_recent(http: &Http, query: &str) -> Result<Vec<Post>, Error> {
         max_results: Some(100),
         ..default_recent_request()
     };
-    let resp = call(http, &req).await.map_err(|e| {
+    let resp = call(http, &req, true).await.map_err(|e| {
         Error::Other(format!("X /2/tweets/search/recent failed: {e}"))
     })?;
     let tweets = resp.data.unwrap_or_default();

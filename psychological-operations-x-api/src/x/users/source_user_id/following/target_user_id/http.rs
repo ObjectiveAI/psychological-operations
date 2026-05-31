@@ -13,7 +13,9 @@ use reqwest::Method;
 pub async fn delete(
     http: &Http,
     req: &super::delete::Request,
+    cache: bool,
 ) -> Result<super::delete::Response, Error> {
+    let _ = cache;
     let path = format!("users/{}/following/{}", urlencoding::encode(&req.source_user_id.to_string()), urlencoding::encode(&req.target_user_id.to_string()));
     http.send::<_, ()>(Method::DELETE, &path, None).await
 }

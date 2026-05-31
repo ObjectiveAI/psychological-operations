@@ -13,7 +13,9 @@ use reqwest::Method;
 pub async fn delete(
     http: &Http,
     _req: &super::delete::Request,
+    cache: bool,
 ) -> Result<super::delete::Response, Error> {
+    let _ = cache;
     let path = "connections/all";
     http.send::<_, ()>(Method::DELETE, path, None).await
 }

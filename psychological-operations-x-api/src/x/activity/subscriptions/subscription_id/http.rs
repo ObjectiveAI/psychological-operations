@@ -13,7 +13,9 @@ use reqwest::Method;
 pub async fn put(
     http: &Http,
     req: &super::put::Request,
+    cache: bool,
 ) -> Result<super::put::Response, Error> {
+    let _ = cache;
     let path = format!("activity/subscriptions/{}", urlencoding::encode(&req.subscription_id.to_string()));
     http.send(Method::PUT, &path, req.body.as_ref()).await
 }
@@ -22,7 +24,9 @@ pub async fn put(
 pub async fn delete(
     http: &Http,
     req: &super::delete::Request,
+    cache: bool,
 ) -> Result<super::delete::Response, Error> {
+    let _ = cache;
     let path = format!("activity/subscriptions/{}", urlencoding::encode(&req.subscription_id.to_string()));
     http.send::<_, ()>(Method::DELETE, &path, None).await
 }

@@ -13,7 +13,9 @@ use reqwest::Method;
 pub async fn post(
     http: &Http,
     req: &super::post::Request,
+    cache: bool,
 ) -> Result<super::post::Response, Error> {
+    let _ = cache;
     let path = format!("tweets/search/webhooks/{}", urlencoding::encode(&req.webhook_id.to_string()));
     http.send_with_query(Method::POST, &path, req).await
 }
@@ -22,7 +24,9 @@ pub async fn post(
 pub async fn delete(
     http: &Http,
     req: &super::delete::Request,
+    cache: bool,
 ) -> Result<super::delete::Response, Error> {
+    let _ = cache;
     let path = format!("tweets/search/webhooks/{}", urlencoding::encode(&req.webhook_id.to_string()));
     http.send::<_, ()>(Method::DELETE, &path, None).await
 }

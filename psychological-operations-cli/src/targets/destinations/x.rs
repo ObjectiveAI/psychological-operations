@@ -36,6 +36,11 @@ pub async fn send(cfg: &X, subject: &Subject<'_>, rt: &crate::run::Config) -> Re
         name,
         psyop.mock_enabled(),
         &rt.objectiveai_base_dir(),
+        // Bytes — explicit per-call size budget for the future SQLite
+        // response cache. No `DEFAULT_*` constant — `Http::*` makes
+        // this a required arg and every CLI callsite picks its own
+        // value.
+        256 * 1024 * 1024,
     )
     .await
     .map_err(|e| crate::error::Error::Other(format!("Http::for_psyop: {e}")))?;
@@ -45,7 +50,7 @@ pub async fn send(cfg: &X, subject: &Subject<'_>, rt: &crate::run::Config) -> Re
     let me_req = psychological_operations_x_api::x::users::me::get::Request {
         user_fields: None, expansions: None, tweet_fields: None,
     };
-    let me = psychological_operations_x_api::x::users::me::http::get(&http, &me_req).await
+    let me = psychological_operations_x_api::x::users::me::http::get(&http, &me_req, true).await
         .map_err(|e| crate::error::Error::Other(format!("/2/users/me failed: {e}")))?;
     let me_user = me.data.ok_or_else(|| crate::error::Error::Other(
         "/2/users/me returned no `data`".into(),
@@ -60,7 +65,7 @@ pub async fn send(cfg: &X, subject: &Subject<'_>, rt: &crate::run::Config) -> Re
                     id: acting_id.clone(),
                     body: Some(UsersLikesCreateRequest { tweet_id }),
                 };
-                psychological_operations_x_api::x::users::id::likes::http::post(&http, &req).await
+                psychological_operations_x_api::x::users::id::likes::http::post(&http, &req, false).await
                     .map_err(|e| crate::error::Error::Other(format!(
                         "x like failed for tweet {}: {e}", scored.post.id,
                     )))?;
@@ -70,7 +75,7 @@ pub async fn send(cfg: &X, subject: &Subject<'_>, rt: &crate::run::Config) -> Re
                     id: acting_id.clone(),
                     body: Some(UsersRetweetsCreateRequest { tweet_id }),
                 };
-                psychological_operations_x_api::x::users::id::retweets::http::post(&http, &req).await
+                psychological_operations_x_api::x::users::id::retweets::http::post(&http, &req, false).await
                     .map_err(|e| crate::error::Error::Other(format!(
                         "x retweet failed for tweet {}: {e}", scored.post.id,
                     )))?;

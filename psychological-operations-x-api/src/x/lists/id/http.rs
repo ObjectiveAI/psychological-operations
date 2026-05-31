@@ -13,7 +13,9 @@ use reqwest::Method;
 pub async fn get(
     http: &Http,
     req: &super::get::Request,
+    cache: bool,
 ) -> Result<super::get::Response, Error> {
+    let _ = cache;
     let path = format!("lists/{}", urlencoding::encode(&req.id.to_string()));
     http.send_with_query(Method::GET, &path, req).await
 }
@@ -22,7 +24,9 @@ pub async fn get(
 pub async fn put(
     http: &Http,
     req: &super::put::Request,
+    cache: bool,
 ) -> Result<super::put::Response, Error> {
+    let _ = cache;
     let path = format!("lists/{}", urlencoding::encode(&req.id.to_string()));
     http.send(Method::PUT, &path, req.body.as_ref()).await
 }
@@ -31,7 +35,9 @@ pub async fn put(
 pub async fn delete(
     http: &Http,
     req: &super::delete::Request,
+    cache: bool,
 ) -> Result<super::delete::Response, Error> {
+    let _ = cache;
     let path = format!("lists/{}", urlencoding::encode(&req.id.to_string()));
     http.send::<_, ()>(Method::DELETE, &path, None).await
 }

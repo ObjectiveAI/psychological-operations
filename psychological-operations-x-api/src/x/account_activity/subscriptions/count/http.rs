@@ -13,7 +13,9 @@ use reqwest::Method;
 pub async fn get(
     http: &Http,
     _req: &super::get::Request,
+    cache: bool,
 ) -> Result<super::get::Response, Error> {
+    let _ = cache;
     let path = "account_activity/subscriptions/count";
     http.send::<_, ()>(Method::GET, path, None).await
 }

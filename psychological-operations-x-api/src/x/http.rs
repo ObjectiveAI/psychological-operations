@@ -27,6 +27,12 @@ pub struct Http {
     /// When true, every `send*` short-circuits to
     /// `crate::x::mock::*` instead of hitting the real X API.
     pub mock: bool,
+    /// Future SQLite response-cache size budget, in bytes. Stored
+    /// on the client so cache decisions can read it without
+    /// threading an extra argument. Not consulted yet — the cache
+    /// implementation lands in a follow-up; this field is a stable
+    /// hook for it.
+    pub max_size: u64,
 }
 
 impl Http {
@@ -38,6 +44,7 @@ impl Http {
         client: Client,
         base_url: Option<impl Into<String>>,
         bearer_token: Option<impl Into<String>>,
+        max_size: u64,
     ) -> Self {
         Self {
             client,
@@ -46,6 +53,7 @@ impl Http {
                 .unwrap_or_else(|| DEFAULT_BASE_URL.to_string()),
             bearer_token: bearer_token.map(|t| Arc::new(t.into())),
             mock: false,
+            max_size,
         }
     }
 
@@ -57,6 +65,7 @@ impl Http {
             base_url: DEFAULT_BASE_URL.to_string(),
             bearer_token: None,
             mock: true,
+            max_size: 0,
         }
     }
 
@@ -72,6 +81,7 @@ impl Http {
         client: Client,
         mock: bool,
         config_base_dir: &Path,
+        max_size: u64,
     ) -> Result<Self, Error> {
         if mock {
             return Ok(Self::new_mock(client));
@@ -83,7 +93,7 @@ impl Http {
                  `psychological-operations x_app setup` and capture it".into(),
             )
         })?;
-        Ok(Self::new(client, None::<&str>, Some(bearer)))
+        Ok(Self::new(client, None::<&str>, Some(bearer), max_size))
     }
 
     /// Construct an Http authorized as the per-psyop X user. The
@@ -111,6 +121,7 @@ impl Http {
         psyop_name: &str,
         mock: bool,
         config_base_dir: &Path,
+        max_size: u64,
     ) -> Result<Self, Error> {
         if mock {
             return Ok(Self::new_mock(client));
@@ -139,7 +150,7 @@ impl Http {
         )
         .await
         .map_err(|e| Error::Other(format!("auth_json: {e}")))?;
-        Ok(Self::new(client, None::<&str>, Some(tokens.access_token)))
+        Ok(Self::new(client, None::<&str>, Some(tokens.access_token), max_size))
     }
 
     /// Build a `RequestBuilder` for `path` with auth attached. `path`

@@ -13,7 +13,9 @@ use reqwest::Method;
 pub async fn get(
     http: &Http,
     req: &super::get::Request,
+    cache: bool,
 ) -> Result<super::get::Response, Error> {
+    let _ = cache;
     let path = format!("dm_conversations/media/{}/{}/{}", urlencoding::encode(&req.dm_id.to_string()), urlencoding::encode(&req.media_id.to_string()), urlencoding::encode(&req.resource_id.to_string()));
     http.send_no_response::<()>(Method::GET, &path, None).await?;
     Ok(super::get::Response)

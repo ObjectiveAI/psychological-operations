@@ -13,7 +13,9 @@ use reqwest::Method;
 pub async fn post(
     http: &Http,
     req: &super::post::Request,
+    cache: bool,
 ) -> Result<super::post::Response, Error> {
+    let _ = cache;
     let path = format!("users/{}/dm/block", urlencoding::encode(&req.id.to_string()));
     http.send::<_, ()>(Method::POST, &path, None).await
 }
