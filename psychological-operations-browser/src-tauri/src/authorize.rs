@@ -241,24 +241,28 @@ async fn run_flow(
     let config_base_dir = args.config_base_dir.clone();
     let cache_max_size = args.cache_max_size;
     let cache_ttl = std::time::Duration::from_secs(args.cache_ttl);
-    // Use an XApp-mode SDK Client to write auth.json under the
-    // two-tier lock — single seam for cross-process write coordination.
+    // Use a persona-mode SDK Client (matching the kind being
+    // authorized) to write auth.json under the two-tier lock —
+    // single seam for cross-process write coordination.
+    let auth_mode = match kind {
+        psychological_operations_sdk::browser::auth_json::PersonaKind::Psyop =>
+            psychological_operations_sdk::x::client::AuthMode::Psyop(persona_name.clone()),
+        psychological_operations_sdk::browser::auth_json::PersonaKind::Agent =>
+            psychological_operations_sdk::x::client::AuthMode::Agent(persona_name.clone()),
+    };
     let client = psychological_operations_sdk::x::client::Client::new(
         reqwest::Client::new(),
         false,
         cache_max_size,
         cache_ttl,
         config_base_dir,
-        psychological_operations_sdk::x::client::AuthMode::XApp,
+        auth_mode,
     );
-    let persona = psychological_operations_sdk::x::auth::PersonaKey {
-        kind,
-        name: persona_name.clone(),
-        persona_twid: persona_twid.clone(),
-        x_app_twid: x_app_twid.clone(),
-    };
+    // The Client derives its persona (and the on-disk auth.json
+    // path) from `auth_mode` + the CEF cookies it consults under
+    // the hood — no `PersonaKey` argument needed.
     let lock = client
-        .lock_auth(&persona)
+        .lock_auth()
         .await
         .map_err(|e| format!("lock auth.json: {e}"))?;
     client

@@ -144,12 +144,41 @@ impl Client {
 
     // ===================================================================
     // Auth-file surface (read / lock / write).
+    //
+    // The persona is derived from [`self.auth_mode`] + CEF cookies
+    // on every call — no method takes a `PersonaKey` argument.
+    // `AuthMode::XApp` clients can't use these methods (no
+    // persona to bind); they return an error.
     // ===================================================================
 
-    /// Read `auth.json` for `persona`. No locking, no twid
-    /// resolution — just opens the file and parses. Returns
-    /// `Ok(None)` if the file doesn't exist.
-    pub fn read_auth(&self, persona: &PersonaKey) -> Result<Option<Tokens>, Error> {
+    /// Read `auth.json` for the persona this Client is bound to.
+    /// No locking. Returns `Ok(None)` if the file doesn't exist.
+    /// Errors for `AuthMode::XApp` clients (no persona).
+    pub async fn read_auth(&self) -> Result<Option<Tokens>, Error> {
+        let persona = self.resolve_persona().await?;
+        self.read_auth_at(&persona)
+    }
+
+    /// Acquire the two-tier auth lock for this Client's persona.
+    /// Returned `AuthLock` is consumed by [`Self::write_auth`] (or
+    /// dropped for best-effort release without writing). The lock
+    /// cannot be constructed externally — `lock_auth` is the only
+    /// producer. Errors for `AuthMode::XApp` clients.
+    pub async fn lock_auth(&self) -> Result<AuthLock, Error> {
+        if self.mock {
+            return Err(Error::Other(
+                "lock_auth not supported in mock mode".into(),
+            ));
+        }
+        let persona = self.resolve_persona().await?;
+        self.lock_auth_at(&persona).await
+    }
+
+    /// Crate-internal — explicit persona for code paths that
+    /// already resolved one (e.g. `persona_bearer` reusing the
+    /// persona it just resolved instead of re-running the cookies
+    /// dance).
+    fn read_auth_at(&self, persona: &PersonaKey) -> Result<Option<Tokens>, Error> {
         let auth_path = self.auth_path(persona);
         match std::fs::read(&auth_path) {
             Ok(bytes) => {
@@ -166,17 +195,7 @@ impl Client {
         }
     }
 
-    /// Acquire the two-tier auth lock for `persona`. Returned
-    /// `AuthLock` is consumed by [`Self::write_auth`] (or dropped
-    /// for best-effort release without writing). The lock cannot
-    /// be constructed externally — `lock_auth` is the only
-    /// producer.
-    pub async fn lock_auth(&self, persona: &PersonaKey) -> Result<AuthLock, Error> {
-        if self.mock {
-            return Err(Error::Other(
-                "lock_auth not supported in mock mode".into(),
-            ));
-        }
+    async fn lock_auth_at(&self, persona: &PersonaKey) -> Result<AuthLock, Error> {
         let locker = self.auth_locker().await?;
         let key = auth::auth_lock_key(persona);
         let guard = locker.acquire(&key).await?;
@@ -248,26 +267,28 @@ impl Client {
                     )
                 })
             }
-            AuthMode::Psyop(name) => {
-                self.persona_bearer(PersonaKind::Psyop, name).await
-            }
-            AuthMode::Agent(name) => {
-                self.persona_bearer(PersonaKind::Agent, name).await
-            }
+            AuthMode::Psyop(_) | AuthMode::Agent(_) => self.persona_bearer().await,
         }
     }
 
-    /// Resolve twids fresh from cookies, read auth.json, refresh
-    /// through the two-tier lock if stale. Shared by `Psyop` /
-    /// `Agent` variants.
-    async fn persona_bearer(
-        &self,
-        kind: PersonaKind,
-        name: &str,
-    ) -> Result<String, Error> {
+    /// Resolve the persona from `self.auth_mode` + cookies. Errors
+    /// for `AuthMode::XApp` and when no persona / X-App is signed
+    /// in to the matching CEF profile. Reused by `read_auth`,
+    /// `lock_auth`, and `persona_bearer`.
+    async fn resolve_persona(&self) -> Result<PersonaKey, Error> {
+        let (kind, name) = match &self.auth_mode {
+            AuthMode::XApp => {
+                return Err(Error::Other(
+                    "auth file methods are not available for AuthMode::XApp — \
+                     XApp credentials live in x_app.json, not auth.json".into(),
+                ));
+            }
+            AuthMode::Psyop(name) => (PersonaKind::Psyop, name.clone()),
+            AuthMode::Agent(name) => (PersonaKind::Agent, name.clone()),
+        };
         let cookie_mode = match kind {
-            PersonaKind::Psyop => Mode::PsyopAuthorize { name: name.to_string() },
-            PersonaKind::Agent => Mode::AgentAuthorize { name: name.to_string() },
+            PersonaKind::Psyop => Mode::PsyopAuthorize { name: name.clone() },
+            PersonaKind::Agent => Mode::AgentAuthorize { name: name.clone() },
         };
         let persona_twid = cookies::signed_in_x_user_id(
             &self.config_base_dir,
@@ -285,23 +306,25 @@ impl Client {
         .await
         .map_err(|e| Error::Other(format!("x-app cookies: {e}")))?
         .ok_or_else(|| Error::Other("no X-App account signed in".into()))?;
-        let persona = PersonaKey {
-            kind,
-            name: name.to_string(),
-            persona_twid,
-            x_app_twid,
-        };
+        Ok(PersonaKey { kind, name, persona_twid, x_app_twid })
+    }
+
+    /// Resolve persona, read auth.json, refresh through the two-
+    /// tier lock if stale. Shared by `Psyop` / `Agent` variants
+    /// of [`current_bearer_token`].
+    async fn persona_bearer(&self) -> Result<String, Error> {
+        let persona = self.resolve_persona().await?;
 
         // 1. Cheap, lockless read.
-        if let Some(t) = self.read_auth(&persona)? {
+        if let Some(t) = self.read_auth_at(&persona)? {
             if auth_json::is_fresh(&t) {
                 return Ok(t.access_token);
             }
         }
         // 2. Stale or missing — acquire the two-tier lock.
-        let lock = self.lock_auth(&persona).await?;
+        let lock = self.lock_auth_at(&persona).await?;
         // 3. Re-read after the lock — someone else may have refreshed.
-        let stale = match self.read_auth(&persona)? {
+        let stale = match self.read_auth_at(&persona)? {
             Some(t) if auth_json::is_fresh(&t) => {
                 drop(lock);
                 return Ok(t.access_token);
@@ -310,7 +333,8 @@ impl Client {
             None => {
                 drop(lock);
                 return Err(Error::Other(format!(
-                    "no auth.json for persona '{name}' — run the OAuth flow first",
+                    "no auth.json for persona '{}' — run the OAuth flow first",
+                    persona.name,
                 )));
             }
         };
