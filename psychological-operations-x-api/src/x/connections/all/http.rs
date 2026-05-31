@@ -15,8 +15,7 @@ pub async fn delete(
     _req: &super::delete::Request,
     cache: bool,
 ) -> Result<super::delete::Response, Error> {
-    let _ = cache;
     let path = "connections/all";
-    http.send::<_, ()>(Method::DELETE, path, None).await
+    http.send::<_, ()>(Method::DELETE, path, None, cache).await
 }
 

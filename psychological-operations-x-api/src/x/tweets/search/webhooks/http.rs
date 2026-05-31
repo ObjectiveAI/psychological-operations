@@ -15,8 +15,7 @@ pub async fn get(
     _req: &super::get::Request,
     cache: bool,
 ) -> Result<super::get::Response, Error> {
-    let _ = cache;
     let path = "tweets/search/webhooks";
-    http.send::<_, ()>(Method::GET, path, None).await
+    http.send::<_, ()>(Method::GET, path, None, cache).await
 }
 

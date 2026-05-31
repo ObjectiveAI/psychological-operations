@@ -15,9 +15,8 @@ pub async fn post(
     req: &super::post::Request,
     cache: bool,
 ) -> Result<super::post::Response, Error> {
-    let _ = cache;
     let path = "media/subtitles";
-    http.send(Method::POST, path, req.body.as_ref()).await
+    http.send(Method::POST, path, req.body.as_ref(), cache).await
 }
 
 /// DELETE /2/media/subtitles
@@ -26,8 +25,7 @@ pub async fn delete(
     req: &super::delete::Request,
     cache: bool,
 ) -> Result<super::delete::Response, Error> {
-    let _ = cache;
     let path = "media/subtitles";
-    http.send(Method::DELETE, path, req.body.as_ref()).await
+    http.send(Method::DELETE, path, req.body.as_ref(), cache).await
 }
 

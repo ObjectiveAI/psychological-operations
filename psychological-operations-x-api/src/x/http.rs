@@ -9,6 +9,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 use super::Error;
+use crate::x::cache::{Cache, request_key};
 use crate::x::types::Problem;
 
 /// Default base URL for the X v2 API.
@@ -27,12 +28,15 @@ pub struct Http {
     /// When true, every `send*` short-circuits to
     /// `crate::x::mock::*` instead of hitting the real X API.
     pub mock: bool,
-    /// Future SQLite response-cache size budget, in bytes. Stored
-    /// on the client so cache decisions can read it without
-    /// threading an extra argument. Not consulted yet — the cache
-    /// implementation lands in a follow-up; this field is a stable
-    /// hook for it.
+    /// SQLite response-cache size budget, in bytes. Threaded into
+    /// [`Cache::open`] when the cache is opened; honored on every
+    /// `store`.
     pub max_size: u64,
+    /// Optional response cache. `None` when no cache file was
+    /// supplied (e.g. `Http::new` callers that don't have a
+    /// config_base_dir). When `Some`, `send_*(cache=true)` routes
+    /// through it.
+    pub cache: Option<Arc<Cache>>,
 }
 
 impl Http {
@@ -45,6 +49,7 @@ impl Http {
         base_url: Option<impl Into<String>>,
         bearer_token: Option<impl Into<String>>,
         max_size: u64,
+        cache: Option<Arc<Cache>>,
     ) -> Self {
         Self {
             client,
@@ -54,6 +59,7 @@ impl Http {
             bearer_token: bearer_token.map(|t| Arc::new(t.into())),
             mock: false,
             max_size,
+            cache,
         }
     }
 
@@ -66,6 +72,7 @@ impl Http {
             bearer_token: None,
             mock: true,
             max_size: 0,
+            cache: None,
         }
     }
 
@@ -93,7 +100,8 @@ impl Http {
                  `psychological-operations x_app setup` and capture it".into(),
             )
         })?;
-        Ok(Self::new(client, None::<&str>, Some(bearer), max_size))
+        let cache = open_cache(config_base_dir, max_size)?;
+        Ok(Self::new(client, None::<&str>, Some(bearer), max_size, cache))
     }
 
     /// Construct an Http authorized as the per-psyop X user. The
@@ -150,7 +158,8 @@ impl Http {
         )
         .await
         .map_err(|e| Error::Other(format!("auth_json: {e}")))?;
-        Ok(Self::new(client, None::<&str>, Some(tokens.access_token), max_size))
+        let cache = open_cache(config_base_dir, max_size)?;
+        Ok(Self::new(client, None::<&str>, Some(tokens.access_token), max_size, cache))
     }
 
     /// Build a `RequestBuilder` for `path` with auth attached. `path`
@@ -180,6 +189,7 @@ impl Http {
         method: Method,
         path: &str,
         query: &Q,
+        cache: bool,
     ) -> Result<T, Error>
     where
         T: DeserializeOwned,
@@ -189,7 +199,8 @@ impl Http {
             return crate::x::mock::send_with_query(method, path, query);
         }
         let rb = self.request(method, path).query(query);
-        Self::execute_unary(rb).await
+        let raw = self.execute_cached(rb, cache).await?;
+        decode_body(&raw)
     }
 
     /// Send `method` to `path` with an optional JSON body. Use for
@@ -199,6 +210,7 @@ impl Http {
         method: Method,
         path: &str,
         body: Option<&B>,
+        cache: bool,
     ) -> Result<T, Error>
     where
         T: DeserializeOwned,
@@ -211,20 +223,25 @@ impl Http {
         if let Some(b) = body {
             rb = rb.json(b);
         }
-        Self::execute_unary(rb).await
+        let raw = self.execute_cached(rb, cache).await?;
+        decode_body(&raw)
     }
 
     /// Like `send_with_query` but discards the response body — useful
     /// for endpoints that return 204 No Content or non-JSON content.
+    /// `cache` is accepted for signature uniformity but ignored —
+    /// there's no body to cache.
     pub async fn send_with_query_no_response<Q>(
         &self,
         method: Method,
         path: &str,
         query: &Q,
+        cache: bool,
     ) -> Result<(), Error>
     where
         Q: Serialize + ?Sized,
     {
+        let _ = cache;
         if self.mock {
             return crate::x::mock::send_with_query_no_response(method, path, query);
         }
@@ -250,6 +267,7 @@ impl Http {
         path: &str,
         query: &Q,
         body: &B,
+        cache: bool,
     ) -> Result<T, Error>
     where
         T: DeserializeOwned,
@@ -260,20 +278,24 @@ impl Http {
             return crate::x::mock::send_with_query_and_body(method, path, query, body);
         }
         let rb = self.request(method, path).query(query).json(body);
-        Self::execute_unary(rb).await
+        let raw = self.execute_cached(rb, cache).await?;
+        decode_body(&raw)
     }
 
     /// Like `send` but discards a 2xx body — useful for endpoints
-    /// that return 204 No Content.
+    /// that return 204 No Content. `cache` is accepted for signature
+    /// uniformity but ignored — there's no body to cache.
     pub async fn send_no_response<B>(
         &self,
         method: Method,
         path: &str,
         body: Option<&B>,
+        cache: bool,
     ) -> Result<(), Error>
     where
         B: Serialize + ?Sized,
     {
+        let _ = cache;
         if self.mock {
             return crate::x::mock::send_no_response(method, path, body);
         }
@@ -289,25 +311,72 @@ impl Http {
         Err(map_error_response(code, response).await)
     }
 
-    /// Send a built `RequestBuilder`, expecting a 2xx JSON body that
-    /// deserializes into `T`. On non-2xx, prefers `Error::Problem`
-    /// when the body parses as `Problem`, else falls back to
-    /// `Error::BadStatus`.
-    async fn execute_unary<T>(rb: reqwest::RequestBuilder) -> Result<T, Error>
-    where
-        T: DeserializeOwned,
-    {
-        let response = rb.send().await.map_err(Error::Transport)?;
-        let code = response.status();
-        let text = response.text().await.map_err(Error::Transport)?;
-
-        if code.is_success() {
-            let mut de = serde_json::Deserializer::from_str(&text);
-            return serde_path_to_error::deserialize::<_, T>(&mut de)
-                .map_err(Error::Deserialize);
+    /// Build the request, then either route through the cache (on
+    /// `cache && self.cache.is_some()`) or fire it directly. Returns
+    /// the raw 2xx response bytes for downstream deserialization.
+    async fn execute_cached(
+        &self,
+        rb: reqwest::RequestBuilder,
+        cache: bool,
+    ) -> Result<Vec<u8>, Error> {
+        let req = rb.build().map_err(Error::RequestBuild)?;
+        match (cache, self.cache.as_ref()) {
+            (true, Some(c)) => {
+                let key = key_from_request(&req);
+                let client = self.client.clone();
+                let cache = c.clone();
+                cache
+                    .get_or_fetch(&key, move || async move {
+                        run_request_raw(client, req).await
+                    })
+                    .await
+            }
+            _ => run_request_raw(self.client.clone(), req).await,
         }
-        Err(map_status_error(code, &text))
     }
+}
+
+/// `SHA-256(method ‖ url ‖ body)` — the url already contains the
+/// reqwest-encoded query string, and the body is bytes from
+/// `.json(...)` or `.body(...)`. Streaming bodies (none in this
+/// crate) would hash to empty.
+fn key_from_request(req: &reqwest::Request) -> [u8; 32] {
+    let body = req
+        .body()
+        .and_then(|b| b.as_bytes())
+        .unwrap_or(&[]);
+    request_key(req.method(), req.url().as_str(), &[], body)
+}
+
+async fn run_request_raw(
+    client: Client,
+    req: reqwest::Request,
+) -> Result<Vec<u8>, Error> {
+    let response = client.execute(req).await.map_err(Error::Transport)?;
+    let code = response.status();
+    let bytes = response.bytes().await.map_err(Error::Transport)?;
+    if code.is_success() {
+        return Ok(bytes.to_vec());
+    }
+    let text = String::from_utf8_lossy(&bytes);
+    Err(map_status_error(code, &text))
+}
+
+fn decode_body<T: DeserializeOwned>(raw: &[u8]) -> Result<T, Error> {
+    let mut de = serde_json::Deserializer::from_slice(raw);
+    serde_path_to_error::deserialize::<_, T>(&mut de).map_err(Error::Deserialize)
+}
+
+/// Open the SQLite cache for a given config root, but only when
+/// `max_size > 0`. `app_only` / `for_psyop` plumbing.
+fn open_cache(
+    config_base_dir: &Path,
+    max_size: u64,
+) -> Result<Option<Arc<Cache>>, Error> {
+    if max_size == 0 {
+        return Ok(None);
+    }
+    Ok(Some(Arc::new(Cache::open(config_base_dir, max_size)?)))
 }
 
 fn map_status_error(code: StatusCode, text: &str) -> Error {

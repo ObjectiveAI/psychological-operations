@@ -15,9 +15,8 @@ pub async fn get(
     req: &super::get::Request,
     cache: bool,
 ) -> Result<super::get::Response, Error> {
-    let _ = cache;
     let path = format!("lists/{}", urlencoding::encode(&req.id.to_string()));
-    http.send_with_query(Method::GET, &path, req).await
+    http.send_with_query(Method::GET, &path, req, cache).await
 }
 
 /// PUT /2/lists/{id}
@@ -26,9 +25,8 @@ pub async fn put(
     req: &super::put::Request,
     cache: bool,
 ) -> Result<super::put::Response, Error> {
-    let _ = cache;
     let path = format!("lists/{}", urlencoding::encode(&req.id.to_string()));
-    http.send(Method::PUT, &path, req.body.as_ref()).await
+    http.send(Method::PUT, &path, req.body.as_ref(), cache).await
 }
 
 /// DELETE /2/lists/{id}
@@ -37,8 +35,7 @@ pub async fn delete(
     req: &super::delete::Request,
     cache: bool,
 ) -> Result<super::delete::Response, Error> {
-    let _ = cache;
     let path = format!("lists/{}", urlencoding::encode(&req.id.to_string()));
-    http.send::<_, ()>(Method::DELETE, &path, None).await
+    http.send::<_, ()>(Method::DELETE, &path, None, cache).await
 }
 

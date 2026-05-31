@@ -15,8 +15,7 @@ pub async fn post(
     req: &super::post::Request,
     cache: bool,
 ) -> Result<super::post::Response, Error> {
-    let _ = cache;
     let path = format!("dm_conversations/{}/messages", urlencoding::encode(&req.dm_conversation_id.to_string()));
-    http.send(Method::POST, &path, req.body.as_ref()).await
+    http.send(Method::POST, &path, req.body.as_ref(), cache).await
 }
 

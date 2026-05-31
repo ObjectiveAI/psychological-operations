@@ -15,8 +15,7 @@ pub async fn post(
     req: &super::post::Request,
     cache: bool,
 ) -> Result<super::post::Response, Error> {
-    let _ = cache;
     let path = format!("chat/conversations/{}/typing", urlencoding::encode(&req.id.to_string()));
-    http.send::<_, ()>(Method::POST, &path, None).await
+    http.send::<_, ()>(Method::POST, &path, None, cache).await
 }
 

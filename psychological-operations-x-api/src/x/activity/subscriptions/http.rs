@@ -15,9 +15,8 @@ pub async fn get(
     req: &super::get::Request,
     cache: bool,
 ) -> Result<super::get::Response, Error> {
-    let _ = cache;
     let path = "activity/subscriptions";
-    http.send_with_query(Method::GET, path, req).await
+    http.send_with_query(Method::GET, path, req, cache).await
 }
 
 /// POST /2/activity/subscriptions
@@ -26,9 +25,8 @@ pub async fn post(
     req: &super::post::Request,
     cache: bool,
 ) -> Result<super::post::Response, Error> {
-    let _ = cache;
     let path = "activity/subscriptions";
-    http.send(Method::POST, path, req.body.as_ref()).await
+    http.send(Method::POST, path, req.body.as_ref(), cache).await
 }
 
 /// DELETE /2/activity/subscriptions
@@ -37,8 +35,7 @@ pub async fn delete(
     req: &super::delete::Request,
     cache: bool,
 ) -> Result<super::delete::Response, Error> {
-    let _ = cache;
     let path = "activity/subscriptions";
-    http.send_with_query(Method::DELETE, path, req).await
+    http.send_with_query(Method::DELETE, path, req, cache).await
 }
 

@@ -15,8 +15,7 @@ pub async fn get(
     req: &super::get::Request,
     cache: bool,
 ) -> Result<super::get::Response, Error> {
-    let _ = cache;
     let path = format!("dm_conversations/{}/dm_events", urlencoding::encode(&req.id.to_string()));
-    http.send_with_query(Method::GET, &path, req).await
+    http.send_with_query(Method::GET, &path, req, cache).await
 }
 

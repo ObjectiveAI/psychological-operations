@@ -15,8 +15,7 @@ pub async fn get(
     _req: &super::get::Request,
     cache: bool,
 ) -> Result<super::get::Response, Error> {
-    let _ = cache;
     let path = "account_activity/subscriptions/count";
-    http.send::<_, ()>(Method::GET, path, None).await
+    http.send::<_, ()>(Method::GET, path, None, cache).await
 }
 

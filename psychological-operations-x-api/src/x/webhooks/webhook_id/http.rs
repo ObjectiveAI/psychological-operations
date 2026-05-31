@@ -15,9 +15,8 @@ pub async fn put(
     req: &super::put::Request,
     cache: bool,
 ) -> Result<super::put::Response, Error> {
-    let _ = cache;
     let path = format!("webhooks/{}", urlencoding::encode(&req.webhook_id.to_string()));
-    http.send::<_, ()>(Method::PUT, &path, None).await
+    http.send::<_, ()>(Method::PUT, &path, None, cache).await
 }
 
 /// DELETE /2/webhooks/{webhook_id}
@@ -26,8 +25,7 @@ pub async fn delete(
     req: &super::delete::Request,
     cache: bool,
 ) -> Result<super::delete::Response, Error> {
-    let _ = cache;
     let path = format!("webhooks/{}", urlencoding::encode(&req.webhook_id.to_string()));
-    http.send::<_, ()>(Method::DELETE, &path, None).await
+    http.send::<_, ()>(Method::DELETE, &path, None, cache).await
 }
 

@@ -15,9 +15,8 @@ pub async fn put(
     req: &super::put::Request,
     cache: bool,
 ) -> Result<super::put::Response, Error> {
-    let _ = cache;
     let path = format!("activity/subscriptions/{}", urlencoding::encode(&req.subscription_id.to_string()));
-    http.send(Method::PUT, &path, req.body.as_ref()).await
+    http.send(Method::PUT, &path, req.body.as_ref(), cache).await
 }
 
 /// DELETE /2/activity/subscriptions/{subscription_id}
@@ -26,8 +25,7 @@ pub async fn delete(
     req: &super::delete::Request,
     cache: bool,
 ) -> Result<super::delete::Response, Error> {
-    let _ = cache;
     let path = format!("activity/subscriptions/{}", urlencoding::encode(&req.subscription_id.to_string()));
-    http.send::<_, ()>(Method::DELETE, &path, None).await
+    http.send::<_, ()>(Method::DELETE, &path, None, cache).await
 }
 

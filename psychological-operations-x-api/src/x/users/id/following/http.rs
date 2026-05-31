@@ -15,9 +15,8 @@ pub async fn get(
     req: &super::get::Request,
     cache: bool,
 ) -> Result<super::get::Response, Error> {
-    let _ = cache;
     let path = format!("users/{}/following", urlencoding::encode(&req.id.to_string()));
-    http.send_with_query(Method::GET, &path, req).await
+    http.send_with_query(Method::GET, &path, req, cache).await
 }
 
 /// POST /2/users/{id}/following
@@ -26,8 +25,7 @@ pub async fn post(
     req: &super::post::Request,
     cache: bool,
 ) -> Result<super::post::Response, Error> {
-    let _ = cache;
     let path = format!("users/{}/following", urlencoding::encode(&req.id.to_string()));
-    http.send(Method::POST, &path, req.body.as_ref()).await
+    http.send(Method::POST, &path, req.body.as_ref(), cache).await
 }
 

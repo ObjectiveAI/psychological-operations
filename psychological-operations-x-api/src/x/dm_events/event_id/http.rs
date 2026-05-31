@@ -15,9 +15,8 @@ pub async fn get(
     req: &super::get::Request,
     cache: bool,
 ) -> Result<super::get::Response, Error> {
-    let _ = cache;
     let path = format!("dm_events/{}", urlencoding::encode(&req.event_id.to_string()));
-    http.send_with_query(Method::GET, &path, req).await
+    http.send_with_query(Method::GET, &path, req, cache).await
 }
 
 /// DELETE /2/dm_events/{event_id}
@@ -26,8 +25,7 @@ pub async fn delete(
     req: &super::delete::Request,
     cache: bool,
 ) -> Result<super::delete::Response, Error> {
-    let _ = cache;
     let path = format!("dm_events/{}", urlencoding::encode(&req.event_id.to_string()));
-    http.send::<_, ()>(Method::DELETE, &path, None).await
+    http.send::<_, ()>(Method::DELETE, &path, None, cache).await
 }
 

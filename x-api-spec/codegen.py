@@ -834,9 +834,6 @@ class Codegen:
         f.write(f"    {req_ident}: &super::{method}::Request,\n")
         f.write("    cache: bool,\n")
         f.write(f") -> Result<super::{method}::Response, Error> {{\n")
-        # Cache policy lands in a follow-up; for now the parameter is
-        # threaded through to lock the public surface in place.
-        f.write("    let _ = cache;\n")
 
         # ---- Build the path string ----
         if path_params:
@@ -859,41 +856,41 @@ class Codegen:
             # only known case (POST /2/tweets/search/stream/rules).
             f.write(
                 f"    http.send_with_query_and_body({method_const}, "
-                f"{path_expr}, req, &req.body).await\n"
+                f"{path_expr}, req, &req.body, cache).await\n"
             )
         elif has_query:
             # GET (always uses this branch since GETs always have query),
             # plus the rare non-GET with query but no body.
             if has_response:
                 f.write(
-                    f"    http.send_with_query({method_const}, {path_expr}, req).await\n"
+                    f"    http.send_with_query({method_const}, {path_expr}, req, cache).await\n"
                 )
             else:
                 f.write(
                     f"    http.send_with_query_no_response({method_const}, "
-                    f"{path_expr}, req).await?;\n"
+                    f"{path_expr}, req, cache).await?;\n"
                 )
                 f.write(f"    Ok(super::{method}::Response)\n")
         elif has_body:
             body_arg = self._body_arg_expr(body_required)
             if has_response:
                 f.write(
-                    f"    http.send({method_const}, {path_expr}, {body_arg}).await\n"
+                    f"    http.send({method_const}, {path_expr}, {body_arg}, cache).await\n"
                 )
             else:
                 f.write(
-                    f"    http.send_no_response({method_const}, {path_expr}, {body_arg}).await?;\n"
+                    f"    http.send_no_response({method_const}, {path_expr}, {body_arg}, cache).await?;\n"
                 )
                 f.write(f"    Ok(super::{method}::Response)\n")
         else:
             # No body, no query — typical DELETE.
             if has_response:
                 f.write(
-                    f"    http.send::<_, ()>({method_const}, {path_expr}, None).await\n"
+                    f"    http.send::<_, ()>({method_const}, {path_expr}, None, cache).await\n"
                 )
             else:
                 f.write(
-                    f"    http.send_no_response::<()>({method_const}, {path_expr}, None).await?;\n"
+                    f"    http.send_no_response::<()>({method_const}, {path_expr}, None, cache).await?;\n"
                 )
                 f.write(f"    Ok(super::{method}::Response)\n")
 

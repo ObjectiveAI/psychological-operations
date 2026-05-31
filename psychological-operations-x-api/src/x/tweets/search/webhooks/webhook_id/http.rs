@@ -15,9 +15,8 @@ pub async fn post(
     req: &super::post::Request,
     cache: bool,
 ) -> Result<super::post::Response, Error> {
-    let _ = cache;
     let path = format!("tweets/search/webhooks/{}", urlencoding::encode(&req.webhook_id.to_string()));
-    http.send_with_query(Method::POST, &path, req).await
+    http.send_with_query(Method::POST, &path, req, cache).await
 }
 
 /// DELETE /2/tweets/search/webhooks/{webhook_id}
@@ -26,8 +25,7 @@ pub async fn delete(
     req: &super::delete::Request,
     cache: bool,
 ) -> Result<super::delete::Response, Error> {
-    let _ = cache;
     let path = format!("tweets/search/webhooks/{}", urlencoding::encode(&req.webhook_id.to_string()));
-    http.send::<_, ()>(Method::DELETE, &path, None).await
+    http.send::<_, ()>(Method::DELETE, &path, None, cache).await
 }
 

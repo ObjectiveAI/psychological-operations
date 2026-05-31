@@ -15,9 +15,8 @@ pub async fn get(
     req: &super::get::Request,
     cache: bool,
 ) -> Result<super::get::Response, Error> {
-    let _ = cache;
     let path = "connections";
-    http.send_with_query(Method::GET, path, req).await
+    http.send_with_query(Method::GET, path, req, cache).await
 }
 
 /// DELETE /2/connections
@@ -26,8 +25,7 @@ pub async fn delete(
     req: &super::delete::Request,
     cache: bool,
 ) -> Result<super::delete::Response, Error> {
-    let _ = cache;
     let path = "connections";
-    http.send(Method::DELETE, path, Some(&req.body)).await
+    http.send(Method::DELETE, path, Some(&req.body), cache).await
 }
 

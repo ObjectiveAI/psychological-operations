@@ -15,9 +15,8 @@ pub async fn get(
     req: &super::get::Request,
     cache: bool,
 ) -> Result<super::get::Response, Error> {
-    let _ = cache;
     let path = "compliance/jobs";
-    http.send_with_query(Method::GET, path, req).await
+    http.send_with_query(Method::GET, path, req, cache).await
 }
 
 /// POST /2/compliance/jobs
@@ -26,8 +25,7 @@ pub async fn post(
     req: &super::post::Request,
     cache: bool,
 ) -> Result<super::post::Response, Error> {
-    let _ = cache;
     let path = "compliance/jobs";
-    http.send(Method::POST, path, Some(&req.body)).await
+    http.send(Method::POST, path, Some(&req.body), cache).await
 }
 

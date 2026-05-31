@@ -15,8 +15,7 @@ pub async fn delete(
     req: &super::delete::Request,
     cache: bool,
 ) -> Result<super::delete::Response, Error> {
-    let _ = cache;
     let path = format!("account_activity/webhooks/{}/subscriptions/{}/all", urlencoding::encode(&req.webhook_id.to_string()), urlencoding::encode(&req.user_id.to_string()));
-    http.send::<_, ()>(Method::DELETE, &path, None).await
+    http.send::<_, ()>(Method::DELETE, &path, None, cache).await
 }
 

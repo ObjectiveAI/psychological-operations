@@ -15,8 +15,7 @@ pub async fn post(
     req: &super::post::Request,
     cache: bool,
 ) -> Result<super::post::Response, Error> {
-    let _ = cache;
     let path = "chat/conversations/group";
-    http.send(Method::POST, path, Some(&req.body)).await
+    http.send(Method::POST, path, Some(&req.body), cache).await
 }
 
