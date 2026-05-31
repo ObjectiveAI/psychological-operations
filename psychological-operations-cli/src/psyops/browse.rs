@@ -1,10 +1,15 @@
-//! `psyops browse [--name <X>] [--commit <sha>]` — open chromium
-//! for each psyop in turn so the operator can scroll x.com and
-//! capture tweets via the extension. Blocks on each chromium's
-//! exit before moving to the next psyop. With `--name <X>`,
-//! opens just that one and blocks on its exit.
+//! `psyops browse [--name <X>] [--commit <sha>]` — open the embedded
+//! browser for each psyop in turn so the operator can browse x.com
+//! and save tweet IDs (Save button → stdout `tweet_id` event →
+//! enqueue into the local DB). Blocks on each browser's exit before
+//! moving to the next psyop.
 
-use crate::chromium::{extract::ensure_extracted, launch, native_host, paths::profile_dir};
+use std::io::{BufRead, BufReader};
+
+use psychological_operations_sdk::browser::output::Output as BrowserOutput;
+
+use crate::browser::{extract::ensure_extracted, launch};
+use crate::db::Db;
 use crate::error::Error;
 
 pub async fn run(
@@ -13,7 +18,9 @@ pub async fn run(
     cfg: &crate::run::Config,
 ) -> Result<crate::Output, Error> {
     let materialized = ensure_extracted(cfg)?;
-    crate::emit::emit(crate::events::Event::BrowseChromiumMaterialized {
+    let config_base_dir = cfg.objectiveai_base_dir();
+
+    crate::emit::emit(crate::events::Event::BrowseBrowserMaterialized {
         path: materialized.root.display().to_string(),
     });
 
@@ -52,27 +59,65 @@ pub async fn run(
             total: names.len(),
         });
 
-        let profile = profile_dir(name, cfg);
-        std::fs::create_dir_all(&profile)?;
-        native_host::install(&profile, cfg)?;
-
         let mut child = launch::spawn(
-            &materialized.chromium_binary,
-            &materialized.read_extension_dir,
-            &profile,
-            name,
-            &commit,
-            "https://x.com/home",
+            &materialized.binary,
+            &config_base_dir,
+            launch::Mode::PsyopRead { name: name.clone() },
+            /* pipe_stdout = */ true,
         )?;
 
-        // Block until the operator closes chromium. `wait` is sync;
-        // that's fine here — the runtime is operator-paced.
+        crate::emit::emit(crate::events::Event::BrowserSpawned {
+            kind: "psyop_read".into(),
+            name: Some(name.clone()),
+            pid: child.id(),
+        });
+
+        // Stream the browser's stdout line-by-line. Each `tweet_id`
+        // event lands in the for_you queue; anything else is logged
+        // and dropped. Blocks until the operator closes the browser
+        // window (stdout closes, we hit EOF, the loop exits).
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| Error::Other("browser stdout pipe missing".into()))?;
+        let db = Db::open(cfg)?;
+        let mut inserted: usize = 0;
+        let mut skipped: usize = 0;
+        for line in BufReader::new(stdout).lines() {
+            let Ok(line) = line else { break };
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            match serde_json::from_str::<BrowserOutput>(trimmed) {
+                Ok(BrowserOutput::TweetId { id }) => {
+                    match db.enqueue_for_you(&id, name, &commit) {
+                        Ok(true) => inserted += 1,
+                        Ok(false) => skipped += 1,
+                        Err(_) => skipped += 1,
+                    }
+                }
+                // Other events are informational here — `Log`,
+                // `Url`, `SignedIn`, `Panel`, `Response`, `Help`,
+                // `Error`. Drop them; the browser's own stderr
+                // / its panel UI is already showing the operator
+                // what they need.
+                Ok(_) => {}
+                Err(_) => {
+                    // Browser shouldn't be emitting non-JSON on
+                    // stdout, but be tolerant: skip and continue.
+                }
+            }
+        }
+
         let status = child.wait().map_err(|e| {
-            Error::Other(format!("waiting for chromium ({name}) failed: {e}"))
+            Error::Other(format!("waiting for browser ({name}) failed: {e}"))
         })?;
-        crate::emit::emit(crate::events::Event::BrowseChromiumExit {
+        crate::emit::emit(crate::events::Event::BrowseSessionEnded {
             psyop: name.to_string(),
             status: status.code(),
+            inserted,
+            skipped,
         });
     }
 

@@ -3,8 +3,8 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand};
 use envconfig::Envconfig;
 
+use crate::agents;
 use crate::x_app_setup;
-use crate::ingest;
 use crate::invent;
 use crate::targets;
 use crate::psyops;
@@ -148,6 +148,11 @@ enum Commands {
         #[command(subcommand)]
         command: psyops::Commands,
     },
+    /// Manage agents (oauth)
+    Agents {
+        #[command(subcommand)]
+        command: agents::Commands,
+    },
     /// Global target destinations
     Targets {
         #[command(subcommand)]
@@ -158,12 +163,6 @@ enum Commands {
         #[command(subcommand)]
         command: invent::Commands,
     },
-    /// Chromium native-messaging host. Reads framed JSON on stdin
-    /// (from psychological-operations-chromium-extension) and writes captured tweets into
-    /// the local DB. Identity (psyop + commit) is resolved from the
-    /// PSYOP_NAME / PSYOP_COMMIT_SHA env vars set by the launcher
-    /// when Chromium was spawned with this profile.
-    NativeHost,
     /// Master X dev-account / X-App credentials setup.
     #[command(name = "x_app")]
     XApp {
@@ -226,9 +225,9 @@ where
     };
     let output = match cli.command {
         Commands::Psyops { command } => command.handle(cfg).await,
+        Commands::Agents { command } => command.handle(cfg).await,
         Commands::Targets { command } => command.handle(cfg).await,
         Commands::Invent { command } => command.handle(cfg),
-        Commands::NativeHost => ingest::run(cfg).await,
         Commands::XApp { command } => command.handle(cfg).await,
     }
     .map_err(|e| e.to_string())?;

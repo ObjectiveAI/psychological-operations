@@ -1,0 +1,58 @@
+//! Spawn the extracted psychological-operations-browser binary in
+//! a given mode. Caller has already resolved the mode (and any
+//! psyop/agent name) and called [`super::extract::ensure_extracted`].
+
+use std::path::Path;
+use std::process::{Child, Command, Stdio};
+
+use crate::error::Error;
+
+/// CLI-side mirror of the browser's `--<mode>` flag set. We don't
+/// reach for the SDK's [`psychological_operations_sdk::browser::mode::Mode`]
+/// here because the SDK enum carries no inherent CLI representation
+/// (it's used renderer-side for `__PSYOPS_MODE` injection); the
+/// browser's clap layer in `args.rs` is the source of truth for the
+/// flag spellings and we mirror it.
+pub enum Mode {
+    XApp,
+    PsyopRead { name: String },
+    PsyopAuthorize { name: String },
+    AgentAuthorize { name: String },
+}
+
+impl Mode {
+    fn args(&self) -> Vec<String> {
+        match self {
+            Mode::XApp => vec!["--x-app".into()],
+            Mode::PsyopRead { name } => vec!["--psyop-read".into(), name.clone()],
+            Mode::PsyopAuthorize { name } => vec!["--psyop-authorize".into(), name.clone()],
+            Mode::AgentAuthorize { name } => vec!["--agent-authorize".into(), name.clone()],
+        }
+    }
+}
+
+/// Spawn the browser. `config_base_dir` is the objectiveai base dir
+/// (mirrors what the SDK's `auth_json` / `x_app_credentials` modules
+/// expect) — the browser builds `<base>/plugins/psychological-operations/browser/...`
+/// underneath it.
+///
+/// `pipe_stdout` controls whether the child's stdout is piped back
+/// to the caller (needed for `psyops browse` to consume `tweet_id`
+/// events) or inherited (so the browser's JSONL emit goes straight
+/// to the CLI's terminal — used by spawn-and-wait flows where the
+/// CLI is acting as a transparent launcher).
+pub fn spawn(
+    binary: &Path,
+    config_base_dir: &Path,
+    mode: Mode,
+    pipe_stdout: bool,
+) -> Result<Child, Error> {
+    let mut cmd = Command::new(binary);
+    cmd.arg("--config-base-dir").arg(config_base_dir);
+    cmd.args(mode.args());
+    if pipe_stdout {
+        cmd.stdout(Stdio::piped());
+    }
+    cmd.spawn()
+        .map_err(|e| Error::Other(format!("failed to spawn browser: {e}")))
+}

@@ -1,81 +1,31 @@
 use std::env;
 use std::path::PathBuf;
-use std::process::Command;
 
 fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
-    let chromium_dir = manifest_dir
+    let browser_dir = manifest_dir
         .parent()
         .unwrap()
-        .join("psychological-operations-chromium");
+        .join("psychological-operations-browser");
 
     let target = env::var("TARGET").unwrap();
     let profile = if env::var("PROFILE").unwrap() == "release" { "release" } else { "debug" };
+    let embed_dir = browser_dir.join("embed").join(&target).join(profile);
 
-    // Validate the embedded Chromium bundle.
-    let validate_script = chromium_dir.join("validate.sh");
-    let mut args: Vec<&str> = vec!["--target", &target];
-    if profile == "release" {
-        args.push("--release");
+    let bundle_path = embed_dir.join("browser-bundle.zip");
+    let entry_path = embed_dir.join("browser-entry.txt");
+
+    if !bundle_path.exists() || !entry_path.exists() {
+        panic!(
+            "\n\npsychological-operations-browser bundle missing at {}.\n\
+             Run: pwsh psychological-operations-browser/scripts/build-bundle.ps1{}\n\
+             (or scripts/build-bundle.sh on POSIX).\n",
+            embed_dir.display(),
+            if profile == "release" { " -Release" } else { "" },
+        );
     }
 
-    let status = if cfg!(target_os = "windows") {
-        Command::new("cmd")
-            .args(["/c", "bash"])
-            .arg(&validate_script)
-            .args(&args)
-            .status()
-    } else {
-        Command::new("bash")
-            .arg(&validate_script)
-            .args(&args)
-            .status()
-    };
-
-    match status {
-        Ok(s) if s.success() => {}
-        Ok(s) => {
-            panic!(
-                "\n\npsychological-operations-chromium bundle is missing or stale.\n\
-                 Run: bash psychological-operations-chromium/build.sh --target {target}{}\n\
-                 Exit code: {}\n",
-                if profile == "release" { " --release" } else { "" },
-                s.code().unwrap_or(-1),
-            );
-        }
-        Err(e) => {
-            panic!("Failed to run validate.sh: {e}. Make sure bash is available.");
-        }
-    }
-
-    let embed_dir = chromium_dir.join("embed").join(&target).join(profile);
-
-    println!(
-        "cargo:rustc-env=PSYOPS_CHROMIUM_BUNDLE_PATH={}",
-        embed_dir.join("chromium-bundle.zip").display(),
-    );
-    println!(
-        "cargo:rustc-env=PSYOPS_READ_EXTENSION_TAR_PATH={}",
-        embed_dir.join("read.tar").display(),
-    );
-    println!(
-        "cargo:rustc-env=PSYOPS_READ_EXTENSION_ID_PATH={}",
-        embed_dir.join("read-id.txt").display(),
-    );
-    println!(
-        "cargo:rustc-env=PSYOPS_AUTH_EXTENSION_TAR_PATH={}",
-        embed_dir.join("auth.tar").display(),
-    );
-    println!(
-        "cargo:rustc-env=PSYOPS_AUTH_EXTENSION_ID_PATH={}",
-        embed_dir.join("auth-id.txt").display(),
-    );
-    println!(
-        "cargo:rustc-env=PSYOPS_CHROMIUM_LAUNCH_ENTRY_PATH={}",
-        embed_dir.join("launch-entry.txt").display(),
-    );
-    println!(
-        "cargo:rerun-if-changed={}",
-        chromium_dir.join("embed").display(),
-    );
+    println!("cargo:rustc-env=PSYOPS_BROWSER_BUNDLE_PATH={}", bundle_path.display());
+    println!("cargo:rustc-env=PSYOPS_BROWSER_ENTRY_PATH={}", entry_path.display());
+    println!("cargo:rerun-if-changed={}", embed_dir.display());
 }

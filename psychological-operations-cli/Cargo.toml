@@ -27,15 +27,11 @@ url = { version = "2", features = ["serde"] }
 serde_path_to_error = "0.1.20"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 sha2 = "0.10"
-tar = "0.4"
 starlark = "0.13.0"
 rand = "0.8"
 base64 = "0.22"
 envconfig = "0.11.1"
 psychological-operations-sdk = { path = "../psychological-operations-sdk" }
-
-[target.'cfg(windows)'.dependencies]
-winreg = "0.52"
 
 [dev-dependencies]
 # Integration tests open the per-test data.db for assertions.

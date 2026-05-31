@@ -76,10 +76,10 @@ pub enum Commands {
         #[arg(long)]
         seed: Option<i64>,
     },
-    /// Open chromium for each psyop in turn so the operator can
-    /// scroll x.com / capture tweets via the extension. Blocks on
-    /// each chromium's exit before opening the next. With
-    /// `--name <X>` opens just that one psyop's chromium.
+    /// Open the embedded browser for each psyop in turn so the
+    /// operator can scroll x.com and save tweet IDs. Blocks on each
+    /// browser's exit before opening the next. With `--name <X>`
+    /// opens just that one psyop's browser.
     Browse {
         #[arg(long)]
         name: Option<String>,
@@ -92,10 +92,12 @@ pub enum Commands {
         command: targets::Commands,
     },
     /// Authorize the per-psyop X account via OAuth 2.0 (PKCE) so the
-    /// X target can like / retweet on its behalf. Opens chromium on
-    /// the per-psyop profile (which must already be signed into X)
-    /// and persists tokens to ~/.psychological-operations/tokens/<name>.json.
-    /// One-time per psyop — refresh tokens are used silently after that.
+    /// X target can like / retweet on its behalf. Opens the embedded
+    /// browser scoped to `psyop/<name>/`; on sign-in the browser
+    /// drives the consent screen, exchanges the code, and writes
+    /// auth.json under the psyop's data root. One-time per psyop —
+    /// refresh tokens are used silently after that.
+    #[command(name = "oauth")]
     OAuth {
         name: String,
     },

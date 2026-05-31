@@ -40,8 +40,8 @@ pub enum Event {
     QuerySkipped  { psyop: String, query: String, reason: String },
     QueryComplete { psyop: String, query: String, count: usize },
 
-    // ── browse / chromium ────────────────────────────────────
-    BrowseChromiumMaterialized { path: String },
+    // ── browse / browser ─────────────────────────────────────
+    BrowseBrowserMaterialized { path: String },
     BrowseNoPsyops,
     BrowsePsyopList            { count: usize },
     BrowseStarting             {
@@ -50,16 +50,28 @@ pub enum Event {
         index: usize,
         total: usize,
     },
-    BrowseChromiumExit         { psyop: String, status: Option<i32> },
-    ChromiumSpawned            { psyop: String, commit: String, pid: u32 },
-
-    // ── oauth / setup ────────────────────────────────────────
-    OauthListening   { psyop: String, port: u16, timeout_secs: u64 },
-    OauthTokensSaved { psyop: String, scope: String, expires_at: String },
-    XAppSetupInstructions {
-        profile: String,
-        child_pid: u32,
-        instructions: String,
+    BrowseSessionEnded {
+        psyop: String,
+        status: Option<i32>,
+        inserted: usize,
+        skipped: usize,
+    },
+    /// The embedded browser subprocess was launched. `kind` is one
+    /// of `"x_app"`, `"psyop_read"`, `"psyop_authorize"`,
+    /// `"agent_authorize"`. `name` carries the psyop/agent name
+    /// for everything but `x_app`.
+    BrowserSpawned {
+        kind: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        pid: u32,
+    },
+    /// The embedded browser subprocess exited.
+    BrowserExit {
+        kind: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        status: Option<i32>,
     },
 
     // ── target delivery ──────────────────────────────────────

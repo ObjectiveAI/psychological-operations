@@ -43,24 +43,37 @@ fn tests_dir() -> PathBuf { manifest_dir().join("tests") }
 fn assets_dir() -> PathBuf { manifest_dir().join("assets") }
 fn target_binaries_dir() -> PathBuf { tests_dir().join(".target-binaries") }
 
-/// Run `psychological-operations-chromium/build.sh` once per
-/// cargo-test process to ensure the embedded chrome bundle is
-/// present before we build our binary. Idempotent — the script
-/// fingerprint-short-circuits when the embed dir is fresh.
-fn ensure_chromium_bundle() {
+/// Run `psychological-operations-browser/scripts/build-bundle.{ps1,sh}`
+/// once per cargo-test process so the CLI's build.rs finds the
+/// embedded browser bundle. Idempotent — the script overwrites
+/// the same paths each time.
+fn ensure_browser_bundle() {
     static DONE: OnceLock<()> = OnceLock::new();
     DONE.get_or_init(|| {
-        // Use Git Bash on Windows (see bash_command rationale).
-        // Pin --target so fingerprint.sh doesn't have to call
-        // `rustc -vV` to detect the host.
-        let status = Command::new(bash_command())
-            .arg("psychological-operations-chromium/build.sh")
-            .arg("--target").arg(host_triple())
-            .arg("--release")
-            .current_dir(repo_root())
-            .status()
-            .expect("spawn bash psychological-operations-chromium/build.sh");
-        assert!(status.success(), "psychological-operations-chromium build failed");
+        let target = host_triple();
+        let status = if cfg!(windows) {
+            // Prefer pwsh (PowerShell 7); fall back to Windows PowerShell.
+            let shell = if Command::new("pwsh").arg("-NoProfile").arg("-Command").arg("$null").status().map(|s| s.success()).unwrap_or(false) {
+                "pwsh"
+            } else {
+                "powershell"
+            };
+            Command::new(shell)
+                .args(["-NoProfile", "-File", "psychological-operations-browser/scripts/build-bundle.ps1"])
+                .arg("-Release")
+                .arg("-Target").arg(target)
+                .current_dir(repo_root())
+                .status()
+        } else {
+            Command::new(bash_command())
+                .arg("psychological-operations-browser/scripts/build-bundle.sh")
+                .arg("--release")
+                .arg("--target").arg(target)
+                .current_dir(repo_root())
+                .status()
+        }
+        .expect("spawn build-bundle script");
+        assert!(status.success(), "psychological-operations-browser build-bundle failed");
     });
 }
 
@@ -70,7 +83,7 @@ fn ensure_chromium_bundle() {
 pub fn psyops_binary() -> &'static Path {
     static BIN: OnceLock<PathBuf> = OnceLock::new();
     BIN.get_or_init(|| {
-        ensure_chromium_bundle();
+        ensure_browser_bundle();
         let target = target_binaries_dir().join("psyops");
         std::fs::create_dir_all(&target).expect("create psyops target dir");
         let status = Command::new(env!("CARGO"))
