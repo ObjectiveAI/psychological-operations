@@ -100,8 +100,13 @@ pub fn cef_root_cache_dir(handle: &AppHandle<Wry>) -> std::path::PathBuf {
 fn cache_subdir_for(mode: &Mode) -> String {
     match mode {
         Mode::XApp => "x-app".to_string(),
+        // Flat single-segment subdir — CEF's Chrome runtime rejects
+        // nested profile paths (`psyop/<name>`) with "Cannot create
+        // profile at path …" and silently falls back to an in-memory
+        // profile, breaking cookie persistence. `psyop-<name>` keeps
+        // psyops under a flat namespace just like `x-app`.
         Mode::PsyopRead { name } | Mode::PsyopAuthorize { name } => {
-            format!("psyop/{name}")
+            format!("psyop-{name}")
         }
     }
 }

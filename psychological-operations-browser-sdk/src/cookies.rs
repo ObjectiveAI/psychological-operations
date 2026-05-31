@@ -167,7 +167,7 @@ fn cache_subdir_for(mode: &Mode) -> String {
     match mode {
         Mode::XApp => "x-app".to_string(),
         Mode::PsyopRead { name } | Mode::PsyopAuthorize { name } => {
-            format!("psyop/{name}")
+            format!("psyop-{name}")
         }
     }
 }
