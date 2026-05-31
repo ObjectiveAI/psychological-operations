@@ -202,60 +202,94 @@ incorporates an express escape clause:
    Agreement's own definition (§I.12). No further
    characterization is required.
 
-2. The Developer Agreement §II.A grants licenses that are,
-   by their express terms, purpose-conditioned. §II.A.1
-   licenses the developer to "conduct analysis of the X
-   Content, **as explicitly approved by X**" — conditioning
-   analysis on the developer's X-granted scope of approval.
-   §II.A.3 licenses the developer to "Modify X Content
-   **only to format it for display on your Services**" —
-   conditioning modification on a display purpose within
-   the developer's Services. Neither license is
-   unconditional; each license confers permission to the
-   extent its conditions are met.
+2. The Developer Agreement §II.A grants two distinct
+   licenses that are independently capable of authorizing
+   extraction of a Tweet ID. §II.A.1 licenses analysis of X
+   Content "**as explicitly approved by X**." §II.A.3
+   licenses modification of X Content "**only to format it
+   for display on your Services**." The two licenses are
+   independent: either is sufficient on its own to license
+   extraction; the absence of one does not defeat the
+   other.
 
-3. The "as explicitly approved by X" qualifier in §II.A.1
-   is satisfied, with respect to a given activity, by the
-   scopes X has issued to the developer's registered
-   Application through X's developer-platform processes.
-   The grant of a scope is, by X's own process, X's
+### Prong A — §II.A.1 (analysis within X-approved scope)
+
+3. The Developer Agreement §II.A.1 licenses the developer
+   to "Use the X API to integrate X Content into your
+   Services or conduct analysis of the X Content, as
+   explicitly approved by X." Identification and isolation
+   of a structured identifier (the Tweet ID) within a
+   larger structured document (the HTML) is an act of
+   "analysis" of X Content in the ordinary, technical sense
+   of that word.
+
+4. The "as explicitly approved by X" qualifier is satisfied
+   by the scopes X has granted to the developer's
+   registered Application through X's developer-platform
+   processes. A scope grant is a **static record** of X's
    explicit approval for the activities that scope
-   authorizes. Extraction undertaken in furtherance of an
-   activity covered by an issued scope is therefore
-   "analysis… explicitly approved by X" within the meaning
-   of §II.A.1.
+   authorizes; the approval exists from the moment the
+   scope is granted and does not depend on whether the
+   developer's Application is engaged in any particular
+   operation at the time the extraction occurs. The §II.A.1
+   license is, accordingly, available to the developer's
+   handling of X Content whenever the handling is in
+   furtherance of a scope-authorized activity, irrespective
+   of the temporal relationship between the handling and
+   any particular use of the Application.
 
-4. Identification and isolation of a structured identifier
-   (the Tweet ID) within a larger structured document (the
-   HTML) is an act of "analysis" of X Content in the
-   ordinary, technical sense of that word. Where the
-   analysis is undertaken in furtherance of an activity
-   within an issued scope, it falls within §II.A.1.
+5. Extraction of a Tweet ID undertaken in furtherance of an
+   activity within a granted scope is therefore "analysis…
+   explicitly approved by X" within the meaning of §II.A.1
+   and is licensed on that ground.
 
-5. Independently, where extraction is undertaken to format
-   X Content for display within the developer's Services,
-   it falls within the §II.A.3 license. The §II.A.3 license
-   is bounded by its express purpose: the modification must
-   be to format X Content for display on the developer's
-   Services. Extraction conducted for that purpose is
-   licensed; extraction outside that purpose is not within
-   the §II.A.3 grant.
+### Prong B — §II.A.3 (format for display on your Services)
 
-6. The TOS §4 enumeration of restricted actions on Content
+6. The Developer Agreement §II.A.3 licenses the developer
+   to "Modify X Content only to format it for display on
+   your Services." This license carries no "as explicitly
+   approved by X" qualifier; its sole express condition is
+   that the modification serve a display purpose within the
+   developer's Services. The "Services" of the developer
+   are defined in Developer Agreement §I.7 as the
+   developer's "services, websites, applications, and
+   other offerings (including research) that display X
+   Content or otherwise use the Licensed Material."
+
+7. A Tweet ID is the canonical identifier by which X
+   Content is retrieved, referenced, and presented through
+   the X API. Extraction of a Tweet ID — its isolation from
+   a larger HTML document into a structured identifier
+   ready for use through the X API to display X Content
+   within the developer's Services in an X API-compliant
+   manner — is an act of formatting X Content for display
+   on the developer's Services within the meaning of
+   §II.A.3.
+
+8. The §II.A.3 license is available to the developer
+   wholly independent of §II.A.1: it requires no scope
+   approval, and its availability does not depend on the
+   engagement state of any particular Application.
+
+### Carry-through under TOS §4
+
+9. The TOS §4 enumeration of restricted actions on Content
    incorporates the express escape clause "except as
    permitted through the Services, these Terms, or the
    terms provided on https://developer.x.com/developer-terms."
-   Where the §II.A licenses extend — that is, within their
-   respective purpose conditions — the TOS §4 escape clause
+   The §II.A licenses are precisely the licenses provided
+   on developer.x.com that the escape clause names. Where
+   either Prong A or Prong B extends, the §4 escape clause
    carries the activity through.
 
-7. Extraction of a Tweet ID from HTML containing it is
-   therefore licensed activity, to the extent it is
-   undertaken (i) in furtherance of an activity within a
-   scope X has granted to the developer's Application
-   under §II.A.1, or (ii) for display within the
-   developer's Services under §II.A.3, and is permitted
-   under TOS §4 by operation of the §4 escape clause.
+10. Extraction of a Tweet ID from HTML containing it is
+    therefore licensed activity on two independent grounds —
+    Prong A (§II.A.1, on the strength of granted scopes)
+    and Prong B (§II.A.3, on the strength of the display
+    purpose). Either ground is independently sufficient.
+    Both grounds are ordinarily operative together. In
+    either case the activity is permitted under TOS §4 by
+    operation of the §4 escape clause.
 
 ## Activity 3 — Calling the X API with Tweet IDs
 
@@ -341,13 +375,16 @@ or by both:
   Services granted in TOS §4 ("Your License to Use the
   Services"), and is not prohibited by any clause of the
   TOS.
-- Extraction of Tweet IDs from saved HTML is licensed by
-  Developer Agreement §II.A.1 to the extent it is undertaken
-  in furtherance of an activity within scopes X has granted
-  to the developer's Application, and by §II.A.3 to the
-  extent it is undertaken for display within the developer's
-  Services; in either case it is permitted under TOS §4 by
-  operation of the §4 escape clause.
+- Extraction of Tweet IDs from saved HTML is licensed on
+  two independent grounds — Developer Agreement §II.A.1, to
+  the extent the extraction is in furtherance of an activity
+  within scopes X has granted to the developer's Application,
+  and §II.A.3, on the strength of the display purpose of
+  formatting the Tweet ID for use through the X API to
+  display X Content within the developer's Services in an X
+  API-compliant manner. Either ground is independently
+  sufficient. In either case the activity is permitted under
+  TOS §4 by operation of the §4 escape clause.
 - Calling the X API with Tweet IDs is licensed by Developer
   Agreement §II.A.1 and falls squarely within the published-
   interface carve-out of TOS §4(iii), bounded by §III.D
