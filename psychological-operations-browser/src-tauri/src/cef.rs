@@ -635,6 +635,57 @@ wrap_client! {
         fn display_handler(&self) -> Option<DisplayHandler> {
             Some(TrackUrl::new())
         }
+
+        /// V8 native bridge response leg. The renderer's
+        /// [`crate::cef_v8::OverlayV8Handler`] sends a
+        /// `psyops_invoke` process message; we decode, dispatch
+        /// via the shared [`crate::cef_scheme::dispatch_inner`],
+        /// and ship the result back as
+        /// `window.__psyops_recv(corrid, status, result_json)`
+        /// via `execute_overlay_js`.
+        fn on_process_message_received(
+            &self,
+            _browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            _source_process: ProcessId,
+            message: Option<&mut ProcessMessage>,
+        ) -> i32 {
+            let Some(message) = message else { return 0 };
+            if !crate::cef_v8::is_invoke(message) {
+                return 0;
+            }
+            let Some(envelope) = crate::cef_v8::parse_envelope(message) else {
+                return 1;
+            };
+            let Some(app) = app_handle().cloned() else {
+                return 1;
+            };
+            tauri::async_runtime::spawn(async move {
+                let (status, result) = match crate::cef_scheme::dispatch_inner(
+                    &app,
+                    &envelope.cmd,
+                    envelope.args.as_bytes(),
+                )
+                .await
+                {
+                    Ok(value) => (
+                        "ok",
+                        serde_json::to_string(&value)
+                            .unwrap_or_else(|_| "null".into()),
+                    ),
+                    Err(e) => ("err", e.into_message()),
+                };
+                // window.__psyops_recv(corrid, status, result)
+                let js = format!(
+                    "window.__psyops_recv && window.__psyops_recv({corrid},{status},{result});",
+                    corrid = envelope.corrid,
+                    status = serde_json::to_string(status).unwrap_or_else(|_| "\"err\"".into()),
+                    result = serde_json::to_string(&result).unwrap_or_else(|_| "\"\"".into()),
+                );
+                execute_overlay_js(js);
+            });
+            1
+        }
     }
 }
 
@@ -659,6 +710,15 @@ wrap_app! {
                 | SchemeOptions::CORS_ENABLED.get_raw()
                 | SchemeOptions::FETCH_ENABLED.get_raw();
             r.add_custom_scheme(Some(&name), options);
+        }
+
+        /// Renderer-side V8 binding installer. CEF calls this in
+        /// every renderer subprocess (Windows/Linux: same exe
+        /// re-entered with `--type=renderer`; macOS: the helper
+        /// `.app` binary). The handler installs
+        /// `window.__psyops_send` on every V8 context.
+        fn render_process_handler(&self) -> Option<RenderProcessHandler> {
+            Some(crate::cef_v8::OverlayRenderProcessHandler::new())
         }
 
         // macOS only: hand CEF our message-pump scheduler so it

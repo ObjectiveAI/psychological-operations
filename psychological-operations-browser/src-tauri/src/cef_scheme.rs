@@ -258,9 +258,8 @@ fn extract_post_body(request: &mut Request) -> Vec<u8> {
     out
 }
 
-/// Route a single `psyops://invoke/<cmd>` request to the right
-/// inner-command function in [`crate::stdio`]. Returns
-/// `(status, mime, body)` for the HTTP-ish response.
+/// Route a single `psyops://invoke/<cmd>` HTTP-style request to
+/// the shared dispatcher. Returns `(status, mime, body)`.
 async fn dispatch(app: &AppHandle<Wry>, url: &str, body: &[u8]) -> (i32, String, Vec<u8>) {
     // url looks like `psyops://invoke/<cmd>` (no host, no query).
     let cmd = url
@@ -271,60 +270,92 @@ async fn dispatch(app: &AppHandle<Wry>, url: &str, body: &[u8]) -> (i32, String,
     if cmd.is_empty() {
         return error(404, format!("not found: {url}"));
     }
+    match dispatch_inner(app, cmd, body).await {
+        Ok(value) => ok_json(&value),
+        Err(DispatchError::NotFound(msg)) => error(404, msg),
+        Err(DispatchError::BadRequest(msg)) => error(400, msg),
+        Err(DispatchError::Internal(msg)) => error(500, msg),
+    }
+}
 
-    // For commands that take no args, body may be `{}` or empty.
-    // Decode lazily per-command.
+/// Shared dispatch helper, called by both the HTTP scheme handler
+/// ([`dispatch`]) and the V8 process-message bridge
+/// ([`crate::cef`]). Takes the parsed cmd + raw JSON body and
+/// returns the result `Value` (or a structured error).
+pub async fn dispatch_inner(
+    app: &AppHandle<Wry>,
+    cmd: &str,
+    body: &[u8],
+) -> Result<Value, DispatchError> {
     match cmd {
-        "frontend_ready" => match stdio::frontend_ready_inner(app) {
-            Ok(()) => ok_json(&Value::Null),
-            Err(e) => error(500, e),
-        },
-        "stdio_respond" => match parse_body::<StdioRespondArgs>(body) {
-            Ok(args) => match stdio::stdio_respond_inner(app, args.result) {
-                Ok(()) => ok_json(&Value::Null),
-                Err(e) => error(500, e),
-            },
-            Err(e) => error(400, e),
-        },
-        "current_mode" => ok_json(&serde_json::to_value(stdio::current_mode_inner()).unwrap_or(Value::Null)),
-        "current_user_id" => ok_json(&serde_json::to_value(stdio::current_user_id_inner()).unwrap_or(Value::Null)),
-        "current_panel" => ok_json(&serde_json::to_value(stdio::current_panel_inner()).unwrap_or(Value::Null)),
-        "report_url" => match parse_body::<ReportUrlArgs>(body) {
-            Ok(args) => match stdio::report_url_inner(app, args.url) {
-                Ok(()) => ok_json(&Value::Null),
-                Err(e) => error(500, e),
-            },
-            Err(e) => error(400, e),
-        },
-        "set_production_app_count" => match parse_body::<SetCountArgs>(body) {
-            Ok(args) => match stdio::set_production_app_count_inner(app, args.count) {
-                Ok(()) => ok_json(&Value::Null),
-                Err(e) => error(500, e),
-            },
-            Err(e) => error(400, e),
-        },
-        "process_post_create_html" => match parse_body::<ProcessHtmlArgs>(body) {
-            Ok(args) => match stdio::process_post_create_html_inner(app, args.html).await {
-                Ok(stored) => ok_json(&Value::from(stored)),
-                Err(e) => error(500, e),
-            },
-            Err(e) => error(400, e),
-        },
-        "process_oauth_popup_html" => match parse_body::<ProcessHtmlArgs>(body) {
-            Ok(args) => match stdio::process_oauth_popup_html_inner(app, args.html).await {
-                Ok(stored) => ok_json(&Value::from(stored)),
-                Err(e) => error(500, e),
-            },
-            Err(e) => error(400, e),
-        },
-        "process_read_html" => match parse_body::<ProcessHtmlArgs>(body) {
-            Ok(args) => {
-                let count = crate::psyop_read::process_html(app, args.html);
-                ok_json(&Value::from(count))
-            }
-            Err(e) => error(400, e),
-        },
-        _ => error(404, format!("unknown command: {cmd}")),
+        "frontend_ready" => stdio::frontend_ready_inner(app)
+            .map(|()| Value::Null)
+            .map_err(DispatchError::Internal),
+        "stdio_respond" => {
+            let args = parse_body::<StdioRespondArgs>(body).map_err(DispatchError::BadRequest)?;
+            stdio::stdio_respond_inner(app, args.result)
+                .map(|()| Value::Null)
+                .map_err(DispatchError::Internal)
+        }
+        "current_mode" => Ok(serde_json::to_value(stdio::current_mode_inner()).unwrap_or(Value::Null)),
+        "current_user_id" => {
+            Ok(serde_json::to_value(stdio::current_user_id_inner()).unwrap_or(Value::Null))
+        }
+        "current_panel" => {
+            Ok(serde_json::to_value(stdio::current_panel_inner()).unwrap_or(Value::Null))
+        }
+        "report_url" => {
+            let args = parse_body::<ReportUrlArgs>(body).map_err(DispatchError::BadRequest)?;
+            stdio::report_url_inner(app, args.url)
+                .map(|()| Value::Null)
+                .map_err(DispatchError::Internal)
+        }
+        "set_production_app_count" => {
+            let args = parse_body::<SetCountArgs>(body).map_err(DispatchError::BadRequest)?;
+            stdio::set_production_app_count_inner(app, args.count)
+                .map(|()| Value::Null)
+                .map_err(DispatchError::Internal)
+        }
+        "process_post_create_html" => {
+            let args = parse_body::<ProcessHtmlArgs>(body).map_err(DispatchError::BadRequest)?;
+            stdio::process_post_create_html_inner(app, args.html)
+                .await
+                .map(Value::from)
+                .map_err(DispatchError::Internal)
+        }
+        "process_oauth_popup_html" => {
+            let args = parse_body::<ProcessHtmlArgs>(body).map_err(DispatchError::BadRequest)?;
+            stdio::process_oauth_popup_html_inner(app, args.html)
+                .await
+                .map(Value::from)
+                .map_err(DispatchError::Internal)
+        }
+        "process_read_html" => {
+            let args = parse_body::<ProcessHtmlArgs>(body).map_err(DispatchError::BadRequest)?;
+            let count = crate::psyop_read::process_html(app, args.html);
+            Ok(Value::from(count))
+        }
+        _ => Err(DispatchError::NotFound(format!("unknown command: {cmd}"))),
+    }
+}
+
+/// Structured error from [`dispatch_inner`]. Mapped to HTTP
+/// status codes by [`dispatch`] and to JSON `{status: "err"}`
+/// payloads by the V8 bridge.
+pub enum DispatchError {
+    NotFound(String),
+    BadRequest(String),
+    Internal(String),
+}
+
+impl DispatchError {
+    /// Flatten to a single string for the V8 bridge's `result`
+    /// field. Detail-level matches what the HTTP wrapper would
+    /// have returned in the response body.
+    pub fn into_message(self) -> String {
+        match self {
+            DispatchError::NotFound(s) | DispatchError::BadRequest(s) | DispatchError::Internal(s) => s,
+        }
     }
 }
 

@@ -1,6 +1,7 @@
 mod args;
 pub mod cef;
 mod cef_scheme;
+mod cef_v8;
 mod cookies_watcher;
 mod credentials;
 mod psyop_authorize;
