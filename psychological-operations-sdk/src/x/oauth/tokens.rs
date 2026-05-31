@@ -10,10 +10,10 @@
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use chrono::{Duration, Utc};
-use psychological_operations_sdk::browser::auth_json::Tokens;
+use crate::browser::auth_json::Tokens;
 use serde::Deserialize;
 
-use crate::Error;
+use crate::x::Error;
 
 const TOKEN_ENDPOINT: &str = "https://api.x.com/2/oauth2/token";
 

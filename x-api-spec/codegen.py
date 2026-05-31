@@ -22,7 +22,7 @@ REPO_ROOT = SCRIPT_DIR.parent
 SPEC_PATH = SCRIPT_DIR / "openapi.json"
 META_PATH = SCRIPT_DIR / "openapi.meta.json"
 CACHE_OPT_OUT_PATH = SCRIPT_DIR / "cache-opt-out.json"
-OUT_DIR = REPO_ROOT / "psychological-operations-x-api" / "src" / "x"
+OUT_DIR = REPO_ROOT / "psychological-operations-sdk" / "src" / "x"
 
 # Stable marker — the cleaner uses `content.startswith(GENERATED_MARKER)`
 # to identify auto-generated files. Must be byte-identical across all
@@ -915,7 +915,11 @@ class Codegen:
                 all_dirs.add(parent)
         for dir_path in sorted(all_dirs):
             rel = dir_path.relative_to(OUT_DIR)
-            if rel.parts and rel.parts[0] in ("types", "params"):
+            # Skip dirs that ship their own hand-written mod.rs:
+            # - types/, params/ manage their own glob via this script
+            # - x_app/, oauth/ are hand-written sibling modules under
+            #   the SDK's `x` namespace, not codegen targets
+            if rel.parts and rel.parts[0] in ("types", "params", "x_app", "oauth"):
                 continue
             self._write_mod_rs(dir_path)
 
@@ -946,7 +950,11 @@ class Codegen:
         for entry in sorted(OUT_DIR.iterdir()):
             if not entry.is_dir():
                 continue
-            if entry.name in ("types", "params"):
+            # Same exclusions as `emit_mod_files`: types/ + params/
+            # have their own glob plumbing; x_app/ + oauth/ are
+            # hand-written sibling modules declared in x/mod.rs
+            # directly, not via codegen.rs.
+            if entry.name in ("types", "params", "x_app", "oauth"):
                 continue
             if any(entry.rglob("*.rs")):
                 groups.append(entry.name)

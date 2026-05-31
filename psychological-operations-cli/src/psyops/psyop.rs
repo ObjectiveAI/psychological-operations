@@ -43,7 +43,7 @@ pub struct PsyOp {
 
     /// When `Some(true)`, every X v2 HTTP call this psyop's run
     /// would otherwise make short-circuits to the in-process
-    /// deterministic mock at `psychological_operations_x_api::x::mock` — zero outbound
+    /// deterministic mock at `psychological_operations_sdk::x::mock` — zero outbound
     /// network traffic to X. objectiveai function / profile calls
     /// are unaffected (they still hit the real network). Absent /
     /// `Some(false)` → real X. Replaces the older

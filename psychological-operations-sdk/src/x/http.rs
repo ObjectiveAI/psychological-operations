@@ -3,7 +3,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use psychological_operations_sdk::browser::auth_json::{self, AuthJsonError};
+use crate::browser::auth_json::{self, AuthJsonError};
 use reqwest::{Client, Method, StatusCode};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -93,7 +93,7 @@ impl Http {
         if mock {
             return Ok(Self::new_mock(client));
         }
-        let x_app = crate::x_app::config::load(config_base_dir)?;
+        let x_app = super::x_app::config::load(config_base_dir)?;
         let bearer = x_app.bearer_token.ok_or_else(|| {
             Error::Other(
                 "x_app.json has no bearer_token — re-run \
@@ -112,7 +112,7 @@ impl Http {
     /// [`auth_json::FRESHNESS_BUFFER`] (currently 30 s) — escalates
     /// to an exclusive lock, re-reads (in case a concurrent process
     /// refreshed in the gap), POSTs to X's token endpoint via this
-    /// crate's [`crate::oauth::tokens::refresh`], and atomically
+    /// crate's [`super::oauth::tokens::refresh`], and atomically
     /// writes the rotated tokens back. So one cross-process advisory
     /// lock guards both the read and the refresh-and-write cycle;
     /// no two processes can ever mint a refresh request against the
@@ -134,7 +134,7 @@ impl Http {
         if mock {
             return Ok(Self::new_mock(client));
         }
-        let x_app = crate::x_app::config::ensure_setup(config_base_dir)?;
+        let x_app = super::x_app::config::ensure_setup(config_base_dir)?;
         let client_id = x_app.client_id
             .expect("ensure_setup guarantees client_id");
         let client_secret = x_app.client_secret
@@ -149,7 +149,7 @@ impl Http {
                          `psychological-operations psyops oauth <name>`",
                     ))
                 })?;
-                crate::oauth::tokens::refresh(&client_id, &client_secret, rt)
+                super::oauth::tokens::refresh(&client_id, &client_secret, rt)
                     .await
                     .map_err(|e| AuthJsonError::Io(std::io::Error::other(
                         format!("refresh: {e}"),

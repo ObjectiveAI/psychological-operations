@@ -4389,7 +4389,6 @@ dependencies = [
  "indexmap 2.14.0",
  "objectiveai-sdk",
  "psychological-operations-sdk",
- "psychological-operations-x-api",
  "rand 0.8.6",
  "reqwest",
  "rusqlite",
@@ -4433,27 +4432,13 @@ dependencies = [
  "aes-gcm",
  "base64 0.22.1",
  "chrono",
- "fs4",
- "rusqlite",
- "scraper",
- "serde",
- "serde_json",
- "tokio",
- "windows 0.62.2",
-]
-
-[[package]]
-name = "psychological-operations-x-api"
-version = "0.99.0"
-dependencies = [
- "base64 0.22.1",
- "chrono",
  "clap",
  "dirs",
- "psychological-operations-sdk",
+ "fs4",
  "rand 0.8.6",
  "reqwest",
  "rusqlite",
+ "scraper",
  "serde",
  "serde_json",
  "serde_path_to_error",
@@ -4462,6 +4447,7 @@ dependencies = [
  "tokio",
  "url",
  "urlencoding",
+ "windows 0.62.2",
 ]
 
 [[package]]

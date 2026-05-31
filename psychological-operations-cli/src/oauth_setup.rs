@@ -12,8 +12,8 @@
 use std::time::Duration;
 
 use psychological_operations_sdk::browser::auth_json;
-use psychological_operations_x_api::oauth::{pkce, server, tokens};
-use psychological_operations_x_api::x_app::config as x_app_config;
+use psychological_operations_sdk::x::oauth::{pkce, server, tokens};
+use psychological_operations_sdk::x::x_app::config as x_app_config;
 use reqwest::Client as ReqwestClient;
 
 use crate::chromium::{extract::ensure_extracted, native_host, paths::profile_dir};

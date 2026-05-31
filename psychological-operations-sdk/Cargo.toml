@@ -2,11 +2,18 @@
 name = "psychological-operations-sdk"
 version = "0.1.0"
 edition = "2021"
-description = "Shared wire-types + helpers across the psychological-operations system."
+description = "Shared wire-types + helpers + X API v2 client across the psychological-operations system."
 
 [dependencies]
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = { version = "1.0.149", features = ["preserve_order"] }
+serde_path_to_error = "0.1.20"
+thiserror = "2.0.18"
+reqwest = { version = "0.13.2", features = ["json", "query"] }
+url = { version = "2", features = ["serde"] }
+urlencoding = "2.1.3"
+rand = "0.8"
+sha2 = "0.10"
 # Cookies module — read the on-disk CEF cookies SQLite directly so
 # external consumers (CLI, future get_auth_data wrapper) can ask
 # "who's signed in?" without going through the running browser.
@@ -19,9 +26,15 @@ serde_json = { version = "1.0.149", features = ["preserve_order"] }
 rusqlite = { version = "0.31.0", features = ["bundled"] }
 base64 = "0.22.1"
 aes-gcm = "0.10.3"
-tokio = { version = "1.52.3", features = ["fs", "rt"] }
+# `full` features brought along when x-api folded in — the OAuth
+# callback server (`x::oauth::server`) needs `net` + `io-util` +
+# `macros`, plus we keep the original `fs` + `rt` for the browser
+# auth_json + cookies modules.
+tokio = { version = "1.52.3", features = ["full"] }
 fs4 = { version = "1.1.0", features = ["tokio"] }
 scraper = "0.27.0"
+clap = { version = "4.6.1", features = ["derive"] }
+dirs = "6.0.0"
 # Pinned to 0.4.39 to match objectiveai-sdk's exact pin (transitive
 # via psychological-operations-cli). Cargo can't unify a >0.4.39
 # range against `=0.4.39`, so bumping requires a coordinated bump

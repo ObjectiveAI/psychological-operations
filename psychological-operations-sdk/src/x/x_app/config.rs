@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::Error;
+use crate::x::Error;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct XAppConfig {

@@ -14,10 +14,12 @@
 //!
 //! The OAuth helpers (PKCE pair, callback server, token POST)
 //! are inlined below — they mirror
-//! `psychological-operations-x-api/src/oauth/`, which is half-
-//! refactored and doesn't compile standalone, so pulling it in
-//! as a dep wasn't an option. The on-disk `Tokens` blob itself
-//! lives in
+//! [`psychological_operations_sdk::x::oauth`] (the SDK's
+//! ported OAuth scaffolding). The inline copy was originally
+//! carved out when x-api was mid-refactor and doesn't compile
+//! standalone; with x-api now folded into the SDK we could
+//! re-share but defer that for a separate clean-up. The
+//! on-disk `Tokens` blob itself lives in
 //! [`psychological_operations_sdk::browser::auth_json`], which
 //! owns the struct, the path math, the fs4 advisory-lock
 //! pattern, and the atomic temp+rename write.

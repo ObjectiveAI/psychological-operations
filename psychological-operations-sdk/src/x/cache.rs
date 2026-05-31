@@ -30,7 +30,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use sha2::{Digest, Sha256};
 use tokio::task::JoinHandle;
 
-use crate::Error;
+use super::Error;
 
 /// Cross-process per-key mutex TTL. Refreshed every 1 s by the
 /// holder's spawned task; aged out by the next acquire's GC if
