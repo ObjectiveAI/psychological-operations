@@ -170,7 +170,21 @@ pub fn create_x_app(handle: &AppHandle<Wry>, mode: &Mode) -> tauri::Result<()> {
             reflow_physical(&window_for_event, size.width, size.height);
         }
         WindowEvent::CloseRequested { .. } => {
+            // Block until CEF reports `on_before_close` (i.e.
+            // the in-memory cookie store has been flushed to
+            // `<cache>/Network/Cookies`). Fire-and-forget here
+            // races Tauri's window teardown against CEF's
+            // flush, and the persona's auth_token cookie
+            // routinely loses the race — the user clicks X,
+            // the window vanishes, but next launch starts
+            // signed-out.
+            //
+            // 5s is generous for a cookie flush (typically
+            // milliseconds); the bound is here so a hung CEF
+            // can't pin the window open forever.
+            let close_rx = cef_embed::install_close_signal();
             cef_embed::close_browser_async();
+            let _ = close_rx.recv_timeout(std::time::Duration::from_secs(5));
         }
         _ => {}
     });
