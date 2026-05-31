@@ -35,8 +35,10 @@ pub async fn send(cfg: &X, subject: &Subject<'_>, rt: &crate::run::Config) -> Re
         reqwest::Client::new(),
         name,
         psyop.mock_enabled(),
-        rt,
-    ).await?;
+        &rt.objectiveai_base_dir(),
+    )
+    .await
+    .map_err(|e| crate::error::Error::Other(format!("Http::for_psyop: {e}")))?;
 
     // Resolve the acting user via /2/users/me so the like/retweet
     // URLs can fill the {id} path segment.

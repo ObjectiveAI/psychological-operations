@@ -141,7 +141,8 @@ fn handle_x_app_save(
     creds: IncomingCredentials,
     cfg: &crate::run::Config,
 ) -> Result<(), crate::error::Error> {
-    let existing = x_app_config::load(cfg).unwrap_or_default();
+    let base = cfg.objectiveai_base_dir();
+    let existing = x_app_config::load(&base).unwrap_or_default();
     let now = chrono::Utc::now().to_rfc3339();
     let incoming = XAppConfig {
         client_id:     creds.client_id,
@@ -150,7 +151,8 @@ fn handle_x_app_save(
         saved_at:      Some(now),
     };
     let merged = x_app_config::merge(existing, incoming);
-    x_app_config::save(&merged, cfg)
+    x_app_config::save(&merged, &base)
+        .map_err(|e| crate::error::Error::Other(format!("x_app.json: {e}")))
 }
 
 async fn write_frame<W: tokio::io::AsyncWrite + Unpin>(

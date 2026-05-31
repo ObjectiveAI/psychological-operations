@@ -143,7 +143,7 @@ impl Commands {
             Commands::Run { name, commit, seed } => run::run_all(name.as_deref(), commit.as_deref(), seed, cfg).await,
             Commands::Browse { name, commit } => browse::run(name.as_deref(), commit.as_deref(), cfg).await,
             Commands::Targets { command } => command.handle(cfg),
-            Commands::OAuth { name } => psychological_operations_x_api::oauth::setup::run(&name, cfg).await,
+            Commands::OAuth { name } => crate::oauth_setup::run(&name, cfg).await,
         }
     }
 }

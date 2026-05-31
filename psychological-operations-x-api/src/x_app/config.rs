@@ -1,8 +1,8 @@
 //! `x_app.json` — the master X dev-account App's credentials,
-//! captured by the Chromium extension during `x_app setup` and
+//! captured by the chromium extension during `x_app setup` and
 //! consumed by the per-psyop OAuth flow.
 //!
-//! File path: `~/.psychological-operations/x_app.json`.
+//! File path: `<config-base-dir>/x_app.json`.
 //!
 //! `merge` semantics on insert: every `Some(_)` in the incoming
 //! payload wins; `None`s preserve the existing value. This lets
@@ -10,12 +10,11 @@
 //! after a partial paste without clobbering previously-captured
 //! fields.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::Error;
-use crate::run::Config as RuntimeConfig;
+use crate::Error;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct XAppConfig {
@@ -51,8 +50,8 @@ impl XAppConfig {
 /// Load + assert that `x_app.json` is set up. Returns the loaded
 /// config on success, or a clear error pointing the operator at
 /// `psychological-operations x_app setup`.
-pub fn ensure_setup(rt: &RuntimeConfig) -> Result<XAppConfig, Error> {
-    let cfg = load(rt)?;
+pub fn ensure_setup(config_base_dir: &Path) -> Result<XAppConfig, Error> {
+    let cfg = load(config_base_dir)?;
     if !cfg.is_complete() {
         return Err(Error::Other(
             "X App not set up — run `psychological-operations x_app setup` \
@@ -62,27 +61,35 @@ pub fn ensure_setup(rt: &RuntimeConfig) -> Result<XAppConfig, Error> {
     Ok(cfg)
 }
 
-pub fn path(rt: &RuntimeConfig) -> PathBuf {
-    rt.base_dir().join("x_app.json")
+/// `<config-base-dir>/plugins/psychological-operations/x_app.json`.
+/// `config_base_dir` is the outer root (objectiveai's base — same
+/// convention as `psychological_operations_browser_sdk::auth_json`'s
+/// paths). The `plugins/psychological-operations/` suffix is added
+/// here so callers can pass the same path argument they pass to the
+/// SDK.
+pub fn path(config_base_dir: &Path) -> PathBuf {
+    config_base_dir
+        .join("plugins")
+        .join("psychological-operations")
+        .join("x_app.json")
 }
 
-pub fn load(rt: &RuntimeConfig) -> Result<XAppConfig, Error> {
-    let p = path(rt);
+pub fn load(config_base_dir: &Path) -> Result<XAppConfig, Error> {
+    let p = path(config_base_dir);
     if !p.exists() {
         return Ok(XAppConfig::default());
     }
-    let data = std::fs::read_to_string(&p)?;
-    Ok(serde_json::from_str(&data)?)
+    let data = std::fs::read_to_string(&p).map_err(io_err)?;
+    serde_json::from_str(&data).map_err(json_err)
 }
 
-pub fn save(cfg: &XAppConfig, rt: &RuntimeConfig) -> Result<(), Error> {
-    let p = path(rt);
+pub fn save(cfg: &XAppConfig, config_base_dir: &Path) -> Result<(), Error> {
+    let p = path(config_base_dir);
     if let Some(parent) = p.parent() {
-        std::fs::create_dir_all(parent)?;
+        std::fs::create_dir_all(parent).map_err(io_err)?;
     }
-    let json = serde_json::to_string_pretty(cfg)?;
-    std::fs::write(&p, json + "\n")?;
-    Ok(())
+    let json = serde_json::to_string_pretty(cfg).map_err(json_err)?;
+    std::fs::write(&p, json + "\n").map_err(io_err)
 }
 
 /// Returns the merge of `existing` and `incoming` per the
@@ -95,4 +102,11 @@ pub fn merge(existing: XAppConfig, incoming: XAppConfig) -> XAppConfig {
         bearer_token:  incoming.bearer_token.or(existing.bearer_token),
         saved_at:      incoming.saved_at.or(existing.saved_at),
     }
+}
+
+fn io_err(e: std::io::Error) -> Error {
+    Error::Other(format!("x_app.json io: {e}"))
+}
+fn json_err(e: serde_json::Error) -> Error {
+    Error::Other(format!("x_app.json json: {e}"))
 }

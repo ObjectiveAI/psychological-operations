@@ -11,6 +11,8 @@ pub mod psyops;
 pub mod ingest;
 pub mod chromium;
 pub mod publish;
+pub mod oauth_setup;
+pub mod x_app_setup;
 mod invent;
 
 pub mod run;

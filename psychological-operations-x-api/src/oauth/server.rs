@@ -14,7 +14,7 @@ use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
-use crate::error::Error;
+use crate::Error;
 
 pub struct Callback {
     pub code:  Option<String>,

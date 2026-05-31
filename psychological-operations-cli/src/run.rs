@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand};
 use envconfig::Envconfig;
 
-use psychological_operations_x_api::x_app;
+use crate::x_app_setup;
 use crate::ingest;
 use crate::invent;
 use crate::targets;
@@ -168,7 +168,7 @@ enum Commands {
     #[command(name = "x_app")]
     XApp {
         #[command(subcommand)]
-        command: x_app::Commands,
+        command: x_app_setup::Commands,
     },
 }
 

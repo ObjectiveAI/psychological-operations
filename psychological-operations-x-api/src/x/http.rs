@@ -1,7 +1,9 @@
 //! HTTP client for the X v2 API.
 
+use std::path::Path;
 use std::sync::Arc;
 
+use psychological_operations_browser_sdk::auth_json::{self, AuthJsonError};
 use reqwest::{Client, Method, StatusCode};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -69,14 +71,14 @@ impl Http {
     pub async fn app_only(
         client: Client,
         mock: bool,
-        cfg: &crate::run::Config,
-    ) -> Result<Self, crate::error::Error> {
+        config_base_dir: &Path,
+    ) -> Result<Self, Error> {
         if mock {
             return Ok(Self::new_mock(client));
         }
-        let x_app = crate::x_app::config::load(cfg)?;
+        let x_app = crate::x_app::config::load(config_base_dir)?;
         let bearer = x_app.bearer_token.ok_or_else(|| {
-            crate::error::Error::Other(
+            Error::Other(
                 "x_app.json has no bearer_token — re-run \
                  `psychological-operations x_app setup` and capture it".into(),
             )
@@ -84,12 +86,19 @@ impl Http {
         Ok(Self::new(client, None::<&str>, Some(bearer)))
     }
 
-    /// Construct an Http authorized as the per-psyop X user. Reads
-    /// `tokens/<psyop>.json`; refreshes silently via
-    /// `oauth::tokens::load_fresh` if the access token is expired
-    /// or expiring within 5 minutes (uses `x_app.json`'s
-    /// `client_id` / `client_secret` for the refresh, persists the
-    /// rotated tokens back).
+    /// Construct an Http authorized as the per-psyop X user. The
+    /// access token comes through
+    /// [`psychological_operations_browser_sdk::auth_json::get_or_refresh`],
+    /// which takes a shared filesystem lock to read `auth.json` and
+    /// — if the access token expires within
+    /// [`auth_json::FRESHNESS_BUFFER`] (currently 30 s) — escalates
+    /// to an exclusive lock, re-reads (in case a concurrent process
+    /// refreshed in the gap), POSTs to X's token endpoint via this
+    /// crate's [`crate::oauth::tokens::refresh`], and atomically
+    /// writes the rotated tokens back. So one cross-process advisory
+    /// lock guards both the read and the refresh-and-write cycle;
+    /// no two processes can ever mint a refresh request against the
+    /// same stored `refresh_token`.
     ///
     /// Use for write endpoints (likes, retweets) and any read
     /// endpoint that needs user-context scope.
@@ -101,19 +110,35 @@ impl Http {
         client: Client,
         psyop_name: &str,
         mock: bool,
-        cfg: &crate::run::Config,
-    ) -> Result<Self, crate::error::Error> {
+        config_base_dir: &Path,
+    ) -> Result<Self, Error> {
         if mock {
             return Ok(Self::new_mock(client));
         }
-        let x_app = crate::x_app::config::ensure_setup(cfg)?;
+        let x_app = crate::x_app::config::ensure_setup(config_base_dir)?;
         let client_id = x_app.client_id
             .expect("ensure_setup guarantees client_id");
         let client_secret = x_app.client_secret
             .expect("ensure_setup guarantees client_secret");
-        let tokens = crate::oauth::tokens::load_fresh(
-            psyop_name, &client_id, &client_secret, cfg,
-        ).await?;
+        let tokens = auth_json::get_or_refresh(
+            config_base_dir,
+            psyop_name,
+            move |stale| async move {
+                let rt = stale.refresh_token.as_deref().ok_or_else(|| {
+                    AuthJsonError::Io(std::io::Error::other(
+                        "auth.json has no refresh_token — re-run \
+                         `psychological-operations psyops oauth <name>`",
+                    ))
+                })?;
+                crate::oauth::tokens::refresh(&client_id, &client_secret, rt)
+                    .await
+                    .map_err(|e| AuthJsonError::Io(std::io::Error::other(
+                        format!("refresh: {e}"),
+                    )))
+            },
+        )
+        .await
+        .map_err(|e| Error::Other(format!("auth_json: {e}")))?;
         Ok(Self::new(client, None::<&str>, Some(tokens.access_token)))
     }
 

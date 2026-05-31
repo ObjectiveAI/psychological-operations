@@ -33,6 +33,7 @@ rand = "0.8"
 base64 = "0.22"
 envconfig = "0.11.1"
 psychological-operations-x-api = { path = "../psychological-operations-x-api" }
+psychological-operations-browser-sdk = { path = "../psychological-operations-browser-sdk" }
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"

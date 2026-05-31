@@ -4,10 +4,28 @@
 
 use std::process::Command;
 
+use clap::Subcommand;
+
 use crate::chromium::extract::ensure_extracted;
 use crate::chromium::native_host;
 use crate::chromium::paths::x_app_profile_dir;
 use crate::error::Error;
+
+#[derive(Subcommand)]
+pub enum Commands {
+    /// Open chromium against the master X-App profile. User signs
+    /// into x.com / configures console.x.com / clicks the extension
+    /// to save credentials to x_app.json.
+    Setup,
+}
+
+impl Commands {
+    pub async fn handle(self, cfg: &crate::run::Config) -> Result<crate::Output, Error> {
+        match self {
+            Commands::Setup => run(cfg).await,
+        }
+    }
+}
 
 pub async fn run(cfg: &crate::run::Config) -> Result<crate::Output, Error> {
     let materialized = ensure_extracted(cfg)?;

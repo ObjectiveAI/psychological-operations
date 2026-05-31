@@ -68,7 +68,8 @@ pub async fn run_psyop(
     // mocked. Mocked psyops never touch the real X API, so requiring
     // `x_app setup` for them would be pointless friction.
     if !psyop.mock_enabled() {
-        psychological_operations_x_api::x_app::config::ensure_setup(cfg)?;
+        psychological_operations_x_api::x_app::config::ensure_setup(&cfg.objectiveai_base_dir())
+            .map_err(|e| Error::Other(format!("x_app.json: {e}")))?;
     }
 
     let commit = match commit_override {
@@ -440,7 +441,8 @@ async fn run_queries(
 // -- X API --------------------------------------------------------------------
 
 async fn make_http_client(mock: bool, cfg: &crate::run::Config) -> Result<Http, Error> {
-    Http::app_only(reqwest::Client::new(), mock, cfg).await
+    Http::app_only(reqwest::Client::new(), mock, &cfg.objectiveai_base_dir()).await
+        .map_err(|e| Error::Other(format!("Http::app_only: {e}")))
 }
 
 fn standard_tweet_fields() -> Vec<TweetFields> {

@@ -47,7 +47,9 @@
 //! (`LockFileEx` is per-handle, not per-process). The public API
 //! doesn't compose that way; just don't construct it.
 
+use std::future::Future;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use fs4::AsyncFileExt;
@@ -56,6 +58,19 @@ use tokio::fs;
 
 use crate::cookies::{self, CookiesError};
 use crate::mode::Mode;
+
+/// `access_token` is treated as expired if it lives this much
+/// longer or less. Centralised so every consumer of `auth.json`
+/// (browser, CLI, future SDK users) agrees on freshness.
+pub const FRESHNESS_BUFFER: Duration = Duration::from_secs(30);
+
+/// True iff `tokens.expires_at` is more than [`FRESHNESS_BUFFER`]
+/// into the future.
+pub fn is_fresh(tokens: &Tokens) -> bool {
+    let buffer = chrono::Duration::from_std(FRESHNESS_BUFFER)
+        .expect("FRESHNESS_BUFFER fits chrono::Duration");
+    tokens.expires_at > Utc::now() + buffer
+}
 
 /// OAuth 2.0 token bundle persisted to `auth.json`. The browser's
 /// authorize flow mints it; the SDK reader returns it; the CLI
@@ -182,6 +197,88 @@ pub fn path_for(
     twid: &str,
 ) -> PathBuf {
     persona_dir(config_base_dir, psyop_name, twid).join("auth.json")
+}
+
+/// Read `auth.json` for the persona currently signed into
+/// `psyop_name`'s CEF cookie jar; if the `access_token` expires
+/// within the next [`FRESHNESS_BUFFER`], call `refresh` (the
+/// caller-supplied closure that POSTs to X's token endpoint) and
+/// persist the refreshed tokens atomically.
+///
+/// Coordination is shared-then-exclusive: a shared lock guards
+/// the optimistic read; if the tokens are already fresh, the
+/// lock drops immediately. Only on staleness does the function
+/// re-acquire as exclusive, re-read (in case a concurrent
+/// process refreshed in the gap), and run the refresh closure
+/// + atomic write under the exclusive lock.
+///
+/// `Ok` always carries fresh tokens. `Err(AuthJsonError::Io)`
+/// with kind `NotFound`-shaped diagnostics if no `auth.json` is
+/// on disk to refresh against.
+pub async fn get_or_refresh<F, Fut>(
+    config_base_dir: &Path,
+    psyop_name: &str,
+    refresh: F,
+) -> Result<Tokens, AuthJsonError>
+where
+    F: FnOnce(Tokens) -> Fut,
+    Fut: Future<Output = Result<Tokens, AuthJsonError>>,
+{
+    let twid = resolve_twid(config_base_dir, psyop_name).await?;
+    let dir = persona_dir(config_base_dir, psyop_name, &twid);
+    fs::create_dir_all(&dir).await?;
+    let auth_path = dir.join("auth.json");
+    let tmp_path = dir.join("auth.json.tmp");
+    let lock_path = dir.join("auth.json.lock");
+
+    // Phase 1 — optimistic shared-locked read.
+    {
+        let lock_file = open_lock_file(&lock_path).await?;
+        let lock_file = acquire_shared(lock_file).await?;
+        let snapshot = read_auth_json(&auth_path).await?;
+        drop(lock_file);
+        if let Some(tokens) = &snapshot {
+            if is_fresh(tokens) {
+                return Ok(snapshot.unwrap());
+            }
+        }
+    }
+
+    // Phase 2 — exclusive lock, re-read (someone else may have
+    // refreshed while we waited), refresh-if-needed, write.
+    let lock_file = open_lock_file(&lock_path).await?;
+    let lock_file = acquire_exclusive(lock_file).await?;
+
+    let existing = read_auth_json(&auth_path).await?;
+    let stale = match existing {
+        Some(t) if is_fresh(&t) => {
+            drop(lock_file);
+            return Ok(t);
+        }
+        Some(t) => t,
+        None => {
+            drop(lock_file);
+            return Err(AuthJsonError::Io(std::io::Error::other(
+                "no auth.json on disk to refresh against",
+            )));
+        }
+    };
+
+    let refreshed = refresh(stale).await?;
+    let mut json = serde_json::to_vec_pretty(&refreshed)?;
+    json.push(b'\n');
+    fs::write(&tmp_path, &json).await?;
+    fs::rename(&tmp_path, &auth_path).await?;
+    drop(lock_file);
+    Ok(refreshed)
+}
+
+async fn read_auth_json(path: &Path) -> Result<Option<Tokens>, AuthJsonError> {
+    match fs::read(path).await {
+        Ok(bytes) => Ok(Some(serde_json::from_slice(&bytes)?)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(AuthJsonError::Io(e)),
+    }
 }
 
 // ----- internal -------------------------------------------------
