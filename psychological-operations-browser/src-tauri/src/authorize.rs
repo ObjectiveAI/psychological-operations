@@ -33,6 +33,7 @@ use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::Utc;
 use psychological_operations_sdk::browser::auth_json::{self, PersonaKind, Tokens};
+use psychological_operations_sdk::browser::cookies::signed_in_x_user_id;
 use psychological_operations_sdk::browser::mode::Mode;
 use psychological_operations_sdk::browser::output::Output;
 use rand::Rng;
@@ -89,8 +90,50 @@ pub async fn maybe_start_flow(handle: &AppHandle<Wry>) {
     };
 
     let config_base_dir = handle.state::<Args>().config_base_dir.clone();
-    let auth_path =
-        auth_json::path_for(&config_base_dir, kind, &persona_name, &persona_twid);
+
+    // The X-App master account's twid (read from the X-App CEF
+    // profile's cookie jar) is part of the auth.json path —
+    // different X-App accounts produce different auth.json files
+    // under the same persona. If nobody is signed into the X-App
+    // profile yet, the flow can't sensibly mint creds, so log and
+    // bail.
+    let x_app_twid = {
+        let base = config_base_dir.clone();
+        match tokio::task::spawn_blocking(move || signed_in_x_user_id(&base, &Mode::XApp))
+            .await
+        {
+            Ok(Ok(Some(t))) => t,
+            Ok(Ok(None)) => {
+                let _ = Output::Log {
+                    message: "authorize: no X-App account signed in; not starting flow".into(),
+                }
+                .emit();
+                return;
+            }
+            Ok(Err(e)) => {
+                let _ = Output::Log {
+                    message: format!("authorize: X-App cookies probe failed: {e}"),
+                }
+                .emit();
+                return;
+            }
+            Err(e) => {
+                let _ = Output::Log {
+                    message: format!("authorize: X-App cookies join failed: {e}"),
+                }
+                .emit();
+                return;
+            }
+        }
+    };
+
+    let auth_path = auth_json::path_for(
+        &config_base_dir,
+        kind,
+        &persona_name,
+        &persona_twid,
+        &x_app_twid,
+    );
 
     // Concurrent: check whether we already have auth.json AND
     // (for psyops only) probe the cross-psyop conflict. Both
@@ -138,7 +181,9 @@ pub async fn maybe_start_flow(handle: &AppHandle<Wry>) {
 
     let handle_for_task = handle.clone();
     tauri::async_runtime::spawn(async move {
-        if let Err(e) = run_flow(handle_for_task, kind, persona_name, persona_twid).await {
+        if let Err(e) =
+            run_flow(handle_for_task, kind, persona_name, persona_twid, x_app_twid).await
+        {
             let _ = Output::Log {
                 message: format!("authorize: flow failed: {e}"),
             }
@@ -155,6 +200,7 @@ async fn run_flow(
     kind: PersonaKind,
     persona_name: String,
     persona_twid: String,
+    x_app_twid: String,
 ) -> Result<(), String> {
     let (client_id, client_secret) = read_x_app_creds(&handle).await?;
     let pkce = pkce_generate();
@@ -204,9 +250,16 @@ async fn run_flow(
     .map_err(|e| format!("token exchange: {e}"))?;
 
     let config_base_dir = handle.state::<Args>().config_base_dir.clone();
-    auth_json::set(&config_base_dir, kind, &persona_name, &persona_twid, &tokens)
-        .await
-        .map_err(|e| format!("write auth.json: {e}"))?;
+    auth_json::set(
+        &config_base_dir,
+        kind,
+        &persona_name,
+        &persona_twid,
+        &x_app_twid,
+        &tokens,
+    )
+    .await
+    .map_err(|e| format!("write auth.json: {e}"))?;
     let _ = Output::Log {
         message: format!(
             "authorize: wrote auth.json for {persona_twid} (expires_at={:?})",
@@ -481,10 +534,11 @@ async fn read_x_app_creds(
 }
 
 /// Scan every sibling psyop's data dir and return the name of
-/// the first one (other than `current`) whose
-/// `handles/<twid>/auth.json` exists. Sorting entries
-/// alphabetically gives deterministic conflict reporting if
-/// multiple owners exist; per-entry presence checks fan out
+/// the first one (other than `current`) that holds ANY
+/// `handles/<twid>/<x_app_twid>/auth.json` (for any X-App twid
+/// leaf). Sorting psyop entries alphabetically gives
+/// deterministic conflict reporting if multiple owners exist;
+/// per-sibling and per-x_app_twid presence checks fan out
 /// concurrently via [`futures::future::join_all`].
 ///
 /// Returns `None` when no conflict, `twid` is empty, or the
@@ -519,15 +573,51 @@ pub async fn find_other_psyop_owning_twid(
     entries.sort();
 
     let checks = entries.iter().map(|path| {
-        let auth_path = path
+        let sibling_name = path
             .file_name()
             .and_then(|n| n.to_str())
-            .map(|name| auth_json::path_for(&config_base_dir, PersonaKind::Psyop, name, twid));
+            .map(str::to_string);
+        let config_base_dir = config_base_dir.clone();
+        let twid = twid.to_string();
         async move {
-            match auth_path {
-                Some(p) => tokio::fs::try_exists(&p).await.unwrap_or(false),
-                None => false,
+            let Some(name) = sibling_name else { return false };
+            // <sibling>/handles/<twid>/ — list each x_app_twid leaf
+            // dir and check it for auth.json.
+            let persona_dir = config_base_dir
+                .join("plugins")
+                .join("psychological-operations")
+                .join("browser")
+                .join("psyop")
+                .join(&name)
+                .join("handles")
+                .join(&twid);
+            let mut rd = match tokio::fs::read_dir(&persona_dir).await {
+                Ok(r) => r,
+                Err(_) => return false,
+            };
+            let mut candidates: Vec<String> = Vec::new();
+            while let Ok(Some(ent)) = rd.next_entry().await {
+                if tokio::fs::metadata(&ent.path())
+                    .await
+                    .is_ok_and(|m| m.is_dir())
+                {
+                    if let Some(s) = ent.file_name().to_str() {
+                        candidates.push(s.to_string());
+                    }
+                }
             }
+            let presence = futures::future::join_all(candidates.iter().map(|x_app_twid| {
+                let p = auth_json::path_for(
+                    &config_base_dir,
+                    PersonaKind::Psyop,
+                    &name,
+                    &twid,
+                    x_app_twid,
+                );
+                async move { tokio::fs::try_exists(&p).await.unwrap_or(false) }
+            }))
+            .await;
+            presence.into_iter().any(|x| x)
         }
     });
     let existence = futures::future::join_all(checks).await;

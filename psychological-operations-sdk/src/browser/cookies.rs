@@ -107,10 +107,13 @@ impl From<base64::DecodeError> for CookiesError {
 /// parse as a numeric user-id. Real I/O / decrypt failures bubble
 /// up as `Err`.
 ///
-/// Private — reached today via [`crate::browser::auth_json::get`] to
-/// resolve the per-psyop persona twid before reading the
-/// on-disk OAuth `Tokens` blob.
-pub(crate) fn signed_in_x_user_id(
+/// Public so the browser's `authorize::maybe_start_flow` can
+/// resolve the X-App account's twid (via `Mode::XApp`) for the
+/// `auth_json::set` write, in addition to the SDK-internal use
+/// from [`crate::browser::auth_json::get`] /
+/// [`crate::browser::auth_json::get_or_refresh`] that auto-resolve
+/// both the persona twid and the X-App twid.
+pub fn signed_in_x_user_id(
     config_base_dir: &Path,
     mode: &Mode,
 ) -> Result<Option<String>, CookiesError> {

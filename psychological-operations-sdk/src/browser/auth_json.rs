@@ -10,13 +10,20 @@
 //! to be coordinated across processes. This module is the single
 //! seam every caller should go through.
 //!
-//! Layout (per persona twid, per psyop):
+//! Layout (per persona twid × per X-App twid, per psyop/agent):
 //!
 //! ```text
-//! <config-base-dir>/plugins/psychological-operations/browser/psyop/<psyop>/handles/<twid>/
+//! <config-base-dir>/plugins/psychological-operations/browser/<kind>/<name>/handles/<persona_twid>/<x_app_twid>/
 //!   ├── auth.json                  (serialized `Tokens` blob)
 //!   └── auth.json.lock             (empty sentinel; never deleted)
 //! ```
+//!
+//! The X-App twid leaf is the master X dev-account that minted the
+//! OAuth credentials used to drive this persona's authorization
+//! flow. Swapping the signed-in X-App on console.x.com routes
+//! [`get`] / [`get_or_refresh`] (and [`set`]) to a different leaf
+//! under the same persona-twid parent, so each (persona, X-App)
+//! pair gets its own independent token store.
 //!
 //! Locking uses `fs4`'s OS-advisory file locks (`LockFileEx` on
 //! Windows, `flock` / `fcntl` on POSIX) held on the open
@@ -152,17 +159,22 @@ impl From<serde_json::Error> for AuthJsonError {
 }
 
 /// Read `auth.json` for the persona currently signed into
-/// `psyop_name`'s CEF cookie jar. Acquires a shared (multi-reader)
-/// filesystem lock for the duration of the read. Returns
-/// `Ok(None)` when the file doesn't exist yet (no tokens have
-/// been minted).
+/// `name`'s CEF cookie jar, under the X-App account currently
+/// signed into the X-App CEF profile. Resolves BOTH twids in
+/// parallel via [`cookies::signed_in_x_user_id`]. Acquires a
+/// shared (multi-reader) filesystem lock for the duration of the
+/// read. Returns `Ok(None)` when the file doesn't exist yet (no
+/// tokens have been minted for this persona × X-App pair).
 pub async fn get(
     config_base_dir: &Path,
     kind: PersonaKind,
     name: &str,
 ) -> Result<Option<Tokens>, AuthJsonError> {
-    let twid = resolve_twid(config_base_dir, kind, name).await?;
-    let dir = persona_dir(config_base_dir, kind, name, &twid);
+    let (persona_twid, x_app_twid) = tokio::try_join!(
+        resolve_persona_twid(config_base_dir, kind, name),
+        resolve_x_app_twid(config_base_dir),
+    )?;
+    let dir = persona_dir(config_base_dir, kind, name, &persona_twid, &x_app_twid);
     fs::create_dir_all(&dir).await?;
     let auth_path = dir.join("auth.json");
     let lock_path = dir.join("auth.json.lock");
@@ -182,23 +194,24 @@ pub async fn get(
     result
 }
 
-/// Write `auth.json` for an explicit `twid`. Acquires an exclusive
-/// filesystem lock (blocks concurrent readers AND writers across
-/// processes) for the duration of the write. The write itself is
-/// atomic (temp + rename).
+/// Write `auth.json` for an explicit `persona_twid` × `x_app_twid`
+/// pair. Acquires an exclusive filesystem lock (blocks concurrent
+/// readers AND writers across processes) for the duration of the
+/// write. The write itself is atomic (temp + rename).
 ///
-/// Takes an explicit `twid` rather than auto-resolving so the
-/// OAuth flow's freshly-minted tokens always land under the
-/// persona they were minted for, even if the user signs out +
-/// back in mid-flow.
+/// Both twids are explicit (not auto-resolved): the OAuth flow's
+/// freshly-minted tokens always land under the persona they were
+/// minted for AND the X-App account that minted them, even if the
+/// user signs out + back in on either profile mid-flow.
 pub async fn set(
     config_base_dir: &Path,
     kind: PersonaKind,
     name: &str,
-    twid: &str,
+    persona_twid: &str,
+    x_app_twid: &str,
     tokens: &Tokens,
 ) -> Result<(), AuthJsonError> {
-    let dir = persona_dir(config_base_dir, kind, name, twid);
+    let dir = persona_dir(config_base_dir, kind, name, persona_twid, x_app_twid);
     fs::create_dir_all(&dir).await?;
     let auth_path = dir.join("auth.json");
     let tmp_path = dir.join("auth.json.tmp");
@@ -223,9 +236,10 @@ pub fn path_for(
     config_base_dir: &Path,
     kind: PersonaKind,
     name: &str,
-    twid: &str,
+    persona_twid: &str,
+    x_app_twid: &str,
 ) -> PathBuf {
-    persona_dir(config_base_dir, kind, name, twid).join("auth.json")
+    persona_dir(config_base_dir, kind, name, persona_twid, x_app_twid).join("auth.json")
 }
 
 /// Read `auth.json` for the persona currently signed into
@@ -254,8 +268,11 @@ where
     F: FnOnce(Tokens) -> Fut,
     Fut: Future<Output = Result<Tokens, AuthJsonError>>,
 {
-    let twid = resolve_twid(config_base_dir, kind, name).await?;
-    let dir = persona_dir(config_base_dir, kind, name, &twid);
+    let (persona_twid, x_app_twid) = tokio::try_join!(
+        resolve_persona_twid(config_base_dir, kind, name),
+        resolve_x_app_twid(config_base_dir),
+    )?;
+    let dir = persona_dir(config_base_dir, kind, name, &persona_twid, &x_app_twid);
     fs::create_dir_all(&dir).await?;
     let auth_path = dir.join("auth.json");
     let tmp_path = dir.join("auth.json.tmp");
@@ -317,7 +334,8 @@ fn persona_dir(
     config_base_dir: &Path,
     kind: PersonaKind,
     name: &str,
-    twid: &str,
+    persona_twid: &str,
+    x_app_twid: &str,
 ) -> PathBuf {
     config_base_dir
         .join("plugins")
@@ -326,19 +344,37 @@ fn persona_dir(
         .join(kind.dir_segment())
         .join(name)
         .join("handles")
-        .join(twid)
+        .join(persona_twid)
+        .join(x_app_twid)
 }
 
-/// Look up the persona twid via [`cookies::signed_in_x_user_id`].
-/// Sync (rusqlite + DPAPI) — wrapped in `spawn_blocking` so it
-/// doesn't park the async runtime.
-async fn resolve_twid(
+/// Look up the persona twid via [`cookies::signed_in_x_user_id`]
+/// against the per-psyop / per-agent CEF profile. Sync (rusqlite +
+/// DPAPI) — wrapped in `spawn_blocking` so it doesn't park the
+/// async runtime.
+async fn resolve_persona_twid(
     config_base_dir: &Path,
     kind: PersonaKind,
     name: &str,
 ) -> Result<String, AuthJsonError> {
     let base = config_base_dir.to_path_buf();
     let mode = kind.to_mode(name);
+    tokio::task::spawn_blocking(move || cookies::signed_in_x_user_id(&base, &mode))
+        .await
+        .map_err(AuthJsonError::Join)?
+        .map_err(AuthJsonError::Cookies)?
+        .ok_or(AuthJsonError::NoUserSignedIn)
+}
+
+/// Look up the X-App master account twid via
+/// [`cookies::signed_in_x_user_id`] against the X-App CEF profile.
+/// Determines which `<x_app_twid>` leaf the auth.json reader /
+/// writer targets.
+async fn resolve_x_app_twid(
+    config_base_dir: &Path,
+) -> Result<String, AuthJsonError> {
+    let base = config_base_dir.to_path_buf();
+    let mode = Mode::XApp;
     tokio::task::spawn_blocking(move || cookies::signed_in_x_user_id(&base, &mode))
         .await
         .map_err(AuthJsonError::Join)?
