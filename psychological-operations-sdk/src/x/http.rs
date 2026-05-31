@@ -312,6 +312,31 @@ impl Http {
         Err(map_error_response(code, response).await)
     }
 
+    /// Fetch the raw response body from an arbitrary URL (not just
+    /// under `base_url`). Used for media downloads from
+    /// pbs.twimg.com / video.twimg.com / etc. — out-of-base hosts
+    /// that still need to go through the SQLite cache so a re-fetch
+    /// of the same media is a local SQLite read instead of a
+    /// network round-trip.
+    ///
+    /// No `authorization` header is attached — the X media CDNs
+    /// serve unauthenticated and reject the bearer with HTTP 401.
+    /// The cache key is the URL itself (method + URL + empty body
+    /// fed through the same SHA-256 the `send_*` family uses).
+    pub async fn fetch_url(
+        &self,
+        url: &str,
+        cache: bool,
+    ) -> Result<Vec<u8>, Error> {
+        if self.mock {
+            return Err(Error::Other(
+                "fetch_url not supported in mock mode".into(),
+            ));
+        }
+        let rb = self.client.get(url);
+        self.execute_cached(rb, cache).await
+    }
+
     /// Build the request, then either route through the cache (on
     /// `cache && self.cache.is_some()`) or fire it directly. Returns
     /// the raw 2xx response bytes for downstream deserialization.

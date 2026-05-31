@@ -2,49 +2,45 @@
 //! through the workspace's SDK (`psychological_operations_sdk::x::*`).
 //!
 //! Seven tools: tweet lookup, reply chain traversal, user bio + profile
-//! picture, search, and a local-attachment opener. Every X v2 call goes
-//! through the SDK's `Http` (app-only bearer + SQLite response cache);
-//! every `cache: true` so the second hit of the same request stays
-//! cheap.
+//! picture, search, and a singular media-attachment opener. Every
+//! external request routes through the SDK's `Http` (app-only bearer +
+//! SQLite response cache) — including the media fetch via
+//! [`Http::fetch_url`]. The MCP server owns no parallel HTTP client and
+//! no on-disk attachment cache; the SDK's existing cache is the only
+//! storage layer.
 //!
 //! Responses from X are deserialised into [`serde_json::Value`] because
 //! the codegen'd `Media` struct is missing `url` / `variants` /
-//! `preview_image_url` — fields we need to download attachments. The
-//! tool bodies walk the Value directly for those fields and only
-//! reach into typed shapes where the codegen covers what we need.
+//! `preview_image_url` — fields we need to extract attachment URLs.
+//! The tool bodies walk the Value directly for those fields.
 
-use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use base64::Engine;
 use psychological_operations_sdk::x::http::Http;
 use reqwest::Method;
 use rmcp::{
     ServerHandler,
     handler::server::router::tool::ToolRouter,
     handler::server::wrapper::Parameters,
-    model::{Implementation, ProtocolVersion, ServerCapabilities, ServerInfo},
+    model::{
+        Content, Implementation, ProtocolVersion, ResourceContents,
+        ServerCapabilities, ServerInfo,
+    },
     schemars, tool, tool_handler, tool_router,
 };
 use serde::Serialize;
 use serde_json::{Value, json};
 
-const ATTACHMENTS_SUBDIR: &str = "plugins/psychological-operations/x-api-mcp/attachments";
-
 #[derive(Clone)]
 pub struct PsychologicalOperationsXApiMcp {
     pub tool_router: ToolRouter<Self>,
     http: Arc<Http>,
-    /// Outer `config_base_dir` — attachments live under
-    /// `<this>/plugins/psychological-operations/x-api-mcp/attachments/<tweet_id>/`.
-    config_base_dir: PathBuf,
 }
 
-// `ToolRouter` is hand-implemented Debug-poor; project the relevant
-// fields so the macro-generated Debug bound on Parameters is satisfied.
 impl std::fmt::Debug for PsychologicalOperationsXApiMcp {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PsychologicalOperationsXApiMcp")
-            .field("config_base_dir", &self.config_base_dir)
             .finish_non_exhaustive()
     }
 }
@@ -85,11 +81,11 @@ pub struct GetTweetRequest {
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
-pub struct OpenAttachmentsRequest {
-    #[schemars(description = "Numeric tweet ID whose attachments you want to open.")]
+pub struct OpenAttachmentRequest {
+    #[schemars(description = "Numeric tweet ID the attachment belongs to.")]
     pub tweet_id: String,
-    #[schemars(description = "Basenames as returned by get_tweet's image_attachments / video_attachments.")]
-    pub filenames: Vec<String>,
+    #[schemars(description = "Media key as returned in get_tweet's image_attachments / video_attachments.")]
+    pub media_key: String,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
@@ -98,8 +94,10 @@ pub struct RunQueryRequest {
     pub query: String,
 }
 
-/// Returned tweet shape — what every read-side tool serialises into its
-/// String result.
+/// Returned tweet shape — what every read-side tool serialises into
+/// its String result. `image_attachments` / `video_attachments` are
+/// lists of X's stable opaque media keys (e.g. `"3_1234567890"`); the
+/// LLM passes one back to `open_attachment` to retrieve the bytes.
 #[derive(Serialize)]
 struct CanonicalTweet {
     tweet_id: String,
@@ -115,17 +113,16 @@ struct CanonicalTweet {
 
 #[tool_router]
 impl PsychologicalOperationsXApiMcp {
-    pub fn new(http: Arc<Http>, config_base_dir: PathBuf) -> Self {
+    pub fn new(http: Arc<Http>) -> Self {
         Self {
             tool_router: Self::tool_router(),
             http,
-            config_base_dir,
         }
     }
 
     #[tool(
         name = "get_replied_to_id",
-        description = "Return the ID of the tweet that the given tweet is replying to, or an empty string when the tweet isn't a reply."
+        description = "Return the ID of the tweet that the given tweet is replying to."
     )]
     async fn get_replied_to_id(
         &self,
@@ -154,7 +151,7 @@ impl PsychologicalOperationsXApiMcp {
 
     #[tool(
         name = "list_reply_ids",
-        description = "Return the IDs of recent tweets that reply to the given tweet (X v2 search /2/tweets/search/recent with conversation_id), as a JSON array string."
+        description = "Return the IDs of recent tweets that reply to the given tweet."
     )]
     async fn list_reply_ids(
         &self,
@@ -209,7 +206,7 @@ impl PsychologicalOperationsXApiMcp {
 
     #[tool(
         name = "get_bio",
-        description = "Return the X user's bio (`description` field) for the given handle."
+        description = "Return the X user's bio."
     )]
     async fn get_bio(&self, Parameters(req): Parameters<GetBioRequest>) -> String {
         match self.fetch_user_value(&req.handle, "description").await {
@@ -224,7 +221,7 @@ impl PsychologicalOperationsXApiMcp {
 
     #[tool(
         name = "get_profile_picture",
-        description = "Return the X user's `profile_image_url` for the given handle."
+        description = "Return the X user's profile picture URL."
     )]
     async fn get_profile_picture(
         &self,
@@ -242,11 +239,11 @@ impl PsychologicalOperationsXApiMcp {
 
     #[tool(
         name = "get_tweet",
-        description = "Fetch a tweet by ID, returning JSON with `tweet_id`, `handle`, `content`, `image_attachments`, `video_attachments`. Media URLs are downloaded into the per-tweet attachments directory; the attachment lists are basenames."
+        description = "Fetch a tweet by ID. Returns JSON with tweet_id, handle, content, image_attachments, video_attachments. Attachment lists carry X media keys; pass one to open_attachment to get the bytes."
     )]
     async fn get_tweet(&self, Parameters(req): Parameters<GetTweetRequest>) -> String {
         match self.fetch_tweet_value(&req.tweet_id).await {
-            Ok(v) => match self.canonical_from_value(&v, &req.tweet_id).await {
+            Ok(v) => match canonical_from_value(&v, &req.tweet_id) {
                 Some(t) => serde_json::to_string(&t)
                     .unwrap_or_else(|e| format!("error: serialize tweet: {e}")),
                 None => "error: response missing `data`".into(),
@@ -256,33 +253,75 @@ impl PsychologicalOperationsXApiMcp {
     }
 
     #[tool(
-        name = "open_attachments",
-        description = "Open each given attachment basename (as returned by get_tweet) with the system default viewer."
+        name = "open_attachment",
+        description = "Re-fetch the tweet (cache hit, instant), resolve the media URL for the given media_key, fetch the bytes via the SDK cache, and return them inline as MCP image content (photos) or an embedded resource with video/mp4 mime (videos / animated GIFs)."
     )]
-    async fn open_attachments(
+    async fn open_attachment(
         &self,
-        Parameters(req): Parameters<OpenAttachmentsRequest>,
-    ) -> String {
-        let dir = self.attachments_root().join(&req.tweet_id);
-        let mut opened: u32 = 0;
-        let mut errors = Vec::new();
-        for name in &req.filenames {
-            let path = dir.join(name);
-            match opener::open(&path) {
-                Ok(()) => opened += 1,
-                Err(e) => errors.push(format!("{name}: {e}")),
+        Parameters(req): Parameters<OpenAttachmentRequest>,
+    ) -> Content {
+        let v = match self.fetch_tweet_value(&req.tweet_id).await {
+            Ok(v) => v,
+            Err(e) => return Content::text(format!("error: {e}")),
+        };
+        let media_objs = v
+            .pointer("/includes/media")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let m = match media_objs.iter().find(|m| {
+            m.get("media_key").and_then(Value::as_str) == Some(req.media_key.as_str())
+        }) {
+            Some(m) => m,
+            None => {
+                return Content::text(format!(
+                    "error: media_key {} not found on tweet {}",
+                    req.media_key, req.tweet_id,
+                ));
             }
-        }
-        if errors.is_empty() {
-            format!("opened {opened}")
-        } else {
-            format!("opened {opened}; errors: {}", errors.join("; "))
+        };
+        let kind = m.get("type").and_then(Value::as_str).unwrap_or("");
+        let url_opt = match kind {
+            "photo" => m.get("url").and_then(Value::as_str).map(str::to_string),
+            "video" | "animated_gif" => best_video_variant(m),
+            other => {
+                return Content::text(format!(
+                    "error: unsupported media type \"{other}\" for media_key {}",
+                    req.media_key,
+                ));
+            }
+        };
+        let url = match url_opt {
+            Some(u) => u,
+            None => {
+                return Content::text(format!(
+                    "error: no playable URL for media_key {}",
+                    req.media_key,
+                ));
+            }
+        };
+        let bytes = match self.http.fetch_url(&url, true).await {
+            Ok(b) => b,
+            Err(e) => return Content::text(format!("error: fetch_url: {e}")),
+        };
+        let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+        match kind {
+            "photo" => Content::image(b64, mime_for_photo_url(&url)),
+            // video | animated_gif — MCP has no native Video content
+            // variant. Embedded-resource with video/mp4 mime is the
+            // canonical MCP shape for "client should handle binary".
+            _ => Content::resource(ResourceContents::BlobResourceContents {
+                uri: url,
+                mime_type: Some("video/mp4".into()),
+                blob: b64,
+                meta: None,
+            }),
         }
     }
 
     #[tool(
         name = "run_query",
-        description = "Run an X v2 search query (X v2 /2/tweets/search/recent). Returns a JSON array of canonical tweet objects (tweet_id, handle, content, image_attachments, video_attachments)."
+        description = "Run an X v2 search query (X v2 /2/tweets/search/recent)."
     )]
     async fn run_query(&self, Parameters(req): Parameters<RunQueryRequest>) -> String {
         #[derive(Serialize)]
@@ -323,13 +362,14 @@ impl PsychologicalOperationsXApiMcp {
                 Some(s) => s.to_string(),
                 None => continue,
             };
-            // Build a Value the canonical extractor can consume — wrap
-            // each search-hit tweet into the same `{data, includes}`
-            // shape /2/tweets/{id} returns. `includes.users` /
-            // `includes.media` carry the full set; the extractor
-            // filters by author_id + media_keys.
-            let wrapped = json!({ "data": t, "includes": v.get("includes").cloned().unwrap_or(Value::Null) });
-            if let Some(c) = self.canonical_from_value(&wrapped, &tweet_id).await {
+            // Wrap each search-hit tweet into the same `{data, includes}`
+            // shape /2/tweets/{id} returns so the canonical extractor
+            // can reuse the includes block.
+            let wrapped = json!({
+                "data": t,
+                "includes": v.get("includes").cloned().unwrap_or(Value::Null),
+            });
+            if let Some(c) = canonical_from_value(&wrapped, &tweet_id) {
                 out.push(c);
             }
         }
@@ -343,11 +383,6 @@ impl PsychologicalOperationsXApiMcp {
 // =====================================================================
 
 impl PsychologicalOperationsXApiMcp {
-    /// `<config_base_dir>/plugins/psychological-operations/x-api-mcp/attachments/`
-    fn attachments_root(&self) -> PathBuf {
-        self.config_base_dir.join(ATTACHMENTS_SUBDIR)
-    }
-
     async fn fetch_tweet_value(&self, tweet_id: &str) -> Result<Value, String> {
         #[derive(Serialize)]
         struct Q<'a> {
@@ -385,102 +420,78 @@ impl PsychologicalOperationsXApiMcp {
             .await
             .map_err(|e| e.to_string())
     }
+}
 
-    /// Build a [`CanonicalTweet`] from a `/2/tweets/{id}`-shaped Value
-    /// (`{data: Tweet, includes: Expansions}`). Resolves the author's
-    /// handle via `includes.users` keyed by `data.author_id`, and the
-    /// media URLs via `includes.media` keyed by
-    /// `data.attachments.media_keys`. Media URLs are downloaded into
-    /// the per-tweet attachments directory; the returned lists carry
-    /// the on-disk basenames.
-    async fn canonical_from_value(
-        &self,
-        v: &Value,
-        tweet_id: &str,
-    ) -> Option<CanonicalTweet> {
-        let data = v.get("data")?;
-        let content = data
-            .get("text")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string();
-        let author_id = data.get("author_id").and_then(Value::as_str);
-        let handle = author_id
-            .and_then(|aid| {
-                v.pointer("/includes/users")
-                    .and_then(Value::as_array)
-                    .and_then(|users| {
-                        users.iter().find_map(|u| {
-                            (u.get("id").and_then(Value::as_str) == Some(aid))
-                                .then(|| u.get("username").and_then(Value::as_str))
-                                .flatten()
-                                .map(|s| s.to_string())
-                        })
+/// Build a [`CanonicalTweet`] from a `/2/tweets/{id}`-shaped Value
+/// (`{data: Tweet, includes: Expansions}`). Resolves the author's
+/// handle via `includes.users` keyed by `data.author_id`, and surfaces
+/// each attachment's stable `media_key` (no download — the LLM passes
+/// the key back to `open_attachment` to retrieve bytes).
+fn canonical_from_value(v: &Value, tweet_id: &str) -> Option<CanonicalTweet> {
+    let data = v.get("data")?;
+    let content = data
+        .get("text")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    let author_id = data.get("author_id").and_then(Value::as_str);
+    let handle = author_id
+        .and_then(|aid| {
+            v.pointer("/includes/users")
+                .and_then(Value::as_array)
+                .and_then(|users| {
+                    users.iter().find_map(|u| {
+                        (u.get("id").and_then(Value::as_str) == Some(aid))
+                            .then(|| u.get("username").and_then(Value::as_str))
+                            .flatten()
+                            .map(|s| s.to_string())
                     })
-            })
-            .unwrap_or_default();
-
-        let media_keys: Vec<String> = data
-            .pointer("/attachments/media_keys")
-            .and_then(Value::as_array)
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|k| k.as_str().map(|s| s.to_string()))
-                    .collect()
-            })
-            .unwrap_or_default();
-        let media_objs: Vec<Value> = v
-            .pointer("/includes/media")
-            .and_then(Value::as_array)
-            .map(|a| a.clone())
-            .unwrap_or_default();
-
-        let mut image_attachments = Vec::new();
-        let mut video_attachments = Vec::new();
-        let dest_dir = self.attachments_root().join(tweet_id);
-        let client = self.http.client.clone();
-
-        for key in &media_keys {
-            let m = match media_objs.iter().find(|m| {
-                m.get("media_key").and_then(Value::as_str) == Some(key.as_str())
-            }) {
-                Some(m) => m,
-                None => continue,
-            };
-            let kind = m.get("type").and_then(Value::as_str).unwrap_or("");
-            let url_opt = match kind {
-                "photo" => m.get("url").and_then(Value::as_str).map(str::to_string),
-                "video" | "animated_gif" => best_video_variant(m),
-                _ => None,
-            };
-            let Some(url) = url_opt else { continue };
-            match download_media(&client, &dest_dir, &url).await {
-                Ok(name) => {
-                    if kind == "photo" {
-                        image_attachments.push(name);
-                    } else {
-                        video_attachments.push(name);
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!(error = %e, "download_media");
-                }
-            }
-        }
-
-        Some(CanonicalTweet {
-            tweet_id: tweet_id.to_string(),
-            handle,
-            content,
-            image_attachments,
-            video_attachments,
+                })
         })
+        .unwrap_or_default();
+
+    let media_keys: Vec<String> = data
+        .pointer("/attachments/media_keys")
+        .and_then(Value::as_array)
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|k| k.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+    let media_objs: Vec<Value> = v
+        .pointer("/includes/media")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+
+    let mut image_attachments = Vec::new();
+    let mut video_attachments = Vec::new();
+    for key in &media_keys {
+        let Some(m) = media_objs.iter().find(|m| {
+            m.get("media_key").and_then(Value::as_str) == Some(key.as_str())
+        }) else {
+            continue;
+        };
+        let kind = m.get("type").and_then(Value::as_str).unwrap_or("");
+        match kind {
+            "photo" => image_attachments.push(key.clone()),
+            "video" | "animated_gif" => video_attachments.push(key.clone()),
+            _ => {}
+        }
     }
+
+    Some(CanonicalTweet {
+        tweet_id: tweet_id.to_string(),
+        handle,
+        content,
+        image_attachments,
+        video_attachments,
+    })
 }
 
 /// Pick the highest-bit-rate `video/mp4` variant from a video / GIF
-/// media object's `variants` array. Falls back to the first variant's
-/// url when bit_rate is missing on all of them.
+/// media object's `variants` array.
 fn best_video_variant(m: &Value) -> Option<String> {
     let variants = m.get("variants").and_then(Value::as_array)?;
     let mut best: Option<(i64, &str)> = None;
@@ -501,49 +512,26 @@ fn best_video_variant(m: &Value) -> Option<String> {
     best.map(|(_, u)| u.to_string())
 }
 
-/// Download `url` to `<dir>/<basename(url)>`. Skips download if the
-/// file already exists. Returns the chosen basename.
-async fn download_media(
-    client: &reqwest::Client,
-    dir: &Path,
-    url: &str,
-) -> std::io::Result<String> {
-    let basename = basename_from_url(url);
-    let path = dir.join(&basename);
-    if tokio::fs::try_exists(&path).await.unwrap_or(false) {
-        return Ok(basename);
-    }
-    tokio::fs::create_dir_all(dir).await?;
-    let resp = client
-        .get(url)
-        .send()
-        .await
-        .map_err(|e| std::io::Error::other(format!("media GET: {e}")))?;
-    let status = resp.status();
-    if !status.is_success() {
-        return Err(std::io::Error::other(format!("media GET {status}")));
-    }
-    let bytes = resp
-        .bytes()
-        .await
-        .map_err(|e| std::io::Error::other(format!("media body: {e}")))?;
-    tokio::fs::write(&path, &bytes).await?;
-    Ok(basename)
-}
-
-fn basename_from_url(url: &str) -> String {
-    // Strip query/fragment, take last path segment.
+/// Infer a photo mime from the URL's path-tail extension. X's photo
+/// URLs are reliably `.jpg` / `.png` / `.webp`; fallback is jpeg.
+fn mime_for_photo_url(url: &str) -> &'static str {
     let no_q = url.split('?').next().unwrap_or(url);
     let no_h = no_q.split('#').next().unwrap_or(no_q);
     let last = no_h.rsplit('/').next().unwrap_or(no_h);
-    if last.is_empty() { "attachment".to_string() } else { last.to_string() }
+    let ext = last.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
+    match ext.as_str() {
+        "jpg" | "jpeg" => "image/jpeg",
+        "png" => "image/png",
+        "webp" => "image/webp",
+        "gif" => "image/gif",
+        _ => "image/jpeg",
+    }
 }
 
 fn urlencoding_encode(raw: &str) -> String {
     // Tiny inline percent-encoder for path segments — same shape the
     // SDK's codegen uses (`urlencoding::encode`), but inlined so we
-    // don't pull urlencoding as a direct dep. Encodes everything that
-    // isn't unreserved RFC 3986.
+    // don't pull urlencoding as a direct dep.
     let mut out = String::with_capacity(raw.len());
     for b in raw.as_bytes() {
         match b {

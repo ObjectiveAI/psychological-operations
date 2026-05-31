@@ -115,7 +115,7 @@ pub async fn setup(config: Config) -> std::io::Result<(tokio::net::TcpListener, 
     .await
     .map_err(|e| std::io::Error::other(format!("x-api Http::app_only: {e}")))?;
 
-    let server = PsychologicalOperationsXApiMcp::new(Arc::new(http), config_base_dir);
+    let server = PsychologicalOperationsXApiMcp::new(Arc::new(http));
     let ct = CancellationToken::new();
 
     let service: StreamableHttpService<PsychologicalOperationsXApiMcp, LocalSessionManager> =
