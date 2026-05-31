@@ -1,8 +1,8 @@
 [package]
-name = "psychological-operations-browser-sdk"
+name = "psychological-operations-sdk"
 version = "0.1.0"
 edition = "2021"
-description = "Wire types + event-name constants for the psychological-operations-browser stdio protocol."
+description = "Shared wire-types + helpers across the psychological-operations system."
 
 [dependencies]
 serde = { version = "1.0.228", features = ["derive"] }

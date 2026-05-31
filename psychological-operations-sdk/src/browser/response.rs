@@ -11,17 +11,17 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::console::ConsoleEntry;
+use super::console::ConsoleEntry;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Response {
-    /// Reply to [`crate::request::Request::Html`].
+    /// Reply to [`crate::browser::request::Request::Html`].
     Html { html: String },
-    /// Reply to [`crate::request::Request::Console`] — the buffer the
+    /// Reply to [`crate::browser::request::Request::Console`] — the buffer the
     /// overlay accumulated since the last drain.
     Console { entries: Vec<ConsoleEntry> },
-    /// Reply to [`crate::request::Request::Eval`] — the
+    /// Reply to [`crate::browser::request::Request::Eval`] — the
     /// `JSON.stringify`'d (and re-parsed) result the overlay's eval
     /// produced. Runtime errors come back as
     /// [`ResponseOutcome::Err`] instead.
@@ -30,7 +30,7 @@ pub enum Response {
 
 /// Outcome of handling a request — either the corresponding
 /// [`Response`] (ok) or an error string explaining why it couldn't
-/// be produced. Carried inside [`crate::output::Output::Response`].
+/// be produced. Carried inside [`crate::browser::output::Output::Response`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum ResponseOutcome {

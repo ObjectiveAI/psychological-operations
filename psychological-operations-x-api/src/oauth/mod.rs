@@ -8,7 +8,7 @@
 //! - `server`: one-shot localhost callback listener (OS-assigned port)
 //! - `tokens`: token-endpoint wire helpers (exchange + refresh).
 //!   On-disk token storage moved to
-//!   `psychological_operations_browser_sdk::auth_json`.
+//!   `psychological_operations_sdk::browser::auth_json`.
 
 pub mod pkce;
 pub mod server;

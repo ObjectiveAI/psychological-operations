@@ -3,7 +3,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use psychological_operations_browser_sdk::auth_json::{self, AuthJsonError};
+use psychological_operations_sdk::browser::auth_json::{self, AuthJsonError};
 use reqwest::{Client, Method, StatusCode};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -106,7 +106,7 @@ impl Http {
 
     /// Construct an Http authorized as the per-psyop X user. The
     /// access token comes through
-    /// [`psychological_operations_browser_sdk::auth_json::get_or_refresh`],
+    /// [`psychological_operations_sdk::browser::auth_json::get_or_refresh`],
     /// which takes a shared filesystem lock to read `auth.json` and
     /// — if the access token expires within
     /// [`auth_json::FRESHNESS_BUFFER`] (currently 30 s) — escalates

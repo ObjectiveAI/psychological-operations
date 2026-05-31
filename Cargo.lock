@@ -4358,7 +4358,7 @@ dependencies = [
  "objc2",
  "objc2-app-kit",
  "objc2-foundation",
- "psychological-operations-browser-sdk",
+ "psychological-operations-sdk",
  "rand 0.10.1",
  "raw-window-handle",
  "reqwest",
@@ -4376,22 +4376,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "psychological-operations-browser-sdk"
-version = "0.1.0"
-dependencies = [
- "aes-gcm",
- "base64 0.22.1",
- "chrono",
- "fs4",
- "rusqlite",
- "scraper",
- "serde",
- "serde_json",
- "tokio",
- "windows 0.62.2",
-]
-
-[[package]]
 name = "psychological-operations-cli"
 version = "0.99.0"
 dependencies = [
@@ -4404,7 +4388,7 @@ dependencies = [
  "git2",
  "indexmap 2.14.0",
  "objectiveai-sdk",
- "psychological-operations-browser-sdk",
+ "psychological-operations-sdk",
  "psychological-operations-x-api",
  "rand 0.8.6",
  "reqwest",
@@ -4443,6 +4427,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "psychological-operations-sdk"
+version = "0.1.0"
+dependencies = [
+ "aes-gcm",
+ "base64 0.22.1",
+ "chrono",
+ "fs4",
+ "rusqlite",
+ "scraper",
+ "serde",
+ "serde_json",
+ "tokio",
+ "windows 0.62.2",
+]
+
+[[package]]
 name = "psychological-operations-x-api"
 version = "0.99.0"
 dependencies = [
@@ -4450,7 +4450,7 @@ dependencies = [
  "chrono",
  "clap",
  "dirs",
- "psychological-operations-browser-sdk",
+ "psychological-operations-sdk",
  "rand 0.8.6",
  "reqwest",
  "rusqlite",

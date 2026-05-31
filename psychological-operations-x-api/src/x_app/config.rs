@@ -63,7 +63,7 @@ pub fn ensure_setup(config_base_dir: &Path) -> Result<XAppConfig, Error> {
 
 /// `<config-base-dir>/plugins/psychological-operations/x_app.json`.
 /// `config_base_dir` is the outer root (objectiveai's base — same
-/// convention as `psychological_operations_browser_sdk::auth_json`'s
+/// convention as `psychological_operations_sdk::browser::auth_json`'s
 /// paths). The `plugins/psychological-operations/` suffix is added
 /// here so callers can pass the same path argument they pass to the
 /// SDK.

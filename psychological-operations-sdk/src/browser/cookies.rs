@@ -18,7 +18,7 @@
 
 use std::path::Path;
 
-use crate::mode::Mode;
+use super::mode::Mode;
 
 /// `twid` is shaped `u%3D<numeric-id>` (URL-encoded `u=<id>`).
 /// Pull out the digits. Match both the URL-encoded and decoded
@@ -38,7 +38,7 @@ pub fn parse_twid(raw: &str) -> Option<String> {
 /// failure modes (I/O, SQLite, JSON parse of `Local State`, key
 /// material missing, DPAPI failure, AES-GCM failure).
 ///
-/// Exposed publicly because [`crate::refresh_token::RefreshTokenError`]
+/// Exposed publicly because [`crate::browser::auth_json::AuthJsonError`]
 /// holds one as a variant — callers should pattern-match on its
 /// variants to disambiguate "no cookies DB yet" from real failures.
 #[derive(Debug)]
@@ -107,7 +107,7 @@ impl From<base64::DecodeError> for CookiesError {
 /// parse as a numeric user-id. Real I/O / decrypt failures bubble
 /// up as `Err`.
 ///
-/// Private — reached today via [`crate::auth_json::get`] to
+/// Private — reached today via [`crate::browser::auth_json::get`] to
 /// resolve the per-psyop persona twid before reading the
 /// on-disk OAuth `Tokens` blob.
 pub(crate) fn signed_in_x_user_id(

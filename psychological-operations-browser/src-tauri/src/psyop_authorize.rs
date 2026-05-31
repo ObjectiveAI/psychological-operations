@@ -18,7 +18,7 @@
 //! refactored and doesn't compile standalone, so pulling it in
 //! as a dep wasn't an option. The on-disk `Tokens` blob itself
 //! lives in
-//! [`psychological_operations_browser_sdk::auth_json`], which
+//! [`psychological_operations_sdk::browser::auth_json`], which
 //! owns the struct, the path math, the fs4 advisory-lock
 //! pattern, and the atomic temp+rename write.
 
@@ -30,9 +30,9 @@ use std::time::Duration;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::Utc;
-use psychological_operations_browser_sdk::auth_json::{self, Tokens};
-use psychological_operations_browser_sdk::mode::Mode;
-use psychological_operations_browser_sdk::output::Output;
+use psychological_operations_sdk::browser::auth_json::{self, Tokens};
+use psychological_operations_sdk::browser::mode::Mode;
+use psychological_operations_sdk::browser::output::Output;
 use rand::Rng;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -77,7 +77,7 @@ pub fn clear_in_flight_on_signout() {
 // Public entry point — called from cookies_watcher::apply_snapshot
 // =================================================================
 pub async fn maybe_start_flow(handle: &AppHandle<Wry>) {
-    let psyop_name = match psychological_operations_browser_sdk::mode::get() {
+    let psyop_name = match psychological_operations_sdk::browser::mode::get() {
         Some(Mode::PsyopAuthorize { name }) => name,
         _ => return,
     };
@@ -340,7 +340,7 @@ async fn bind_callback_server(
 // Token exchange — POST to https://api.x.com/2/oauth2/token with
 // Basic auth (client_id:client_secret) and the PKCE verifier.
 // The on-disk `Tokens` blob lives in
-// `psychological_operations_browser_sdk::auth_json::Tokens`; this
+// `psychological_operations_sdk::browser::auth_json::Tokens`; this
 // module owns only the X-API wire shape that gets converted into
 // it.
 // =================================================================
@@ -406,7 +406,7 @@ async fn exchange_code_for_tokens(
 async fn read_x_app_creds(
     handle: &AppHandle<Wry>,
 ) -> Result<(String, String), String> {
-    use psychological_operations_browser_sdk::x_app_credentials::OAuthPopup;
+    use psychological_operations_sdk::browser::x_app_credentials::OAuthPopup;
 
     let handles_dir = webview::mode_data_dir(handle, &Mode::XApp).join("handles");
 

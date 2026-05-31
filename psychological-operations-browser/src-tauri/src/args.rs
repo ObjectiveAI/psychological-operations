@@ -9,15 +9,15 @@
 //! a clap error.
 //!
 //! After startup the host can switch the browser to a different
-//! mode by sending a [`psychological_operations_browser_sdk::request::Request::XApp`],
-//! [`psychological_operations_browser_sdk::request::Request::PsyopRead`],
-//! or [`psychological_operations_browser_sdk::request::Request::PsyopAuthorize`]
+//! mode by sending a [`psychological_operations_sdk::browser::request::Request::XApp`],
+//! [`psychological_operations_sdk::browser::request::Request::PsyopRead`],
+//! or [`psychological_operations_sdk::browser::request::Request::PsyopAuthorize`]
 //! line on stdin (see [`crate::stdio`]).
 
 use std::path::PathBuf;
 
 use clap::{ArgGroup, Parser};
-use psychological_operations_browser_sdk::mode::Mode;
+use psychological_operations_sdk::browser::mode::Mode;
 
 #[derive(Debug, Parser)]
 #[command(name = "psychological-operations-browser")]

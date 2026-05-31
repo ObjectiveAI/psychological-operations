@@ -3,7 +3,7 @@
 //! The overlay monkey-patches `console.log/warn/error/info/debug`
 //! on init and installs `window.onerror` + `unhandledrejection`
 //! listeners. Each call appends to an in-page ring buffer; the
-//! buffer is drained back to the host on a [`crate::request::Request::Console`].
+//! buffer is drained back to the host on a [`crate::browser::request::Request::Console`].
 //!
 //! Wire format: arrays of [`ConsoleEntry`] objects with the
 //! externally-snake-cased [`ConsoleLevel`] tag.

@@ -16,8 +16,8 @@ use std::sync::mpsc;
 
 use clap::Parser;
 use clap::error::ErrorKind;
-use psychological_operations_browser_sdk::mode;
-use psychological_operations_browser_sdk::output::Output;
+use psychological_operations_sdk::browser::mode;
+use psychological_operations_sdk::browser::output::Output;
 use tauri::Manager;
 use tokio::sync::Notify;
 

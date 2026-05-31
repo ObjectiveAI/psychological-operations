@@ -12,13 +12,13 @@ use std::sync::{Mutex, OnceLock};
 
 use serde::{Deserialize, Serialize};
 
-use crate::panel::PanelState;
-use crate::response::ResponseOutcome;
+use super::panel::PanelState;
+use super::response::ResponseOutcome;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Output {
-    /// A reply to a previously-received [`crate::request::Request`].
+    /// A reply to a previously-received [`crate::browser::request::Request`].
     /// The inner [`ResponseOutcome`] is either an `ok` response or an
     /// `err` with a textual reason.
     Response {
@@ -65,11 +65,11 @@ pub enum Output {
     /// Derived panel-condition state. Emitted whenever the state the
     /// instruction panel should show changes — driven by the Rust
     /// `state` module's pure derivation over raw facts (mode, cookies).
-    /// See [`crate::panel`].
+    /// See [`crate::browser::panel`].
     Panel { state: PanelState },
 
     /// A newly-observed tweet ID. Emitted once per ID, in
-    /// observation order, by the [`crate::mode::Mode::PsyopRead`]
+    /// observation order, by the [`crate::browser::mode::Mode::PsyopRead`]
     /// HTML processor as it dedups against an in-memory ordered
     /// set. The set resets on every mode change (including
     /// psyop swap) so a new session always starts emitting from

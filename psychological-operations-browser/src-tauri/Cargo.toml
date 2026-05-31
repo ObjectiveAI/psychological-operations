@@ -31,7 +31,7 @@ helper_name = "psychological_operations_browser_helper"
 tauri-build = { version = "2.6.2", features = [] }
 
 [dependencies]
-psychological-operations-browser-sdk = { path = "../../psychological-operations-browser-sdk", version = "0.1.0" }
+psychological-operations-sdk = { path = "../../psychological-operations-sdk", version = "0.1.0" }
 # OAuth dance pieces for the psyop authorize flow. The
 # `psychological-operations-x-api` crate has equivalents but
 # it's mid-refactor and doesn't compile standalone — so we

@@ -48,11 +48,11 @@ use std::io::BufRead;
 use std::sync::Mutex;
 use std::sync::mpsc;
 
-use psychological_operations_browser_sdk::output::Output;
-use psychological_operations_browser_sdk::panel::PanelState;
-use psychological_operations_browser_sdk::request::Request;
-use psychological_operations_browser_sdk::response::ResponseOutcome;
-use psychological_operations_browser_sdk::x_app_credentials::{OAuthPopup, PostCreateDialog};
+use psychological_operations_sdk::browser::output::Output;
+use psychological_operations_sdk::browser::panel::PanelState;
+use psychological_operations_sdk::browser::request::Request;
+use psychological_operations_sdk::browser::response::ResponseOutcome;
+use psychological_operations_sdk::browser::x_app_credentials::{OAuthPopup, PostCreateDialog};
 use tauri::{AppHandle, Manager, Wry};
 
 use crate::WatcherKick;

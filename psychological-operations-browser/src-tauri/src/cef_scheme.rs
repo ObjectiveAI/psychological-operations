@@ -34,7 +34,7 @@
 use std::sync::{Arc, Mutex};
 
 use cef::*;
-use psychological_operations_browser_sdk::response::ResponseOutcome;
+use psychological_operations_sdk::browser::response::ResponseOutcome;
 use serde::Deserialize;
 use serde_json::Value;
 use tauri::{AppHandle, Wry};
@@ -66,7 +66,7 @@ wrap_scheme_handler_factory! {
             _scheme_name: Option<&CefString>,
             _request: Option<&mut Request>,
         ) -> Option<ResourceHandler> {
-            let _ = psychological_operations_browser_sdk::output::Output::Log {
+            let _ = psychological_operations_sdk::browser::output::Output::Log {
                 message: "cef_scheme: factory.create() called".into(),
             }
             .emit();
@@ -96,7 +96,7 @@ wrap_resource_handler! {
             let url_userfree = request.url();
             let url = CefStringUtf16::from(&url_userfree).to_string();
             let body = extract_post_body(request);
-            let _ = psychological_operations_browser_sdk::output::Output::Log {
+            let _ = psychological_operations_sdk::browser::output::Output::Log {
                 message: format!(
                     "cef_scheme: process_request url={url} body_len={} body={:?}",
                     body.len(),
@@ -118,7 +118,7 @@ wrap_resource_handler! {
                         b"cef not initialized".to_vec(),
                     ),
                 };
-                let _ = psychological_operations_browser_sdk::output::Output::Log {
+                let _ = psychological_operations_sdk::browser::output::Output::Log {
                     message: format!(
                         "cef_scheme: dispatched url={url} status={status} body_len={} body={:?}",
                         body_out.len(),

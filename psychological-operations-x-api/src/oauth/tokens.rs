@@ -4,13 +4,13 @@
 //! layout.
 //!
 //! On-disk per-psyop token storage lives in
-//! [`psychological_operations_browser_sdk::auth_json`]; this
+//! [`psychological_operations_sdk::browser::auth_json`]; this
 //! module owns no files.
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use chrono::{Duration, Utc};
-use psychological_operations_browser_sdk::auth_json::Tokens;
+use psychological_operations_sdk::browser::auth_json::Tokens;
 use serde::Deserialize;
 
 use crate::Error;

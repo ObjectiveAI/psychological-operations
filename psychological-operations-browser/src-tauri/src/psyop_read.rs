@@ -25,7 +25,7 @@
 use std::collections::HashSet;
 use std::sync::{Mutex, OnceLock};
 
-use psychological_operations_browser_sdk::output::Output;
+use psychological_operations_sdk::browser::output::Output;
 use scraper::{Html, Selector};
 use tauri::{AppHandle, Wry};
 

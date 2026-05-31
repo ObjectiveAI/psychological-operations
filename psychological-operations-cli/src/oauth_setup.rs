@@ -11,7 +11,7 @@
 
 use std::time::Duration;
 
-use psychological_operations_browser_sdk::auth_json;
+use psychological_operations_sdk::browser::auth_json;
 use psychological_operations_x_api::oauth::{pkce, server, tokens};
 use psychological_operations_x_api::x_app::config as x_app_config;
 use reqwest::Client as ReqwestClient;

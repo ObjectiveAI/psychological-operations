@@ -102,7 +102,7 @@
 ● Update(psychological-operations-browser\src-tauri\src\lib.rs)
   ⎿  Removed 1 line
       10  use clap::error::ErrorKind;
-      11  use psychological_operations_browser_sdk::output::Output;
+      11  use psychological_operations_sdk::browser::output::Output;
       12
       13 -use crate::signin_watcher::WatcherKick;
       13  use crate::stdio::{PendingAck, ReadyTx, SigninWatcherSlot};

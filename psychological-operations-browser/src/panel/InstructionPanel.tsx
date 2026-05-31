@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 // Wire shape mirrors `PanelState` in the Rust SDK (see
-// `psychological-operations-browser-sdk/src/panel.rs`). All
+// `psychological-operations-sdk/src/browser/panel.rs`). All
 // derivation lives Rust-side — this component only renders.
 type PanelState =
   | { type: "hidden" }

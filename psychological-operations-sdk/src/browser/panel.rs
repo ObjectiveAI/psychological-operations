@@ -4,7 +4,7 @@
 //! [`PanelState`] published by the Rust side. Watchers contribute raw
 //! facts (cookies, mode, …); a pure derivation in the browser's
 //! `state` module turns them into a [`PanelState`]. That state goes
-//! out three places — stdout (as [`crate::output::Output::Panel`]),
+//! out three places — stdout (as [`crate::browser::output::Output::Panel`]),
 //! the panel webview (via Tauri event), and the reflow logic that
 //! resizes the panel to either `0` or `PANEL_HEIGHT`.
 //!

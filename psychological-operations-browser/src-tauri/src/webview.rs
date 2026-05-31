@@ -21,7 +21,7 @@
 //! the lifetime of the process; the RequestContext is built
 //! once in [`create_x_app`] and never rebuilt.
 
-use psychological_operations_browser_sdk::mode::Mode;
+use psychological_operations_sdk::browser::mode::Mode;
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use tauri::webview::WebviewBuilder;
 use tauri::window::WindowBuilder;

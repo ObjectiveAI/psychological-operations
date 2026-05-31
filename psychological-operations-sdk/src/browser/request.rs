@@ -27,7 +27,7 @@ pub enum Request {
     /// Evaluate arbitrary JS in the overlay's window context. The
     /// expression's value (after `Promise` resolution and
     /// JSON-serialization) comes back as
-    /// [`crate::response::Response::Eval`]; a runtime throw becomes a
-    /// [`crate::response::ResponseOutcome::Err`].
+    /// [`crate::browser::response::Response::Eval`]; a runtime throw becomes a
+    /// [`crate::browser::response::ResponseOutcome::Err`].
     Eval { code: String },
 }

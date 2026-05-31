@@ -321,7 +321,7 @@ pub fn initialize(cache_root: &Path, app: AppHandle<Wry>) {
     // Stdout breadcrumb so reviewers know where CEF puts its
     // profile + diagnostics. Crash dumps (if a subprocess
     // segfaults) land alongside the log file under `cache_root`.
-    let _ = psychological_operations_browser_sdk::output::Output::Log {
+    let _ = psychological_operations_sdk::browser::output::Output::Log {
         message: format!(
             "cef: initialized, cache_root={}, log_file={}",
             cache_root.display(),
@@ -569,7 +569,7 @@ wrap_load_handler! {
             _transition_type: TransitionType,
         ) {
             let Some(frame) = frame else {
-                let _ = psychological_operations_browser_sdk::output::Output::Log {
+                let _ = psychological_operations_sdk::browser::output::Output::Log {
                     message: "cef: on_load_start no frame".into(),
                 }.emit();
                 return;
@@ -584,11 +584,11 @@ wrap_load_handler! {
             // overlay can read it synchronously at startup
             // without round-tripping through an invoke.
             let mode_json = serde_json::to_string(
-                &psychological_operations_browser_sdk::mode::get(),
+                &psychological_operations_sdk::browser::mode::get(),
             )
             .unwrap_or_else(|_| "null".into());
             let preamble = format!("window.__PSYOPS_MODE = {mode_json};\n");
-            let _ = psychological_operations_browser_sdk::output::Output::Log {
+            let _ = psychological_operations_sdk::browser::output::Output::Log {
                 message: format!(
                     "cef: on_load_start main frame, injecting overlay ({} bytes)",
                     OVERLAY_JS.len()

@@ -17,12 +17,12 @@
 //!
 //! Writes go through `<file>.tmp` + atomic rename so a crash
 //! mid-write can't leave a truncated file on disk. Parsing lives
-//! in [`psychological_operations_browser_sdk::x_app_credentials`];
+//! in [`psychological_operations_sdk::browser::x_app_credentials`];
 //! callers reach the values through that module.
 
 use std::path::PathBuf;
 
-use psychological_operations_browser_sdk::mode::Mode;
+use psychological_operations_sdk::browser::mode::Mode;
 use tauri::{AppHandle, Wry};
 use tokio::fs;
 

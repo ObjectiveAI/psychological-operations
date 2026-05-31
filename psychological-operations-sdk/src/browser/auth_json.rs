@@ -56,8 +56,8 @@ use fs4::AsyncFileExt;
 use serde::{Deserialize, Serialize};
 use tokio::fs;
 
-use crate::cookies::{self, CookiesError};
-use crate::mode::Mode;
+use super::cookies::{self, CookiesError};
+use super::mode::Mode;
 
 /// `access_token` is treated as expired if it lives this much
 /// longer or less. Centralised so every consumer of `auth.json`

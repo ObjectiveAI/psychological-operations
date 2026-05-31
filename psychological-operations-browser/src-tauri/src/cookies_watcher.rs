@@ -35,8 +35,8 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use psychological_operations_browser_sdk::cookies::parse_twid;
-use psychological_operations_browser_sdk::mode::Mode;
+use psychological_operations_sdk::browser::cookies::parse_twid;
+use psychological_operations_sdk::browser::mode::Mode;
 use tauri::async_runtime::{JoinHandle, spawn, spawn_blocking};
 use tauri::{AppHandle, Manager, Url, Wry};
 use tokio::sync::Notify;

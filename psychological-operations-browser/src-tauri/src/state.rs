@@ -28,9 +28,9 @@ use std::sync::{Mutex, OnceLock};
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use psychological_operations_browser_sdk::mode::{self, Mode};
-use psychological_operations_browser_sdk::output::{Output, SignedInInfo};
-use psychological_operations_browser_sdk::panel::{PanelCondition, PanelState};
+use psychological_operations_sdk::browser::mode::{self, Mode};
+use psychological_operations_sdk::browser::output::{Output, SignedInInfo};
+use psychological_operations_sdk::browser::panel::{PanelCondition, PanelState};
 use tauri::{AppHandle, Emitter, Url, Wry};
 
 use crate::webview;
