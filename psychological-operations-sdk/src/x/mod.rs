@@ -17,6 +17,7 @@ pub mod params;
 pub mod error;
 pub mod http;
 pub mod mock;
+pub mod tweet;
 
 pub mod x_app;
 pub mod oauth;
