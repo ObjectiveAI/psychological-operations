@@ -44,7 +44,7 @@ pub fn parse_twid(raw: &str) -> Option<String> {
 #[derive(Debug)]
 pub enum CookiesError {
     Io(std::io::Error),
-    Sqlite(rusqlite::Error),
+    Sqlite(sqlx::Error),
     LocalState(serde_json::Error),
     Base64(base64::DecodeError),
     /// `os_crypt.encrypted_key` missing or not a string in `Local State`.
@@ -93,8 +93,8 @@ impl std::error::Error for CookiesError {}
 impl From<std::io::Error> for CookiesError {
     fn from(e: std::io::Error) -> Self { Self::Io(e) }
 }
-impl From<rusqlite::Error> for CookiesError {
-    fn from(e: rusqlite::Error) -> Self { Self::Sqlite(e) }
+impl From<sqlx::Error> for CookiesError {
+    fn from(e: sqlx::Error) -> Self { Self::Sqlite(e) }
 }
 impl From<base64::DecodeError> for CookiesError {
     fn from(e: base64::DecodeError) -> Self { Self::Base64(e) }
@@ -113,10 +113,13 @@ impl From<base64::DecodeError> for CookiesError {
 /// from [`crate::browser::auth_json::get`] /
 /// [`crate::browser::auth_json::get_or_refresh`] that auto-resolve
 /// both the persona twid and the X-App twid.
-pub fn signed_in_x_user_id(
+pub async fn signed_in_x_user_id(
     config_base_dir: &Path,
     mode: &Mode,
 ) -> Result<Option<String>, CookiesError> {
+    use sqlx::ConnectOptions;
+    use sqlx::sqlite::SqliteConnectOptions;
+
     let cef_root = config_base_dir
         .join("plugins")
         .join("psychological-operations")
@@ -131,31 +134,28 @@ pub fn signed_in_x_user_id(
 
     let key = load_aes_key(&local_state)?;
 
-    // Open the live DB via SQLite's URI form with
-    // `mode=ro&immutable=1`. The immutable flag tells SQLite the
-    // file won't change underneath it and skips all OS-level
-    // locking, which is the only way to coexist with Chromium's
+    // `read_only` + `immutable` together tell SQLite the file
+    // won't change underneath it and skip all OS-level locking,
+    // which is the only way to coexist with Chromium's
     // FILE_SHARE_NONE handle on Windows (a plain fs::copy or
     // OpenOptions::read fails with ERROR_SHARING_VIOLATION).
-    // `cookies_uri` percent-encodes the path; SQLite's URI parser
-    // requires forward slashes and `%` escaping for spaces etc.
-    let uri = build_sqlite_uri(&cookies_db);
-    let conn = rusqlite::Connection::open_with_flags(
-        &uri,
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_URI,
-    )?;
-    let mut stmt = conn.prepare(
+    let opts = SqliteConnectOptions::new()
+        .filename(&cookies_db)
+        .read_only(true)
+        .immutable(true);
+    let mut conn = opts.connect().await?;
+    let blob: Option<Vec<u8>> = sqlx::query_scalar(
         "SELECT encrypted_value FROM cookies \
          WHERE name = 'twid' \
            AND host_key IN ('.x.com', '.twitter.com', 'x.com', 'twitter.com') \
          ORDER BY creation_utc DESC \
          LIMIT 1",
-    )?;
-    let mut rows = stmt.query([])?;
-    let Some(row) = rows.next()? else {
+    )
+    .fetch_optional(&mut conn)
+    .await?;
+    let Some(blob) = blob else {
         return Ok(None);
     };
-    let blob: Vec<u8> = row.get(0)?;
 
     let plaintext = decrypt_value(&key, &blob)?;
     let raw = String::from_utf8_lossy(&plaintext);
@@ -274,37 +274,3 @@ fn dpapi_unprotect(input: &[u8]) -> Result<Vec<u8>, CookiesError> {
     Ok(out)
 }
 
-/// Build a `file:` URI suitable for `Connection::open_with_flags`
-/// + `SQLITE_OPEN_URI`. SQLite's URI parser requires:
-///   - forward slashes (Windows `\` → `/`)
-///   - leading `/` (so an absolute Windows path like `C:\foo`
-///     becomes `file:/C:/foo`)
-///   - percent-encoding of characters with special meaning in
-///     URIs (we encode space, `?`, `#`, and `%` itself; the rest
-///     of the printable ASCII in a typical filesystem path is
-///     safe to pass through).
-///
-/// `mode=ro&immutable=1` tells SQLite the file is read-only AND
-/// won't change underneath it — bypasses all OS-level locking and
-/// works against a Cookies DB that Chromium holds with
-/// FILE_SHARE_NONE.
-fn build_sqlite_uri(path: &Path) -> String {
-    let s = path.to_string_lossy().replace('\\', "/");
-    let mut encoded = String::with_capacity(s.len() + 16);
-    for c in s.chars() {
-        match c {
-            '%' => encoded.push_str("%25"),
-            '?' => encoded.push_str("%3F"),
-            '#' => encoded.push_str("%23"),
-            ' ' => encoded.push_str("%20"),
-            other => encoded.push(other),
-        }
-    }
-    // Absolute Windows paths start with a drive letter; SQLite
-    // wants `file:/C:/...`. POSIX paths already start with `/`.
-    if encoded.starts_with('/') {
-        format!("file:{encoded}?mode=ro&immutable=1")
-    } else {
-        format!("file:/{encoded}?mode=ro&immutable=1")
-    }
-}

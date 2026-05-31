@@ -97,33 +97,21 @@ pub async fn maybe_start_flow(handle: &AppHandle<Wry>) {
     // under the same persona. If nobody is signed into the X-App
     // profile yet, the flow can't sensibly mint creds, so log and
     // bail.
-    let x_app_twid = {
-        let base = config_base_dir.clone();
-        match tokio::task::spawn_blocking(move || signed_in_x_user_id(&base, &Mode::XApp))
-            .await
-        {
-            Ok(Ok(Some(t))) => t,
-            Ok(Ok(None)) => {
-                let _ = Output::Log {
-                    message: "authorize: no X-App account signed in; not starting flow".into(),
-                }
-                .emit();
-                return;
+    let x_app_twid = match signed_in_x_user_id(&config_base_dir, &Mode::XApp).await {
+        Ok(Some(t)) => t,
+        Ok(None) => {
+            let _ = Output::Log {
+                message: "authorize: no X-App account signed in; not starting flow".into(),
             }
-            Ok(Err(e)) => {
-                let _ = Output::Log {
-                    message: format!("authorize: X-App cookies probe failed: {e}"),
-                }
-                .emit();
-                return;
+            .emit();
+            return;
+        }
+        Err(e) => {
+            let _ = Output::Log {
+                message: format!("authorize: X-App cookies probe failed: {e}"),
             }
-            Err(e) => {
-                let _ = Output::Log {
-                    message: format!("authorize: X-App cookies join failed: {e}"),
-                }
-                .emit();
-                return;
-            }
+            .emit();
+            return;
         }
     };
 

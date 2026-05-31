@@ -100,7 +100,7 @@ impl Http {
                  `psychological-operations x_app setup` and capture it".into(),
             )
         })?;
-        let cache = open_cache(config_base_dir, max_size)?;
+        let cache = open_cache(config_base_dir, max_size).await?;
         Ok(Self::new(client, None::<&str>, Some(bearer), max_size, cache))
     }
 
@@ -159,7 +159,7 @@ impl Http {
         )
         .await
         .map_err(|e| Error::Other(format!("auth_json: {e}")))?;
-        let cache = open_cache(config_base_dir, max_size)?;
+        let cache = open_cache(config_base_dir, max_size).await?;
         Ok(Self::new(client, None::<&str>, Some(tokens.access_token), max_size, cache))
     }
 
@@ -395,14 +395,16 @@ fn decode_body<T: DeserializeOwned>(raw: &[u8]) -> Result<T, Error> {
 
 /// Open the SQLite cache for a given config root, but only when
 /// `max_size > 0`. `app_only` / `for_psyop` plumbing.
-fn open_cache(
+async fn open_cache(
     config_base_dir: &Path,
     max_size: u64,
 ) -> Result<Option<Arc<Cache>>, Error> {
     if max_size == 0 {
         return Ok(None);
     }
-    Ok(Some(Arc::new(Cache::open(config_base_dir, max_size)?)))
+    Ok(Some(Arc::new(
+        Cache::open(config_base_dir, max_size).await?,
+    )))
 }
 
 fn map_status_error(code: StatusCode, text: &str) -> Error {

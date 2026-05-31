@@ -349,19 +349,15 @@ fn persona_dir(
 }
 
 /// Look up the persona twid via [`cookies::signed_in_x_user_id`]
-/// against the per-psyop / per-agent CEF profile. Sync (rusqlite +
-/// DPAPI) — wrapped in `spawn_blocking` so it doesn't park the
-/// async runtime.
+/// against the per-psyop / per-agent CEF profile.
 async fn resolve_persona_twid(
     config_base_dir: &Path,
     kind: PersonaKind,
     name: &str,
 ) -> Result<String, AuthJsonError> {
-    let base = config_base_dir.to_path_buf();
     let mode = kind.to_mode(name);
-    tokio::task::spawn_blocking(move || cookies::signed_in_x_user_id(&base, &mode))
+    cookies::signed_in_x_user_id(config_base_dir, &mode)
         .await
-        .map_err(AuthJsonError::Join)?
         .map_err(AuthJsonError::Cookies)?
         .ok_or(AuthJsonError::NoUserSignedIn)
 }
@@ -373,11 +369,8 @@ async fn resolve_persona_twid(
 async fn resolve_x_app_twid(
     config_base_dir: &Path,
 ) -> Result<String, AuthJsonError> {
-    let base = config_base_dir.to_path_buf();
-    let mode = Mode::XApp;
-    tokio::task::spawn_blocking(move || cookies::signed_in_x_user_id(&base, &mode))
+    cookies::signed_in_x_user_id(config_base_dir, &Mode::XApp)
         .await
-        .map_err(AuthJsonError::Join)?
         .map_err(AuthJsonError::Cookies)?
         .ok_or(AuthJsonError::NoUserSignedIn)
 }
