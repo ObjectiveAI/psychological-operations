@@ -39,21 +39,18 @@ use crate::webview;
 const EVENT_PANEL: &str = "psyops:panel";
 
 /// Raw observations watchers contribute. Everything in derived
-/// [`PanelState`] is a pure function of these fields.
+/// [`PanelState`] is a pure function of these fields + the
+/// process-static [`mode::get`].
 #[derive(Debug, Default, Clone)]
 pub struct Facts {
-    /// Active browser mode (set by stdio dispatch).
-    pub mode: Option<Mode>,
     /// x.com's `auth_token` HttpOnly cookie value, if present.
     /// `None` ⇒ signed out.
     pub auth_token: Option<String>,
     /// Most recent URL the content surface reported (overlay
     /// `report_url` invoke or CEF `DisplayHandler::on_address_change`).
-    /// **Only tracked when `mode` is `Some(Mode::XApp)`** — the
-    /// setter is a no-op in other modes, so this field stays
-    /// empty for Psyop (etc.) and [`derive`] doesn't have to
-    /// special-case those modes. Cleared by [`set_mode`] when
-    /// leaving X-App.
+    /// X-App-mode-only — [`set_current_url`] is the sole setter
+    /// and other modes simply never call it, so this field stays
+    /// empty for them and [`derive`] doesn't have to special-case.
     pub current_url: Option<String>,
     /// X user-id parsed from the `twid` cookie by the cookies
     /// watcher. Stable per signed-in account. Used by the
@@ -89,7 +86,7 @@ pub struct Facts {
     /// breaker that collapses the OAuth-client flow back into
     /// the create-app flow even when the first three creds are
     /// already on disk — "no production app means restart".
-    /// X-App-only; cleared by `set_mode`.
+    /// X-App-only.
     pub production_app_count: Option<u32>,
     /// If the signed-in twid is already authorized to ANOTHER
     /// psyop on disk (i.e. `psyop/<other>/handles/<twid>/auth.json`
@@ -102,8 +99,7 @@ pub struct Facts {
     /// [`crate::psyop_read`] dedup-emitter has observed
     /// during this session. `None` ⇒ counter not rendered
     /// (pre-first-HTML or non-Read mode). Driven by
-    /// [`set_tweets_read_count`]; cleared on every mode
-    /// change via [`set_mode`].
+    /// [`set_tweets_read_count`].
     pub tweets_read_count: Option<u32>,
 }
 
@@ -161,52 +157,12 @@ pub fn twid_conflict_present() -> bool {
 // Setters (each triggers a recompute)
 // ---------------------------------------------------------------------
 
-/// Mirror a mode change into the facts store. Called from
-/// `stdio::dispatch_request` right after [`mode::set`]. One fact,
-/// one recompute — safe to use as a standalone setter.
-///
-/// EVERY mode change clears the cookie / URL / creds facts: the
-/// new mode runs under a different CEF `RequestContext` with a
-/// different cookie store, so stale facts from the prior mode
-/// would lie about the new mode's state until fresh observations
-/// land. (X-App → X-App is a no-op early-return.)
-pub fn set_mode(handle: &AppHandle<Wry>, new_mode: Option<Mode>) {
-    {
-        let mut facts = facts_slot().lock().expect("facts slot poisoned");
-        if facts.mode == new_mode {
-            return;
-        }
-        facts.mode = new_mode;
-        // Cross-mode facts are scoped to the prior RequestContext;
-        // drop them so derive() doesn't trust them under the new
-        // mode. Fresh cookies-watcher snapshot + first overlay
-        // report_url after the new browser comes up will refill.
-        facts.auth_token = None;
-        facts.user_id = None;
-        facts.current_url = None;
-        facts.credentials_complete = None;
-        facts.oauth_client_complete = None;
-        facts.production_app_count = None;
-        facts.twid_conflict = None;
-        facts.tweets_read_count = None;
-    }
-    // Drop the in-memory seen-tweets set so a mode swap
-    // (including psyop swap) doesn't carry IDs from the
-    // prior session into the new one.
-    crate::psyop_read::clear();
-    recompute_and_publish(handle);
-}
-
 /// Update the most-recent-URL fact from `report_url` (or CEF's
-/// `OnAddressChange`). Only takes effect in X-App mode; in other
-/// modes the call is a no-op so the fact stays empty and
-/// [`derive`] is free to ignore it.
+/// `OnAddressChange`). X-App-only by convention — only the X-App
+/// overlay's helpers call into it.
 pub fn set_current_url(handle: &AppHandle<Wry>, url: String) {
     {
         let mut facts = facts_slot().lock().expect("facts slot poisoned");
-        if !matches!(facts.mode, Some(Mode::XApp)) {
-            return;
-        }
         if facts.current_url.as_deref() == Some(url.as_str()) {
             return;
         }
@@ -231,9 +187,6 @@ pub fn set_production_app_count(
 ) {
     {
         let mut facts = facts_slot().lock().expect("facts slot poisoned");
-        if !matches!(facts.mode, Some(Mode::XApp)) {
-            return;
-        }
         if facts.production_app_count == count {
             return;
         }
@@ -244,16 +197,12 @@ pub fn set_production_app_count(
 
 /// Update the running "tweets read" counter the PsyopRead
 /// panel surfaces. Called by [`crate::psyop_read::process_html`]
-/// every time the in-memory seen set grows. PsyopRead-only;
-/// no-op outside that mode so a late-arriving HTML invoke
-/// after a mode swap can't ghost the previous counter into
-/// the new mode's panel.
+/// every time the in-memory seen set grows. PsyopRead-only by
+/// convention — only the Save button's `process_read_html`
+/// route calls into it.
 pub fn set_tweets_read_count(handle: &AppHandle<Wry>, count: u32) {
     {
         let mut facts = facts_slot().lock().expect("facts slot poisoned");
-        if !matches!(facts.mode, Some(Mode::PsyopRead { .. })) {
-            return;
-        }
         if facts.tweets_read_count == Some(count) {
             return;
         }
@@ -325,21 +274,12 @@ pub async fn apply_cookie_facts(
     auth_token: Option<String>,
     user_id: Option<String>,
 ) {
-    // Pull the current mode + decide whether we'll need a twid
-    // conflict probe, all without taking the facts lock yet —
-    // every disk-reading step below is async and must finish
-    // before we re-acquire the lock to write facts.
-    let current_mode = facts_slot()
-        .lock()
-        .expect("facts slot poisoned")
-        .mode
-        .clone();
-
     // Concurrent: presence-check both snapshot files + (if
     // applicable) the cross-psyop conflict walk. All three are
     // disk-bound and independent — `tokio::join!` runs them in
-    // parallel.
-    let conflict_psyop = current_psyop_name(&current_mode);
+    // parallel. Mode is locked at startup so it's safe to read
+    // outside any lock.
+    let conflict_psyop = current_psyop_name();
     let (creds_complete, oauth_complete, twid_conflict) = match user_id.as_deref() {
         Some(uid) => {
             let post_create_fut = crate::credentials::post_create_present(handle, uid);
@@ -411,9 +351,9 @@ fn home_url_for_current_mode() -> Option<&'static str> {
 /// The current psyop's name, if any. Both psyop variants share
 /// the same on-disk dir and therefore the same conflict domain,
 /// so the variant tag doesn't matter — only the name does.
-fn current_psyop_name(mode: &Option<Mode>) -> Option<String> {
-    match mode {
-        Some(Mode::PsyopRead { name } | Mode::PsyopAuthorize { name }) => Some(name.clone()),
+fn current_psyop_name() -> Option<String> {
+    match mode::get()? {
+        Mode::PsyopRead { name } | Mode::PsyopAuthorize { name } => Some(name),
         _ => None,
     }
 }
@@ -422,11 +362,12 @@ fn current_psyop_name(mode: &Option<Mode>) -> Option<String> {
 // Derivation + publication
 // ---------------------------------------------------------------------
 
-/// Pure mapping from raw facts to the panel state the UI should show.
-/// **The heart of the abstraction** — to add a new condition, add a
+/// Pure mapping from raw facts (+ the locked-at-startup mode)
+/// to the panel state the UI should show. **The heart of the
+/// abstraction** — to add a new condition, add a
 /// [`PanelCondition`] variant in the SDK and a new arm here.
 pub fn derive(facts: &Facts) -> PanelState {
-    match facts.mode {
+    match mode::get() {
         Some(Mode::XApp) => {
             if facts.auth_token.is_none() {
                 return PanelState::Show {

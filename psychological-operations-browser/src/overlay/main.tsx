@@ -1,12 +1,10 @@
 import { installConsoleCapture, drainConsole } from "./console-capture";
 
 // Install console + exception capture as the FIRST thing the bundle
-// does. This bundle is injected into the X-App *content* CEF browser
-// (which loads https://console.x.com/ + navigates to anywhere from
-// there) via `Frame::execute_javascript` from
-// `LoadHandler::on_load_start`, which fires before any page script
-// runs. So anything we install here catches everything the page
-// itself logs or throws.
+// does. This bundle is injected into the CEF content browser via
+// `Frame::execute_javascript` from `LoadHandler::on_load_start`,
+// which fires before any page script runs. So anything we install
+// here catches everything the page itself logs or throws.
 //
 // The instruction panel does NOT live in this bundle — it's a
 // separate webview (Tauri/WebView2, loaded from our local panel.html)
@@ -33,71 +31,18 @@ import type { PanelState } from "./panel-state";
 import "./panel-state";
 
 type Request =
-  | { type: "x_app" }
   | { type: "html" }
   | { type: "console" }
   | { type: "eval"; code: string };
 
+// Mode is locked at the browser binary's CLI flag and injected
+// into the renderer as `window.__PSYOPS_MODE` by
+// `cef::InjectOverlay::on_load_start` before this bundle runs.
 type Mode =
   | { type: "x_app" }
   | { type: "psyop_read"; name: string }
   | { type: "psyop_authorize"; name: string }
   | null;
-
-let urlReporterUninstall: (() => void) | null = null;
-let onboardingHelpersUninstall: (() => void) | null = null;
-let appsTabHelperUninstall: (() => void) | null = null;
-let appsPageHelpersUninstall: (() => void) | null = null;
-let appPageHelpersUninstall: (() => void) | null = null;
-let authSettingsHelpersUninstall: (() => void) | null = null;
-let createAppDialogHelpersUninstall: (() => void) | null = null;
-let postCreateDialogHelpersUninstall: (() => void) | null = null;
-let psyopReadHelpersUninstall: (() => void) | null = null;
-
-function stopUrlReporter() {
-  urlReporterUninstall?.();
-  urlReporterUninstall = null;
-}
-
-function stopOnboardingHelpers() {
-  onboardingHelpersUninstall?.();
-  onboardingHelpersUninstall = null;
-}
-
-function stopAppsTabHelper() {
-  appsTabHelperUninstall?.();
-  appsTabHelperUninstall = null;
-}
-
-function stopAppsPageHelpers() {
-  appsPageHelpersUninstall?.();
-  appsPageHelpersUninstall = null;
-}
-
-function stopAppPageHelpers() {
-  appPageHelpersUninstall?.();
-  appPageHelpersUninstall = null;
-}
-
-function stopAuthSettingsHelpers() {
-  authSettingsHelpersUninstall?.();
-  authSettingsHelpersUninstall = null;
-}
-
-function stopCreateAppDialogHelpers() {
-  createAppDialogHelpersUninstall?.();
-  createAppDialogHelpersUninstall = null;
-}
-
-function stopPostCreateDialogHelpers() {
-  postCreateDialogHelpersUninstall?.();
-  postCreateDialogHelpersUninstall = null;
-}
-
-function stopPsyopReadHelpers() {
-  psyopReadHelpersUninstall?.();
-  psyopReadHelpersUninstall = null;
-}
 
 async function respondOk(response: unknown) {
   await invoke("stdio_respond", {
@@ -114,33 +59,6 @@ async function respondErr(error: string) {
 async function handleRequest(payload: unknown) {
   const req = payload as Request;
   switch (req.type) {
-    case "x_app": {
-      // Ack first so the host process gets the ack before any URL
-      // or other side-effects.
-      await respondOk({ type: "ack" });
-
-      // Halt prior per-mode state. After the navigation below the
-      // overlay will re-mount, query current_mode, and reinstall.
-      stopUrlReporter();
-      stopOnboardingHelpers();
-      stopAppsTabHelper();
-      stopAppsPageHelpers();
-      stopAppPageHelpers();
-      stopAuthSettingsHelpers();
-      stopCreateAppDialogHelpers();
-      stopPostCreateDialogHelpers();
-      stopPsyopReadHelpers();
-
-      // Navigate (or reload if already on the right origin so the
-      // overlay still re-mounts on the fresh page).
-      const target = "https://console.x.com/";
-      if (location.href === target || location.href.startsWith(target)) {
-        location.reload();
-      } else {
-        location.assign(target);
-      }
-      break;
-    }
     case "html": {
       const html = document.documentElement.outerHTML;
       await respondOk({ type: "html", html });
@@ -165,7 +83,7 @@ async function handleRequest(payload: unknown) {
   }
 }
 
-// ---------- IPC handshake + URL reporter on mode resume ----------
+// ---------- IPC handshake + helper install ----------
 //
 // Register the push handler FIRST, then invoke frontend_ready. The
 // Rust stdin reader blocks on this signal before reading; the OS
@@ -175,15 +93,19 @@ async function handleRequest(payload: unknown) {
 // `frame.execute_javascript("window.__psyops.push(<json>)")` to
 // deliver each request. Synchronous from JS's perspective; the ack
 // goes back via `invoke("stdio_respond", ...)` per-request.
+//
+// Mode is read synchronously from the injected `__PSYOPS_MODE`
+// global — no round-trip needed.
 (async () => {
   console.log("[psyops-overlay] mount begin");
   try {
     registerPushHandler(handleRequest);
     console.log("[psyops-overlay] push handler registered, calling frontend_ready");
     await invoke("frontend_ready");
-    console.log("[psyops-overlay] frontend_ready ok, calling current_mode");
-    const mode = await invoke<Mode>("current_mode");
-    console.log("[psyops-overlay] current_mode =", JSON.stringify(mode));
+    console.log("[psyops-overlay] frontend_ready ok");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const mode = ((window as any).__PSYOPS_MODE ?? null) as Mode;
+    console.log("[psyops-overlay] mode =", JSON.stringify(mode));
     // Seed the panel-state mirror BEFORE installing helpers so the
     // first tick of any pointer reads the actual state, not null.
     // Subsequent updates land via the Rust→JS push registered in
@@ -198,17 +120,17 @@ async function handleRequest(payload: unknown) {
     if (mode !== null) {
       // URL reporter is mode-agnostic — useful in every mode so
       // Rust's panel derivation has fresh `current_url` facts.
-      urlReporterUninstall = installSpaUrlReporter();
+      installSpaUrlReporter();
       if (mode.type === "x_app") {
-        onboardingHelpersUninstall = installOnboardingHelpers();
-        appsTabHelperUninstall = installAppsTabHelper();
-        appsPageHelpersUninstall = installAppsPageHelpers();
-        appPageHelpersUninstall = installAppPageHelpers();
-        authSettingsHelpersUninstall = installAuthSettingsHelpers();
-        createAppDialogHelpersUninstall = installCreateAppDialogHelpers();
-        postCreateDialogHelpersUninstall = installPostCreateDialogHelpers();
+        installOnboardingHelpers();
+        installAppsTabHelper();
+        installAppsPageHelpers();
+        installAppPageHelpers();
+        installAuthSettingsHelpers();
+        installCreateAppDialogHelpers();
+        installPostCreateDialogHelpers();
       } else if (mode.type === "psyop_read") {
-        psyopReadHelpersUninstall = installPsyopReadHelpers();
+        installPsyopReadHelpers();
       }
       // psyop_authorize installs no helpers — Rust drives the
       // OAuth navigation on its own; X's consent page is the

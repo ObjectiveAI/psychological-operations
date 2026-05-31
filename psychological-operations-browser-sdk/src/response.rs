@@ -5,7 +5,6 @@
 //! Examples:
 //! ```text
 //! {"type":"html","html":"<!DOCTYPE html…"}
-//! {"type":"ack"}
 //! {"type":"console","entries":[{…},…]}
 //! {"type":"eval","result":2}
 //! ```
@@ -19,9 +18,6 @@ use crate::console::ConsoleEntry;
 pub enum Response {
     /// Reply to [`crate::request::Request::Html`].
     Html { html: String },
-    /// Generic acknowledgement. Reply to mode-setting requests like
-    /// [`crate::request::Request::XApp`].
-    Ack,
     /// Reply to [`crate::request::Request::Console`] — the buffer the
     /// overlay accumulated since the last drain.
     Console { entries: Vec<ConsoleEntry> },

@@ -18,14 +18,13 @@
 //!      the panel's "Tweets read: X" counter advances.
 //!
 //! The seen set is in-memory only and lives in a
-//! `OnceLock<Mutex<Seen>>`. [`clear`] zeroes it, called from
-//! `state::set_mode` on every mode flip (including psyop
-//! swap) so a fresh session always starts at zero.
+//! `OnceLock<Mutex<Seen>>`. Mode is locked at the process's
+//! CLI flag so the set never needs zeroing — the process
+//! lives and dies with one mode.
 
 use std::collections::HashSet;
 use std::sync::{Mutex, OnceLock};
 
-use psychological_operations_browser_sdk::mode::Mode;
 use psychological_operations_browser_sdk::output::Output;
 use scraper::{Html, Selector};
 use tauri::{AppHandle, Wry};
@@ -46,31 +45,12 @@ fn seen_slot() -> &'static Mutex<Seen> {
     SLOT.get_or_init(|| Mutex::new(Seen::default()))
 }
 
-/// Called from `state::set_mode` whenever the mode changes
-/// (including psyop swap). Drops every accumulated ID so the
-/// next session's counter starts at zero.
-pub fn clear() {
-    if let Ok(mut seen) = seen_slot().lock() {
-        *seen = Seen::default();
-    }
-}
-
 /// Entry point for the CEF `process_read_html` custom-scheme
 /// command. Returns the current session's tweet count after
 /// processing — the overlay uses it as a back-pressure
 /// signal (it just acks; the panel's `Output::Panel` carries
 /// the same count to any host process listening).
 pub fn process_html(handle: &AppHandle<Wry>, html: String) -> u32 {
-    // Guard: only meaningful in PsyopRead mode. A late HTML
-    // invoke from the prior overlay during a mode swap could
-    // land after `state::set_mode` flipped the mode — drop it.
-    if !matches!(
-        psychological_operations_browser_sdk::mode::get(),
-        Some(Mode::PsyopRead { .. })
-    ) {
-        return current_count();
-    }
-
     // Don't ingest a wrong-account timeline into the seen set.
     // The panel surfaces the conflict separately; we just
     // skip until the user signs back in correctly.

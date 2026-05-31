@@ -77,13 +77,11 @@ pub fn run() {
         }
     };
 
-    // The CLI mode flag is required (clap's ArgGroup enforces it),
-    // so we know the initial mode before Tauri starts. Set the SDK
-    // mode static first so every subsequent `Output::*` line —
-    // even ones emitted during Tauri builder setup — carries the
-    // mode in its top-level `"mode"` field.
+    // The CLI mode flag is required (clap's ArgGroup enforces it).
+    // Lock the SDK mode static once for the lifetime of the
+    // process — there is no runtime mode switch.
     let initial_mode = args.initial_mode();
-    mode::set(Some(initial_mode.clone()));
+    mode::set(initial_mode.clone());
 
     // Build the frontend-ready signal BEFORE the Tauri builder so
     // we can hand the receiver to the stdin reader (started inside
@@ -107,23 +105,19 @@ pub fn run() {
         .setup(move |app| {
             let handle = app.handle();
 
-            // 1. Mirror the initial mode into the state-facts store
-            //    so the first `recompute_and_publish` sees it.
-            state::set_mode(handle, Some(initial_mode.clone()));
-
-            // 2. Build the Tauri window + panel webview + CEF
-            //    browser scoped to the initial mode's RequestContext.
+            // 1. Build the Tauri window + panel webview + CEF
+            //    browser scoped to the locked mode's RequestContext.
             //    CEF's shared root cache is initialized inside
             //    `webview::create_x_app`.
             webview::create_x_app(handle, &initial_mode)?;
 
-            // 3. Start the cookies watcher for the initial mode.
+            // 2. Start the cookies watcher for the locked mode.
             let watcher_slot: tauri::State<CookiesWatcherSlot> = handle.state();
             let data_dir = webview::mode_data_dir(handle, &initial_mode);
             *watcher_slot.0.lock().expect("watcher slot poisoned") =
                 cookies_watcher::start(handle.clone(), &initial_mode, &data_dir);
 
-            // 4. Start the stdin reader. It blocks on
+            // 3. Start the stdin reader. It blocks on
             //    `ready_rx.recv()` before reading, so anything the
             //    host writes during startup stays in the OS pipe
             //    until the overlay's `frontend_ready` call.

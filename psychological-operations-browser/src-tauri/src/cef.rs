@@ -580,10 +580,25 @@ wrap_load_handler! {
             if is_main != 1 {
                 return;
             }
+            // Prepend the locked mode as a JS global so the
+            // overlay can read it synchronously at startup
+            // without round-tripping through an invoke.
+            let mode_json = serde_json::to_string(
+                &psychological_operations_browser_sdk::mode::get(),
+            )
+            .unwrap_or_else(|_| "null".into());
+            let preamble = format!("window.__PSYOPS_MODE = {mode_json};\n");
             let _ = psychological_operations_browser_sdk::output::Output::Log {
-                message: format!("cef: on_load_start main frame, injecting overlay ({} bytes)", OVERLAY_JS.len()),
-            }.emit();
-            let code = CefString::from(OVERLAY_JS);
+                message: format!(
+                    "cef: on_load_start main frame, injecting overlay ({} bytes)",
+                    OVERLAY_JS.len()
+                ),
+            }
+            .emit();
+            let mut combined = String::with_capacity(preamble.len() + OVERLAY_JS.len());
+            combined.push_str(&preamble);
+            combined.push_str(OVERLAY_JS);
+            let code = CefString::from(combined.as_str());
             // script_url + start_line are for DevTools stacks only.
             let script_url = CefString::from("psyops://overlay.js");
             frame.execute_java_script(Some(&code), Some(&script_url), 0);

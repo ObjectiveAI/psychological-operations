@@ -1,11 +1,11 @@
 //! Everything the browser writes to stdout.
 //!
 //! Wire format: one JSON object per line, externally tagged on
-//! `"type"`, with a top-level `"mode"` field carrying the current
-//! [`crate::mode::Mode`] (or `null` if no mode has been set yet —
-//! e.g. `--help` / clap-error lines emitted before the Tauri builder
-//! starts). The browser never prints to stdout or stderr outside
-//! [`Output::emit`] — all output flows through here.
+//! `"type"`. Mode is locked at the browser's CLI flags for the
+//! lifetime of the process; the host knows it without us
+//! repeating it on every line. The browser never prints to
+//! stdout or stderr outside [`Output::emit`] — all output flows
+//! through here.
 
 use std::io::Write;
 use std::sync::{Mutex, OnceLock};
@@ -101,18 +101,10 @@ impl Output {
     /// Serialize as one JSON line on stdout under a process-global
     /// mutex (so concurrent writes from different threads don't
     /// interleave). The canonical funnel for every byte the browser
-    /// writes. Splices the current [`crate::mode::Mode`] into the
-    /// serialized object as a top-level `"mode"` field — `null`
-    /// before any mode-setting request has landed.
+    /// writes.
     pub fn emit(&self) -> std::io::Result<()> {
-        let mut value = serde_json::to_value(self)
+        let line = serde_json::to_string(self)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-        if let serde_json::Value::Object(ref mut map) = value {
-            let mode_value = serde_json::to_value(crate::mode::get())
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-            map.insert("mode".into(), mode_value);
-        }
-        let line = value.to_string();
         let _guard = stdout_lock().lock().expect("stdout lock poisoned");
         let mut stdout = std::io::stdout().lock();
         writeln!(stdout, "{line}")?;

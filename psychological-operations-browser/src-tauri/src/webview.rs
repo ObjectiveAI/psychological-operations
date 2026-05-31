@@ -17,12 +17,9 @@
 //!     real Chromium.
 //!
 //! The CEF browser is scoped to a per-mode `RequestContext`
-//! (isolated cookies / cache). Mode switches go through
-//! [`recreate_cef_content`]: close current browser, wait for
-//! `LifeSpan::on_before_close`, open a new browser with the new
-//! mode's RequestContext + start URL.
-
-use std::sync::{Mutex, OnceLock};
+//! (isolated cookies / cache). Mode is locked at CLI args for
+//! the lifetime of the process; the RequestContext is built
+//! once in [`create_x_app`] and never rebuilt.
 
 use psychological_operations_browser_sdk::mode::Mode;
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
@@ -47,17 +44,6 @@ pub const PANEL_LABEL: &str = "panel";
 const PANEL_HEIGHT: u32 = 48;
 const DEFAULT_WIDTH: u32 = 1200;
 const DEFAULT_HEIGHT: u32 = 800;
-
-/// Stashed parent-window handle (HWND/NSView/X11Window) of the
-/// Tauri Window so [`recreate_cef_content`] can re-embed without
-/// re-deriving from the live window each time. Set in
-/// [`create_x_app`]; never cleared (the Tauri window outlives any
-/// CEF browser).
-static PARENT_HANDLE: OnceLock<Mutex<Option<isize>>> = OnceLock::new();
-
-fn parent_handle_slot() -> &'static Mutex<Option<isize>> {
-    PARENT_HANDLE.get_or_init(|| Mutex::new(None))
-}
 
 /// Returns the data-directory for the given mode rooted at
 /// `--config-base-dir`. Mirrors the structure of CEF's per-mode
@@ -153,11 +139,9 @@ pub fn create_x_app(handle: &AppHandle<Wry>, mode: &Mode) -> tauri::Result<()> {
     cef_embed::initialize(&cef_root_cache_dir(handle), handle.clone());
 
     let raw_parent = raw_parent_handle(&window);
-    if let Ok(mut slot) = parent_handle_slot().lock() {
-        *slot = Some(raw_parent);
-    }
 
-    // 4. First CEF browser, scoped to the initial mode.
+    // 4. The single CEF browser for this process, scoped to the
+    //    CLI-locked mode.
     let (x, y, w, h) = cef_bounds(&window);
     cef_embed::create_browser(raw_parent, x, y, w, h, &cache_subdir_for(mode), start_url_for(mode));
 
@@ -190,34 +174,6 @@ pub fn create_x_app(handle: &AppHandle<Wry>, mode: &Mode) -> tauri::Result<()> {
     });
 
     Ok(())
-}
-
-/// Tear down the current CEF browser and open a new one with
-/// `mode`'s RequestContext + start URL. Called from
-/// [`crate::stdio`] when a mode-switch stdin request lands.
-///
-/// Synchronous from the caller's perspective: blocks (with a
-/// timeout) on `LifeSpan::on_before_close` so the new browser
-/// doesn't race against the old one's teardown. Caller (stdio
-/// reader thread) further waits on the new overlay's
-/// `frontend_ready` invoke to ensure the JS side is up before
-/// processing more stdin lines.
-pub fn recreate_cef_content(handle: &AppHandle<Wry>, mode: &Mode) {
-    // Close the current browser if any; wait for on_before_close.
-    if cef_embed::has_browser() {
-        let close_rx = cef_embed::install_close_signal();
-        cef_embed::close_browser_async();
-        let _ = close_rx.recv_timeout(std::time::Duration::from_secs(10));
-    }
-
-    let Some(parent) = parent_handle_slot().lock().ok().and_then(|s| *s) else {
-        return;
-    };
-    let Some(window) = handle.get_window(X_APP_WINDOW) else {
-        return;
-    };
-    let (x, y, w, h) = cef_bounds(&window);
-    cef_embed::create_browser(parent, x, y, w, h, &cache_subdir_for(mode), start_url_for(mode));
 }
 
 /// Compute the CEF child surface's bounds inside the Tauri

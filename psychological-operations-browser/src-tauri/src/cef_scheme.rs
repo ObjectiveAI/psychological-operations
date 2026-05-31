@@ -297,7 +297,6 @@ pub async fn dispatch_inner(
                 .map(|()| Value::Null)
                 .map_err(DispatchError::Internal)
         }
-        "current_mode" => Ok(serde_json::to_value(stdio::current_mode_inner()).unwrap_or(Value::Null)),
         "current_user_id" => {
             Ok(serde_json::to_value(stdio::current_user_id_inner()).unwrap_or(Value::Null))
         }

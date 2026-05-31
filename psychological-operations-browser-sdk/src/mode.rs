@@ -1,19 +1,14 @@
-//! The session mode the browser is currently in.
+//! The session mode the browser process is bound to for its
+//! lifetime.
 //!
-//! Mode is the highest-priority piece of state — every [`crate::output::Output`]
-//! line carries it as a top-level `"mode"` field so consumers can
-//! tell which session produced which event. It's set on the Rust
-//! side when a mode-setting [`crate::request::Request`] arrives
-//! ([`crate::request::Request::XApp`] today; `Psyop { name }` later)
-//! and held in a process-global slot below so [`crate::output::Output::emit`]
-//! can read it without taking a host-supplied parameter.
-//!
-//! The frontend overlay can also query the current mode via the
-//! `current_mode` Tauri command — useful for resuming URL reporting
-//! after a full-page navigation re-mounts the overlay on a new
-//! origin.
+//! Mode is locked at startup by the browser binary's CLI flag
+//! (`--x-app` / `--psyop-read <name>` / `--psyop-authorize <name>`)
+//! and held in a process-global [`OnceLock`] so anything that
+//! needs it can read it without a host-supplied parameter.
+//! There is no runtime way to change mode — to switch, kill the
+//! process and relaunch with a different flag.
 
-use std::sync::{Mutex, OnceLock};
+use std::sync::OnceLock;
 
 use serde::{Deserialize, Serialize};
 
@@ -40,22 +35,21 @@ pub enum Mode {
     PsyopAuthorize { name: String },
 }
 
-/// Process-global slot for the current mode. Set by [`set`], read by
-/// [`get`]. `None` before any mode-setting request has been processed
-/// (e.g. during `--help` / clap-error emission).
-fn slot() -> &'static Mutex<Option<Mode>> {
-    static SLOT: OnceLock<Mutex<Option<Mode>>> = OnceLock::new();
-    SLOT.get_or_init(|| Mutex::new(None))
+/// Process-global once-only slot for the session mode.
+fn slot() -> &'static OnceLock<Mode> {
+    static SLOT: OnceLock<Mode> = OnceLock::new();
+    &SLOT
 }
 
-/// Update the current mode. Subsequent [`crate::output::Output::emit`]
-/// calls will include the new mode in their `"mode"` field.
-pub fn set(mode: Option<Mode>) {
-    *slot().lock().expect("mode slot poisoned") = mode;
+/// Lock the session mode for the lifetime of the process.
+/// First call wins; subsequent calls are silently ignored.
+pub fn set(mode: Mode) {
+    let _ = slot().set(mode);
 }
 
-/// Read the current mode. Returns `None` before any mode-setting
-/// request has been processed.
+/// Read the current mode. `None` before [`set`] has run —
+/// callers handle that case (e.g. `--help` / clap-error
+/// emission happens before mode is locked in).
 pub fn get() -> Option<Mode> {
-    slot().lock().expect("mode slot poisoned").clone()
+    slot().get().cloned()
 }
