@@ -11,7 +11,7 @@ pub mod psyops;
 pub mod agents;
 pub mod browser;
 pub mod publish;
-pub mod oauth_setup;
+pub mod login;
 pub mod x_app_setup;
 mod invent;
 

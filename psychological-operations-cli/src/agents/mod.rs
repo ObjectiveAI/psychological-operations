@@ -6,61 +6,49 @@
 //! logged-in user (the twid-conflict guard does not fire) and have
 //! no scrape mode.
 //!
-//! Today's surface: `agents oauth <name>` — spawn the embedded
+//! Today's surface: `agents login <name>` — spawn the embedded
 //! browser in `--agent-authorize <name>` mode and let it write
 //! `<base>/.../agent/<name>/handles/<twid>/auth.json` via the SDK's
-//! `auth_json` module.
+//! `auth_json` module. Routed through [`crate::login::run`], which
+//! shares all pre-flight + browser-spawn logic with `psyops login`.
 
 use clap::Subcommand;
 
-use crate::browser::{extract::ensure_extracted, launch};
 use crate::error::Error;
 
 #[derive(Subcommand)]
 pub enum Commands {
-    /// Authorize an agent's X account via OAuth 2.0 (PKCE). Opens
+    /// Sign in an agent's X account. Requires the master X-App to
+    /// already be signed in + fully set up (`x_app setup`). Opens
     /// the embedded browser scoped to `agent/<name>/`; on sign-in
-    /// the browser drives the consent screen, exchanges the code,
-    /// and writes auth.json under the agent's data root. Idempotent
-    /// — re-running refreshes tokens.
-    #[command(name = "oauth")]
-    OAuth { name: String },
+    /// the browser drives the OAuth 2.0 PKCE consent screen,
+    /// exchanges the code, and writes auth.json under the agent's
+    /// data root. Refuses if the agent is already signed in or
+    /// already has an auth.json for the current X-App — pass
+    /// `--dangerously-reset` to wipe its browser folder and re-login.
+    #[command(name = "login")]
+    Login {
+        name: String,
+        /// Wipe any existing browser state for this agent before
+        /// signing in. Required when re-logging in for an agent
+        /// that already has an active session or stored auth.json.
+        #[arg(long)]
+        dangerously_reset: bool,
+    },
 }
 
 impl Commands {
     pub async fn handle(self, cfg: &crate::run::Config) -> Result<crate::Output, Error> {
         match self {
-            Commands::OAuth { name } => oauth(&name, cfg).await,
+            Commands::Login { name, dangerously_reset } => {
+                crate::login::run(
+                    psychological_operations_sdk::browser::auth_json::PersonaKind::Agent,
+                    &name,
+                    dangerously_reset,
+                    cfg,
+                )
+                .await
+            }
         }
     }
-}
-
-async fn oauth(agent_name: &str, cfg: &crate::run::Config) -> Result<crate::Output, Error> {
-    let materialized = ensure_extracted(cfg)?;
-    let config_base_dir = cfg.objectiveai_base_dir();
-
-    let mut child = launch::spawn(
-        &materialized.binary,
-        &config_base_dir,
-        launch::Mode::AgentAuthorize { name: agent_name.to_string() },
-        /* pipe_stdout = */ false,
-    )?;
-
-    crate::emit::emit(crate::events::Event::BrowserSpawned {
-        kind: "agent_authorize".into(),
-        name: Some(agent_name.to_string()),
-        pid: child.id(),
-    });
-
-    let status = child.wait().map_err(|e| {
-        Error::Other(format!("waiting for browser ({agent_name}) failed: {e}"))
-    })?;
-
-    crate::emit::emit(crate::events::Event::BrowserExit {
-        kind: "agent_authorize".into(),
-        name: Some(agent_name.to_string()),
-        status: status.code(),
-    });
-
-    Ok(crate::Output::Empty)
 }

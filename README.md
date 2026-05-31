@@ -120,7 +120,7 @@ A minimal example:
 Each psyop is a separate X account.
 
 - **One X developer app, shared billing.** All psyops authenticate against a single X Project + App. Credentials live in `~/.psychological-operations/x_app.json` and are captured once via the Chromium extension's setup flow. Every API call — search, hydrate, like, retweet, regardless of which psyop initiated it — deducts from this one credit pool.
-- **One OAuth user-context token per psyop.** `psychological-operations psyops browse <name>` opens an embedded Chromium with a profile dedicated to that psyop. Sign into X with whichever account the psyop should act as. `psychological-operations psyops oauth <name>` then runs a PKCE handshake against a localhost callback and writes per-psyop tokens to `~/.psychological-operations/tokens/<name>.json`. From that point on, the psyop's likes and retweets come from that X account.
+- **One OAuth user-context token per psyop.** `psychological-operations psyops browse <name>` opens an embedded Chromium with a profile dedicated to that psyop. Sign into X with whichever account the psyop should act as. `psychological-operations psyops login <name>` then runs a PKCE handshake against a localhost callback and writes per-psyop tokens to `~/.psychological-operations/tokens/<name>.json`. From that point on, the psyop's likes and retweets come from that X account.
 - **Why the split?** It lets one developer account fund actions across many real X accounts (alts, brand handles, persona accounts), each with its own follower graph and its own For You algorithm to train. The feedback loop runs independently per psyop; the bill consolidates.
 
 ## Delivery targets

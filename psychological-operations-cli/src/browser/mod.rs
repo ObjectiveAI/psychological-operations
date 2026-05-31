@@ -1,8 +1,8 @@
 //! Embedded psychological-operations-browser subsystem.
 //!
 //! The CEF browser binary and its full runtime live inside the CLI
-//! via `include_bytes!`. On `psyops browse` / `psyops oauth` /
-//! `agents oauth` / `x_app setup`:
+//! via `include_bytes!`. On `psyops browse` / `psyops login` /
+//! `agents login` / `x_app setup`:
 //!
 //!   1. The browser zip is content-hash-extracted into
 //!      `<base>/browser-cache/<hash>/` on first run.

@@ -20,5 +20,6 @@ pub mod mode;
 pub mod output;
 pub mod panel;
 pub mod request;
+pub mod reset;
 pub mod response;
 pub mod x_app_credentials;

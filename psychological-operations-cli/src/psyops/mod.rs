@@ -91,15 +91,22 @@ pub enum Commands {
         #[command(subcommand)]
         command: targets::Commands,
     },
-    /// Authorize the per-psyop X account via OAuth 2.0 (PKCE) so the
-    /// X target can like / retweet on its behalf. Opens the embedded
-    /// browser scoped to `psyop/<name>/`; on sign-in the browser
-    /// drives the consent screen, exchanges the code, and writes
-    /// auth.json under the psyop's data root. One-time per psyop —
-    /// refresh tokens are used silently after that.
-    #[command(name = "oauth")]
-    OAuth {
+    /// Sign in a psyop's X account. Requires the master X-App to
+    /// already be signed in + fully set up (`x_app setup`). Opens
+    /// the embedded browser scoped to `psyop/<name>/`; on sign-in
+    /// the browser drives the OAuth 2.0 PKCE consent screen,
+    /// exchanges the code, and writes auth.json under the psyop's
+    /// data root. Refuses if the psyop is already signed in or
+    /// already has an auth.json for the current X-App — pass
+    /// `--dangerously-reset` to wipe its browser folder and re-login.
+    #[command(name = "login")]
+    Login {
         name: String,
+        /// Wipe any existing browser state for this psyop before
+        /// signing in. Required when re-logging in for a psyop that
+        /// already has an active session or stored auth.json.
+        #[arg(long)]
+        dangerously_reset: bool,
     },
 }
 
@@ -145,7 +152,15 @@ impl Commands {
             Commands::Run { name, commit, seed } => run::run_all(name.as_deref(), commit.as_deref(), seed, cfg).await,
             Commands::Browse { name, commit } => browse::run(name.as_deref(), commit.as_deref(), cfg).await,
             Commands::Targets { command } => command.handle(cfg),
-            Commands::OAuth { name } => crate::oauth_setup::run(&name, cfg).await,
+            Commands::Login { name, dangerously_reset } => {
+                crate::login::run(
+                    psychological_operations_sdk::browser::auth_json::PersonaKind::Psyop,
+                    &name,
+                    dangerously_reset,
+                    cfg,
+                )
+                .await
+            }
         }
     }
 }
