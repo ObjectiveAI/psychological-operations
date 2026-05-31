@@ -469,15 +469,21 @@ fn attachment_from_media(m: &MediaUnion) -> Option<Attachment> {
     }
 }
 
+/// Pick the **lowest**-bit-rate `video/mp4` rendition X served
+/// for this media. Trades quality for size — the agent gets the
+/// smallest base64 payload that still decodes as a valid mp4.
+/// Variants missing `bit_rate` or `url` are skipped (the field
+/// is always populated for real X-served variants).
 fn best_mp4_variant(variants: Option<&[Variant]>) -> Option<String> {
     variants?
         .iter()
         .filter(|v| v.content_type.as_deref() == Some("video/mp4"))
         .filter_map(|v| {
             let url = v.url.as_ref()?.to_string();
-            Some((v.bit_rate.unwrap_or(0), url))
+            let bit_rate = v.bit_rate?;
+            Some((bit_rate, url))
         })
-        .max_by_key(|(br, _)| *br)
+        .min_by_key(|(br, _)| *br)
         .map(|(_, url)| url)
 }
 
