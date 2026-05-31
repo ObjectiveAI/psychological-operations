@@ -107,10 +107,9 @@ impl From<base64::DecodeError> for CookiesError {
 /// parse as a numeric user-id. Real I/O / decrypt failures bubble
 /// up as `Err`.
 ///
-/// Private — reached today via [`crate::refresh_token::get`] /
-/// [`crate::refresh_token::set`] to resolve the per-psyop persona
-/// twid, and intended to also back a future `get_auth_data(...)`
-/// wrapper that bundles in the auth token + stored OAuth creds.
+/// Private — reached today via [`crate::auth_json::get`] to
+/// resolve the per-psyop persona twid before reading the
+/// on-disk OAuth `Tokens` blob.
 pub(crate) fn signed_in_x_user_id(
     config_base_dir: &Path,
     mode: &Mode,

@@ -1,0 +1,255 @@
+//! Cross-process-safe per-psyop OAuth `auth.json` storage.
+//!
+//! Holds the full OAuth 2.0 [`Tokens`] bundle (access_token,
+//! refresh_token, expires_at, scope, saved_at) the browser's
+//! psyop-authorize flow exchanges with X. X rotates the
+//! refresh_token on every refresh, so any second process that
+//! reads a stale copy and tries to refresh first wins and the
+//! loser's refresh_token is invalidated. The browser and the CLI
+//! both want to drive that refresh, so the read-modify-write has
+//! to be coordinated across processes. This module is the single
+//! seam every caller should go through.
+//!
+//! Layout (per persona twid, per psyop):
+//!
+//! ```text
+//! <config-base-dir>/plugins/psychological-operations/browser/psyop/<psyop>/handles/<twid>/
+//!   ├── auth.json                  (serialized `Tokens` blob)
+//!   └── auth.json.lock             (empty sentinel; never deleted)
+//! ```
+//!
+//! Locking uses `fs4`'s OS-advisory file locks (`LockFileEx` on
+//! Windows, `flock` / `fcntl` on POSIX) held on the open
+//! lock-file handle; the kernel releases the lock when the
+//! handle closes, which happens automatically when the
+//! [`tokio::fs::File`] is dropped OR when the process exits
+//! (including SIGKILL). The lock-sentinel is created on demand
+//! and is **never deleted** — a delete-on-exit cleanup would
+//! orphan the lock if the process were killed between unlock
+//! and delete.
+//!
+//! Writes inside the exclusive-lock critical section go through
+//! a `auth.json.tmp` + atomic rename.
+//!
+//! Asymmetric twid resolution:
+//!
+//!   - [`get`] auto-resolves the persona twid via
+//!     [`cookies::signed_in_x_user_id`] — read-side callers want
+//!     "the tokens for whoever is currently signed in to this
+//!     psyop's cookie jar".
+//!   - [`set`] takes an explicit `twid` — the OAuth flow's
+//!     tokens belong to a SPECIFIC persona, so auto-resolving
+//!     could write under the wrong twid if the user signed out
+//!     + back in mid-flow.
+//!
+//! Reentrancy — calling [`set`] from inside [`get`] (or vice
+//! versa) within the same task will deadlock on Windows
+//! (`LockFileEx` is per-handle, not per-process). The public API
+//! doesn't compose that way; just don't construct it.
+
+use std::path::{Path, PathBuf};
+
+use chrono::{DateTime, Utc};
+use fs4::AsyncFileExt;
+use serde::{Deserialize, Serialize};
+use tokio::fs;
+
+use crate::cookies::{self, CookiesError};
+use crate::mode::Mode;
+
+/// OAuth 2.0 token bundle persisted to `auth.json`. The browser's
+/// authorize flow mints it; the SDK reader returns it; the CLI
+/// (and any other consumer) interprets `expires_at` to decide
+/// when to refresh.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Tokens {
+    pub access_token: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refresh_token: Option<String>,
+    pub expires_at: DateTime<Utc>,
+    pub scope: String,
+    pub saved_at: DateTime<Utc>,
+}
+
+/// Errors [`get`] and [`set`] can return.
+#[derive(Debug)]
+pub enum AuthJsonError {
+    /// Resolving the persona twid via the CEF cookies store failed
+    /// (only emitted by [`get`] — [`set`] takes an explicit twid).
+    Cookies(CookiesError),
+    /// Filesystem I/O (open, lock, read, write, rename).
+    Io(std::io::Error),
+    /// JSON serialize / deserialize failed.
+    Serde(serde_json::Error),
+    /// The `spawn_blocking` task panicked or was cancelled — should
+    /// not happen in normal operation.
+    Join(tokio::task::JoinError),
+    /// CEF has no `twid` cookie for this psyop's profile yet — i.e.,
+    /// no persona is signed in. Only emitted by [`get`].
+    NoUserSignedIn,
+}
+
+impl std::fmt::Display for AuthJsonError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Cookies(e) => write!(f, "cookies: {e}"),
+            Self::Io(e) => write!(f, "io: {e}"),
+            Self::Serde(e) => write!(f, "json: {e}"),
+            Self::Join(e) => write!(f, "spawn_blocking: {e}"),
+            Self::NoUserSignedIn => write!(f, "no persona signed in"),
+        }
+    }
+}
+
+impl std::error::Error for AuthJsonError {}
+
+impl From<std::io::Error> for AuthJsonError {
+    fn from(e: std::io::Error) -> Self { Self::Io(e) }
+}
+impl From<serde_json::Error> for AuthJsonError {
+    fn from(e: serde_json::Error) -> Self { Self::Serde(e) }
+}
+
+/// Read `auth.json` for the persona currently signed into
+/// `psyop_name`'s CEF cookie jar. Acquires a shared (multi-reader)
+/// filesystem lock for the duration of the read. Returns
+/// `Ok(None)` when the file doesn't exist yet (no tokens have
+/// been minted).
+pub async fn get(
+    config_base_dir: &Path,
+    psyop_name: &str,
+) -> Result<Option<Tokens>, AuthJsonError> {
+    let twid = resolve_twid(config_base_dir, psyop_name).await?;
+    let dir = persona_dir(config_base_dir, psyop_name, &twid);
+    fs::create_dir_all(&dir).await?;
+    let auth_path = dir.join("auth.json");
+    let lock_path = dir.join("auth.json.lock");
+
+    let lock_file = open_lock_file(&lock_path).await?;
+    let lock_file = acquire_shared(lock_file).await?;
+
+    let result = match fs::read(&auth_path).await {
+        Ok(bytes) => Ok(Some(serde_json::from_slice(&bytes)?)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(AuthJsonError::Io(e)),
+    };
+
+    // Explicit drop documents intent — the lock is released when the
+    // OS closes the underlying fd.
+    drop(lock_file);
+    result
+}
+
+/// Write `auth.json` for an explicit `twid`. Acquires an exclusive
+/// filesystem lock (blocks concurrent readers AND writers across
+/// processes) for the duration of the write. The write itself is
+/// atomic (temp + rename).
+///
+/// Takes an explicit `twid` rather than auto-resolving so the
+/// OAuth flow's freshly-minted tokens always land under the
+/// persona they were minted for, even if the user signs out +
+/// back in mid-flow.
+pub async fn set(
+    config_base_dir: &Path,
+    psyop_name: &str,
+    twid: &str,
+    tokens: &Tokens,
+) -> Result<(), AuthJsonError> {
+    let dir = persona_dir(config_base_dir, psyop_name, twid);
+    fs::create_dir_all(&dir).await?;
+    let auth_path = dir.join("auth.json");
+    let tmp_path = dir.join("auth.json.tmp");
+    let lock_path = dir.join("auth.json.lock");
+
+    let lock_file = open_lock_file(&lock_path).await?;
+    let lock_file = acquire_exclusive(lock_file).await?;
+
+    let mut json = serde_json::to_vec_pretty(tokens)?;
+    json.push(b'\n');
+    fs::write(&tmp_path, &json).await?;
+    fs::rename(&tmp_path, &auth_path).await?;
+
+    drop(lock_file);
+    Ok(())
+}
+
+/// Pure path resolver for callers that don't need the lock — e.g.
+/// the cross-psyop conflict walk that just wants a per-sibling
+/// `try_exists`. No I/O; no directory creation.
+pub fn path_for(
+    config_base_dir: &Path,
+    psyop_name: &str,
+    twid: &str,
+) -> PathBuf {
+    persona_dir(config_base_dir, psyop_name, twid).join("auth.json")
+}
+
+// ----- internal -------------------------------------------------
+
+fn persona_dir(
+    config_base_dir: &Path,
+    psyop_name: &str,
+    twid: &str,
+) -> PathBuf {
+    config_base_dir
+        .join("plugins")
+        .join("psychological-operations")
+        .join("browser")
+        .join("psyop")
+        .join(psyop_name)
+        .join("handles")
+        .join(twid)
+}
+
+/// Look up the persona twid via [`cookies::signed_in_x_user_id`].
+/// Sync (rusqlite + DPAPI) — wrapped in `spawn_blocking` so it
+/// doesn't park the async runtime.
+async fn resolve_twid(
+    config_base_dir: &Path,
+    psyop_name: &str,
+) -> Result<String, AuthJsonError> {
+    let base = config_base_dir.to_path_buf();
+    let mode = Mode::PsyopAuthorize { name: psyop_name.to_string() };
+    tokio::task::spawn_blocking(move || cookies::signed_in_x_user_id(&base, &mode))
+        .await
+        .map_err(AuthJsonError::Join)?
+        .map_err(AuthJsonError::Cookies)?
+        .ok_or(AuthJsonError::NoUserSignedIn)
+}
+
+/// Open (creating if absent) the lock-sentinel file in read+write
+/// mode so `LockFileEx` on Windows accepts it for both shared and
+/// exclusive locks.
+async fn open_lock_file(path: &Path) -> std::io::Result<fs::File> {
+    fs::OpenOptions::new()
+        .create(true)
+        .read(true)
+        .write(true)
+        .truncate(false)
+        .open(path)
+        .await
+}
+
+/// `fs4`'s lock calls are sync syscalls (`flock` / `LockFileEx`)
+/// that block until granted. Move the file into `spawn_blocking`
+/// for the acquire and hand it back so the lock guard is owned
+/// by the async task — drop on return = release.
+async fn acquire_shared(file: fs::File) -> Result<fs::File, AuthJsonError> {
+    tokio::task::spawn_blocking(move || {
+        AsyncFileExt::lock_shared(&file)?;
+        Ok::<_, std::io::Error>(file)
+    })
+    .await
+    .map_err(AuthJsonError::Join)?
+    .map_err(AuthJsonError::Io)
+}
+
+async fn acquire_exclusive(file: fs::File) -> Result<fs::File, AuthJsonError> {
+    tokio::task::spawn_blocking(move || {
+        AsyncFileExt::lock(&file)?;
+        Ok::<_, std::io::Error>(file)
+    })
+    .await
+    .map_err(AuthJsonError::Join)?
+    .map_err(AuthJsonError::Io)
+}

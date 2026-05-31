@@ -7,12 +7,12 @@
 //! thread, the `stdio_respond` command) lives in the browser crate,
 //! not here — this crate is transport-agnostic.
 
+pub mod auth_json;
 pub mod console;
 pub mod cookies;
 pub mod mode;
 pub mod output;
 pub mod panel;
-pub mod refresh_token;
 pub mod request;
 pub mod response;
 pub mod x_app_credentials;

@@ -12,11 +12,15 @@
 //!   - the auth.json doesn't already exist
 //!   - no flow is already in flight in this process
 //!
-//! The OAuth helpers (PKCE pair, callback server, token POST,
-//! `Tokens` struct + JSON shape) are inlined below. They mirror
-//! what `psychological-operations-x-api/src/oauth/` does — that
-//! crate is half-refactored and doesn't compile standalone, so
-//! pulling it in as a dep wasn't an option.
+//! The OAuth helpers (PKCE pair, callback server, token POST)
+//! are inlined below — they mirror
+//! `psychological-operations-x-api/src/oauth/`, which is half-
+//! refactored and doesn't compile standalone, so pulling it in
+//! as a dep wasn't an option. The on-disk `Tokens` blob itself
+//! lives in
+//! [`psychological_operations_browser_sdk::auth_json`], which
+//! owns the struct, the path math, the fs4 advisory-lock
+//! pattern, and the atomic temp+rename write.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -25,17 +29,19 @@ use std::time::Duration;
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use chrono::{DateTime, Utc};
+use chrono::Utc;
+use psychological_operations_browser_sdk::auth_json::{self, Tokens};
 use psychological_operations_browser_sdk::mode::Mode;
 use psychological_operations_browser_sdk::output::Output;
 use rand::Rng;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use sha2::{Digest, Sha256};
-use tauri::{AppHandle, Wry};
+use tauri::{AppHandle, Manager, Wry};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use urlencoding::encode as urlenc;
 
+use crate::args::Args;
 use crate::cef;
 use crate::state;
 use crate::webview;
@@ -79,7 +85,8 @@ pub async fn maybe_start_flow(handle: &AppHandle<Wry>) {
         return;
     };
 
-    let auth_path = auth_json_path(handle, &psyop_name, &persona_twid);
+    let config_base_dir = handle.state::<Args>().config_base_dir.clone();
+    let auth_path = auth_json::path_for(&config_base_dir, &psyop_name, &persona_twid);
 
     // Concurrent: check whether we already have auth.json AND
     // probe the cross-psyop conflict. Both are disk-bound,
@@ -186,7 +193,10 @@ async fn run_flow(
     .await
     .map_err(|e| format!("token exchange: {e}"))?;
 
-    write_auth_json(&handle, &psyop_name, &persona_twid, &tokens).await?;
+    let config_base_dir = handle.state::<Args>().config_base_dir.clone();
+    auth_json::set(&config_base_dir, &psyop_name, &persona_twid, &tokens)
+        .await
+        .map_err(|e| format!("write auth.json: {e}"))?;
     let _ = Output::Log {
         message: format!(
             "psyop_authorize: wrote auth.json for {persona_twid} (expires_at={:?})",
@@ -329,17 +339,11 @@ async fn bind_callback_server(
 // =================================================================
 // Token exchange — POST to https://api.x.com/2/oauth2/token with
 // Basic auth (client_id:client_secret) and the PKCE verifier.
+// The on-disk `Tokens` blob lives in
+// `psychological_operations_browser_sdk::auth_json::Tokens`; this
+// module owns only the X-API wire shape that gets converted into
+// it.
 // =================================================================
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Tokens {
-    pub access_token: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub refresh_token: Option<String>,
-    pub expires_at: DateTime<Utc>,
-    pub scope: String,
-    pub saved_at: DateTime<Utc>,
-}
-
 #[derive(Debug, Deserialize)]
 struct TokenResponse {
     access_token: String,
@@ -466,16 +470,6 @@ async fn read_x_app_creds(
     Ok((client_id, client_secret))
 }
 
-fn auth_json_path(handle: &AppHandle<Wry>, psyop_name: &str, twid: &str) -> PathBuf {
-    let mode = Mode::PsyopAuthorize {
-        name: psyop_name.to_string(),
-    };
-    webview::mode_data_dir(handle, &mode)
-        .join("handles")
-        .join(twid)
-        .join("auth.json")
-}
-
 /// Scan every sibling psyop's data dir and return the name of
 /// the first one (other than `current`) whose
 /// `handles/<twid>/auth.json` exists. Sorting entries
@@ -502,6 +496,7 @@ pub async fn find_other_psyop_owning_twid(
     let psyop_root = webview::mode_data_dir(handle, &current_mode)
         .parent()?
         .to_path_buf();
+    let config_base_dir = handle.state::<Args>().config_base_dir.clone();
 
     let mut rd = tokio::fs::read_dir(&psyop_root).await.ok()?;
     let mut entries: Vec<PathBuf> = Vec::new();
@@ -514,9 +509,15 @@ pub async fn find_other_psyop_owning_twid(
     entries.sort();
 
     let checks = entries.iter().map(|path| {
-        let auth_path = path.join("handles").join(twid).join("auth.json");
+        let auth_path = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .map(|name| auth_json::path_for(&config_base_dir, name, twid));
         async move {
-            tokio::fs::try_exists(&auth_path).await.unwrap_or(false)
+            match auth_path {
+                Some(p) => tokio::fs::try_exists(&p).await.unwrap_or(false),
+                None => false,
+            }
         }
     });
     let existence = futures::future::join_all(checks).await;
@@ -536,26 +537,5 @@ pub async fn find_other_psyop_owning_twid(
     None
 }
 
-async fn write_auth_json(
-    handle: &AppHandle<Wry>,
-    psyop_name: &str,
-    twid: &str,
-    tokens: &Tokens,
-) -> Result<(), String> {
-    let path = auth_json_path(handle, psyop_name, twid);
-    if let Some(parent) = path.parent() {
-        tokio::fs::create_dir_all(parent)
-            .await
-            .map_err(|e| format!("create {}: {e}", parent.display()))?;
-    }
-    let json = serde_json::to_string_pretty(tokens)
-        .map_err(|e| format!("serialize tokens: {e}"))?;
-    let tmp = path.with_extension("json.tmp");
-    tokio::fs::write(&tmp, json + "\n")
-        .await
-        .map_err(|e| format!("write tmp: {e}"))?;
-    tokio::fs::rename(&tmp, &path)
-        .await
-        .map_err(|e| format!("rename: {e}"))?;
-    Ok(())
-}
+// auth.json is written via `auth_json::set` from the SDK; the
+// browser owns no on-disk `Tokens` writer of its own.
