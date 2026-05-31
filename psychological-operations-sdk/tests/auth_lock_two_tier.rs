@@ -75,9 +75,15 @@ fn fake_persona() -> PersonaKey {
 
 async fn build_client(root: &std::path::Path) -> Client {
     seed_x_app(root);
-    Client::app_only(reqwest::Client::new(), false, root, 256 * 1024 * 1024)
-        .await
-        .expect("Client::app_only")
+    Client::app_only(
+        reqwest::Client::new(),
+        false,
+        root,
+        256 * 1024 * 1024,
+        Duration::from_secs(3600),
+    )
+    .await
+    .expect("Client::app_only")
 }
 
 #[tokio::test]

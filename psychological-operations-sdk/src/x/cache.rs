@@ -34,6 +34,15 @@ pub struct Cache {
     /// `inserted_at`) until total body size ≤ this value. 0
     /// disables eviction.
     max_size: u64,
+    /// Per-entry TTL. Plumbed through the SDK constructors but
+    /// NOT yet consumed by the eviction logic — eviction is still
+    /// pure LRU-by-`inserted_at` capped at `max_size`. A future
+    /// change will use this to skip-or-evict entries older than
+    /// `inserted_at + cache_ttl`. Stored on the struct now so the
+    /// constructor signatures + downstream binaries can settle
+    /// before the eviction work lands.
+    #[allow(dead_code)]
+    cache_ttl: Duration,
 }
 
 impl std::fmt::Debug for Cache {
@@ -50,7 +59,11 @@ impl Cache {
     /// Enables WAL + a 5 s busy timeout so concurrent processes
     /// don't fail with `SQLITE_BUSY` on contention. Creates both
     /// the `cache` and `locks` tables.
-    pub async fn open(config_base_dir: &Path, max_size: u64) -> Result<Self, Error> {
+    pub async fn open(
+        config_base_dir: &Path,
+        max_size: u64,
+        cache_ttl: Duration,
+    ) -> Result<Self, Error> {
         let pool = open_pool(config_base_dir).await?;
         locker::Locker::ensure_schema(&pool).await?;
         Self::ensure_schema(&pool).await?;
@@ -58,6 +71,7 @@ impl Cache {
             locker: Locker::new(pool.clone()),
             pool,
             max_size,
+            cache_ttl,
         })
     }
 
@@ -212,9 +226,12 @@ pub(crate) async fn open_pool(config_base_dir: &Path) -> Result<SqlitePool, Erro
 pub(crate) async fn open_optional(
     config_base_dir: &Path,
     max_size: u64,
+    cache_ttl: Duration,
 ) -> Result<Option<Arc<Cache>>, Error> {
     if max_size == 0 {
         return Ok(None);
     }
-    Ok(Some(Arc::new(Cache::open(config_base_dir, max_size).await?)))
+    Ok(Some(Arc::new(
+        Cache::open(config_base_dir, max_size, cache_ttl).await?,
+    )))
 }

@@ -237,15 +237,18 @@ async fn run_flow(
     .await
     .map_err(|e| format!("token exchange: {e}"))?;
 
-    let config_base_dir = handle.state::<Args>().config_base_dir.clone();
+    let args = handle.state::<Args>();
+    let config_base_dir = args.config_base_dir.clone();
+    let cache_max_size = args.cache_max_size;
+    let cache_ttl = std::time::Duration::from_secs(args.cache_ttl);
     // Use the SDK's app-only Client to write auth.json under the
     // two-tier lock — single seam for cross-process write coordination.
-    let max_size: u64 = 256 * 1024 * 1024;
     let client = psychological_operations_sdk::x::client::Client::app_only(
         reqwest::Client::new(),
         false,
         &config_base_dir,
-        max_size,
+        cache_max_size,
+        cache_ttl,
     )
     .await
     .map_err(|e| format!("Client::app_only: {e}"))?;

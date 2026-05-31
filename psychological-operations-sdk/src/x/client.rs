@@ -26,6 +26,7 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 use reqwest::{Client as ReqwestClient, Method, StatusCode};
 use serde::Serialize;
@@ -53,6 +54,8 @@ pub struct Client {
     /// `crate::x::mock::*` instead of hitting the real X API.
     pub(crate) mock: bool,
     pub(crate) max_size: u64,
+    /// Plumbed but unused — see [`Cache.cache_ttl`].
+    pub(crate) cache_ttl: Duration,
     pub(crate) cache: Option<Arc<Cache>>,
     /// Locker for the persona auth lock. `Some` whenever
     /// `cache` is `Some` (they share the SQLite pool); `None`
@@ -88,6 +91,7 @@ impl Client {
         base_url: Option<impl Into<String>>,
         auth: AuthMode,
         max_size: u64,
+        cache_ttl: Duration,
         cache: Option<Arc<Cache>>,
         auth_locker: Option<Arc<Locker>>,
         config_base_dir: Option<Arc<PathBuf>>,
@@ -100,6 +104,7 @@ impl Client {
             auth,
             mock: false,
             max_size,
+            cache_ttl,
             cache,
             auth_locker,
             config_base_dir,
@@ -115,6 +120,7 @@ impl Client {
             auth: AuthMode::AppOnly { token: Arc::new(String::new()) },
             mock: true,
             max_size: 0,
+            cache_ttl: Duration::ZERO,
             cache: None,
             auth_locker: None,
             config_base_dir: None,
@@ -129,6 +135,7 @@ impl Client {
         mock: bool,
         config_base_dir: &Path,
         max_size: u64,
+        cache_ttl: Duration,
     ) -> Result<Self, Error> {
         if mock {
             return Ok(Self::new_mock(client));
@@ -140,7 +147,7 @@ impl Client {
                  `psychological-operations x_app setup` and capture it".into(),
             )
         })?;
-        let cache = cache::open_optional(config_base_dir, max_size).await?;
+        let cache = cache::open_optional(config_base_dir, max_size, cache_ttl).await?;
         let auth_locker = cache
             .as_ref()
             .map(|c| Arc::new(Locker::new(c.pool().clone())));
@@ -149,6 +156,7 @@ impl Client {
             None::<&str>,
             AuthMode::AppOnly { token: Arc::new(bearer) },
             max_size,
+            cache_ttl,
             cache,
             auth_locker,
             Some(Arc::new(config_base_dir.to_path_buf())),
@@ -168,6 +176,7 @@ impl Client {
         mock: bool,
         config_base_dir: &Path,
         max_size: u64,
+        cache_ttl: Duration,
     ) -> Result<Self, Error> {
         if mock {
             return Ok(Self::new_mock(client));
@@ -197,7 +206,7 @@ impl Client {
             x_app_twid,
         };
 
-        let cache = cache::open_optional(config_base_dir, max_size).await?;
+        let cache = cache::open_optional(config_base_dir, max_size, cache_ttl).await?;
         let auth_locker = cache
             .as_ref()
             .map(|c| Arc::new(Locker::new(c.pool().clone())));
@@ -210,6 +219,7 @@ impl Client {
                 client_secret: Arc::new(client_secret),
             },
             max_size,
+            cache_ttl,
             cache,
             auth_locker,
             Some(Arc::new(config_base_dir.to_path_buf())),

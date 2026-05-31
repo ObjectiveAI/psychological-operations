@@ -60,6 +60,20 @@ pub struct Args {
     /// twid-conflict guard never fires for agents.
     #[arg(long, group = "mode", value_name = "NAME")]
     pub agent_authorize: Option<String>,
+
+    /// Bytes — SQLite response-cache size budget passed to
+    /// `Client::app_only` when the browser needs to interact with
+    /// the X v2 API (today: the OAuth-mint write under
+    /// `--psyop-authorize` / `--agent-authorize`). Default 256 MiB.
+    #[arg(long, default_value_t = 256 * 1024 * 1024)]
+    pub cache_max_size: u64,
+
+    /// Seconds — response-cache entry TTL passed to
+    /// `Client::app_only`. Currently plumbed but unused; future
+    /// work will use it for time-based eviction. Default 3600
+    /// (1 hour).
+    #[arg(long, default_value_t = 3600)]
+    pub cache_ttl: u64,
 }
 
 impl Args {

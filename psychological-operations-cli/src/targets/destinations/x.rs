@@ -36,11 +36,13 @@ pub async fn send(cfg: &X, subject: &Subject<'_>, rt: &crate::run::Config) -> Re
         name,
         psyop.mock_enabled(),
         &rt.objectiveai_base_dir(),
-        // Bytes — explicit per-call size budget for the future SQLite
-        // response cache. No `DEFAULT_*` constant — `Client::*` makes
-        // this a required arg and every CLI callsite picks its own
-        // value.
+        // Bytes — explicit per-call size budget for the SQLite response
+        // cache. No `DEFAULT_*` constant — `Client::*` makes this a
+        // required arg and every CLI callsite picks its own value.
         256 * 1024 * 1024,
+        // Cache entry TTL — plumbed but unused today (future
+        // time-based eviction will consume it).
+        std::time::Duration::from_secs(3600),
     )
     .await
     .map_err(|e| crate::error::Error::Other(format!("Client::for_psyop: {e}")))?;

@@ -33,7 +33,7 @@ fn unix_now_nanos() -> u128 {
 #[tokio::test]
 async fn cold_then_warm() {
     let root = tmp_root("cold");
-    let cache = Cache::open(&root, 0).await.expect("open");
+    let cache = Cache::open(&root, 0, Duration::from_secs(3600)).await.expect("open");
 
     let key = [1u8; 32];
     let count = Arc::new(AtomicUsize::new(0));
@@ -73,7 +73,7 @@ async fn in_process_thundering_herd() {
     // before the locks-table COMMIT becomes visible to others)
     // and each fire the fetch closure.
     let root = tmp_root("herd");
-    let cache = Arc::new(Cache::open(&root, 0).await.expect("open"));
+    let cache = Arc::new(Cache::open(&root, 0, Duration::from_secs(3600)).await.expect("open"));
 
     let key = [2u8; 32];
     let fetch_count = Arc::new(AtomicUsize::new(0));
@@ -122,7 +122,7 @@ async fn release_ordering_no_spin_poll() {
     // release) — well under one full SQLite poll tick — but
     // comfortably above realistic hand-off latency.
     let root = tmp_root("order");
-    let cache = Arc::new(Cache::open(&root, 0).await.expect("open"));
+    let cache = Arc::new(Cache::open(&root, 0, Duration::from_secs(3600)).await.expect("open"));
 
     let key = [3u8; 32];
     let (tx_a_released, rx_a_released) = tokio::sync::oneshot::channel::<Instant>();

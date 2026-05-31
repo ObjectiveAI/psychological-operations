@@ -24,6 +24,7 @@ struct EnvConfigBuilder {
     #[envconfig(from = "SUPPRESS_OUTPUT")]      suppress_output: Option<String>,
     #[envconfig(from = "CONFIG_BASE_DIR")]      config_base_dir: Option<String>,
     #[envconfig(from = "MAX_CACHE_SIZE")]       max_cache_size: Option<u64>,
+    #[envconfig(from = "CACHE_TTL_SECS")]       cache_ttl_secs: Option<u64>,
 }
 
 impl EnvConfigBuilder {
@@ -36,6 +37,7 @@ impl EnvConfigBuilder {
             }),
             config_base_dir: self.config_base_dir,
             max_cache_size: self.max_cache_size,
+            cache_ttl_secs: self.cache_ttl_secs,
         }
     }
 }
@@ -47,6 +49,7 @@ pub struct ConfigBuilder {
     pub suppress_output:  Option<bool>,
     pub config_base_dir:  Option<String>,
     pub max_cache_size:   Option<u64>,
+    pub cache_ttl_secs:   Option<u64>,
 }
 
 impl Envconfig for ConfigBuilder {
@@ -81,6 +84,7 @@ impl ConfigBuilder {
                         .join(".objectiveai")
                 }),
             max_cache_size: self.max_cache_size.unwrap_or(256 * 1024 * 1024),
+            cache_ttl_secs: self.cache_ttl_secs.unwrap_or(3600),
         }
     }
 }
@@ -95,6 +99,9 @@ pub struct Config {
     /// Bytes — x-api response-cache size budget (`Client::app_only`'s
     /// `max_size`). Default 256 MB.
     pub max_cache_size:   u64,
+    /// Seconds — per-entry cache TTL (`Client::app_only`'s
+    /// `cache_ttl`). Currently plumbed but unused. Default 3600 (1 h).
+    pub cache_ttl_secs:   u64,
 }
 
 pub async fn setup(config: Config) -> std::io::Result<(tokio::net::TcpListener, axum::Router)> {
@@ -104,6 +111,7 @@ pub async fn setup(config: Config) -> std::io::Result<(tokio::net::TcpListener, 
         suppress_output: _,
         config_base_dir,
         max_cache_size,
+        cache_ttl_secs,
     } = config;
 
     let http = Client::app_only(
@@ -111,6 +119,7 @@ pub async fn setup(config: Config) -> std::io::Result<(tokio::net::TcpListener, 
         /* mock */ false,
         &config_base_dir,
         max_cache_size,
+        std::time::Duration::from_secs(cache_ttl_secs),
     )
     .await
     .map_err(|e| std::io::Error::other(format!("x-api Client::app_only: {e}")))?;
