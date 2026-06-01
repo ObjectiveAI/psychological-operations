@@ -174,7 +174,7 @@ async fn open_pool(config_base_dir: &Path) -> Result<SqlitePool, Error> {
         .busy_timeout(Duration::from_secs(5));
 
     SqlitePoolOptions::new()
-        .max_connections(5)
+        .max_connections(100)
         .connect_with(opts)
         .await
         .map_err(|e| Error::Other(format!("queue pool open {}: {e}", path.display())))
