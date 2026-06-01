@@ -68,11 +68,6 @@ struct Tweet {
     #[serde(skip_serializing_if = "Option::is_none")]
     retweeted: Option<String>,
     reply_count: i32,
-    like_count: i32,
-    retweet_count: i32,
-    quote_count: i32,
-    bookmark_count: i32,
-    impression_count: i32,
 }
 
 #[derive(Debug, Clone)]
@@ -399,22 +394,14 @@ fn project_tweet(t: &x_types::Tweet, includes: Option<&x_types::Expansions>) -> 
     }
 
     // `public_metrics` itself is Option (None when not requested by
-    // tweet_fields). All five spec-required counts default to 0 when
-    // absent; `quote_count` is the only spec-optional one — default
-    // to 0 if X omits it.
-    let m = t.public_metrics.as_ref();
-    let reply_count      = m.map(|m| m.reply_count).unwrap_or(0);
-    let like_count       = m.map(|m| m.like_count).unwrap_or(0);
-    let retweet_count    = m.map(|m| m.retweet_count).unwrap_or(0);
-    let quote_count      = m.and_then(|m| m.quote_count).unwrap_or(0);
-    let bookmark_count   = m.map(|m| m.bookmark_count).unwrap_or(0);
-    let impression_count = m.map(|m| m.impression_count).unwrap_or(0);
+    // tweet_fields). `reply_count` is spec-required when present;
+    // default to 0 if the whole object is missing.
+    let reply_count = t.public_metrics.as_ref().map(|m| m.reply_count).unwrap_or(0);
 
     Tweet {
         id, handle, content, attachments,
         replied_to, quoted, retweeted,
-        reply_count, like_count, retweet_count,
-        quote_count, bookmark_count, impression_count,
+        reply_count,
     }
 }
 
