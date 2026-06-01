@@ -19,6 +19,7 @@ use std::sync::Arc;
 use base64::Engine;
 use psychological_operations_sdk::x::client::Client;
 use psychological_operations_sdk::x::params;
+use psychological_operations_sdk::x::queue::{self, QueueEntry};
 use psychological_operations_sdk::x::tweets as tweets_root;
 use psychological_operations_sdk::x::tweets::id as tweets_id;
 use psychological_operations_sdk::x::tweets::search::recent as tweets_search_recent;
@@ -52,7 +53,9 @@ use serde::Serialize;
 use crate::Mode;
 
 /// Tools only registered + callable when the server is in
-/// `Mode::Full`. All mutations on X.
+/// `Mode::Full`. All mutations on X plus the queue-management
+/// surface (the queue holds per-agent work, only meaningful when
+/// the agent is wired for action).
 const FULL_ONLY_TOOLS: &[&str] = &[
     "post_tweet",
     "reply_to_tweet",
@@ -60,6 +63,8 @@ const FULL_ONLY_TOOLS: &[&str] = &[
     "like",
     "retweet",
     "bookmark",
+    "read_queue",
+    "mark_handled",
 ];
 
 // =====================================================================
@@ -107,6 +112,11 @@ pub struct PsychologicalOperationsXApiMcp {
     pub tool_router: ToolRouter<Self>,
     http: Arc<Client>,
     mode: Mode,
+    /// Authenticated agent name. Same string passed into
+    /// `AuthMode::Agent(...)` on the inner `Client`; surfaced
+    /// here so the queue tools can key reads/deletes without
+    /// reaching into the Client's private auth state.
+    agent: String,
 }
 
 impl std::fmt::Debug for PsychologicalOperationsXApiMcp {
@@ -204,17 +214,27 @@ pub struct BookmarkRequest {
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct GetBookmarksRequest {}
 
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct ReadQueueRequest {}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct MarkHandledRequest {
+    #[schemars(description = "Numeric ID of the tweet to remove from the queue.")]
+    pub tweet_id: String,
+}
+
 // =====================================================================
 // Tool impls
 // =====================================================================
 
 #[tool_router]
 impl PsychologicalOperationsXApiMcp {
-    pub fn new(http: Arc<Client>, mode: Mode) -> Self {
+    pub fn new(http: Arc<Client>, mode: Mode, agent: String) -> Self {
         Self {
             tool_router: Self::tool_router(),
             http,
             mode,
+            agent,
         }
     }
 
@@ -596,6 +616,47 @@ impl PsychologicalOperationsXApiMcp {
             .collect();
         serde_json::to_string(&projected)
             .map_err(|e| ErrorData::internal_error(format!("serialize tweets: {e}"), None))
+    }
+
+    #[tool(
+        name = "read_queue",
+        description = "Read pending tweets from the queue."
+    )]
+    async fn read_queue(
+        &self,
+        Parameters(_req): Parameters<ReadQueueRequest>,
+    ) -> Result<String, ErrorData> {
+        let q = self
+            .http
+            .queue()
+            .await
+            .map_err(|e| ErrorData::internal_error(format!("queue open: {e}"), None))?;
+        let entries = q
+            .list(&self.agent)
+            .await
+            .map_err(|e| ErrorData::internal_error(format!("queue list: {e}"), None))?;
+        serde_json::to_string(&entries)
+            .map_err(|e| ErrorData::internal_error(format!("serialize: {e}"), None))
+    }
+
+    #[tool(
+        name = "mark_handled",
+        description = "Remove a tweet from the queue."
+    )]
+    async fn mark_handled(
+        &self,
+        Parameters(req): Parameters<MarkHandledRequest>,
+    ) -> Result<String, ErrorData> {
+        let q = self
+            .http
+            .queue()
+            .await
+            .map_err(|e| ErrorData::internal_error(format!("queue open: {e}"), None))?;
+        let removed = q
+            .delete(&self.agent, &req.tweet_id)
+            .await
+            .map_err(|e| ErrorData::internal_error(format!("queue delete: {e}"), None))?;
+        Ok(serde_json::json!({ "removed": removed }).to_string())
     }
 }
 

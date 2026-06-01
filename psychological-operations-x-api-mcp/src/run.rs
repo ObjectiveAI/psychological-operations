@@ -150,10 +150,10 @@ pub async fn setup(config: Config) -> std::io::Result<(tokio::net::TcpListener, 
         max_cache_size,
         std::time::Duration::from_secs(cache_ttl_secs),
         config_base_dir,
-        AuthMode::Agent(agent),
+        AuthMode::Agent(agent.clone()),
     );
 
-    let server = PsychologicalOperationsXApiMcp::new(Arc::new(http), mode);
+    let server = PsychologicalOperationsXApiMcp::new(Arc::new(http), mode, agent);
     let ct = CancellationToken::new();
 
     let service: StreamableHttpService<PsychologicalOperationsXApiMcp, LocalSessionManager> =

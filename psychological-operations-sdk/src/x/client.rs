@@ -36,6 +36,7 @@ use super::Error;
 use super::auth::{self, AuthLock, PersonaKey};
 use super::cache::{Cache, request_key, request_key_auth_scoped};
 use super::locker::Locker;
+use super::queue::Queue;
 use crate::browser::auth_json::{self, PersonaKind, Tokens};
 use crate::browser::cookies;
 use crate::browser::mode::Mode;
@@ -83,6 +84,7 @@ pub struct Client {
     pub(crate) auth_mode: AuthMode,
     pub(crate) cache: OnceCell<Arc<Cache>>,
     pub(crate) auth_locker: OnceCell<Arc<Locker>>,
+    pub(crate) queue: OnceCell<Arc<Queue>>,
 }
 
 impl Client {
@@ -108,6 +110,7 @@ impl Client {
             auth_mode,
             cache: OnceCell::new(),
             auth_locker: OnceCell::new(),
+            queue: OnceCell::new(),
         }
     }
 
@@ -138,6 +141,19 @@ impl Client {
             .get_or_try_init(|| async {
                 let cache = self.cache().await?;
                 Ok::<_, Error>(Arc::new(Locker::new(cache.pool().clone())))
+            })
+            .await
+    }
+
+    /// Open the per-agent queue's SQLite file on first call;
+    /// subsequent calls return the cached `Arc`. Independent of
+    /// the cache + auth_locker pool — the queue lives in its own
+    /// `queue.sqlite` sibling file.
+    pub async fn queue(&self) -> Result<&Arc<Queue>, Error> {
+        self.queue
+            .get_or_try_init(|| async {
+                let q = Queue::open(&self.config_base_dir).await?;
+                Ok::<_, Error>(Arc::new(q))
             })
             .await
     }

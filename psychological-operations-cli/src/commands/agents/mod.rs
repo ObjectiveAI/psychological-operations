@@ -16,6 +16,8 @@ use clap::Subcommand;
 
 use crate::error::Error;
 
+pub mod enqueue;
+
 #[derive(Subcommand)]
 pub enum Commands {
     /// Sign in an agent's X account. Requires the master X-App to
@@ -45,6 +47,19 @@ pub enum Commands {
     Browser {
         name: String,
     },
+    /// Enqueue a tweet for the current agent (read from
+    /// `OBJECTIVEAI_AGENT_ID_BASE`). Records the operator's note
+    /// alongside the tweet ID so the agent can act on it later via
+    /// the `read_queue` / `mark_handled` MCP tools.
+    #[command(name = "enqueue")]
+    Enqueue {
+        /// Numeric ID of the tweet.
+        #[arg(long)]
+        tweet_id: String,
+        /// Free-text note for the agent. Required.
+        #[arg(long)]
+        message: String,
+    },
 }
 
 impl Commands {
@@ -66,6 +81,9 @@ impl Commands {
                     cfg,
                 )
                 .await
+            }
+            Commands::Enqueue { tweet_id, message } => {
+                enqueue::run(&tweet_id, &message, cfg).await
             }
         }
     }

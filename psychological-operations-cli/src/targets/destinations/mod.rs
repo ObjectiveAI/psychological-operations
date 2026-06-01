@@ -3,6 +3,7 @@ pub mod exec;
 pub mod file;
 pub mod http;
 pub mod json_body;
+pub mod queue;
 pub mod stdout;
 pub mod telegram;
 pub mod websocket;
@@ -32,6 +33,8 @@ pub enum Destination {
     WebSocket(websocket::WebSocket),
     #[serde(rename = "x")]
     X(x::X),
+    #[serde(rename = "queue")]
+    Queue(queue::Queue),
 }
 
 /// What's being delivered. Text-mode renderers print a per-tweet
@@ -65,5 +68,6 @@ pub async fn send_one(
         Destination::Exec(cfg) => exec::send(cfg, subject).await,
         Destination::WebSocket(cfg) => websocket::send(cfg, subject).await,
         Destination::X(cfg) => x::send(cfg, subject, rt).await,
+        Destination::Queue(cfg) => queue::send(cfg, subject, rt).await,
     }
 }
