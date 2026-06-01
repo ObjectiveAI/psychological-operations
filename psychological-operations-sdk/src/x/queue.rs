@@ -1,10 +1,9 @@
-//! Per-(operator, agent) tweet handling queue.
+//! Per-agent tweet handling queue + per-(operator, agent) handler map.
 //!
-//! Rows are keyed by `(objectiveai_agent_id, agent, tweet_id)`. The
-//! `objectiveai_agent_id` slot partitions different operators sharing
-//! the same workstation (it's the user-of-the-CLI identity, sourced
-//! from `OBJECTIVEAI_AGENT_ID`). `agent` is the X-API persona the
-//! tweet is queued *for*. Two sources write to the table:
+//! Queue rows are keyed by `(agent, tweet_id)` — the queue is a
+//! shared "to-do list" for each X-API persona, **not** partitioned
+//! by operator. Any operator's handler agent reading alice's queue
+//! sees the same rows. Two sources write:
 //!
 //! - **Psyop pipelines** — a tweet that scored above its threshold
 //!   lands here with `psyop = Some(name)` + `score = Some(value)` +
@@ -17,9 +16,12 @@
 //! `mark_handled` removes one.
 //!
 //! The sibling `handler_map` table records which objectiveai agent
-//! has been spawned to handle a given `(objectiveai_agent_id, agent)`
-//! queue so subsequent `agents queue handle` runs can `agents message`
-//! the same handler instead of spawning a fresh one every time.
+//! has been spawned to manage a given `(objectiveai_agent_id, agent)`
+//! pair. This **is** per-operator — different operators run their
+//! own handler agents (with their own objectiveai sessions) against
+//! the same shared queue. Subsequent `agents queue handle` runs by
+//! the same operator `agents message` the existing handler instead of
+//! spawning a fresh one each time.
 //!
 //! Storage: `<config_base_dir>/plugins/psychological-operations/queue.sqlite`,
 //! a separate file from the response cache. WAL + 5 s busy timeout so
@@ -39,19 +41,21 @@ use sqlx::sqlite::{
 use super::Error;
 use super::locker;
 
-const QUEUE_VERSION:       i64 = 2;
+// v3 reverts the v2 mistake of partitioning the queue by operator —
+// the queue is per-agent, not per-(operator, agent). Bumping the
+// version forces an on-disk wipe of any v2 rows.
+const QUEUE_VERSION:       i64 = 3;
 const HANDLER_MAP_VERSION: i64 = 1;
 
 const QUEUE_CREATE: &str = "CREATE TABLE queue (\
-        objectiveai_agent_id TEXT    NOT NULL,\
-        agent                TEXT    NOT NULL,\
-        tweet_id             TEXT    NOT NULL,\
-        psyop                TEXT,\
-        score                REAL,\
-        deliverer            TEXT,\
-        message              TEXT,\
-        queued_at            INTEGER NOT NULL,\
-        PRIMARY KEY (objectiveai_agent_id, agent, tweet_id)\
+        agent      TEXT    NOT NULL,\
+        tweet_id   TEXT    NOT NULL,\
+        psyop      TEXT,\
+        score      REAL,\
+        deliverer  TEXT,\
+        message    TEXT,\
+        queued_at  INTEGER NOT NULL,\
+        PRIMARY KEY (agent, tweet_id)\
     )";
 
 const HANDLER_MAP_CREATE: &str = "CREATE TABLE handler_map (\
@@ -63,7 +67,6 @@ const HANDLER_MAP_CREATE: &str = "CREATE TABLE handler_map (\
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueueEntry {
-    pub objectiveai_agent_id: String,
     pub agent: String,
     pub tweet_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -117,15 +120,14 @@ impl Queue {
         Ok(())
     }
 
-    /// Upsert by `(objectiveai_agent_id, agent, tweet_id)`. Re-enqueueing
-    /// overwrites the other columns wholesale.
+    /// Upsert by `(agent, tweet_id)`. Re-enqueueing overwrites the
+    /// other columns wholesale.
     pub async fn enqueue(&self, entry: &QueueEntry) -> Result<(), Error> {
         sqlx::query(
             "INSERT OR REPLACE INTO queue \
-             (objectiveai_agent_id, agent, tweet_id, psyop, score, deliverer, message, queued_at) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+             (agent, tweet_id, psyop, score, deliverer, message, queued_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
         )
-        .bind(&entry.objectiveai_agent_id)
         .bind(&entry.agent)
         .bind(&entry.tweet_id)
         .bind(entry.psyop.as_deref())
@@ -139,19 +141,14 @@ impl Queue {
         Ok(())
     }
 
-    /// All entries for `(objectiveai_agent_id, agent)`, oldest first.
-    pub async fn list(
-        &self,
-        objectiveai_agent_id: &str,
-        agent: &str,
-    ) -> Result<Vec<QueueEntry>, Error> {
+    /// All entries for `agent`, oldest first.
+    pub async fn list(&self, agent: &str) -> Result<Vec<QueueEntry>, Error> {
         let rows = sqlx::query(
-            "SELECT objectiveai_agent_id, agent, tweet_id, psyop, score, deliverer, message, queued_at \
+            "SELECT agent, tweet_id, psyop, score, deliverer, message, queued_at \
              FROM queue \
-             WHERE objectiveai_agent_id = ? AND agent = ? \
+             WHERE agent = ? \
              ORDER BY queued_at ASC",
         )
-        .bind(objectiveai_agent_id)
         .bind(agent)
         .fetch_all(&self.pool)
         .await
@@ -159,37 +156,29 @@ impl Queue {
         Ok(rows.into_iter().map(row_to_entry).collect())
     }
 
-    /// Distinct agents with at least one row for this operator.
-    /// Returned in deterministic (alphabetical) order.
-    pub async fn list_agents_with_entries(
-        &self,
-        objectiveai_agent_id: &str,
-    ) -> Result<Vec<String>, Error> {
+    /// Distinct agents with at least one row. Operator-independent —
+    /// the queue is shared. Returned in deterministic (alphabetical)
+    /// order.
+    pub async fn list_agents_with_entries(&self) -> Result<Vec<String>, Error> {
         let rows = sqlx::query(
-            "SELECT DISTINCT agent FROM queue \
-             WHERE objectiveai_agent_id = ? \
-             ORDER BY agent ASC",
+            "SELECT DISTINCT agent FROM queue ORDER BY agent ASC",
         )
-        .bind(objectiveai_agent_id)
         .fetch_all(&self.pool)
         .await
         .map_err(|e| Error::Other(format!("queue list_agents: {e}")))?;
         Ok(rows.into_iter().map(|r| r.get::<String, _>("agent")).collect())
     }
 
-    /// Delete `(objectiveai_agent_id, agent, tweet_id)` if present.
-    /// Returns `true` if a row was removed.
+    /// Delete `(agent, tweet_id)` if present. Returns `true` if a
+    /// row was removed.
     pub async fn delete(
         &self,
-        objectiveai_agent_id: &str,
         agent: &str,
         tweet_id: &str,
     ) -> Result<bool, Error> {
         let result = sqlx::query(
-            "DELETE FROM queue \
-             WHERE objectiveai_agent_id = ? AND agent = ? AND tweet_id = ?",
+            "DELETE FROM queue WHERE agent = ? AND tweet_id = ?",
         )
-        .bind(objectiveai_agent_id)
         .bind(agent)
         .bind(tweet_id)
         .execute(&self.pool)
@@ -241,14 +230,13 @@ impl Queue {
 
 fn row_to_entry(row: sqlx::sqlite::SqliteRow) -> QueueEntry {
     QueueEntry {
-        objectiveai_agent_id: row.get("objectiveai_agent_id"),
-        agent:                row.get("agent"),
-        tweet_id:             row.get("tweet_id"),
-        psyop:                row.try_get("psyop").ok(),
-        score:                row.try_get("score").ok(),
-        deliverer:            row.try_get("deliverer").ok(),
-        message:              row.try_get("message").ok(),
-        queued_at:            row.get("queued_at"),
+        agent:     row.get("agent"),
+        tweet_id:  row.get("tweet_id"),
+        psyop:     row.try_get("psyop").ok(),
+        score:     row.try_get("score").ok(),
+        deliverer: row.try_get("deliverer").ok(),
+        message:   row.try_get("message").ok(),
+        queued_at: row.get("queued_at"),
     }
 }
 

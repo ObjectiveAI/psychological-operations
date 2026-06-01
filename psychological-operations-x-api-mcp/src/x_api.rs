@@ -117,9 +117,6 @@ pub struct PsychologicalOperationsXApiMcp {
     /// here so the queue tools can key reads/deletes without
     /// reaching into the Client's private auth state.
     agent: String,
-    /// Operator lineage identity — partitions the queue across
-    /// distinct operators sharing the same SDK SQLite file.
-    objectiveai_agent_id: String,
 }
 
 impl std::fmt::Debug for PsychologicalOperationsXApiMcp {
@@ -232,18 +229,12 @@ pub struct MarkHandledRequest {
 
 #[tool_router]
 impl PsychologicalOperationsXApiMcp {
-    pub fn new(
-        http: Arc<Client>,
-        mode: Mode,
-        agent: String,
-        objectiveai_agent_id: String,
-    ) -> Self {
+    pub fn new(http: Arc<Client>, mode: Mode, agent: String) -> Self {
         Self {
             tool_router: Self::tool_router(),
             http,
             mode,
             agent,
-            objectiveai_agent_id,
         }
     }
 
@@ -641,7 +632,7 @@ impl PsychologicalOperationsXApiMcp {
             .await
             .map_err(|e| ErrorData::internal_error(format!("queue open: {e}"), None))?;
         let entries = q
-            .list(&self.objectiveai_agent_id, &self.agent)
+            .list(&self.agent)
             .await
             .map_err(|e| ErrorData::internal_error(format!("queue list: {e}"), None))?;
         serde_json::to_string(&entries)
@@ -662,7 +653,7 @@ impl PsychologicalOperationsXApiMcp {
             .await
             .map_err(|e| ErrorData::internal_error(format!("queue open: {e}"), None))?;
         let removed = q
-            .delete(&self.objectiveai_agent_id, &self.agent, &req.tweet_id)
+            .delete(&self.agent, &req.tweet_id)
             .await
             .map_err(|e| ErrorData::internal_error(format!("queue delete: {e}"), None))?;
         Ok(serde_json::json!({ "removed": removed }).to_string())

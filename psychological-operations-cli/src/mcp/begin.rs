@@ -41,17 +41,8 @@ pub async fn run(
     mode: Mode,
     cache_max_size: u64,
     cache_ttl: u64,
-    cfg: &crate::run::Config,
+    _cfg: &crate::run::Config,
 ) -> Result<crate::Output, Error> {
-    let objectiveai_agent_id = cfg
-        .objectiveai_agent_id
-        .as_deref()
-        .ok_or_else(|| {
-            Error::Other(
-                "OBJECTIVEAI_AGENT_ID not set — required for `mcp begin`".into(),
-            )
-        })?;
-
     let mode_str = mode.as_arg_str();
     let state_dir = std::env::temp_dir()
         .join(format!("psychological-operations-x-api-mcp-{agent}-{mode_str}"));
@@ -65,15 +56,7 @@ pub async fn run(
     }
 
     let binary = embed::ensure_extracted().await?;
-    let url = spawn_and_wait(
-        &binary,
-        cache_max_size,
-        cache_ttl,
-        agent,
-        objectiveai_agent_id,
-        mode,
-    )
-    .await?;
+    let url = spawn_and_wait(&binary, cache_max_size, cache_ttl, agent, mode).await?;
 
     tokio::fs::create_dir_all(&state_dir).await?;
     let pid = pid_for_url(&binary)?;
@@ -151,14 +134,12 @@ async fn spawn_and_wait(
     cache_max_size: u64,
     cache_ttl: u64,
     agent: &str,
-    objectiveai_agent_id: &str,
     mode: Mode,
 ) -> Result<String, Error> {
     let mut cmd = Command::new(binary);
     cmd.arg("--cache-max-size").arg(cache_max_size.to_string())
         .arg("--cache-ttl").arg(cache_ttl.to_string())
         .arg("--agent").arg(agent)
-        .arg("--objectiveai-agent-id").arg(objectiveai_agent_id)
         .arg("--mode").arg(mode.as_arg_str())
         .arg("--port").arg("0")
         .stdin(std::process::Stdio::null())

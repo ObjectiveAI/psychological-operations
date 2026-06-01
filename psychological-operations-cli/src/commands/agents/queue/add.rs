@@ -1,10 +1,9 @@
 //! `agents queue add --tweet-id <id> --message <msg>` — the operator
-//! flags a tweet for the agent named in
-//! `OBJECTIVEAI_AGENT_ID_BASE`. The row is partitioned by the
-//! operator's `OBJECTIVEAI_AGENT_ID` (the user-of-the-CLI lineage).
+//! flags a tweet for the agent named in `OBJECTIVEAI_AGENT_ID_BASE`.
 //!
-//! Row shape: `deliverer = Some(agent)`, `message = Some(msg)`, no
-//! `psyop` / `score`.
+//! The queue itself is per-agent (operator-agnostic). Row shape:
+//! `deliverer = Some(agent)`, `message = Some(msg)`, no `psyop` /
+//! `score`.
 
 use psychological_operations_sdk::x::client::{AuthMode, Client};
 use psychological_operations_sdk::x::queue::{self, QueueEntry};
@@ -16,14 +15,6 @@ pub async fn run(
     message: &str,
     cfg: &crate::run::Config,
 ) -> Result<crate::Output, Error> {
-    let operator = cfg
-        .objectiveai_agent_id
-        .as_deref()
-        .ok_or_else(|| {
-            Error::Other(
-                "OBJECTIVEAI_AGENT_ID not set — required for `agents queue add`".into(),
-            )
-        })?;
     let agent = cfg
         .objectiveai_agent_id_base
         .as_deref()
@@ -48,14 +39,13 @@ pub async fn run(
         .map_err(|e| Error::Other(format!("queue open: {e}")))?;
 
     q.enqueue(&QueueEntry {
-        objectiveai_agent_id: operator.to_string(),
-        agent:                agent.to_string(),
-        tweet_id:             tweet_id.to_string(),
-        psyop:                None,
-        score:                None,
-        deliverer:            Some(agent.to_string()),
-        message:              Some(message.to_string()),
-        queued_at:            queue::unix_now(),
+        agent:     agent.to_string(),
+        tweet_id:  tweet_id.to_string(),
+        psyop:     None,
+        score:     None,
+        deliverer: Some(agent.to_string()),
+        message:   Some(message.to_string()),
+        queued_at: queue::unix_now(),
     })
     .await
     .map_err(|e| Error::Other(format!("queue enqueue: {e}")))?;

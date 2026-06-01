@@ -66,7 +66,7 @@ pub async fn run(
         .clone();
 
     let mut agents = q
-        .list_agents_with_entries(&operator)
+        .list_agents_with_entries()
         .await
         .map_err(|e| Error::Other(format!("list agents: {e}")))?;
     if !agent_filter.is_empty() {
@@ -93,7 +93,7 @@ async fn handle_one_agent(
     q: &Queue,
 ) -> Result<usize, (usize, String)> {
     let entries = q
-        .list(operator, agent)
+        .list(agent)
         .await
         .map_err(|e| (0usize, format!("queue list: {e}")))?;
     if entries.is_empty() {
