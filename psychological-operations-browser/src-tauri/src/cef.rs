@@ -580,6 +580,20 @@ wrap_load_handler! {
             if is_main != 1 {
                 return;
             }
+            // Browser-only modes deliberately run with NO overlay
+            // injected into the X.com page — the operator gets a
+            // clean browsing surface. The Tauri-side panel (top
+            // bar) still shows the SignInToX hint when relevant;
+            // that's a separate webview unaffected by this gate.
+            if matches!(
+                psychological_operations_sdk::browser::mode::get(),
+                Some(
+                    psychological_operations_sdk::browser::mode::Mode::PsyopBrowser { .. }
+                    | psychological_operations_sdk::browser::mode::Mode::AgentBrowser { .. }
+                ),
+            ) {
+                return;
+            }
             // Prepend the locked mode as a JS global so the
             // overlay can read it synchronously at startup
             // without round-tripping through an invoke.

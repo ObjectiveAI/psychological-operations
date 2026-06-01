@@ -60,10 +60,12 @@ pub fn mode_data_dir(handle: &AppHandle<Wry>, mode: &Mode) -> std::path::PathBuf
         .join("browser");
     match mode {
         Mode::XApp => base.join("x-app"),
-        Mode::PsyopRead { name } | Mode::PsyopAuthorize { name } => {
-            base.join("psyop").join(name)
+        Mode::PsyopRead { name }
+        | Mode::PsyopAuthorize { name }
+        | Mode::PsyopBrowser { name } => base.join("psyop").join(name),
+        Mode::AgentAuthorize { name } | Mode::AgentBrowser { name } => {
+            base.join("agent").join(name)
         }
-        Mode::AgentAuthorize { name } => base.join("agent").join(name),
     }
 }
 
@@ -92,10 +94,12 @@ fn cache_subdir_for(mode: &Mode) -> String {
         // profile, breaking cookie persistence. `psyop-<name>` /
         // `agent-<name>` keep them under a flat namespace just like
         // `x-app`.
-        Mode::PsyopRead { name } | Mode::PsyopAuthorize { name } => {
-            format!("psyop-{name}")
+        Mode::PsyopRead { name }
+        | Mode::PsyopAuthorize { name }
+        | Mode::PsyopBrowser { name } => format!("psyop-{name}"),
+        Mode::AgentAuthorize { name } | Mode::AgentBrowser { name } => {
+            format!("agent-{name}")
         }
-        Mode::AgentAuthorize { name } => format!("agent-{name}"),
     }
 }
 
@@ -105,7 +109,9 @@ fn start_url_for(mode: &Mode) -> &'static str {
         Mode::XApp => "https://console.x.com/",
         Mode::PsyopRead { .. }
         | Mode::PsyopAuthorize { .. }
-        | Mode::AgentAuthorize { .. } => "https://x.com/",
+        | Mode::AgentAuthorize { .. }
+        | Mode::PsyopBrowser { .. }
+        | Mode::AgentBrowser { .. } => "https://x.com/",
     }
 }
 

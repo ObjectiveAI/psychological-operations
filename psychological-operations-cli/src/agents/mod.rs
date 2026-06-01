@@ -35,6 +35,16 @@ pub enum Commands {
         #[arg(long)]
         dangerously_reset: bool,
     },
+    /// Open the embedded browser as this agent. Loads x.com under
+    /// the agent's CEF profile (shared with `agents login`). No
+    /// OAuth flow, no scraping — just a clean browser. The
+    /// operator closes the window when done; the CLI blocks on
+    /// that exit. The only mode hint shown is "Sign in to X" if
+    /// not signed in.
+    #[command(name = "browser")]
+    Browser {
+        name: String,
+    },
 }
 
 impl Commands {
@@ -45,6 +55,14 @@ impl Commands {
                     psychological_operations_sdk::browser::auth_json::PersonaKind::Agent,
                     &name,
                     dangerously_reset,
+                    cfg,
+                )
+                .await
+            }
+            Commands::Browser { name } => {
+                crate::persona_browser::run(
+                    psychological_operations_sdk::browser::auth_json::PersonaKind::Agent,
+                    &name,
                     cfg,
                 )
                 .await

@@ -18,6 +18,8 @@ pub enum Mode {
     PsyopRead { name: String },
     PsyopAuthorize { name: String },
     AgentAuthorize { name: String },
+    PsyopBrowser { name: String },
+    AgentBrowser { name: String },
 }
 
 impl Mode {
@@ -27,6 +29,8 @@ impl Mode {
             Mode::PsyopRead { name } => vec!["--psyop-read".into(), name.clone()],
             Mode::PsyopAuthorize { name } => vec!["--psyop-authorize".into(), name.clone()],
             Mode::AgentAuthorize { name } => vec!["--agent-authorize".into(), name.clone()],
+            Mode::PsyopBrowser { name } => vec!["--psyop-browser".into(), name.clone()],
+            Mode::AgentBrowser { name } => vec!["--agent-browser".into(), name.clone()],
         }
     }
 }

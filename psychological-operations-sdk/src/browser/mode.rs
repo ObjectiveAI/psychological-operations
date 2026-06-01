@@ -44,6 +44,18 @@ pub enum Mode {
     /// agents (and into psyops too) simultaneously without
     /// the panel blocking.
     AgentAuthorize { name: String },
+    /// Per-psyop "just browse" session. The webview lands on
+    /// `https://x.com/` under the psyop's CEF profile; the
+    /// operator does whatever they want. No read-scrape, no
+    /// OAuth flow, no twid-conflict guard. The instruction
+    /// panel only ever shows `SignInToX` (if not signed in) or
+    /// hides entirely. The browser waits for the operator to
+    /// close the window; the CLI's `psyops browser <name>`
+    /// blocks on that exit.
+    PsyopBrowser { name: String },
+    /// Per-agent "just browse" session. Same shape as
+    /// [`PsyopBrowser`], rooted under the agent's CEF profile.
+    AgentBrowser { name: String },
 }
 
 /// Process-global once-only slot for the session mode.

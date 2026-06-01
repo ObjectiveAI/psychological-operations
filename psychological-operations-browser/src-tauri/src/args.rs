@@ -20,7 +20,7 @@ use psychological_operations_sdk::browser::mode::Mode;
 #[derive(Debug, Parser)]
 #[command(name = "psychological-operations-browser")]
 #[command(about = "Tauri+CEF webview shell for psychological-operations sessions.")]
-#[command(group = ArgGroup::new("mode").required(true).multiple(false).args(["x_app", "psyop_read", "psyop_authorize", "agent_authorize"]))]
+#[command(group = ArgGroup::new("mode").required(true).multiple(false).args(["x_app", "psyop_read", "psyop_authorize", "agent_authorize", "psyop_browser", "agent_browser"]))]
 pub struct Args {
     /// Base directory for psych-ops state. Mode-specific session
     /// data (cookies, IndexedDB, cache, ...) lives under
@@ -61,6 +61,22 @@ pub struct Args {
     #[arg(long, group = "mode", value_name = "NAME")]
     pub agent_authorize: Option<String>,
 
+    /// Launch in Psyop **browser** mode, scoped to the given
+    /// psyop name. Loads `https://x.com/` under the psyop's CEF
+    /// profile (shared with `--psyop-read` / `--psyop-authorize`).
+    /// Just opens the browser — no read-scrape, no OAuth flow,
+    /// no twid-conflict guard. The overlay JS is NOT injected.
+    /// Operator closes the window when done; the CLI's `psyops
+    /// browser <name>` blocks on that exit.
+    #[arg(long, group = "mode", value_name = "NAME")]
+    pub psyop_browser: Option<String>,
+
+    /// Launch in Agent **browser** mode, scoped to the given
+    /// agent name. Same shape as `--psyop-browser` but rooted
+    /// under the agent's CEF profile.
+    #[arg(long, group = "mode", value_name = "NAME")]
+    pub agent_browser: Option<String>,
+
     /// Bytes — SQLite response-cache size budget passed to
     /// `Client::new` when the browser needs to interact with
     /// the X v2 API (today: the OAuth-mint write under
@@ -90,6 +106,10 @@ impl Args {
             Mode::PsyopAuthorize { name: name.clone() }
         } else if let Some(name) = self.agent_authorize.as_ref() {
             Mode::AgentAuthorize { name: name.clone() }
+        } else if let Some(name) = self.psyop_browser.as_ref() {
+            Mode::PsyopBrowser { name: name.clone() }
+        } else if let Some(name) = self.agent_browser.as_ref() {
+            Mode::AgentBrowser { name: name.clone() }
         } else {
             unreachable!("clap ArgGroup mode required=true, multiple=false")
         }

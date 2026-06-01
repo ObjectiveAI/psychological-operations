@@ -562,6 +562,22 @@ pub fn derive(facts: &Facts) -> PanelState {
                 PanelState::Hidden
             }
         }
+        Some(Mode::PsyopBrowser { .. }) | Some(Mode::AgentBrowser { .. }) => {
+            // Browser modes: just open the persona's browser at
+            // x.com and let the operator do whatever. Only nag
+            // for sign-in; otherwise hide the panel. No twid-
+            // conflict guard, no read-scrape counter, no OAuth
+            // flow. The overlay JS is gated out in cef.rs so
+            // nothing custom runs in the page either.
+            if facts.auth_token.is_none() {
+                PanelState::Show {
+                    condition: PanelCondition::SignInToX,
+                    message: "Sign in to X.".into(),
+                }
+            } else {
+                PanelState::Hidden
+            }
+        }
         None => PanelState::Hidden,
     }
 }

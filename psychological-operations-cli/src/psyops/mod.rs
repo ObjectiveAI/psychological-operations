@@ -108,6 +108,16 @@ pub enum Commands {
         #[arg(long)]
         dangerously_reset: bool,
     },
+    /// Open the embedded browser as this psyop. Loads x.com under
+    /// the psyop's CEF profile (shared with `psyops browse` /
+    /// `psyops login`). No tweet-ID scraping, no OAuth, no
+    /// twid-conflict guard — just a clean browser. The operator
+    /// closes the window when done; the CLI blocks on that exit.
+    /// The only mode hint shown is "Sign in to X" if not signed in.
+    #[command(name = "browser")]
+    Browser {
+        name: String,
+    },
 }
 
 #[derive(Args)]
@@ -157,6 +167,14 @@ impl Commands {
                     psychological_operations_sdk::browser::auth_json::PersonaKind::Psyop,
                     &name,
                     dangerously_reset,
+                    cfg,
+                )
+                .await
+            }
+            Commands::Browser { name } => {
+                crate::persona_browser::run(
+                    psychological_operations_sdk::browser::auth_json::PersonaKind::Psyop,
+                    &name,
                     cfg,
                 )
                 .await
