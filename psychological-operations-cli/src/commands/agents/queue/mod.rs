@@ -11,7 +11,7 @@ pub mod handle;
 #[derive(Subcommand)]
 pub enum Commands {
     /// Enqueue a tweet for the current agent (sourced from
-    /// `OBJECTIVEAI_AGENT_ID_BASE`). The queue is per-agent
+    /// `OBJECTIVEAI_AGENT_ID`). The queue is per-agent
     /// (caller-agnostic).
     #[command(name = "add")]
     Add {

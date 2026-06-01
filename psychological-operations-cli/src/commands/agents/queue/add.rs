@@ -1,5 +1,5 @@
 //! `agents queue add --tweet-id <id> --message <msg>` — the caller
-//! flags a tweet for the agent named in `OBJECTIVEAI_AGENT_ID_BASE`.
+//! flags a tweet for the agent named in `OBJECTIVEAI_AGENT_ID`.
 //!
 //! The queue itself is per-agent (caller-agnostic). Row shape:
 //! `deliverer = Some(agent)`, `message = Some(msg)`, no `psyop` /
@@ -16,11 +16,11 @@ pub async fn run(
     cfg: &crate::run::Config,
 ) -> Result<crate::Output, Error> {
     let agent = cfg
-        .objectiveai_agent_id_base
+        .objectiveai_agent_id
         .as_deref()
         .ok_or_else(|| {
             Error::Other(
-                "OBJECTIVEAI_AGENT_ID_BASE not set — required for `agents queue add`"
+                "OBJECTIVEAI_AGENT_ID not set — required for `agents queue add`"
                     .into(),
             )
         })?;

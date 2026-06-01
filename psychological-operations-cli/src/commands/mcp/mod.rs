@@ -36,7 +36,7 @@ pub enum Commands {
     /// MCP on a random localhost port and returns its URL.
     Begin {
         /// Agent name. Falls back to the
-        /// `OBJECTIVEAI_AGENT_ID_BASE` env-derived default in
+        /// `OBJECTIVEAI_AGENT_ID` env-derived default in
         /// `Config` when absent; errors if neither is set.
         #[arg(long)]
         agent: Option<String>,
@@ -59,10 +59,10 @@ impl Commands {
         match self {
             Commands::Begin { agent, mode, cache_max_size, cache_ttl } => {
                 let agent = agent
-                    .or_else(|| cfg.objectiveai_agent_id_base.clone())
+                    .or_else(|| cfg.objectiveai_agent_id.clone())
                     .ok_or_else(|| Error::Other(
                         "agent required — pass --agent or set \
-                         OBJECTIVEAI_AGENT_ID_BASE".into()))?;
+                         OBJECTIVEAI_AGENT_ID".into()))?;
                 crate::mcp::begin::run(&agent, mode, cache_max_size, cache_ttl, cfg).await
             }
         }
