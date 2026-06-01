@@ -100,17 +100,21 @@ pub async fn maybe_start_flow(handle: &AppHandle<Wry>) {
     let x_app_twid = match signed_in_x_user_id(&config_base_dir, &Mode::XApp).await {
         Ok(Some(t)) => t,
         Ok(None) => {
+            let msg = "no X-App account signed in".to_string();
             let _ = Output::Log {
-                message: "authorize: no X-App account signed in; not starting flow".into(),
+                message: format!("authorize: {msg}; not starting flow"),
             }
             .emit();
+            let _ = Output::AuthorizeFailed { error: msg }.emit();
             return;
         }
         Err(e) => {
+            let msg = format!("X-App cookies probe failed: {e}");
             let _ = Output::Log {
-                message: format!("authorize: X-App cookies probe failed: {e}"),
+                message: format!("authorize: {msg}"),
             }
             .emit();
+            let _ = Output::AuthorizeFailed { error: msg }.emit();
             return;
         }
     };
@@ -147,12 +151,14 @@ pub async fn maybe_start_flow(handle: &AppHandle<Wry>) {
         return;
     }
     if let Some(other) = conflict {
+        let msg = format!(
+            "twid {persona_twid} belongs to PsyOp {other}; not starting flow"
+        );
         let _ = Output::Log {
-            message: format!(
-                "authorize: twid {persona_twid} belongs to PsyOp {other}; not starting flow"
-            ),
+            message: format!("authorize: {msg}"),
         }
         .emit();
+        let _ = Output::AuthorizeFailed { error: msg }.emit();
         return;
     }
 
@@ -176,6 +182,7 @@ pub async fn maybe_start_flow(handle: &AppHandle<Wry>) {
                 message: format!("authorize: flow failed: {e}"),
             }
             .emit();
+            let _ = Output::AuthorizeFailed { error: e }.emit();
             if let Ok(mut s) = in_flight_slot().lock() {
                 *s = None;
             }
@@ -277,6 +284,7 @@ async fn run_flow(
     }
     .emit();
     state::recompute_and_publish(&handle);
+    let _ = Output::AuthorizeSucceeded.emit();
     Ok(())
 }
 

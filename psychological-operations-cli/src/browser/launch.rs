@@ -36,20 +36,29 @@ impl Mode {
 /// expect) — the browser builds `<base>/plugins/psychological-operations/browser/...`
 /// underneath it.
 ///
-/// `pipe_stdout` controls whether the child's stdout is piped back
-/// to the caller (needed for `psyops browse` to consume `tweet_id`
-/// events) or inherited (so the browser's JSONL emit goes straight
-/// to the CLI's terminal — used by spawn-and-wait flows where the
-/// CLI is acting as a transparent launcher).
+/// * `pipe_stdin` — pipe the child's stdin so the caller can send
+///   [`psychological_operations_sdk::browser::request::Request`]s
+///   (notably `Shutdown` from the `login` flow). When `false`, stdin
+///   is inherited so the operator's terminal stays interactive
+///   (`psyops browse`).
+/// * `pipe_stdout` — pipe the child's stdout so the caller can
+///   stream [`psychological_operations_sdk::browser::output::Output`]
+///   events (needed for both `psyops browse` to consume `tweet_id`s
+///   and the `login` flow to watch for `AuthorizeSucceeded` /
+///   `AuthorizeFailed`).
 pub fn spawn(
     binary: &Path,
     config_base_dir: &Path,
     mode: Mode,
+    pipe_stdin: bool,
     pipe_stdout: bool,
 ) -> Result<Child, Error> {
     let mut cmd = Command::new(binary);
     cmd.arg("--config-base-dir").arg(config_base_dir);
     cmd.args(mode.args());
+    if pipe_stdin {
+        cmd.stdin(Stdio::piped());
+    }
     if pipe_stdout {
         cmd.stdout(Stdio::piped());
     }

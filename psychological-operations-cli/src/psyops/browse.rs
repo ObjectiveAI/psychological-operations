@@ -63,6 +63,7 @@ pub async fn run(
             &materialized.binary,
             &config_base_dir,
             launch::Mode::PsyopRead { name: name.clone() },
+            /* pipe_stdin  = */ false,
             /* pipe_stdout = */ true,
         )?;
 

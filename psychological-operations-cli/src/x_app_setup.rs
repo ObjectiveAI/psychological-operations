@@ -37,6 +37,7 @@ pub async fn run(cfg: &crate::run::Config) -> Result<crate::Output, Error> {
         &materialized.binary,
         &config_base_dir,
         launch::Mode::XApp,
+        /* pipe_stdin  = */ false,
         /* pipe_stdout = */ false,
     )?;
 

@@ -105,6 +105,15 @@ pub fn start(handle: AppHandle<Wry>, ready_rx: mpsc::Receiver<()>) {
 }
 
 fn dispatch_request(handle: &AppHandle<Wry>, req: Request) {
+    // `Shutdown` short-circuits the overlay round-trip — initiate a
+    // clean tauri exit and let the runtime drain the main loop. The
+    // host (CLI's `login` command) sends this after seeing
+    // `AuthorizeSucceeded` / `AuthorizeFailed`.
+    if matches!(req, Request::Shutdown) {
+        handle.exit(0);
+        return;
+    }
+
     // 1. Register a pending-ack slot before pushing so the overlay's
     //    stdio_respond invoke always finds a sender to fulfill.
     let pending: tauri::State<PendingAck> = handle.state();

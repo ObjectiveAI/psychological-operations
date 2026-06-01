@@ -30,4 +30,11 @@ pub enum Request {
     /// [`crate::browser::response::Response::Eval`]; a runtime throw becomes a
     /// [`crate::browser::response::ResponseOutcome::Err`].
     Eval { code: String },
+
+    /// Initiate a clean tauri shutdown. The runtime drains
+    /// pending events and exits with code 0. The CLI's `login`
+    /// command sends this after seeing
+    /// [`crate::browser::output::Output::AuthorizeSucceeded`] or
+    /// [`crate::browser::output::Output::AuthorizeFailed`].
+    Shutdown,
 }

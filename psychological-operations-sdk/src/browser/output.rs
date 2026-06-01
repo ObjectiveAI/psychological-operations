@@ -75,6 +75,21 @@ pub enum Output {
     /// psyop swap) so a new session always starts emitting from
     /// zero.
     TweetId { id: String },
+
+    /// Sole terminating signal on the OAuth-success path
+    /// ([`crate::browser::mode::Mode::PsyopAuthorize`] /
+    /// [`crate::browser::mode::Mode::AgentAuthorize`]). Emitted
+    /// once `auth.json` is on disk for the persona; the host
+    /// (CLI's `login` command) reads this to know the flow
+    /// finished cleanly and sends a `Request::Shutdown` back.
+    AuthorizeSucceeded,
+
+    /// Sole terminating signal on the OAuth-failure path.
+    /// `error` is the human-readable summary; the operator may
+    /// have seen more detail in preceding `Output::Log` entries.
+    /// The host reads this to propagate the error and send a
+    /// `Request::Shutdown` back.
+    AuthorizeFailed { error: String },
 }
 
 /// Identifying claims extracted from the auth JWT's payload. All
