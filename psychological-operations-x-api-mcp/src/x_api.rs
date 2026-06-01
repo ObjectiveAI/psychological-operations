@@ -7,8 +7,9 @@
 //! only custom tweet struct anywhere in this codebase lives here —
 //! [`Tweet`] is the small, agent-facing projection that drops the
 //! ~30 optional fields the X spec carries on its Tweet schema and
-//! keeps the four the agent actually consumes (id, handle, content,
-//! attachments).
+//! keeps the ones the agent actually consumes (id, handle, content,
+//! attachments, plus the three optional reference IDs replied_to /
+//! quoted / retweeted).
 //!
 //! Binary media bytes come from `Client::fetch_url` — the SDK's sole
 //! hand-written non-codegen call (twimg has no OpenAPI surface).
@@ -56,10 +57,16 @@ struct Attachment {
 
 #[derive(Debug, Clone, Serialize)]
 struct Tweet {
-    tweet_id: String,
+    id: String,
     handle: String,
     content: String,
     attachments: Vec<Attachment>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    replied_to: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    quoted: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    retweeted: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -85,12 +92,6 @@ impl std::fmt::Debug for PsychologicalOperationsXApiMcp {
 // =====================================================================
 // Per-tool request schemas.
 // =====================================================================
-
-#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
-pub struct GetRepliedToIdRequest {
-    #[schemars(description = "Numeric ID of the tweet whose reply target you want.")]
-    pub tweet_id: String,
-}
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct ListReplyIdsRequest {
@@ -141,35 +142,6 @@ impl PsychologicalOperationsXApiMcp {
             tool_router: Self::tool_router(),
             http,
         }
-    }
-
-    #[tool(
-        name = "get_replied_to_id",
-        description = "Return the ID of the tweet that the given tweet is replying to."
-    )]
-    async fn get_replied_to_id(
-        &self,
-        Parameters(req): Parameters<GetRepliedToIdRequest>,
-    ) -> String {
-        let creq = tweets_id::get::Request {
-            id: TweetId(req.tweet_id.clone()),
-            tweet_fields: Some(vec![params::TweetFields::ReferencedTweets]),
-            expansions: Some(vec![params::TweetExpansions::ReferencedTweetsId]),
-            media_fields: None,
-            poll_fields: None,
-            user_fields: None,
-            place_fields: None,
-        };
-        let resp = match tweets_id::http::get(&self.http, &creq).await {
-            Ok(r) => r,
-            Err(e) => return format!("error: {e}"),
-        };
-        let Some(t) = resp.data else { return String::new() };
-        let Some(refs) = t.referenced_tweets else { return String::new() };
-        refs.into_iter()
-            .find(|r| matches!(r.type_, TweetReferencedTweetsItemType::RepliedTo))
-            .map(|r| r.id.0)
-            .unwrap_or_default()
     }
 
     #[tool(
@@ -345,6 +317,7 @@ fn standard_tweet_request(tweet_id: &str) -> tweets_id::get::Request {
         tweet_fields: Some(vec![
             params::TweetFields::Attachments,
             params::TweetFields::AuthorId,
+            params::TweetFields::ReferencedTweets,
             params::TweetFields::Text,
         ]),
         expansions: Some(vec![
@@ -377,6 +350,7 @@ fn standard_search_request(query: String) -> tweets_search_recent::get::Request 
         tweet_fields: Some(vec![
             params::TweetFields::Attachments,
             params::TweetFields::AuthorId,
+            params::TweetFields::ReferencedTweets,
             params::TweetFields::Text,
         ]),
         expansions: Some(vec![
@@ -400,11 +374,23 @@ fn standard_search_request(query: String) -> tweets_search_recent::get::Request 
 // =====================================================================
 
 fn project_tweet(t: &x_types::Tweet, includes: Option<&x_types::Expansions>) -> Tweet {
-    let tweet_id = t.id.as_ref().map(|i| i.0.clone()).unwrap_or_default();
+    let id = t.id.as_ref().map(|i| i.0.clone()).unwrap_or_default();
     let content = t.text.as_ref().map(|tx| tx.0.clone()).unwrap_or_default();
     let handle = resolve_handle(t.author_id.as_ref(), includes);
     let attachments = collect_attachments(t, includes);
-    Tweet { tweet_id, handle, content, attachments }
+
+    let (mut replied_to, mut quoted, mut retweeted) = (None, None, None);
+    if let Some(refs) = t.referenced_tweets.as_ref() {
+        for r in refs {
+            match r.type_ {
+                TweetReferencedTweetsItemType::RepliedTo => replied_to = Some(r.id.0.clone()),
+                TweetReferencedTweetsItemType::Quoted    => quoted     = Some(r.id.0.clone()),
+                TweetReferencedTweetsItemType::Retweeted => retweeted  = Some(r.id.0.clone()),
+            }
+        }
+    }
+
+    Tweet { id, handle, content, attachments, replied_to, quoted, retweeted }
 }
 
 fn resolve_handle(
