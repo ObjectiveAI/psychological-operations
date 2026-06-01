@@ -2,7 +2,10 @@
 //!
 //! Bodies live in the `cache` table keyed by
 //! `SHA-256(method ‖ path ‖ query ‖ body)`. Eviction is LRU by
-//! `inserted_at`, capped at `max_size` bytes (0 disables).
+//! `inserted_at`, capped at `max_size` bytes (0 disables). Reads
+//! also filter rows whose `inserted_at + cache_ttl` is in the
+//! past — those flow through as cache misses and get
+//! overwritten in-place by the next `store`.
 //!
 //! Two-tier per-key locking lives in [`super::locker::Locker`];
 //! `Cache` composes one. See that module for the cross-process
@@ -33,14 +36,12 @@ pub struct Cache {
     /// `inserted_at`) until total body size ≤ this value. 0
     /// disables eviction.
     max_size: u64,
-    /// Per-entry TTL. Plumbed through the SDK constructors but
-    /// NOT yet consumed by the eviction logic — eviction is still
-    /// pure LRU-by-`inserted_at` capped at `max_size`. A future
-    /// change will use this to skip-or-evict entries older than
-    /// `inserted_at + cache_ttl`. Stored on the struct now so the
-    /// constructor signatures + downstream binaries can settle
-    /// before the eviction work lands.
-    #[allow(dead_code)]
+    /// Per-entry TTL. [`peek`] filters out entries older than
+    /// `inserted_at + cache_ttl`, so callers see them as cache
+    /// misses; the next `store`'s `INSERT OR REPLACE` overwrites
+    /// the stale row. `Duration::ZERO` effectively disables
+    /// caching (every entry reads as expired); values exceeding
+    /// `i64::MAX` seconds are clamped.
     cache_ttl: Duration,
 }
 
@@ -96,11 +97,18 @@ impl Cache {
         self.locker.acquire(key).await
     }
 
-    /// Read of `key`. Caller MUST currently hold the lock for
-    /// `key` (via [`lock`] or inside [`get_or_fetch`]).
+    /// Read of `key`, filtering out rows whose
+    /// `inserted_at + cache_ttl` is in the past. Caller MUST
+    /// currently hold the lock for `key` (via [`lock`] or inside
+    /// [`get_or_fetch`]).
     pub async fn peek(&self, key: &[u8; 32]) -> Result<Option<Vec<u8>>, Error> {
-        sqlx::query_scalar::<_, Vec<u8>>("SELECT body FROM cache WHERE key = ?")
+        let ttl_secs = self.cache_ttl.as_secs().min(i64::MAX as u64) as i64;
+        let cutoff = locker::unix_now().saturating_sub(ttl_secs);
+        sqlx::query_scalar::<_, Vec<u8>>(
+            "SELECT body FROM cache WHERE key = ? AND inserted_at >= ?",
+        )
             .bind(&key[..])
+            .bind(cutoff)
             .fetch_optional(&self.pool)
             .await
             .map_err(|e| Error::Other(format!("cache peek: {e}")))
