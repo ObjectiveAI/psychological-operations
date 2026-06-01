@@ -24,6 +24,6 @@ pub async fn post(
     req: &super::post::Request,
 ) -> Result<super::post::Response, Error> {
     let path = "compliance/jobs";
-    client.send(Method::POST, path, Some(&req.body), true).await
+    client.send(Method::POST, path, Some(&req.body), false).await
 }
 

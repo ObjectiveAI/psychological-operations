@@ -24,6 +24,6 @@ pub async fn delete(
     req: &super::delete::Request,
 ) -> Result<super::delete::Response, Error> {
     let path = "connections";
-    client.send(Method::DELETE, path, Some(&req.body), true).await
+    client.send(Method::DELETE, path, Some(&req.body), false).await
 }
 

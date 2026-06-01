@@ -24,7 +24,7 @@ pub async fn post(
     req: &super::post::Request,
 ) -> Result<super::post::Response, Error> {
     let path = "activity/subscriptions";
-    client.send(Method::POST, path, req.body.as_ref(), true).await
+    client.send(Method::POST, path, req.body.as_ref(), false).await
 }
 
 /// DELETE /2/activity/subscriptions
@@ -33,6 +33,6 @@ pub async fn delete(
     req: &super::delete::Request,
 ) -> Result<super::delete::Response, Error> {
     let path = "activity/subscriptions";
-    client.send_with_query(Method::DELETE, path, req, true).await
+    client.send_with_query(Method::DELETE, path, req, false).await
 }
 

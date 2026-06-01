@@ -15,6 +15,6 @@ pub async fn post(
     req: &super::post::Request,
 ) -> Result<super::post::Response, Error> {
     let path = format!("media/upload/{}/finalize", urlencoding::encode(&req.id.to_string()));
-    client.send::<_, ()>(Method::POST, &path, None, true).await
+    client.send::<_, ()>(Method::POST, &path, None, false).await
 }
 

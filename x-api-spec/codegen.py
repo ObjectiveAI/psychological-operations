@@ -21,7 +21,6 @@ SCRIPT_DIR = Path(__file__).parent.resolve()
 REPO_ROOT = SCRIPT_DIR.parent
 SPEC_PATH = SCRIPT_DIR / "openapi.json"
 META_PATH = SCRIPT_DIR / "openapi.meta.json"
-CACHE_OPT_OUT_PATH = SCRIPT_DIR / "cache-opt-out.json"
 OUT_DIR = REPO_ROOT / "psychological-operations-sdk" / "src" / "x"
 
 # Stable marker — the cleaner uses `content.startswith(GENERATED_MARKER)`
@@ -89,24 +88,13 @@ def load_spec() -> tuple[dict, str]:
     return spec, sha
 
 
-def load_cache_opt_out() -> set[str]:
-    """Return the set of OpenAPI paths whose endpoints default to
-    cache=false. Every other endpoint defaults to cache=true. Missing
-    file or missing `opt_out` key both yield an empty set."""
-    if not CACHE_OPT_OUT_PATH.exists():
-        return set()
-    data = json.loads(CACHE_OPT_OUT_PATH.read_text())
-    return set(data.get("opt_out") or [])
-
-
 # ---- type resolution ------------------------------------------------------
 
 
 class Codegen:
-    def __init__(self, spec: dict, sha: str, cache_opt_out: set[str]):
+    def __init__(self, spec: dict, sha: str):
         self.spec = spec
         self.sha = sha
-        self.cache_opt_out = cache_opt_out
         self.schemas: dict[str, dict] = spec["components"]["schemas"]
         self.parameters: dict[str, dict] = spec["components"].get("parameters", {})
         self.kinds: dict[str, str] = {}     # schema_name -> kind
@@ -864,13 +852,6 @@ class Codegen:
             "has_body": body_field is not None,
             "body_required": (body_field[1] if body_field is not None else False),
             "has_response": has_response,
-            # `cache-opt-out.json` lists OpenAPI paths whose endpoints
-            # default to cache=false; every other endpoint defaults to
-            # cache=true. The default isn't enforced in this PR (the
-            # caller passes `cache: bool` explicitly), but threading the
-            # value here lets the cache-landing PR drop in per-endpoint
-            # defaults without rewiring upstream plumbing.
-            "default_cache": url_path not in self.cache_opt_out,
         }
 
     # -- per-endpoint http.rs ----------------------------------------------
@@ -898,10 +879,11 @@ class Codegen:
         has_body = meta["has_body"]
         body_required = meta["body_required"]
         has_response = meta["has_response"]
-        # Cache decision is hard-coded per endpoint from
-        # `cache-opt-out.json`. Callers no longer pass a `cache: bool`
-        # — the codegen owns that policy.
-        cache_lit = "true" if meta.get("default_cache", True) else "false"
+        # Cache only safe (read-only) methods. POST/PUT/PATCH/DELETE
+        # mutate server state and must never be cached. HEAD isn't
+        # emitted by the codegen today, so this collapses to "GET caches,
+        # nothing else does".
+        cache_lit = "true" if method == "get" else "false"
 
         # Determine whether `req` is referenced in the body. It is unused
         # only when there are no path params, no query params, and no body
@@ -1188,15 +1170,13 @@ def main() -> None:
     if not SPEC_PATH.exists():
         sys.exit(f"missing {SPEC_PATH}; run x-api-spec/fetch.sh first")
     spec, sha = load_spec()
-    cache_opt_out = load_cache_opt_out()
     print(f"Loaded openapi.json (sha256 {sha[:16]}...)")
-    print(f"Loaded cache-opt-out.json ({len(cache_opt_out)} entries)")
 
     print("Cleaning previously generated files ...")
     clean_generated(OUT_DIR)
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    cg = Codegen(spec, sha, cache_opt_out)
+    cg = Codegen(spec, sha)
     print("Emitting components ...")
     cg.emit_components()
     print("Emitting parameter components ...")

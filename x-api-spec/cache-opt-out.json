@@ -1,4 +1,0 @@
-{
-  "description": "X v2 endpoints that default to cache=false. Every other endpoint defaults to cache=true. Path is the full OpenAPI path (with the /2/ prefix). Consumed by x-api-spec/codegen.py.",
-  "opt_out": []
-}

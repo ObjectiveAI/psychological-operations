@@ -15,6 +15,6 @@ pub async fn delete(
     req: &super::delete::Request,
 ) -> Result<super::delete::Response, Error> {
     let path = format!("users/{}/likes/{}", urlencoding::encode(&req.id.to_string()), urlencoding::encode(&req.tweet_id.to_string()));
-    client.send::<_, ()>(Method::DELETE, &path, None, true).await
+    client.send::<_, ()>(Method::DELETE, &path, None, false).await
 }
 

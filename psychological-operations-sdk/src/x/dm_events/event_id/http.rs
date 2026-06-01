@@ -24,6 +24,6 @@ pub async fn delete(
     req: &super::delete::Request,
 ) -> Result<super::delete::Response, Error> {
     let path = format!("dm_events/{}", urlencoding::encode(&req.event_id.to_string()));
-    client.send::<_, ()>(Method::DELETE, &path, None, true).await
+    client.send::<_, ()>(Method::DELETE, &path, None, false).await
 }
 

@@ -15,6 +15,6 @@ pub async fn post(
     req: &super::post::Request,
 ) -> Result<super::post::Response, Error> {
     let path = format!("users/{}/likes", urlencoding::encode(&req.id.to_string()));
-    client.send(Method::POST, &path, req.body.as_ref(), true).await
+    client.send(Method::POST, &path, req.body.as_ref(), false).await
 }
 

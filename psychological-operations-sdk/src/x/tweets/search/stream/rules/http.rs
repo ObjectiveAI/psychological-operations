@@ -24,6 +24,6 @@ pub async fn post(
     req: &super::post::Request,
 ) -> Result<super::post::Response, Error> {
     let path = "tweets/search/stream/rules";
-    client.send_with_query_and_body(Method::POST, path, req, &req.body, true).await
+    client.send_with_query_and_body(Method::POST, path, req, &req.body, false).await
 }
 
