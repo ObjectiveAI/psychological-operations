@@ -1,7 +1,7 @@
-//! `agents queue add --tweet-id <id> --message <msg>` — the operator
+//! `agents queue add --tweet-id <id> --message <msg>` — the caller
 //! flags a tweet for the agent named in `OBJECTIVEAI_AGENT_ID_BASE`.
 //!
-//! The queue itself is per-agent (operator-agnostic). Row shape:
+//! The queue itself is per-agent (caller-agnostic). Row shape:
 //! `deliverer = Some(agent)`, `message = Some(msg)`, no `psyop` /
 //! `score`.
 

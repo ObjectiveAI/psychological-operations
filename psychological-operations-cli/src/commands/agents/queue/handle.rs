@@ -40,12 +40,12 @@ pub async fn run(
     agent_filter: Vec<String>,
     cfg: &crate::run::Config,
 ) -> Result<crate::Output, Error> {
-    let operator = cfg
-        .objectiveai_agent_id
+    let instance_hierarchy = cfg
+        .objectiveai_instance_hierarchy
         .as_deref()
         .ok_or_else(|| {
             Error::Other(
-                "OBJECTIVEAI_AGENT_ID not set — required for `agents queue handle`"
+                "OBJECTIVEAI_INSTANCE_HIERARCHY not set — required for `agents queue handle`"
                     .into(),
             )
         })?
@@ -75,10 +75,10 @@ pub async fn run(
 
     let mut tasks = JoinSet::new();
     for agent in agents {
-        let operator = operator.clone();
+        let instance_hierarchy = instance_hierarchy.clone();
         let q = q.clone();
         tasks.spawn(async move {
-            let res = handle_one_agent(&operator, &agent, &q).await;
+            let res = handle_one_agent(&instance_hierarchy, &agent, &q).await;
             emit_per_agent(&agent, res);
         });
     }
@@ -88,7 +88,7 @@ pub async fn run(
 }
 
 async fn handle_one_agent(
-    operator: &str,
+    instance_hierarchy: &str,
     agent: &str,
     q: &Queue,
 ) -> Result<usize, (usize, String)> {
@@ -100,11 +100,11 @@ async fn handle_one_agent(
         return Ok(0);
     }
     let n = entries.len();
-    let key_prefix = format!("{operator}::{agent}");
+    let key_prefix = format!("{instance_hierarchy}::{agent}");
 
     // Step 1: try messaging the stored handler.
     let stored = q
-        .get_handler(operator, agent)
+        .get_handler(instance_hierarchy, agent)
         .await
         .map_err(|e| (n, format!("handler_map get: {e}")))?;
     if let Some(handler_id) = stored.as_deref() {
@@ -140,7 +140,7 @@ async fn handle_one_agent(
     let spawned_id = r
         .spawned_agent_id()
         .ok_or_else(|| (n, "spawn returned no agent_id".to_string()))?;
-    q.set_handler(operator, agent, &spawned_id)
+    q.set_handler(instance_hierarchy, agent, &spawned_id)
         .await
         .map_err(|e| (n, format!("handler_map set: {e}")))?;
     Ok(n)

@@ -11,8 +11,8 @@ pub mod handle;
 #[derive(Subcommand)]
 pub enum Commands {
     /// Enqueue a tweet for the current agent (sourced from
-    /// `OBJECTIVEAI_AGENT_ID_BASE`). Row is partitioned by the
-    /// operator's `OBJECTIVEAI_AGENT_ID`.
+    /// `OBJECTIVEAI_AGENT_ID_BASE`). The queue is per-agent
+    /// (caller-agnostic).
     #[command(name = "add")]
     Add {
         /// Numeric ID of the tweet.
@@ -27,9 +27,9 @@ pub enum Commands {
     #[command(name = "handle")]
     Handle {
         /// Restrict to specific X-API agents. Repeatable. When
-        /// omitted, runs for every agent with ≥1 queued row for the
-        /// current operator. Agents with no rows are silently
-        /// skipped (no notification emitted).
+        /// omitted, runs for every agent with ≥1 queued row.
+        /// Agents with no rows are silently skipped (no
+        /// notification emitted).
         #[arg(long)]
         agent: Vec<String>,
     },

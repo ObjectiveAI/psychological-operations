@@ -14,8 +14,8 @@ struct EnvConfigBuilder {
     /// `<base>/plugins/.psychological-operations/`.
     #[envconfig(from = "CONFIG_BASE_DIR")]
     objectiveai_base_dir: Option<String>,
-    #[envconfig(from = "OBJECTIVEAI_AGENT_ID")]
-    objectiveai_agent_id: Option<String>,
+    #[envconfig(from = "OBJECTIVEAI_INSTANCE_HIERARCHY")]
+    objectiveai_instance_hierarchy: Option<String>,
     #[envconfig(from = "OBJECTIVEAI_AGENT_ID_BASE")]
     objectiveai_agent_id_base: Option<String>,
     #[envconfig(from = "PSYCHOLOGICAL_OPERATIONS_COMMIT_AUTHOR_NAME")]
@@ -29,12 +29,12 @@ struct EnvConfigBuilder {
 impl EnvConfigBuilder {
     pub fn build(self) -> ConfigBuilder {
         ConfigBuilder {
-            objectiveai_base_dir:      self.objectiveai_base_dir,
-            objectiveai_agent_id:      self.objectiveai_agent_id,
-            objectiveai_agent_id_base: self.objectiveai_agent_id_base,
-            commit_author_name:        self.commit_author_name,
-            commit_author_email:       self.commit_author_email,
-            commit_time:               self.commit_time
+            objectiveai_base_dir:           self.objectiveai_base_dir,
+            objectiveai_instance_hierarchy: self.objectiveai_instance_hierarchy,
+            objectiveai_agent_id_base:      self.objectiveai_agent_id_base,
+            commit_author_name:             self.commit_author_name,
+            commit_author_email:            self.commit_author_email,
+            commit_time:                    self.commit_time
                 .and_then(|s| s.trim().parse::<i64>().ok()),
         }
     }
@@ -42,12 +42,12 @@ impl EnvConfigBuilder {
 
 #[derive(Default)]
 pub struct ConfigBuilder {
-    pub objectiveai_base_dir:      Option<String>,
-    pub objectiveai_agent_id:      Option<String>,
-    pub objectiveai_agent_id_base: Option<String>,
-    pub commit_author_name:        Option<String>,
-    pub commit_author_email:       Option<String>,
-    pub commit_time:               Option<i64>,
+    pub objectiveai_base_dir:           Option<String>,
+    pub objectiveai_instance_hierarchy: Option<String>,
+    pub objectiveai_agent_id_base:      Option<String>,
+    pub commit_author_name:             Option<String>,
+    pub commit_author_email:            Option<String>,
+    pub commit_time:                    Option<i64>,
 }
 
 impl Envconfig for ConfigBuilder {
@@ -70,12 +70,12 @@ impl Envconfig for ConfigBuilder {
 impl ConfigBuilder {
     pub fn build(self) -> Config {
         Config {
-            objectiveai_base_dir:      self.objectiveai_base_dir,
-            objectiveai_agent_id:      self.objectiveai_agent_id,
-            objectiveai_agent_id_base: self.objectiveai_agent_id_base,
-            commit_author_name:        self.commit_author_name,
-            commit_author_email:       self.commit_author_email,
-            commit_time:               self.commit_time,
+            objectiveai_base_dir:           self.objectiveai_base_dir,
+            objectiveai_instance_hierarchy: self.objectiveai_instance_hierarchy,
+            objectiveai_agent_id_base:      self.objectiveai_agent_id_base,
+            commit_author_name:             self.commit_author_name,
+            commit_author_email:            self.commit_author_email,
+            commit_time:                    self.commit_time,
         }
     }
 }
@@ -86,12 +86,13 @@ pub struct Config {
     /// When `None`, defaults to `~/.objectiveai`. Our state goes in
     /// `<this>/plugins/.psychological-operations/`.
     pub objectiveai_base_dir: Option<String>,
-    /// objectiveai lineage identity of the operator running this CLI
-    /// (env `OBJECTIVEAI_AGENT_ID`). Partitions the per-agent queue
-    /// so multiple operators sharing the same workstation don't see
-    /// each other's rows. Required at queue call sites — they emit a
-    /// fatal error if unset.
-    pub objectiveai_agent_id: Option<String>,
+    /// Caller agent instance hierarchy (env
+    /// `OBJECTIVEAI_INSTANCE_HIERARCHY`). The lineage of the
+    /// agent invoking this CLI — e.g. `cli/parent/child`. Used by
+    /// `agents queue handle` to key the `handler_map` lookup so
+    /// different callers each manage their own objectiveai handler
+    /// agents against the same shared per-agent queue.
+    pub objectiveai_instance_hierarchy: Option<String>,
     /// Default agent name (env `OBJECTIVEAI_AGENT_ID_BASE`).
     /// Used as the fallback by `mcp begin --agent` (and any other
     /// command that needs an agent and doesn't get one on the
