@@ -18,12 +18,13 @@ use crate::x_api::PsychologicalOperationsXApiMcp;
 
 #[derive(Envconfig)]
 struct EnvConfigBuilder {
-    #[envconfig(from = "ADDRESS")]              address: Option<String>,
-    #[envconfig(from = "PORT")]                 port: Option<u16>,
-    #[envconfig(from = "SUPPRESS_OUTPUT")]      suppress_output: Option<String>,
-    #[envconfig(from = "CONFIG_BASE_DIR")]      config_base_dir: Option<String>,
-    #[envconfig(from = "MAX_CACHE_SIZE")]       max_cache_size: Option<u64>,
-    #[envconfig(from = "CACHE_TTL_SECS")]       cache_ttl_secs: Option<u64>,
+    #[envconfig(from = "ADDRESS")]                  address: Option<String>,
+    #[envconfig(from = "PORT")]                     port: Option<u16>,
+    #[envconfig(from = "SUPPRESS_OUTPUT")]          suppress_output: Option<String>,
+    #[envconfig(from = "CONFIG_BASE_DIR")]          config_base_dir: Option<String>,
+    #[envconfig(from = "MAX_CACHE_SIZE")]           max_cache_size: Option<u64>,
+    #[envconfig(from = "CACHE_TTL_SECS")]           cache_ttl_secs: Option<u64>,
+    #[envconfig(from = "OBJECTIVEAI_AGENT_ID_BASE")] objectiveai_agent_id_base: Option<String>,
 }
 
 impl EnvConfigBuilder {
@@ -37,18 +38,20 @@ impl EnvConfigBuilder {
             config_base_dir: self.config_base_dir,
             max_cache_size: self.max_cache_size,
             cache_ttl_secs: self.cache_ttl_secs,
+            objectiveai_agent_id_base: self.objectiveai_agent_id_base,
         }
     }
 }
 
 #[derive(Default)]
 pub struct ConfigBuilder {
-    pub address:          Option<String>,
-    pub port:             Option<u16>,
-    pub suppress_output:  Option<bool>,
-    pub config_base_dir:  Option<String>,
-    pub max_cache_size:   Option<u64>,
-    pub cache_ttl_secs:   Option<u64>,
+    pub address:                    Option<String>,
+    pub port:                       Option<u16>,
+    pub suppress_output:            Option<bool>,
+    pub config_base_dir:            Option<String>,
+    pub max_cache_size:             Option<u64>,
+    pub cache_ttl_secs:             Option<u64>,
+    pub objectiveai_agent_id_base:  Option<String>,
 }
 
 impl Envconfig for ConfigBuilder {
@@ -84,6 +87,7 @@ impl ConfigBuilder {
                 }),
             max_cache_size: self.max_cache_size.unwrap_or(256 * 1024 * 1024),
             cache_ttl_secs: self.cache_ttl_secs.unwrap_or(3600),
+            objectiveai_agent_id_base: self.objectiveai_agent_id_base,
         }
     }
 }
@@ -101,6 +105,10 @@ pub struct Config {
     /// Seconds — per-entry cache TTL (`Client::new`'s `cache_ttl`).
     /// Currently plumbed but unused. Default 3600 (1 h).
     pub cache_ttl_secs:   u64,
+    /// Objectiveai agent-id base (env `OBJECTIVEAI_AGENT_ID_BASE`).
+    /// Defaults to `None`. Plumbed for downstream consumers; not yet
+    /// used by this MCP.
+    pub objectiveai_agent_id_base: Option<String>,
 }
 
 pub async fn setup(config: Config) -> std::io::Result<(tokio::net::TcpListener, axum::Router)> {
@@ -111,6 +119,7 @@ pub async fn setup(config: Config) -> std::io::Result<(tokio::net::TcpListener, 
         config_base_dir,
         max_cache_size,
         cache_ttl_secs,
+        objectiveai_agent_id_base: _,
     } = config;
 
     let http = Client::new(
