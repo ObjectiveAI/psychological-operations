@@ -227,7 +227,7 @@ impl PsychologicalOperationsXApiMcp {
     /// Resolve the authenticated user's numeric id via `/users/me`.
     /// Used by the engagement tools (like / retweet / bookmark)
     /// that need the acting user id in the URL path.
-    async fn resolve_self_user_id(&self) -> Result<String, String> {
+    async fn resolve_self_user_id(&self) -> Result<String, ErrorData> {
         let req = users_me::get::Request {
             user_fields: None,
             expansions: None,
@@ -235,8 +235,10 @@ impl PsychologicalOperationsXApiMcp {
         };
         let resp = users_me::http::get(&self.http, &req)
             .await
-            .map_err(|e| format!("users/me: {e}"))?;
-        let user = resp.data.ok_or_else(|| "users/me had no data".to_string())?;
+            .map_err(|e| ErrorData::internal_error(format!("users/me: {e}"), None))?;
+        let user = resp.data.ok_or_else(|| {
+            ErrorData::internal_error("users/me had no data".to_string(), None)
+        })?;
         Ok(user.id.0)
     }
 
@@ -247,7 +249,7 @@ impl PsychologicalOperationsXApiMcp {
     async fn list_reply_ids(
         &self,
         Parameters(req): Parameters<ListReplyIdsRequest>,
-    ) -> String {
+    ) -> Result<String, ErrorData> {
         let creq = tweets_search_recent::get::Request {
             query: format!("conversation_id:{}", req.tweet_id),
             start_time: None,
@@ -265,10 +267,9 @@ impl PsychologicalOperationsXApiMcp {
             user_fields: None,
             place_fields: None,
         };
-        let resp = match tweets_search_recent::http::get(&self.http, &creq).await {
-            Ok(r) => r,
-            Err(e) => return format!("error: {e}"),
-        };
+        let resp = tweets_search_recent::http::get(&self.http, &creq)
+            .await
+            .map_err(|e| ErrorData::internal_error(format!("search: {e}"), None))?;
         let target = req.tweet_id;
         let ids: Vec<String> = resp
             .data
@@ -284,24 +285,27 @@ impl PsychologicalOperationsXApiMcp {
             })
             .collect();
         serde_json::to_string(&ids)
-            .unwrap_or_else(|e| format!("error: serialize ids: {e}"))
+            .map_err(|e| ErrorData::internal_error(format!("serialize ids: {e}"), None))
     }
 
     #[tool(
         name = "get_bio",
         description = "Fetch an X user's bio."
     )]
-    async fn get_bio(&self, Parameters(req): Parameters<GetBioRequest>) -> String {
+    async fn get_bio(
+        &self,
+        Parameters(req): Parameters<GetBioRequest>,
+    ) -> Result<String, ErrorData> {
         let creq = users_by_username::get::Request {
             username: req.handle,
             user_fields: Some(vec![params::UserFields::Description]),
             expansions: None,
             tweet_fields: None,
         };
-        match users_by_username::http::get(&self.http, &creq).await {
-            Ok(r) => r.data.and_then(|u| u.description).unwrap_or_default(),
-            Err(e) => format!("error: {e}"),
-        }
+        let resp = users_by_username::http::get(&self.http, &creq)
+            .await
+            .map_err(|e| ErrorData::internal_error(format!("users/by/username: {e}"), None))?;
+        Ok(resp.data.and_then(|u| u.description).unwrap_or_default())
     }
 
     #[tool(
@@ -311,38 +315,43 @@ impl PsychologicalOperationsXApiMcp {
     async fn get_profile_picture(
         &self,
         Parameters(req): Parameters<GetProfilePictureRequest>,
-    ) -> String {
+    ) -> Result<String, ErrorData> {
         let creq = users_by_username::get::Request {
             username: req.handle,
             user_fields: Some(vec![params::UserFields::ProfileImageUrl]),
             expansions: None,
             tweet_fields: None,
         };
-        match users_by_username::http::get(&self.http, &creq).await {
-            Ok(r) => r
-                .data
-                .and_then(|u| u.profile_image_url.map(|url| url.to_string()))
-                .unwrap_or_default(),
-            Err(e) => format!("error: {e}"),
-        }
+        let resp = users_by_username::http::get(&self.http, &creq)
+            .await
+            .map_err(|e| ErrorData::internal_error(format!("users/by/username: {e}"), None))?;
+        Ok(resp
+            .data
+            .and_then(|u| u.profile_image_url.map(|url| url.to_string()))
+            .unwrap_or_default())
     }
 
     #[tool(
         name = "get_tweet",
         description = "Fetch a tweet."
     )]
-    async fn get_tweet(&self, Parameters(req): Parameters<GetTweetRequest>) -> String {
+    async fn get_tweet(
+        &self,
+        Parameters(req): Parameters<GetTweetRequest>,
+    ) -> Result<String, ErrorData> {
         let creq = standard_tweet_request(&req.tweet_id);
-        let resp = match tweets_id::http::get(&self.http, &creq).await {
-            Ok(r) => r,
-            Err(e) => return format!("error: {e}"),
-        };
-        let Some(t) = resp.data else {
-            return format!("error: tweet {} response had no data", req.tweet_id);
-        };
+        let resp = tweets_id::http::get(&self.http, &creq)
+            .await
+            .map_err(|e| ErrorData::internal_error(format!("tweets/{{id}}: {e}"), None))?;
+        let t = resp.data.ok_or_else(|| {
+            ErrorData::internal_error(
+                format!("tweet {} response had no data", req.tweet_id),
+                None,
+            )
+        })?;
         let projected = project_tweet(&t, resp.includes.as_ref());
         serde_json::to_string(&projected)
-            .unwrap_or_else(|e| format!("error: serialize tweet: {e}"))
+            .map_err(|e| ErrorData::internal_error(format!("serialize tweet: {e}"), None))
     }
 
     #[tool(
@@ -352,44 +361,48 @@ impl PsychologicalOperationsXApiMcp {
     async fn open_attachment(
         &self,
         Parameters(req): Parameters<OpenAttachmentRequest>,
-    ) -> Content {
+    ) -> Result<Content, ErrorData> {
         let creq = standard_tweet_request(&req.tweet_id);
-        let resp = match tweets_id::http::get(&self.http, &creq).await {
-            Ok(r) => r,
-            Err(e) => return Content::text(format!("error: {e}")),
-        };
-        let Some((kind, mime)) =
-            lookup_attachment(resp.includes.as_ref(), &req.url)
-        else {
-            return Content::text(format!(
-                "error: attachment URL not on tweet {}: {}",
-                req.tweet_id, req.url,
-            ));
-        };
-        let bytes = match self.http.fetch_url(&req.url).await {
-            Ok(b) => b,
-            Err(e) => return Content::text(format!("error: {e}")),
-        };
+        let resp = tweets_id::http::get(&self.http, &creq)
+            .await
+            .map_err(|e| ErrorData::internal_error(format!("tweets/{{id}}: {e}"), None))?;
+        let (kind, mime) = lookup_attachment(resp.includes.as_ref(), &req.url)
+            .ok_or_else(|| {
+                ErrorData::invalid_params(
+                    format!(
+                        "attachment URL not on tweet {}: {}",
+                        req.tweet_id, req.url,
+                    ),
+                    None,
+                )
+            })?;
+        let bytes = self
+            .http
+            .fetch_url(&req.url)
+            .await
+            .map_err(|e| ErrorData::internal_error(format!("fetch_url: {e}"), None))?;
         let fetched = FetchedAttachment { kind, mime, bytes };
         let b64 = base64::engine::general_purpose::STANDARD.encode(&fetched.bytes);
-        match fetched.kind {
+        Ok(match fetched.kind {
             AttachmentKind::Photo => Content::image(b64, fetched.mime),
             AttachmentKind::Video | AttachmentKind::AnimatedGif => {
                 Content::text(format!("data:{};base64,{}", fetched.mime, b64))
             }
-        }
+        })
     }
 
     #[tool(
         name = "run_query",
         description = "Run an X v2 recent search."
     )]
-    async fn run_query(&self, Parameters(req): Parameters<RunQueryRequest>) -> String {
+    async fn run_query(
+        &self,
+        Parameters(req): Parameters<RunQueryRequest>,
+    ) -> Result<String, ErrorData> {
         let creq = standard_search_request(req.query);
-        let resp = match tweets_search_recent::http::get(&self.http, &creq).await {
-            Ok(r) => r,
-            Err(e) => return format!("error: {e}"),
-        };
+        let resp = tweets_search_recent::http::get(&self.http, &creq)
+            .await
+            .map_err(|e| ErrorData::internal_error(format!("search: {e}"), None))?;
         let includes = resp.includes.as_ref();
         let projected: Vec<Tweet> = resp
             .data
@@ -398,30 +411,36 @@ impl PsychologicalOperationsXApiMcp {
             .map(|t| project_tweet(t, includes))
             .collect();
         serde_json::to_string(&projected)
-            .unwrap_or_else(|e| format!("error: serialize tweets: {e}"))
+            .map_err(|e| ErrorData::internal_error(format!("serialize tweets: {e}"), None))
     }
 
     #[tool(
         name = "whoami",
         description = "Fetch your own X account's handle (@username)."
     )]
-    async fn whoami(&self, Parameters(_req): Parameters<WhoamiRequest>) -> String {
+    async fn whoami(
+        &self,
+        Parameters(_req): Parameters<WhoamiRequest>,
+    ) -> Result<String, ErrorData> {
         let req = users_me::get::Request {
             user_fields: Some(vec![params::UserFields::Username]),
             expansions: None,
             tweet_fields: None,
         };
-        match users_me::http::get(&self.http, &req).await {
-            Ok(r) => r.data.map(|u| u.username.0).unwrap_or_default(),
-            Err(e) => format!("error: {e}"),
-        }
+        let resp = users_me::http::get(&self.http, &req)
+            .await
+            .map_err(|e| ErrorData::internal_error(format!("users/me: {e}"), None))?;
+        Ok(resp.data.map(|u| u.username.0).unwrap_or_default())
     }
 
     #[tool(
         name = "post",
         description = "Post a new tweet."
     )]
-    async fn post_tweet(&self, Parameters(req): Parameters<PostTweetRequest>) -> String {
+    async fn post_tweet(
+        &self,
+        Parameters(req): Parameters<PostTweetRequest>,
+    ) -> Result<String, ErrorData> {
         let body = TweetCreateRequest {
             text: Some(TweetText(req.text)),
             ..empty_tweet_create_request()
@@ -436,7 +455,7 @@ impl PsychologicalOperationsXApiMcp {
     async fn reply_to_tweet(
         &self,
         Parameters(req): Parameters<ReplyToTweetRequest>,
-    ) -> String {
+    ) -> Result<String, ErrorData> {
         let body = TweetCreateRequest {
             text: Some(TweetText(req.text)),
             reply: Some(TweetCreateRequestReply {
@@ -456,7 +475,7 @@ impl PsychologicalOperationsXApiMcp {
     async fn quote_tweet(
         &self,
         Parameters(req): Parameters<QuoteTweetRequest>,
-    ) -> String {
+    ) -> Result<String, ErrorData> {
         let body = TweetCreateRequest {
             text: Some(TweetText(req.text)),
             quote_tweet_id: Some(TweetId(req.quote_tweet_id)),
@@ -469,66 +488,66 @@ impl PsychologicalOperationsXApiMcp {
         name = "like",
         description = "Like a tweet."
     )]
-    async fn like(&self, Parameters(req): Parameters<LikeRequest>) -> String {
-        let user_id = match self.resolve_self_user_id().await {
-            Ok(id) => id,
-            Err(e) => return format!("error: {e}"),
-        };
+    async fn like(
+        &self,
+        Parameters(req): Parameters<LikeRequest>,
+    ) -> Result<String, ErrorData> {
+        let user_id = self.resolve_self_user_id().await?;
         let creq = users_id_likes::post::Request {
             id: UserIdMatchesAuthenticatedUser(user_id),
             body: Some(UsersLikesCreateRequest {
                 tweet_id: TweetId(req.tweet_id),
             }),
         };
-        match users_id_likes::http::post(&self.http, &creq).await {
-            Ok(r) => serde_json::to_string(&r.data)
-                .unwrap_or_else(|e| format!("error: serialize: {e}")),
-            Err(e) => format!("error: {e}"),
-        }
+        let resp = users_id_likes::http::post(&self.http, &creq)
+            .await
+            .map_err(|e| ErrorData::internal_error(format!("likes: {e}"), None))?;
+        serde_json::to_string(&resp.data)
+            .map_err(|e| ErrorData::internal_error(format!("serialize: {e}"), None))
     }
 
     #[tool(
         name = "retweet",
         description = "Retweet a tweet."
     )]
-    async fn retweet(&self, Parameters(req): Parameters<RetweetRequest>) -> String {
-        let user_id = match self.resolve_self_user_id().await {
-            Ok(id) => id,
-            Err(e) => return format!("error: {e}"),
-        };
+    async fn retweet(
+        &self,
+        Parameters(req): Parameters<RetweetRequest>,
+    ) -> Result<String, ErrorData> {
+        let user_id = self.resolve_self_user_id().await?;
         let creq = users_id_retweets::post::Request {
             id: UserIdMatchesAuthenticatedUser(user_id),
             body: Some(UsersRetweetsCreateRequest {
                 tweet_id: TweetId(req.tweet_id),
             }),
         };
-        match users_id_retweets::http::post(&self.http, &creq).await {
-            Ok(r) => serde_json::to_string(&r.data)
-                .unwrap_or_else(|e| format!("error: serialize: {e}")),
-            Err(e) => format!("error: {e}"),
-        }
+        let resp = users_id_retweets::http::post(&self.http, &creq)
+            .await
+            .map_err(|e| ErrorData::internal_error(format!("retweets: {e}"), None))?;
+        serde_json::to_string(&resp.data)
+            .map_err(|e| ErrorData::internal_error(format!("serialize: {e}"), None))
     }
 
     #[tool(
         name = "bookmark",
         description = "Bookmark a tweet."
     )]
-    async fn bookmark(&self, Parameters(req): Parameters<BookmarkRequest>) -> String {
-        let user_id = match self.resolve_self_user_id().await {
-            Ok(id) => id,
-            Err(e) => return format!("error: {e}"),
-        };
+    async fn bookmark(
+        &self,
+        Parameters(req): Parameters<BookmarkRequest>,
+    ) -> Result<String, ErrorData> {
+        let user_id = self.resolve_self_user_id().await?;
         let creq = users_id_bookmarks::post::Request {
             id: UserIdMatchesAuthenticatedUser(user_id),
             body: BookmarkAddRequest {
                 tweet_id: TweetId(req.tweet_id),
             },
         };
-        match users_id_bookmarks::http::post(&self.http, &creq).await {
-            Ok(r) => serde_json::to_string(&r.data)
-                .unwrap_or_else(|e| format!("error: serialize: {e}")),
-            Err(e) => format!("error: {e}"),
-        }
+        let resp = users_id_bookmarks::http::post(&self.http, &creq)
+            .await
+            .map_err(|e| ErrorData::internal_error(format!("bookmarks: {e}"), None))?;
+        serde_json::to_string(&resp.data)
+            .map_err(|e| ErrorData::internal_error(format!("serialize: {e}"), None))
     }
 
     #[tool(
@@ -538,11 +557,8 @@ impl PsychologicalOperationsXApiMcp {
     async fn get_bookmarks(
         &self,
         Parameters(_req): Parameters<GetBookmarksRequest>,
-    ) -> String {
-        let user_id = match self.resolve_self_user_id().await {
-            Ok(id) => id,
-            Err(e) => return format!("error: {e}"),
-        };
+    ) -> Result<String, ErrorData> {
+        let user_id = self.resolve_self_user_id().await?;
         let creq = users_id_bookmarks::get::Request {
             id: UserIdMatchesAuthenticatedUser(user_id),
             max_results: Some(100),
@@ -568,10 +584,9 @@ impl PsychologicalOperationsXApiMcp {
             user_fields: Some(vec![params::UserFields::Username]),
             place_fields: None,
         };
-        let resp = match users_id_bookmarks::http::get(&self.http, &creq).await {
-            Ok(r) => r,
-            Err(e) => return format!("error: {e}"),
-        };
+        let resp = users_id_bookmarks::http::get(&self.http, &creq)
+            .await
+            .map_err(|e| ErrorData::internal_error(format!("bookmarks: {e}"), None))?;
         let includes = resp.includes.as_ref();
         let projected: Vec<Tweet> = resp
             .data
@@ -580,7 +595,7 @@ impl PsychologicalOperationsXApiMcp {
             .map(|t| project_tweet(t, includes))
             .collect();
         serde_json::to_string(&projected)
-            .unwrap_or_else(|e| format!("error: serialize tweets: {e}"))
+            .map_err(|e| ErrorData::internal_error(format!("serialize tweets: {e}"), None))
     }
 }
 
@@ -610,15 +625,17 @@ fn empty_tweet_create_request() -> TweetCreateRequest {
 
 /// Shared `POST /2/tweets` plumbing for post / reply / quote.
 /// Returns the serialized `data` block on success (the agent gets
-/// the new tweet id + text back). On failure returns
-/// `"error: <msg>"`.
-async fn send_create_tweet(http: &Client, body: TweetCreateRequest) -> String {
+/// the new tweet id + text back).
+async fn send_create_tweet(
+    http: &Client,
+    body: TweetCreateRequest,
+) -> Result<String, ErrorData> {
     let req = tweets_root::post::Request { body };
-    match tweets_root::http::post(http, &req).await {
-        Ok(r) => serde_json::to_string(&r.data)
-            .unwrap_or_else(|e| format!("error: serialize: {e}")),
-        Err(e) => format!("error: {e}"),
-    }
+    let resp = tweets_root::http::post(http, &req)
+        .await
+        .map_err(|e| ErrorData::internal_error(format!("tweets: {e}"), None))?;
+    serde_json::to_string(&resp.data)
+        .map_err(|e| ErrorData::internal_error(format!("serialize: {e}"), None))
 }
 
 // =====================================================================
