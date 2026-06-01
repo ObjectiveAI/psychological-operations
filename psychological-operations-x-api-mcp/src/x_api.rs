@@ -52,9 +52,7 @@ use serde::Serialize;
 use crate::Mode;
 
 /// Tools only registered + callable when the server is in
-/// `Mode::Full`. Mostly mutations; also includes user-context
-/// reads we want gated to authenticated agents (e.g.
-/// `get_bookmarks`).
+/// `Mode::Full`. All mutations on X.
 const FULL_ONLY_TOOLS: &[&str] = &[
     "post_tweet",
     "reply_to_tweet",
@@ -62,7 +60,6 @@ const FULL_ONLY_TOOLS: &[&str] = &[
     "like",
     "retweet",
     "bookmark",
-    "get_bookmarks",
 ];
 
 // =====================================================================
@@ -532,6 +529,58 @@ impl PsychologicalOperationsXApiMcp {
                 .unwrap_or_else(|e| format!("error: serialize: {e}")),
             Err(e) => format!("error: {e}"),
         }
+    }
+
+    #[tool(
+        name = "get_bookmarks",
+        description = "Fetch your bookmarked tweets."
+    )]
+    async fn get_bookmarks(
+        &self,
+        Parameters(_req): Parameters<GetBookmarksRequest>,
+    ) -> String {
+        let user_id = match self.resolve_self_user_id().await {
+            Ok(id) => id,
+            Err(e) => return format!("error: {e}"),
+        };
+        let creq = users_id_bookmarks::get::Request {
+            id: UserIdMatchesAuthenticatedUser(user_id),
+            max_results: Some(100),
+            pagination_token: None,
+            tweet_fields: Some(vec![
+                params::TweetFields::Attachments,
+                params::TweetFields::AuthorId,
+                params::TweetFields::PublicMetrics,
+                params::TweetFields::ReferencedTweets,
+                params::TweetFields::Text,
+            ]),
+            expansions: Some(vec![
+                params::TweetExpansions::AttachmentsMediaKeys,
+                params::TweetExpansions::AuthorId,
+            ]),
+            media_fields: Some(vec![
+                params::MediaFields::Url,
+                params::MediaFields::Variants,
+                params::MediaFields::PreviewImageUrl,
+                params::MediaFields::Type,
+            ]),
+            poll_fields: None,
+            user_fields: Some(vec![params::UserFields::Username]),
+            place_fields: None,
+        };
+        let resp = match users_id_bookmarks::http::get(&self.http, &creq).await {
+            Ok(r) => r,
+            Err(e) => return format!("error: {e}"),
+        };
+        let includes = resp.includes.as_ref();
+        let projected: Vec<Tweet> = resp
+            .data
+            .unwrap_or_default()
+            .iter()
+            .map(|t| project_tweet(t, includes))
+            .collect();
+        serde_json::to_string(&projected)
+            .unwrap_or_else(|e| format!("error: serialize tweets: {e}"))
     }
 }
 
