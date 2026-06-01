@@ -12,7 +12,7 @@ pub mod agents;
 pub mod browser;
 pub mod publish;
 pub mod login;
-pub mod x_app_setup;
+pub mod x_app;
 mod invent;
 
 pub mod run;

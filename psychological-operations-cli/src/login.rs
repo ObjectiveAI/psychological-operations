@@ -26,18 +26,15 @@
 
 use std::path::Path;
 
-use std::io::Write;
-
 use psychological_operations_sdk::browser::auth_json::{self, PersonaKind};
 use psychological_operations_sdk::browser::cookies;
 use psychological_operations_sdk::browser::mode::Mode;
 use psychological_operations_sdk::browser::output::Output;
-use psychological_operations_sdk::browser::request::Request;
 use psychological_operations_sdk::browser::reset;
 use psychological_operations_sdk::browser::x_app_credentials::{OAuthPopup, PostCreateDialog};
 use psychological_operations_sdk::x::x_app;
 
-use crate::browser::{extract::ensure_extracted, launch};
+use crate::browser::{extract::ensure_extracted, launch, stream};
 use crate::error::Error;
 
 pub async fn run(
@@ -103,45 +100,26 @@ pub async fn run(
         pid: child.id(),
     });
 
-    let mut child_stdin = child.stdin.take().expect("piped");
+    let child_stdin = child.stdin.take().expect("piped");
     let child_stdout = child.stdout.take().expect("piped");
 
-    // Stream stdout — only `Output::Error` from the browser is
-    // forwarded (to stderr). Other variants (`Log`, `Panel`,
-    // `Url`, `SignedIn`, `TweetId`) are silently dropped. Stop
-    // on the first `AuthorizeSucceeded` or `AuthorizeFailed`.
-    let outcome: Result<(), String> = {
-        use std::io::BufRead;
-        let reader = std::io::BufReader::new(child_stdout);
-        let mut found: Option<Result<(), String>> = None;
-        for line in reader.lines() {
-            let Ok(line) = line else { break };
-            match serde_json::from_str::<Output>(&line) {
-                Ok(Output::AuthorizeSucceeded) => {
-                    found = Some(Ok(()));
-                    break;
-                }
-                Ok(Output::AuthorizeFailed { error }) => {
-                    found = Some(Err(error));
-                    break;
-                }
-                Ok(Output::Error { error }) => {
-                    eprintln!("browser: {error}");
-                }
-                _ => {}
-            }
-        }
-        found.unwrap_or_else(|| {
-            Err("browser exited without emitting an authorize result".into())
-        })
-    };
+    // Stream the browser's stdout until it emits the authorize
+    // terminator. Helper forwards `Output::Error` to stderr and
+    // silently drops Log / Panel / Url / SignedIn / TweetId.
+    let outcome = stream::watch_for_terminator(
+        child_stdout,
+        "browser exited without emitting an authorize result",
+        |output| match output {
+            Output::AuthorizeSucceeded => Some(Ok(())),
+            Output::AuthorizeFailed { error } => Some(Err(error.clone())),
+            _ => None,
+        },
+    );
 
-    // Send `Request::Shutdown` regardless of outcome — best-effort.
-    // If the browser already died, the write fails silently.
-    let req = serde_json::to_string(&Request::Shutdown).expect("serializable");
-    let _ = writeln!(&mut child_stdin, "{req}");
-    let _ = std::io::Write::flush(&mut child_stdin);
-    drop(child_stdin);
+    // Send `Request::Shutdown` regardless of outcome — best-
+    // effort. If the browser already died, the write fails
+    // silently and the subsequent `child.wait()` reaps it.
+    stream::send_shutdown(child_stdin);
 
     let status = child
         .wait()

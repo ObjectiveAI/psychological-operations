@@ -90,6 +90,18 @@ pub enum Output {
     /// The host reads this to propagate the error and send a
     /// `Request::Shutdown` back.
     AuthorizeFailed { error: String },
+
+    /// Sole terminating signal on the X-App setup path
+    /// ([`crate::browser::mode::Mode::XApp`]). Emitted once per
+    /// process when both (a) the X-App account is signed in
+    /// (cookies) and (b) both HTML snapshots
+    /// (`post_create_dialog.html` + `oauth_popup.html`) have
+    /// parsed to a complete struct — i.e. when the panel
+    /// derivation lands on
+    /// [`crate::browser::panel::PanelState::Hidden`]. The CLI's
+    /// `x_app setup` command reads this to know setup
+    /// finished cleanly and sends a `Request::Shutdown` back.
+    XAppSetupSucceeded,
 }
 
 /// Identifying claims extracted from the auth JWT's payload. All

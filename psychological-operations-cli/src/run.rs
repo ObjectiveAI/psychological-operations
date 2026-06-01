@@ -4,7 +4,7 @@ use clap::{Parser, Subcommand};
 use envconfig::Envconfig;
 
 use crate::agents;
-use crate::x_app_setup;
+use crate::x_app;
 use crate::invent;
 use crate::targets;
 use crate::psyops;
@@ -167,7 +167,7 @@ enum Commands {
     #[command(name = "x_app")]
     XApp {
         #[command(subcommand)]
-        command: x_app_setup::Commands,
+        command: x_app::Commands,
     },
 }
 

@@ -677,6 +677,22 @@ pub fn recompute_and_publish(handle: &AppHandle<Wry>) {
     }
     .emit();
 
+    // 1b. X-App setup terminator. Once per process, in `Mode::XApp`
+    //     only, when the panel lands on `Hidden` (i.e. both
+    //     `credentials_complete` and `oauth_client_complete` are
+    //     `Some(true)`). Read by the CLI's `x_app setup` to know
+    //     when to send `Request::Shutdown`.
+    if matches!(
+        psychological_operations_sdk::browser::mode::get(),
+        Some(psychological_operations_sdk::browser::mode::Mode::XApp),
+    ) && matches!(new_state, PanelState::Hidden)
+    {
+        static X_APP_TERMINATOR_FIRED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+        if X_APP_TERMINATOR_FIRED.set(()).is_ok() {
+            let _ = Output::XAppSetupSucceeded.emit();
+        }
+    }
+
     // 2. panel webview React listener
     let _ = handle.emit_to(webview::PANEL_LABEL, EVENT_PANEL, &new_state);
 
