@@ -4,6 +4,7 @@ use clap::{Parser, Subcommand};
 use envconfig::Envconfig;
 
 use crate::agents;
+use crate::mcp;
 use crate::x_app;
 use crate::invent;
 use crate::targets;
@@ -169,12 +170,21 @@ enum Commands {
         #[command(subcommand)]
         command: x_app::Commands,
     },
+    /// Embedded X-API MCP server: begin (or attach to) a per-agent
+    /// supervised instance.
+    Mcp {
+        #[command(subcommand)]
+        command: mcp::Commands,
+    },
 }
 
 pub enum Output {
     ConfigGet(String),
     ConfigSet,
     Api(String),
+    /// X-API MCP `begin` result. The URL of the supervised MCP for
+    /// the requested agent (newly spawned or re-attached).
+    Mcp { url: String },
     Empty,
 }
 
@@ -184,6 +194,9 @@ impl std::fmt::Display for Output {
             Output::ConfigGet(s) => write!(f, "{s}"),
             Output::ConfigSet => write!(f, "ok"),
             Output::Api(s) => write!(f, "{s}"),
+            Output::Mcp { url } => {
+                write!(f, "{}", serde_json::json!({"type": "mcp", "url": url}))
+            }
             Output::Empty => Ok(()),
         }
     }
@@ -229,6 +242,7 @@ where
         Commands::Targets { command } => command.handle(cfg).await,
         Commands::Invent { command } => command.handle(cfg),
         Commands::XApp { command } => command.handle(cfg).await,
+        Commands::Mcp { command } => command.handle(cfg).await,
     }
     .map_err(|e| e.to_string())?;
     Ok(output.to_string())
