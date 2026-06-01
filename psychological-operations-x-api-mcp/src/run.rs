@@ -49,6 +49,7 @@ impl EnvConfigBuilder {
             max_cache_size: self.max_cache_size,
             cache_ttl_secs: self.cache_ttl_secs,
             agent: None,
+            objectiveai_agent_id: None,
             mode: None,
         }
     }
@@ -56,17 +57,21 @@ impl EnvConfigBuilder {
 
 #[derive(Default)]
 pub struct ConfigBuilder {
-    pub address:          Option<String>,
-    pub port:             Option<u16>,
-    pub suppress_output:  Option<bool>,
-    pub config_base_dir:  Option<String>,
-    pub max_cache_size:   Option<u64>,
-    pub cache_ttl_secs:   Option<u64>,
+    pub address:              Option<String>,
+    pub port:                 Option<u16>,
+    pub suppress_output:      Option<bool>,
+    pub config_base_dir:      Option<String>,
+    pub max_cache_size:       Option<u64>,
+    pub cache_ttl_secs:       Option<u64>,
     /// Required at `build()` time — no env fallback. The binary
     /// passes this from clap; downstream callers must set it
     /// explicitly.
-    pub agent:            Option<String>,
-    pub mode:             Option<Mode>,
+    pub agent:                Option<String>,
+    /// Required at `build()` time. Partitions the queue so the
+    /// `read_queue` / `mark_handled` tools only see rows belonging
+    /// to this operator.
+    pub objectiveai_agent_id: Option<String>,
+    pub mode:                 Option<Mode>,
 }
 
 impl Envconfig for ConfigBuilder {
@@ -106,6 +111,9 @@ impl ConfigBuilder {
             max_cache_size: self.max_cache_size.unwrap_or(256 * 1024 * 1024),
             cache_ttl_secs: self.cache_ttl_secs.unwrap_or(3600),
             agent: self.agent.expect("ConfigBuilder.agent is required"),
+            objectiveai_agent_id: self
+                .objectiveai_agent_id
+                .expect("ConfigBuilder.objectiveai_agent_id is required"),
             mode: self.mode.unwrap_or_default(),
         }
     }
@@ -127,9 +135,13 @@ pub struct Config {
     /// Agent whose persona OAuth token the Client uses. Required
     /// — no env fallback; the binary's `--agent` clap arg is the
     /// sole source.
-    pub agent:            String,
+    pub agent:                String,
+    /// Operator lineage identity (`OBJECTIVEAI_AGENT_ID` upstream).
+    /// Partitions the queue so `read_queue` / `mark_handled` only
+    /// see rows belonging to this operator.
+    pub objectiveai_agent_id: String,
     /// Tool-surface mode (readonly vs. full). Default `Readonly`.
-    pub mode:             Mode,
+    pub mode:                 Mode,
 }
 
 pub async fn setup(config: Config) -> std::io::Result<(tokio::net::TcpListener, axum::Router)> {
@@ -141,6 +153,7 @@ pub async fn setup(config: Config) -> std::io::Result<(tokio::net::TcpListener, 
         max_cache_size,
         cache_ttl_secs,
         agent,
+        objectiveai_agent_id,
         mode,
     } = config;
 
@@ -153,7 +166,7 @@ pub async fn setup(config: Config) -> std::io::Result<(tokio::net::TcpListener, 
         AuthMode::Agent(agent.clone()),
     );
 
-    let server = PsychologicalOperationsXApiMcp::new(Arc::new(http), mode, agent);
+    let server = PsychologicalOperationsXApiMcp::new(Arc::new(http), mode, agent, objectiveai_agent_id);
     let ct = CancellationToken::new();
 
     let service: StreamableHttpService<PsychologicalOperationsXApiMcp, LocalSessionManager> =

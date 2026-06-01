@@ -19,6 +19,12 @@ struct Args {
     /// call. Required — no env fallback.
     #[arg(long)]
     agent: String,
+    /// Operator lineage identity (`OBJECTIVEAI_AGENT_ID` upstream).
+    /// Partitions the per-agent queue so different operators sharing
+    /// the same cache file don't see each other's rows. Required —
+    /// the CLI supervisor sources it from `Config.objectiveai_agent_id`.
+    #[arg(long)]
+    objectiveai_agent_id: String,
     /// Tool-surface mode. `readonly` exposes only read tools;
     /// `full` adds the mutating tools (post / reply / quote / like /
     /// retweet / bookmark). Required — no default at the binary
@@ -56,6 +62,7 @@ async fn main() -> std::io::Result<()> {
     builder.max_cache_size = Some(args.cache_max_size);
     builder.cache_ttl_secs = Some(args.cache_ttl);
     builder.agent = Some(args.agent);
+    builder.objectiveai_agent_id = Some(args.objectiveai_agent_id);
     builder.mode = Some(args.mode);
 
     psychological_operations_x_api_mcp::run(builder.build()).await

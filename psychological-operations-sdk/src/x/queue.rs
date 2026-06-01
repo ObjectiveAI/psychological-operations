@@ -1,24 +1,31 @@
-//! Per-agent tweet handling queue.
+//! Per-(operator, agent) tweet handling queue.
 //!
-//! Rows are keyed by `(agent, tweet_id)`. Two sources write to it:
+//! Rows are keyed by `(objectiveai_agent_id, agent, tweet_id)`. The
+//! `objectiveai_agent_id` slot partitions different operators sharing
+//! the same workstation (it's the user-of-the-CLI identity, sourced
+//! from `OBJECTIVEAI_AGENT_ID`). `agent` is the X-API persona the
+//! tweet is queued *for*. Two sources write to the table:
 //!
-//! - **Psyop pipelines** — a tweet that scored above its
-//!   threshold lands here with `psyop = Some(name)` + `score =
-//!   Some(value)` + no `deliverer` / `message`.
-//! - **`agents enqueue`** — an operator flags a tweet for the
-//!   current agent with `deliverer = Some(agent)` + `message =
-//!   Some(note)` + no `psyop` / `score`.
+//! - **Psyop pipelines** — a tweet that scored above its threshold
+//!   lands here with `psyop = Some(name)` + `score = Some(value)` +
+//!   no `deliverer` / `message`.
+//! - **`agents queue add`** — an operator flags a tweet for an agent
+//!   with `deliverer = Some(agent)` + `message = Some(note)` + no
+//!   `psyop` / `score`.
 //!
-//! Agent-side, the `read_queue` MCP tool lists pending entries
-//! and `mark_handled` removes one.
+//! Agent-side, the `read_queue` MCP tool lists pending entries and
+//! `mark_handled` removes one.
+//!
+//! The sibling `handler_map` table records which objectiveai agent
+//! has been spawned to handle a given `(objectiveai_agent_id, agent)`
+//! queue so subsequent `agents queue handle` runs can `agents message`
+//! the same handler instead of spawning a fresh one every time.
 //!
 //! Storage: `<config_base_dir>/plugins/psychological-operations/queue.sqlite`,
-//! a separate file from the response cache. WAL + 5 s busy
-//! timeout so concurrent processes don't fail with `SQLITE_BUSY`.
-//!
-//! Re-enqueueing the same `(agent, tweet_id)` overwrites the row
-//! (`INSERT OR REPLACE`); the other columns are "the rest is
-//! irrelevant" per the design.
+//! a separate file from the response cache. WAL + 5 s busy timeout so
+//! concurrent processes don't fail with `SQLITE_BUSY`. Schemas are
+//! version-tracked in a `schema_version` table; bumping a constant
+//! drops + recreates the affected table on next open.
 
 use std::path::Path;
 use std::time::Duration;
@@ -32,8 +39,31 @@ use sqlx::sqlite::{
 use super::Error;
 use super::locker;
 
+const QUEUE_VERSION:       i64 = 2;
+const HANDLER_MAP_VERSION: i64 = 1;
+
+const QUEUE_CREATE: &str = "CREATE TABLE queue (\
+        objectiveai_agent_id TEXT    NOT NULL,\
+        agent                TEXT    NOT NULL,\
+        tweet_id             TEXT    NOT NULL,\
+        psyop                TEXT,\
+        score                REAL,\
+        deliverer            TEXT,\
+        message              TEXT,\
+        queued_at            INTEGER NOT NULL,\
+        PRIMARY KEY (objectiveai_agent_id, agent, tweet_id)\
+    )";
+
+const HANDLER_MAP_CREATE: &str = "CREATE TABLE handler_map (\
+        objectiveai_agent_id TEXT NOT NULL,\
+        agent                TEXT NOT NULL,\
+        handler_id           TEXT NOT NULL,\
+        PRIMARY KEY (objectiveai_agent_id, agent)\
+    )";
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueueEntry {
+    pub objectiveai_agent_id: String,
     pub agent: String,
     pub tweet_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -47,8 +77,9 @@ pub struct QueueEntry {
     pub queued_at: i64,
 }
 
-/// SQLite-backed per-agent tweet queue. Open via [`Queue::open`]
-/// or — preferred — through `Client::queue()` (lazy `OnceCell`).
+/// SQLite-backed per-(operator, agent) tweet queue + handler map.
+/// Open via [`Queue::open`] or — preferred — through
+/// `Client::queue()` (lazy `OnceCell`).
 pub struct Queue {
     pool: SqlitePool,
 }
@@ -62,8 +93,8 @@ impl std::fmt::Debug for Queue {
 impl Queue {
     /// Open (creating if missing) the queue file under
     /// `<config_base_dir>/plugins/psychological-operations/queue.sqlite`.
-    /// Enables WAL + a 5 s busy timeout. Creates the `queue` table
-    /// on first open.
+    /// Enables WAL + a 5 s busy timeout. Creates / upgrades both
+    /// tables on first open.
     pub async fn open(config_base_dir: &Path) -> Result<Self, Error> {
         let pool = open_pool(config_base_dir).await?;
         Self::ensure_schema(&pool).await?;
@@ -72,31 +103,29 @@ impl Queue {
 
     pub(crate) async fn ensure_schema(pool: &SqlitePool) -> Result<(), Error> {
         sqlx::query(
-            "CREATE TABLE IF NOT EXISTS queue (\
-                 agent       TEXT    NOT NULL,\
-                 tweet_id    TEXT    NOT NULL,\
-                 psyop       TEXT,\
-                 score       REAL,\
-                 deliverer   TEXT,\
-                 message     TEXT,\
-                 queued_at   INTEGER NOT NULL,\
-                 PRIMARY KEY (agent, tweet_id)\
+            "CREATE TABLE IF NOT EXISTS schema_version (\
+                 name    TEXT    PRIMARY KEY,\
+                 version INTEGER NOT NULL\
              )",
         )
         .execute(pool)
         .await
-        .map_err(|e| Error::Other(format!("queue schema: {e}")))?;
+        .map_err(|e| Error::Other(format!("queue schema_version: {e}")))?;
+
+        ensure_table(pool, "queue",       QUEUE_VERSION,       QUEUE_CREATE).await?;
+        ensure_table(pool, "handler_map", HANDLER_MAP_VERSION, HANDLER_MAP_CREATE).await?;
         Ok(())
     }
 
-    /// Upsert by `(agent, tweet_id)`. Re-enqueueing overwrites the
-    /// other columns wholesale.
+    /// Upsert by `(objectiveai_agent_id, agent, tweet_id)`. Re-enqueueing
+    /// overwrites the other columns wholesale.
     pub async fn enqueue(&self, entry: &QueueEntry) -> Result<(), Error> {
         sqlx::query(
             "INSERT OR REPLACE INTO queue \
-             (agent, tweet_id, psyop, score, deliverer, message, queued_at) \
-             VALUES (?, ?, ?, ?, ?, ?, ?)",
+             (objectiveai_agent_id, agent, tweet_id, psyop, score, deliverer, message, queued_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         )
+        .bind(&entry.objectiveai_agent_id)
         .bind(&entry.agent)
         .bind(&entry.tweet_id)
         .bind(entry.psyop.as_deref())
@@ -110,14 +139,19 @@ impl Queue {
         Ok(())
     }
 
-    /// All entries for `agent`, oldest first.
-    pub async fn list(&self, agent: &str) -> Result<Vec<QueueEntry>, Error> {
+    /// All entries for `(objectiveai_agent_id, agent)`, oldest first.
+    pub async fn list(
+        &self,
+        objectiveai_agent_id: &str,
+        agent: &str,
+    ) -> Result<Vec<QueueEntry>, Error> {
         let rows = sqlx::query(
-            "SELECT agent, tweet_id, psyop, score, deliverer, message, queued_at \
+            "SELECT objectiveai_agent_id, agent, tweet_id, psyop, score, deliverer, message, queued_at \
              FROM queue \
-             WHERE agent = ? \
+             WHERE objectiveai_agent_id = ? AND agent = ? \
              ORDER BY queued_at ASC",
         )
+        .bind(objectiveai_agent_id)
         .bind(agent)
         .fetch_all(&self.pool)
         .await
@@ -125,29 +159,138 @@ impl Queue {
         Ok(rows.into_iter().map(row_to_entry).collect())
     }
 
-    /// Delete `(agent, tweet_id)` if present. Returns `true` if a
-    /// row was removed.
-    pub async fn delete(&self, agent: &str, tweet_id: &str) -> Result<bool, Error> {
-        let result = sqlx::query("DELETE FROM queue WHERE agent = ? AND tweet_id = ?")
-            .bind(agent)
-            .bind(tweet_id)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| Error::Other(format!("queue delete: {e}")))?;
+    /// Distinct agents with at least one row for this operator.
+    /// Returned in deterministic (alphabetical) order.
+    pub async fn list_agents_with_entries(
+        &self,
+        objectiveai_agent_id: &str,
+    ) -> Result<Vec<String>, Error> {
+        let rows = sqlx::query(
+            "SELECT DISTINCT agent FROM queue \
+             WHERE objectiveai_agent_id = ? \
+             ORDER BY agent ASC",
+        )
+        .bind(objectiveai_agent_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| Error::Other(format!("queue list_agents: {e}")))?;
+        Ok(rows.into_iter().map(|r| r.get::<String, _>("agent")).collect())
+    }
+
+    /// Delete `(objectiveai_agent_id, agent, tweet_id)` if present.
+    /// Returns `true` if a row was removed.
+    pub async fn delete(
+        &self,
+        objectiveai_agent_id: &str,
+        agent: &str,
+        tweet_id: &str,
+    ) -> Result<bool, Error> {
+        let result = sqlx::query(
+            "DELETE FROM queue \
+             WHERE objectiveai_agent_id = ? AND agent = ? AND tweet_id = ?",
+        )
+        .bind(objectiveai_agent_id)
+        .bind(agent)
+        .bind(tweet_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| Error::Other(format!("queue delete: {e}")))?;
         Ok(result.rows_affected() > 0)
+    }
+
+    /// Look up the objectiveai agent id we previously spawned to
+    /// handle this `(operator, agent)` queue. Returns `None` if no
+    /// handler has been recorded yet.
+    pub async fn get_handler(
+        &self,
+        objectiveai_agent_id: &str,
+        agent: &str,
+    ) -> Result<Option<String>, Error> {
+        let row: Option<(String,)> = sqlx::query_as(
+            "SELECT handler_id FROM handler_map \
+             WHERE objectiveai_agent_id = ? AND agent = ?",
+        )
+        .bind(objectiveai_agent_id)
+        .bind(agent)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| Error::Other(format!("handler_map get: {e}")))?;
+        Ok(row.map(|(id,)| id))
+    }
+
+    /// Upsert the handler mapping for `(operator, agent) → handler_id`.
+    pub async fn set_handler(
+        &self,
+        objectiveai_agent_id: &str,
+        agent: &str,
+        handler_id: &str,
+    ) -> Result<(), Error> {
+        sqlx::query(
+            "INSERT OR REPLACE INTO handler_map (objectiveai_agent_id, agent, handler_id) \
+             VALUES (?, ?, ?)",
+        )
+        .bind(objectiveai_agent_id)
+        .bind(agent)
+        .bind(handler_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| Error::Other(format!("handler_map set: {e}")))?;
+        Ok(())
     }
 }
 
 fn row_to_entry(row: sqlx::sqlite::SqliteRow) -> QueueEntry {
     QueueEntry {
-        agent:     row.get("agent"),
-        tweet_id:  row.get("tweet_id"),
-        psyop:     row.try_get("psyop").ok(),
-        score:     row.try_get("score").ok(),
-        deliverer: row.try_get("deliverer").ok(),
-        message:   row.try_get("message").ok(),
-        queued_at: row.get("queued_at"),
+        objectiveai_agent_id: row.get("objectiveai_agent_id"),
+        agent:                row.get("agent"),
+        tweet_id:             row.get("tweet_id"),
+        psyop:                row.try_get("psyop").ok(),
+        score:                row.try_get("score").ok(),
+        deliverer:            row.try_get("deliverer").ok(),
+        message:              row.try_get("message").ok(),
+        queued_at:            row.get("queued_at"),
     }
+}
+
+/// Idempotent table create/upgrade. Reads the recorded version from
+/// `schema_version` and, on missing-or-mismatched, drops the existing
+/// table + runs `create_stmt` + stamps the new version. No-op when the
+/// recorded version matches.
+async fn ensure_table(
+    pool: &SqlitePool,
+    name: &str,
+    version: i64,
+    create_stmt: &str,
+) -> Result<(), Error> {
+    let current: Option<i64> = sqlx::query_scalar(
+        "SELECT version FROM schema_version WHERE name = ?",
+    )
+    .bind(name)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| Error::Other(format!("{name} version read: {e}")))?;
+
+    if current == Some(version) {
+        return Ok(());
+    }
+
+    sqlx::query(&format!("DROP TABLE IF EXISTS {name}"))
+        .execute(pool)
+        .await
+        .map_err(|e| Error::Other(format!("{name} drop: {e}")))?;
+    sqlx::query(create_stmt)
+        .execute(pool)
+        .await
+        .map_err(|e| Error::Other(format!("{name} create: {e}")))?;
+    sqlx::query(
+        "INSERT OR REPLACE INTO schema_version (name, version) VALUES (?, ?)",
+    )
+    .bind(name)
+    .bind(version)
+    .execute(pool)
+    .await
+    .map_err(|e| Error::Other(format!("{name} version stamp: {e}")))?;
+    Ok(())
 }
 
 /// Build the `unix_now`-stamped current time the way other SDK

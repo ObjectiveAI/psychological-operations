@@ -28,6 +28,16 @@ pub async fn send(
 ) -> Result<(), crate::error::Error> {
     let Subject::Psyop { name, psyop: _, output } = subject;
 
+    let operator = rt
+        .objectiveai_agent_id
+        .as_deref()
+        .ok_or_else(|| {
+            crate::error::Error::Other(
+                "OBJECTIVEAI_AGENT_ID not set — required to enqueue to a Queue destination"
+                    .into(),
+            )
+        })?;
+
     let client = Client::new(
         reqwest::Client::new(),
         /* mock */ false,
@@ -44,13 +54,14 @@ pub async fn send(
 
     for scored in *output {
         let entry = QueueEntry {
-            agent:     cfg.agent.clone(),
-            tweet_id:  scored.post.id.clone(),
-            psyop:     Some((*name).to_string()),
-            score:     Some(scored.score),
-            deliverer: None,
-            message:   None,
-            queued_at: now,
+            objectiveai_agent_id: operator.to_string(),
+            agent:                cfg.agent.clone(),
+            tweet_id:             scored.post.id.clone(),
+            psyop:                Some((*name).to_string()),
+            score:                Some(scored.score),
+            deliverer:            None,
+            message:              None,
+            queued_at:            now,
         };
         q.enqueue(&entry)
             .await
