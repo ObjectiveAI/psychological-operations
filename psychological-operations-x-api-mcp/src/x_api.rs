@@ -238,8 +238,8 @@ impl PsychologicalOperationsXApiMcp {
     }
 
     #[tool(
-        name = "list_reply_ids",
-        description = "Return the IDs of recent tweets that reply to the given tweet."
+        name = "get_replies",
+        description = "Fetch recent replies to a tweet."
     )]
     async fn list_reply_ids(
         &self,
@@ -286,7 +286,7 @@ impl PsychologicalOperationsXApiMcp {
 
     #[tool(
         name = "get_bio",
-        description = "Return the X user's bio."
+        description = "Fetch an X user's bio."
     )]
     async fn get_bio(&self, Parameters(req): Parameters<GetBioRequest>) -> String {
         let creq = users_by_username::get::Request {
@@ -303,7 +303,7 @@ impl PsychologicalOperationsXApiMcp {
 
     #[tool(
         name = "get_profile_picture",
-        description = "Return the X user's profile picture URL."
+        description = "Fetch an X user's profile picture."
     )]
     async fn get_profile_picture(
         &self,
@@ -326,7 +326,7 @@ impl PsychologicalOperationsXApiMcp {
 
     #[tool(
         name = "get_tweet",
-        description = "Fetch a tweet by ID."
+        description = "Fetch a tweet."
     )]
     async fn get_tweet(&self, Parameters(req): Parameters<GetTweetRequest>) -> String {
         let creq = standard_tweet_request(&req.tweet_id);
@@ -344,7 +344,7 @@ impl PsychologicalOperationsXApiMcp {
 
     #[tool(
         name = "open_attachment",
-        description = "Fetch one tweet attachment."
+        description = "Fetch an attachment."
     )]
     async fn open_attachment(
         &self,
@@ -379,7 +379,7 @@ impl PsychologicalOperationsXApiMcp {
 
     #[tool(
         name = "run_query",
-        description = "Run an X v2 recent search. Returns a list of tweets."
+        description = "Run an X v2 recent search."
     )]
     async fn run_query(&self, Parameters(req): Parameters<RunQueryRequest>) -> String {
         let creq = standard_search_request(req.query);
@@ -400,7 +400,7 @@ impl PsychologicalOperationsXApiMcp {
 
     #[tool(
         name = "whoami",
-        description = "Return the authenticated X account's handle (@username)."
+        description = "Fetch your own X account's handle (@username)."
     )]
     async fn whoami(&self, Parameters(_req): Parameters<WhoamiRequest>) -> String {
         let req = users_me::get::Request {
@@ -416,7 +416,7 @@ impl PsychologicalOperationsXApiMcp {
 
     #[tool(
         name = "post_tweet",
-        description = "Post a new tweet. Full-mode only."
+        description = "Post a new tweet."
     )]
     async fn post_tweet(&self, Parameters(req): Parameters<PostTweetRequest>) -> String {
         let body = TweetCreateRequest {
@@ -428,7 +428,7 @@ impl PsychologicalOperationsXApiMcp {
 
     #[tool(
         name = "reply_to_tweet",
-        description = "Reply to a tweet by its numeric ID. Full-mode only."
+        description = "Reply to a tweet."
     )]
     async fn reply_to_tweet(
         &self,
@@ -448,7 +448,7 @@ impl PsychologicalOperationsXApiMcp {
 
     #[tool(
         name = "quote_tweet",
-        description = "Quote a tweet by its numeric ID. Full-mode only."
+        description = "Quote a tweet."
     )]
     async fn quote_tweet(
         &self,
@@ -464,7 +464,7 @@ impl PsychologicalOperationsXApiMcp {
 
     #[tool(
         name = "like",
-        description = "Like a tweet on behalf of the authenticated user. Full-mode only."
+        description = "Like a tweet."
     )]
     async fn like(&self, Parameters(req): Parameters<LikeRequest>) -> String {
         let user_id = match self.resolve_self_user_id().await {
@@ -486,7 +486,7 @@ impl PsychologicalOperationsXApiMcp {
 
     #[tool(
         name = "retweet",
-        description = "Retweet a tweet on behalf of the authenticated user. Full-mode only."
+        description = "Retweet a tweet."
     )]
     async fn retweet(&self, Parameters(req): Parameters<RetweetRequest>) -> String {
         let user_id = match self.resolve_self_user_id().await {
@@ -508,7 +508,7 @@ impl PsychologicalOperationsXApiMcp {
 
     #[tool(
         name = "bookmark",
-        description = "Bookmark a tweet on behalf of the authenticated user. Full-mode only."
+        description = "Bookmark a tweet."
     )]
     async fn bookmark(&self, Parameters(req): Parameters<BookmarkRequest>) -> String {
         let user_id = match self.resolve_self_user_id().await {
