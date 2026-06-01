@@ -1,5 +1,4 @@
-//! X-App setup flow (pure business logic — clap surface lives in
-//! `crate::commands::x_app`).
+//! X-App setup flow.
 //!
 //! `setup [--dangerously-reset]` opens the embedded browser
 //! against the master X-App profile so the operator can sign into
@@ -33,7 +32,7 @@ use psychological_operations_sdk::browser::x_app_credentials::{OAuthPopup, PostC
 use crate::browser::{extract::ensure_extracted, launch, stream};
 use crate::error::Error;
 
-pub(crate) async fn setup(
+pub async fn run(
     dangerously_reset: bool,
     cfg: &crate::run::Config,
 ) -> Result<crate::Output, Error> {

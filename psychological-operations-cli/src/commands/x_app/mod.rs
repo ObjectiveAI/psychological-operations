@@ -1,11 +1,10 @@
 //! `x_app` subcommand surface.
-//!
-//! The setup flow (browser spawn, pre-flight, snapshot wait, reset)
-//! lives in `crate::x_app::setup`. This file owns the clap surface.
 
 use clap::Subcommand;
 
 use crate::error::Error;
+
+pub mod setup;
 
 #[derive(Subcommand)]
 pub enum Commands {
@@ -33,7 +32,7 @@ impl Commands {
     pub async fn handle(self, cfg: &crate::run::Config) -> Result<crate::Output, Error> {
         match self {
             Commands::Setup { dangerously_reset } => {
-                crate::x_app::setup(dangerously_reset, cfg).await
+                setup::run(dangerously_reset, cfg).await
             }
         }
     }
