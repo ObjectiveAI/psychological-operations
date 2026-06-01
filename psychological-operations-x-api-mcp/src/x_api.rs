@@ -51,15 +51,18 @@ use serde::Serialize;
 
 use crate::Mode;
 
-/// Tools that mutate state on X. Only registered + callable when
-/// the server is in `Mode::Full`.
-const MUTATING_TOOLS: &[&str] = &[
+/// Tools only registered + callable when the server is in
+/// `Mode::Full`. Mostly mutations; also includes user-context
+/// reads we want gated to authenticated agents (e.g.
+/// `get_bookmarks`).
+const FULL_ONLY_TOOLS: &[&str] = &[
     "post_tweet",
     "reply_to_tweet",
     "quote_tweet",
     "like",
     "retweet",
     "bookmark",
+    "get_bookmarks",
 ];
 
 // =====================================================================
@@ -201,6 +204,9 @@ pub struct BookmarkRequest {
     pub tweet_id: String,
 }
 
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct GetBookmarksRequest {}
+
 // =====================================================================
 // Tool impls
 // =====================================================================
@@ -218,7 +224,7 @@ impl PsychologicalOperationsXApiMcp {
     /// `true` when this tool is registered but should not be listed
     /// or callable in the current mode.
     fn is_hidden(&self, tool_name: &str) -> bool {
-        matches!(self.mode, Mode::Readonly) && MUTATING_TOOLS.contains(&tool_name)
+        matches!(self.mode, Mode::Readonly) && FULL_ONLY_TOOLS.contains(&tool_name)
     }
 
     /// Resolve the authenticated user's numeric id via `/users/me`.
@@ -415,7 +421,7 @@ impl PsychologicalOperationsXApiMcp {
     }
 
     #[tool(
-        name = "post_tweet",
+        name = "post",
         description = "Post a new tweet."
     )]
     async fn post_tweet(&self, Parameters(req): Parameters<PostTweetRequest>) -> String {
@@ -427,7 +433,7 @@ impl PsychologicalOperationsXApiMcp {
     }
 
     #[tool(
-        name = "reply_to_tweet",
+        name = "reply",
         description = "Reply to a tweet."
     )]
     async fn reply_to_tweet(
@@ -447,7 +453,7 @@ impl PsychologicalOperationsXApiMcp {
     }
 
     #[tool(
-        name = "quote_tweet",
+        name = "quote",
         description = "Quote a tweet."
     )]
     async fn quote_tweet(
