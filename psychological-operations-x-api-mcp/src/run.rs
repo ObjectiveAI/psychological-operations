@@ -1,8 +1,7 @@
 //! Psychological Operations X-API MCP server.
 //!
-//! Mirrors the `psychological-operations-mcp` `run.rs` shape so other crates can
-//! `use psychological_operations_x_api_mcp::{ConfigBuilder, run}` and spawn the
-//! server in-process without going through the binary.
+//! Other crates can `use psychological_operations_x_api_mcp::{ConfigBuilder, run}`
+//! and spawn the server in-process without going through the binary.
 
 use std::path::PathBuf;
 use std::sync::Arc;

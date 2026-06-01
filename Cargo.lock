@@ -4500,24 +4500,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "psychological-operations-mcp"
-version = "0.99.0"
-dependencies = [
- "anyhow",
- "axum",
- "dotenv",
- "envconfig",
- "psychological-operations-cli",
- "rmcp",
- "schemars 1.2.1",
- "serde",
- "tokio",
- "tokio-util",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "psychological-operations-sdk"
 version = "0.1.0"
 dependencies = [
