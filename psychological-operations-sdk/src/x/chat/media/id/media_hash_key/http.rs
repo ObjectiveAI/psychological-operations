@@ -15,7 +15,7 @@ pub async fn get(
     req: &super::get::Request,
 ) -> Result<super::get::Response, Error> {
     let path = format!("chat/media/{}/{}", urlencoding::encode(&req.id.to_string()), urlencoding::encode(&req.media_hash_key.to_string()));
-    client.send_no_response::<()>(Method::GET, &path, None, true).await?;
+    client.send_no_response::<()>(Method::GET, &path, None, true, false).await?;
     Ok(super::get::Response)
 }
 

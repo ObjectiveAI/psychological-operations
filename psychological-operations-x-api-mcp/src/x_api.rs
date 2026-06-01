@@ -19,23 +19,48 @@ use std::sync::Arc;
 use base64::Engine;
 use psychological_operations_sdk::x::client::Client;
 use psychological_operations_sdk::x::params;
+use psychological_operations_sdk::x::tweets as tweets_root;
 use psychological_operations_sdk::x::tweets::id as tweets_id;
 use psychological_operations_sdk::x::tweets::search::recent as tweets_search_recent;
 use psychological_operations_sdk::x::types::{
-    self as x_types, MediaUnion, TweetId, TweetReferencedTweetsItemType, Variant,
+    self as x_types, BookmarkAddRequest, MediaUnion, TweetCreateRequest,
+    TweetCreateRequestReply, TweetId, TweetReferencedTweetsItemType, TweetText,
+    UserIdMatchesAuthenticatedUser, UsersLikesCreateRequest,
+    UsersRetweetsCreateRequest, Variant,
 };
 use psychological_operations_sdk::x::users::by::username::username as users_by_username;
+use psychological_operations_sdk::x::users::id::bookmarks as users_id_bookmarks;
+use psychological_operations_sdk::x::users::id::likes as users_id_likes;
+use psychological_operations_sdk::x::users::id::retweets as users_id_retweets;
+use psychological_operations_sdk::x::users::me as users_me;
 use rmcp::{
-    ServerHandler,
+    ErrorData, RoleServer, ServerHandler,
     handler::server::router::tool::ToolRouter,
+    handler::server::tool::ToolCallContext,
     handler::server::wrapper::Parameters,
     model::{
-        Content, Implementation, ProtocolVersion, ServerCapabilities,
-        ServerInfo,
+        CallToolRequestParams, CallToolResult, Content, Implementation,
+        ListToolsResult, PaginatedRequestParams, ProtocolVersion,
+        ServerCapabilities, ServerInfo, Tool,
     },
-    schemars, tool, tool_handler, tool_router,
+    schemars,
+    service::RequestContext,
+    tool, tool_router,
 };
 use serde::Serialize;
+
+use crate::Mode;
+
+/// Tools that mutate state on X. Only registered + callable when
+/// the server is in `Mode::Full`.
+const MUTATING_TOOLS: &[&str] = &[
+    "post_tweet",
+    "reply_to_tweet",
+    "quote_tweet",
+    "like",
+    "retweet",
+    "bookmark",
+];
 
 // =====================================================================
 // MCP-local types — the *only* custom Tweet struct in the workspace.
@@ -81,6 +106,7 @@ struct FetchedAttachment {
 pub struct PsychologicalOperationsXApiMcp {
     pub tool_router: ToolRouter<Self>,
     http: Arc<Client>,
+    mode: Mode,
 }
 
 impl std::fmt::Debug for PsychologicalOperationsXApiMcp {
@@ -132,17 +158,83 @@ pub struct RunQueryRequest {
     pub query: String,
 }
 
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct WhoamiRequest {}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct PostTweetRequest {
+    #[schemars(description = "Body text of the new tweet.")]
+    pub text: String,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct ReplyToTweetRequest {
+    #[schemars(description = "Body text of the reply.")]
+    pub text: String,
+    #[schemars(description = "Numeric ID of the tweet being replied to.")]
+    pub in_reply_to_tweet_id: String,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct QuoteTweetRequest {
+    #[schemars(description = "Body text wrapped around the quote.")]
+    pub text: String,
+    #[schemars(description = "Numeric ID of the tweet being quoted.")]
+    pub quote_tweet_id: String,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct LikeRequest {
+    #[schemars(description = "Numeric ID of the tweet to like.")]
+    pub tweet_id: String,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct RetweetRequest {
+    #[schemars(description = "Numeric ID of the tweet to retweet.")]
+    pub tweet_id: String,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct BookmarkRequest {
+    #[schemars(description = "Numeric ID of the tweet to bookmark.")]
+    pub tweet_id: String,
+}
+
 // =====================================================================
 // Tool impls
 // =====================================================================
 
 #[tool_router]
 impl PsychologicalOperationsXApiMcp {
-    pub fn new(http: Arc<Client>) -> Self {
+    pub fn new(http: Arc<Client>, mode: Mode) -> Self {
         Self {
             tool_router: Self::tool_router(),
             http,
+            mode,
         }
+    }
+
+    /// `true` when this tool is registered but should not be listed
+    /// or callable in the current mode.
+    fn is_hidden(&self, tool_name: &str) -> bool {
+        matches!(self.mode, Mode::Readonly) && MUTATING_TOOLS.contains(&tool_name)
+    }
+
+    /// Resolve the authenticated user's numeric id via `/users/me`.
+    /// Used by the engagement tools (like / retweet / bookmark)
+    /// that need the acting user id in the URL path.
+    async fn resolve_self_user_id(&self) -> Result<String, String> {
+        let req = users_me::get::Request {
+            user_fields: None,
+            expansions: None,
+            tweet_fields: None,
+        };
+        let resp = users_me::http::get(&self.http, &req)
+            .await
+            .map_err(|e| format!("users/me: {e}"))?;
+        let user = resp.data.ok_or_else(|| "users/me had no data".to_string())?;
+        Ok(user.id.0)
     }
 
     #[tool(
@@ -304,6 +396,173 @@ impl PsychologicalOperationsXApiMcp {
             .collect();
         serde_json::to_string(&projected)
             .unwrap_or_else(|e| format!("error: serialize tweets: {e}"))
+    }
+
+    #[tool(
+        name = "whoami",
+        description = "Return the authenticated X account's handle (@username)."
+    )]
+    async fn whoami(&self, Parameters(_req): Parameters<WhoamiRequest>) -> String {
+        let req = users_me::get::Request {
+            user_fields: Some(vec![params::UserFields::Username]),
+            expansions: None,
+            tweet_fields: None,
+        };
+        match users_me::http::get(&self.http, &req).await {
+            Ok(r) => r.data.map(|u| u.username.0).unwrap_or_default(),
+            Err(e) => format!("error: {e}"),
+        }
+    }
+
+    #[tool(
+        name = "post_tweet",
+        description = "Post a new tweet. Full-mode only."
+    )]
+    async fn post_tweet(&self, Parameters(req): Parameters<PostTweetRequest>) -> String {
+        let body = TweetCreateRequest {
+            text: Some(TweetText(req.text)),
+            ..empty_tweet_create_request()
+        };
+        send_create_tweet(&self.http, body).await
+    }
+
+    #[tool(
+        name = "reply_to_tweet",
+        description = "Reply to a tweet by its numeric ID. Full-mode only."
+    )]
+    async fn reply_to_tweet(
+        &self,
+        Parameters(req): Parameters<ReplyToTweetRequest>,
+    ) -> String {
+        let body = TweetCreateRequest {
+            text: Some(TweetText(req.text)),
+            reply: Some(TweetCreateRequestReply {
+                in_reply_to_tweet_id: TweetId(req.in_reply_to_tweet_id),
+                auto_populate_reply_metadata: None,
+                exclude_reply_user_ids: None,
+            }),
+            ..empty_tweet_create_request()
+        };
+        send_create_tweet(&self.http, body).await
+    }
+
+    #[tool(
+        name = "quote_tweet",
+        description = "Quote a tweet by its numeric ID. Full-mode only."
+    )]
+    async fn quote_tweet(
+        &self,
+        Parameters(req): Parameters<QuoteTweetRequest>,
+    ) -> String {
+        let body = TweetCreateRequest {
+            text: Some(TweetText(req.text)),
+            quote_tweet_id: Some(TweetId(req.quote_tweet_id)),
+            ..empty_tweet_create_request()
+        };
+        send_create_tweet(&self.http, body).await
+    }
+
+    #[tool(
+        name = "like",
+        description = "Like a tweet on behalf of the authenticated user. Full-mode only."
+    )]
+    async fn like(&self, Parameters(req): Parameters<LikeRequest>) -> String {
+        let user_id = match self.resolve_self_user_id().await {
+            Ok(id) => id,
+            Err(e) => return format!("error: {e}"),
+        };
+        let creq = users_id_likes::post::Request {
+            id: UserIdMatchesAuthenticatedUser(user_id),
+            body: Some(UsersLikesCreateRequest {
+                tweet_id: TweetId(req.tweet_id),
+            }),
+        };
+        match users_id_likes::http::post(&self.http, &creq).await {
+            Ok(r) => serde_json::to_string(&r.data)
+                .unwrap_or_else(|e| format!("error: serialize: {e}")),
+            Err(e) => format!("error: {e}"),
+        }
+    }
+
+    #[tool(
+        name = "retweet",
+        description = "Retweet a tweet on behalf of the authenticated user. Full-mode only."
+    )]
+    async fn retweet(&self, Parameters(req): Parameters<RetweetRequest>) -> String {
+        let user_id = match self.resolve_self_user_id().await {
+            Ok(id) => id,
+            Err(e) => return format!("error: {e}"),
+        };
+        let creq = users_id_retweets::post::Request {
+            id: UserIdMatchesAuthenticatedUser(user_id),
+            body: Some(UsersRetweetsCreateRequest {
+                tweet_id: TweetId(req.tweet_id),
+            }),
+        };
+        match users_id_retweets::http::post(&self.http, &creq).await {
+            Ok(r) => serde_json::to_string(&r.data)
+                .unwrap_or_else(|e| format!("error: serialize: {e}")),
+            Err(e) => format!("error: {e}"),
+        }
+    }
+
+    #[tool(
+        name = "bookmark",
+        description = "Bookmark a tweet on behalf of the authenticated user. Full-mode only."
+    )]
+    async fn bookmark(&self, Parameters(req): Parameters<BookmarkRequest>) -> String {
+        let user_id = match self.resolve_self_user_id().await {
+            Ok(id) => id,
+            Err(e) => return format!("error: {e}"),
+        };
+        let creq = users_id_bookmarks::post::Request {
+            id: UserIdMatchesAuthenticatedUser(user_id),
+            body: BookmarkAddRequest {
+                tweet_id: TweetId(req.tweet_id),
+            },
+        };
+        match users_id_bookmarks::http::post(&self.http, &creq).await {
+            Ok(r) => serde_json::to_string(&r.data)
+                .unwrap_or_else(|e| format!("error: serialize: {e}")),
+            Err(e) => format!("error: {e}"),
+        }
+    }
+}
+
+/// Empty-init `TweetCreateRequest` (all fields None / default) so
+/// tool bodies can `..empty_tweet_create_request()` and only set the
+/// fields they care about.
+fn empty_tweet_create_request() -> TweetCreateRequest {
+    TweetCreateRequest {
+        card_uri: None,
+        community_id: None,
+        direct_message_deep_link: None,
+        edit_options: None,
+        for_super_followers_only: None,
+        geo: None,
+        made_with_ai: None,
+        media: None,
+        nullcast: None,
+        paid_partnership: None,
+        poll: None,
+        quote_tweet_id: None,
+        reply: None,
+        reply_settings: None,
+        share_with_followers: None,
+        text: None,
+    }
+}
+
+/// Shared `POST /2/tweets` plumbing for post / reply / quote.
+/// Returns the serialized `data` block on success (the agent gets
+/// the new tweet id + text back). On failure returns
+/// `"error: <msg>"`.
+async fn send_create_tweet(http: &Client, body: TweetCreateRequest) -> String {
+    let req = tweets_root::post::Request { body };
+    match tweets_root::http::post(http, &req).await {
+        Ok(r) => serde_json::to_string(&r.data)
+            .unwrap_or_else(|e| format!("error: serialize: {e}")),
+        Err(e) => format!("error: {e}"),
     }
 }
 
@@ -560,7 +819,6 @@ fn mime_for_photo_url(url: &str) -> &'static str {
     }
 }
 
-#[tool_handler]
 impl ServerHandler for PsychologicalOperationsXApiMcp {
     fn get_info(&self) -> ServerInfo {
         ServerInfo {
@@ -575,6 +833,43 @@ impl ServerHandler for PsychologicalOperationsXApiMcp {
                 website_url: None,
             },
             instructions: None,
+        }
+    }
+
+    async fn list_tools(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ListToolsResult, ErrorData> {
+        let tools: Vec<Tool> = self
+            .tool_router
+            .list_all()
+            .into_iter()
+            .filter(|t| !self.is_hidden(&t.name))
+            .collect();
+        Ok(ListToolsResult { tools, next_cursor: None })
+    }
+
+    async fn call_tool(
+        &self,
+        request: CallToolRequestParams,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if self.is_hidden(&request.name) {
+            return Err(ErrorData::invalid_params(
+                format!("tool '{}' is not available in readonly mode", request.name),
+                None,
+            ));
+        }
+        let tcc = ToolCallContext::new(self, request, context);
+        self.tool_router.call(tcc).await
+    }
+
+    fn get_tool(&self, name: &str) -> Option<Tool> {
+        if self.is_hidden(name) {
+            None
+        } else {
+            self.tool_router.get(name).cloned()
         }
     }
 }

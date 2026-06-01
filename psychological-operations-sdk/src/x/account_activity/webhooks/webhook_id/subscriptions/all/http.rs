@@ -15,7 +15,7 @@ pub async fn get(
     req: &super::get::Request,
 ) -> Result<super::get::Response, Error> {
     let path = format!("account_activity/webhooks/{}/subscriptions/all", urlencoding::encode(&req.webhook_id.to_string()));
-    client.send::<_, ()>(Method::GET, &path, None, true).await
+    client.send::<_, ()>(Method::GET, &path, None, true, false).await
 }
 
 /// POST /2/account_activity/webhooks/{webhook_id}/subscriptions/all
@@ -24,6 +24,6 @@ pub async fn post(
     req: &super::post::Request,
 ) -> Result<super::post::Response, Error> {
     let path = format!("account_activity/webhooks/{}/subscriptions/all", urlencoding::encode(&req.webhook_id.to_string()));
-    client.send(Method::POST, &path, req.body.as_ref(), false).await
+    client.send(Method::POST, &path, req.body.as_ref(), false, false).await
 }
 

@@ -15,6 +15,6 @@ pub async fn get(
     req: &super::get::Request,
 ) -> Result<super::get::Response, Error> {
     let path = "notes/search/posts_eligible_for_notes";
-    client.send_with_query(Method::GET, path, req, true).await
+    client.send_with_query(Method::GET, path, req, true, false).await
 }
 

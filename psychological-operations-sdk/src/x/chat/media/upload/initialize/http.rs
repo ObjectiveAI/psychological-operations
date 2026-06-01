@@ -15,6 +15,6 @@ pub async fn post(
     req: &super::post::Request,
 ) -> Result<super::post::Response, Error> {
     let path = "chat/media/upload/initialize";
-    client.send(Method::POST, path, Some(&req.body), false).await
+    client.send(Method::POST, path, Some(&req.body), false, false).await
 }
 

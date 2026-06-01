@@ -1,6 +1,8 @@
 use clap::Parser;
 use envconfig::Envconfig;
 
+use psychological_operations_x_api_mcp::Mode;
+
 /// X-API MCP server. Drives a streamable-HTTP MCP that proxies the X
 /// v2 API, intermediated by a sqlx-backed response cache and a
 /// two-tier (in-process + cross-process) lock.
@@ -13,10 +15,16 @@ struct Args {
     /// Per-entry cache TTL in seconds.
     #[arg(long)]
     cache_ttl: u64,
-    /// Agent. Falls back to `OBJECTIVEAI_AGENT_ID_BASE` env if absent;
-    /// fatal error if neither is set.
+    /// Agent whose persona OAuth token authenticates every X API
+    /// call. Required — no env fallback.
     #[arg(long)]
-    agent: Option<String>,
+    agent: String,
+    /// Tool-surface mode. `readonly` exposes only read tools;
+    /// `full` adds the mutating tools (post / reply / quote / like /
+    /// retweet / bookmark). Required — no default at the binary
+    /// level; defaulting is the CLI supervisor's job.
+    #[arg(long, value_enum)]
+    mode: Mode,
     /// Bind address — hidden; supervisor-internal.
     #[arg(long, default_value = "127.0.0.1", hide = true)]
     address: String,
@@ -38,24 +46,17 @@ async fn main() -> std::io::Result<()> {
 
     let _ = dotenv::dotenv();
     let args = Args::parse();
-    let agent = args
-        .agent
-        .or_else(|| std::env::var("OBJECTIVEAI_AGENT_ID_BASE").ok())
-        .ok_or_else(|| {
-            std::io::Error::other(
-                "agent must be specified via --agent or OBJECTIVEAI_AGENT_ID_BASE",
-            )
-        })?;
 
     // env-default chain still wins for suppress_output + config_base_dir;
-    // clap overrides win for the four flag-driven fields + agent.
+    // clap overrides win for the five flag-driven fields + agent + mode.
     let mut builder = psychological_operations_x_api_mcp::ConfigBuilder::init_from_env()
         .unwrap_or_default();
     builder.address = Some(args.address);
     builder.port = Some(args.port);
     builder.max_cache_size = Some(args.cache_max_size);
     builder.cache_ttl_secs = Some(args.cache_ttl);
-    builder.objectiveai_agent_id_base = Some(agent);
+    builder.agent = Some(args.agent);
+    builder.mode = Some(args.mode);
 
     psychological_operations_x_api_mcp::run(builder.build()).await
 }

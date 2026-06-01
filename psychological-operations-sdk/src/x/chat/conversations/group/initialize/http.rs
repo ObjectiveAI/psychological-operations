@@ -15,6 +15,6 @@ pub async fn post(
     _req: &super::post::Request,
 ) -> Result<super::post::Response, Error> {
     let path = "chat/conversations/group/initialize";
-    client.send::<_, ()>(Method::POST, path, None, false).await
+    client.send::<_, ()>(Method::POST, path, None, false, false).await
 }
 

@@ -15,6 +15,6 @@ pub async fn get(
     req: &super::get::Request,
 ) -> Result<super::get::Response, Error> {
     let path = format!("users/{}/bookmarks/folders/{}", urlencoding::encode(&req.id.to_string()), urlencoding::encode(&req.folder_id.to_string()));
-    client.send::<_, ()>(Method::GET, &path, None, true).await
+    client.send::<_, ()>(Method::GET, &path, None, true, false).await
 }
 

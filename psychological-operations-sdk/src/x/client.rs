@@ -34,7 +34,7 @@ use tokio::sync::OnceCell;
 
 use super::Error;
 use super::auth::{self, AuthLock, PersonaKey};
-use super::cache::{Cache, request_key};
+use super::cache::{Cache, request_key, request_key_auth_scoped};
 use super::locker::Locker;
 use crate::browser::auth_json::{self, PersonaKind, Tokens};
 use crate::browser::cookies;
@@ -271,6 +271,27 @@ impl Client {
         }
     }
 
+    /// The authenticated Twitter user-id (twid) for this Client's
+    /// auth mode. For `XApp` it's the X-App account's twid;
+    /// for `Psyop` / `Agent` it's the persona's twid resolved via
+    /// [`resolve_persona`]. Used to fold an auth identity into the
+    /// cache key for endpoints whose response varies by authed user
+    /// (today: `/2/users/me`).
+    pub(crate) async fn current_twid(&self) -> Result<String, Error> {
+        match &self.auth_mode {
+            AuthMode::XApp => cookies::signed_in_x_user_id(
+                self.config_base_dir.as_ref(),
+                &Mode::XApp,
+            )
+            .await
+            .map_err(|e| Error::Other(format!("x-app twid cookies: {e}")))?
+            .ok_or_else(|| Error::Other("no X-App account signed in".into())),
+            AuthMode::Psyop(_) | AuthMode::Agent(_) => {
+                Ok(self.resolve_persona().await?.persona_twid)
+            }
+        }
+    }
+
     /// Resolve the persona from `self.auth_mode` + cookies. Errors
     /// for `AuthMode::XApp` and when no persona / X-App is signed
     /// in to the matching CEF profile. Reused by `read_auth`,
@@ -390,6 +411,7 @@ impl Client {
         path: &str,
         query: &Q,
         cache: bool,
+        auth_scoped: bool,
     ) -> Result<T, Error>
     where
         T: DeserializeOwned,
@@ -399,7 +421,7 @@ impl Client {
             return crate::x::mock::send_with_query(method, path, query);
         }
         let rb = self.request(method, path).await?.query(query);
-        let raw = self.execute_cached(rb, cache).await?;
+        let raw = self.execute_cached(rb, cache, auth_scoped).await?;
         decode_body(&raw)
     }
 
@@ -410,6 +432,7 @@ impl Client {
         path: &str,
         body: Option<&B>,
         cache: bool,
+        auth_scoped: bool,
     ) -> Result<T, Error>
     where
         T: DeserializeOwned,
@@ -422,7 +445,7 @@ impl Client {
         if let Some(b) = body {
             rb = rb.json(b);
         }
-        let raw = self.execute_cached(rb, cache).await?;
+        let raw = self.execute_cached(rb, cache, auth_scoped).await?;
         decode_body(&raw)
     }
 
@@ -433,11 +456,12 @@ impl Client {
         path: &str,
         query: &Q,
         cache: bool,
+        auth_scoped: bool,
     ) -> Result<(), Error>
     where
         Q: Serialize + ?Sized,
     {
-        let _ = cache;
+        let _ = (cache, auth_scoped);
         if self.mock {
             return crate::x::mock::send_with_query_no_response(method, path, query);
         }
@@ -463,6 +487,7 @@ impl Client {
         query: &Q,
         body: &B,
         cache: bool,
+        auth_scoped: bool,
     ) -> Result<T, Error>
     where
         T: DeserializeOwned,
@@ -473,7 +498,7 @@ impl Client {
             return crate::x::mock::send_with_query_and_body(method, path, query, body);
         }
         let rb = self.request(method, path).await?.query(query).json(body);
-        let raw = self.execute_cached(rb, cache).await?;
+        let raw = self.execute_cached(rb, cache, auth_scoped).await?;
         decode_body(&raw)
     }
 
@@ -484,11 +509,12 @@ impl Client {
         path: &str,
         body: Option<&B>,
         cache: bool,
+        auth_scoped: bool,
     ) -> Result<(), Error>
     where
         B: Serialize + ?Sized,
     {
-        let _ = cache;
+        let _ = (cache, auth_scoped);
         if self.mock {
             return crate::x::mock::send_no_response(method, path, body);
         }
@@ -505,7 +531,8 @@ impl Client {
     }
 
     /// Fetch the raw response body from an arbitrary URL (twimg
-    /// media downloads). Always cached. No `authorization` header.
+    /// media downloads). Always cached, never auth-scoped (media
+    /// URLs are persona-independent). No `authorization` header.
     pub async fn fetch_url(&self, url: &str) -> Result<Vec<u8>, Error> {
         if self.mock {
             return Err(Error::Other(
@@ -513,22 +540,31 @@ impl Client {
             ));
         }
         let rb = self.client.get(url);
-        self.execute_cached(rb, /* cache */ true).await
+        self.execute_cached(rb, /* cache */ true, /* auth_scoped */ false).await
     }
 
     /// Build the request, then either route through the cache or
-    /// fire it directly. Returns raw 2xx response bytes.
+    /// fire it directly. Returns raw 2xx response bytes. When
+    /// `auth_scoped` is set, the cache key folds in the
+    /// authenticated twid so distinct agents (sharing this Client's
+    /// cache file) get distinct entries.
     async fn execute_cached(
         &self,
         rb: reqwest::RequestBuilder,
         cache: bool,
+        auth_scoped: bool,
     ) -> Result<Vec<u8>, Error> {
         let req = rb.build().map_err(Error::RequestBuild)?;
         if cache {
-            let cache = self.cache().await?.clone();
-            let key = key_from_request(&req);
+            let cache_ref = self.cache().await?.clone();
+            let key = if auth_scoped {
+                let twid = self.current_twid().await?;
+                auth_scoped_key_from_request(&twid, &req)
+            } else {
+                key_from_request(&req)
+            };
             let client = self.client.clone();
-            cache
+            cache_ref
                 .get_or_fetch(&key, move || async move {
                     run_request_raw(client, req).await
                 })
@@ -545,6 +581,14 @@ fn key_from_request(req: &reqwest::Request) -> [u8; 32] {
         .and_then(|b| b.as_bytes())
         .unwrap_or(&[]);
     request_key(req.method(), req.url().as_str(), &[], body)
+}
+
+fn auth_scoped_key_from_request(twid: &str, req: &reqwest::Request) -> [u8; 32] {
+    let body = req
+        .body()
+        .and_then(|b| b.as_bytes())
+        .unwrap_or(&[]);
+    request_key_auth_scoped(twid, req.method(), req.url().as_str(), &[], body)
 }
 
 async fn run_request_raw(

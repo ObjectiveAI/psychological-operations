@@ -15,7 +15,7 @@ pub async fn get(
     req: &super::get::Request,
 ) -> Result<super::get::Response, Error> {
     let path = format!("lists/{}", urlencoding::encode(&req.id.to_string()));
-    client.send_with_query(Method::GET, &path, req, true).await
+    client.send_with_query(Method::GET, &path, req, true, false).await
 }
 
 /// PUT /2/lists/{id}
@@ -24,7 +24,7 @@ pub async fn put(
     req: &super::put::Request,
 ) -> Result<super::put::Response, Error> {
     let path = format!("lists/{}", urlencoding::encode(&req.id.to_string()));
-    client.send(Method::PUT, &path, req.body.as_ref(), false).await
+    client.send(Method::PUT, &path, req.body.as_ref(), false, false).await
 }
 
 /// DELETE /2/lists/{id}
@@ -33,6 +33,6 @@ pub async fn delete(
     req: &super::delete::Request,
 ) -> Result<super::delete::Response, Error> {
     let path = format!("lists/{}", urlencoding::encode(&req.id.to_string()));
-    client.send::<_, ()>(Method::DELETE, &path, None, false).await
+    client.send::<_, ()>(Method::DELETE, &path, None, false, false).await
 }
 

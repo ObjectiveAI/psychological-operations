@@ -1,8 +1,8 @@
-//! `mcp begin` supervisor — probe-or-spawn the per-agent X-API MCP
-//! and return its URL.
+//! `mcp begin` supervisor — probe-or-spawn the per-(agent, mode)
+//! X-API MCP and return its URL.
 //!
-//! State per agent lives at
-//! `${TMPDIR}/psychological-operations-x-api-mcp-<agent>/state.json`.
+//! State per (agent, mode) lives at
+//! `${TMPDIR}/psychological-operations-x-api-mcp-<agent>-<mode>/state.json`.
 //! Probe: if state exists, look up the recorded PID via sysinfo and
 //! match the process name; if alive, return the recorded URL.
 //! Otherwise spawn a detached child with `stdin/stdout=null`,
@@ -22,6 +22,7 @@ use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
+use crate::commands::mcp::Mode;
 use crate::error::Error;
 use crate::mcp::embed::{self, X_API_MCP_BINARY_NAME};
 
@@ -36,21 +37,15 @@ struct State {
 }
 
 pub async fn run(
-    agent: Option<String>,
+    agent: &str,
+    mode: Mode,
     cache_max_size: u64,
     cache_ttl: u64,
     _cfg: &crate::run::Config,
 ) -> Result<crate::Output, Error> {
-    let agent = agent
-        .or_else(|| std::env::var("OBJECTIVEAI_AGENT_ID_BASE").ok())
-        .ok_or_else(|| {
-            Error::Other(
-                "agent must be specified via --agent or OBJECTIVEAI_AGENT_ID_BASE".into(),
-            )
-        })?;
-
+    let mode_str = mode.as_arg_str();
     let state_dir = std::env::temp_dir()
-        .join(format!("psychological-operations-x-api-mcp-{agent}"));
+        .join(format!("psychological-operations-x-api-mcp-{agent}-{mode_str}"));
     let state_file = state_dir.join("state.json");
 
     if let Some(state) = read_state(&state_file).await? {
@@ -61,7 +56,7 @@ pub async fn run(
     }
 
     let binary = embed::ensure_extracted().await?;
-    let url = spawn_and_wait(&binary, cache_max_size, cache_ttl, &agent).await?;
+    let url = spawn_and_wait(&binary, cache_max_size, cache_ttl, agent, mode).await?;
 
     tokio::fs::create_dir_all(&state_dir).await?;
     let pid = pid_for_url(&binary)?;
@@ -139,11 +134,13 @@ async fn spawn_and_wait(
     cache_max_size: u64,
     cache_ttl: u64,
     agent: &str,
+    mode: Mode,
 ) -> Result<String, Error> {
     let mut cmd = Command::new(binary);
     cmd.arg("--cache-max-size").arg(cache_max_size.to_string())
         .arg("--cache-ttl").arg(cache_ttl.to_string())
         .arg("--agent").arg(agent)
+        .arg("--mode").arg(mode.as_arg_str())
         .arg("--port").arg("0")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())

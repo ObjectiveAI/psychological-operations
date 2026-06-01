@@ -15,6 +15,6 @@ pub async fn post(
     req: &super::post::Request,
 ) -> Result<super::post::Response, Error> {
     let path = "media/metadata";
-    client.send(Method::POST, path, req.body.as_ref(), false).await
+    client.send(Method::POST, path, req.body.as_ref(), false, false).await
 }
 

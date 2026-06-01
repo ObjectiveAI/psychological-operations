@@ -16,6 +16,17 @@ use tokio_util::sync::CancellationToken;
 
 use crate::x_api::PsychologicalOperationsXApiMcp;
 
+/// `readonly` exposes only the read tools (search, get_tweet, …).
+/// `full` adds the mutating set (`post_tweet`, `reply_to_tweet`,
+/// `quote_tweet`, `like`, `retweet`, `bookmark`). The `whoami` tool
+/// is exposed in both modes.
+#[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Mode {
+    #[default]
+    Readonly,
+    Full,
+}
+
 #[derive(Envconfig)]
 struct EnvConfigBuilder {
     #[envconfig(from = "ADDRESS")]                  address: Option<String>,
@@ -24,7 +35,6 @@ struct EnvConfigBuilder {
     #[envconfig(from = "CONFIG_BASE_DIR")]          config_base_dir: Option<String>,
     #[envconfig(from = "MAX_CACHE_SIZE")]           max_cache_size: Option<u64>,
     #[envconfig(from = "CACHE_TTL_SECS")]           cache_ttl_secs: Option<u64>,
-    #[envconfig(from = "OBJECTIVEAI_AGENT_ID_BASE")] objectiveai_agent_id_base: Option<String>,
 }
 
 impl EnvConfigBuilder {
@@ -38,20 +48,25 @@ impl EnvConfigBuilder {
             config_base_dir: self.config_base_dir,
             max_cache_size: self.max_cache_size,
             cache_ttl_secs: self.cache_ttl_secs,
-            objectiveai_agent_id_base: self.objectiveai_agent_id_base,
+            agent: None,
+            mode: None,
         }
     }
 }
 
 #[derive(Default)]
 pub struct ConfigBuilder {
-    pub address:                    Option<String>,
-    pub port:                       Option<u16>,
-    pub suppress_output:            Option<bool>,
-    pub config_base_dir:            Option<String>,
-    pub max_cache_size:             Option<u64>,
-    pub cache_ttl_secs:             Option<u64>,
-    pub objectiveai_agent_id_base:  Option<String>,
+    pub address:          Option<String>,
+    pub port:             Option<u16>,
+    pub suppress_output:  Option<bool>,
+    pub config_base_dir:  Option<String>,
+    pub max_cache_size:   Option<u64>,
+    pub cache_ttl_secs:   Option<u64>,
+    /// Required at `build()` time — no env fallback. The binary
+    /// passes this from clap; downstream callers must set it
+    /// explicitly.
+    pub agent:            Option<String>,
+    pub mode:             Option<Mode>,
 }
 
 impl Envconfig for ConfigBuilder {
@@ -72,6 +87,9 @@ impl Envconfig for ConfigBuilder {
 }
 
 impl ConfigBuilder {
+    /// Panics if `agent` wasn't set — it has no env fallback and no
+    /// default. The binary side enforces this via clap (`--agent` is
+    /// a required arg).
     pub fn build(self) -> Config {
         Config {
             address: self.address.unwrap_or_else(|| "0.0.0.0".to_string()),
@@ -87,7 +105,8 @@ impl ConfigBuilder {
                 }),
             max_cache_size: self.max_cache_size.unwrap_or(256 * 1024 * 1024),
             cache_ttl_secs: self.cache_ttl_secs.unwrap_or(3600),
-            objectiveai_agent_id_base: self.objectiveai_agent_id_base,
+            agent: self.agent.expect("ConfigBuilder.agent is required"),
+            mode: self.mode.unwrap_or_default(),
         }
     }
 }
@@ -103,12 +122,14 @@ pub struct Config {
     /// `cache_max_size`). Default 256 MB.
     pub max_cache_size:   u64,
     /// Seconds — per-entry cache TTL (`Client::new`'s `cache_ttl`).
-    /// Currently plumbed but unused. Default 3600 (1 h).
+    /// Default 3600 (1 h).
     pub cache_ttl_secs:   u64,
-    /// Objectiveai agent-id base (env `OBJECTIVEAI_AGENT_ID_BASE`).
-    /// Defaults to `None`. Plumbed for downstream consumers; not yet
-    /// used by this MCP.
-    pub objectiveai_agent_id_base: Option<String>,
+    /// Agent whose persona OAuth token the Client uses. Required
+    /// — no env fallback; the binary's `--agent` clap arg is the
+    /// sole source.
+    pub agent:            String,
+    /// Tool-surface mode (readonly vs. full). Default `Readonly`.
+    pub mode:             Mode,
 }
 
 pub async fn setup(config: Config) -> std::io::Result<(tokio::net::TcpListener, axum::Router)> {
@@ -119,7 +140,8 @@ pub async fn setup(config: Config) -> std::io::Result<(tokio::net::TcpListener, 
         config_base_dir,
         max_cache_size,
         cache_ttl_secs,
-        objectiveai_agent_id_base: _,
+        agent,
+        mode,
     } = config;
 
     let http = Client::new(
@@ -128,10 +150,10 @@ pub async fn setup(config: Config) -> std::io::Result<(tokio::net::TcpListener, 
         max_cache_size,
         std::time::Duration::from_secs(cache_ttl_secs),
         config_base_dir,
-        AuthMode::XApp,
+        AuthMode::Agent(agent),
     );
 
-    let server = PsychologicalOperationsXApiMcp::new(Arc::new(http));
+    let server = PsychologicalOperationsXApiMcp::new(Arc::new(http), mode);
     let ct = CancellationToken::new();
 
     let service: StreamableHttpService<PsychologicalOperationsXApiMcp, LocalSessionManager> =

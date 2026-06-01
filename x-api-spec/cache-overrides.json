@@ -1,0 +1,6 @@
+{
+  "description": "OpenAPI paths whose cached responses depend on the authenticated user. The SDK cache key for these endpoints incorporates the authenticated twid so distinct agents sharing the cache file don't cross-contaminate. Default policy (`GET` caches, everything else does not) still applies — this list only flips on the `auth_scoped` cache-key dimension. Consumed by x-api-spec/codegen.py.",
+  "auth_scoped": [
+    "/2/users/me"
+  ]
+}

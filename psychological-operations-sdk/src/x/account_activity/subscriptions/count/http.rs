@@ -15,6 +15,6 @@ pub async fn get(
     _req: &super::get::Request,
 ) -> Result<super::get::Response, Error> {
     let path = "account_activity/subscriptions/count";
-    client.send::<_, ()>(Method::GET, path, None, true).await
+    client.send::<_, ()>(Method::GET, path, None, true, false).await
 }
 

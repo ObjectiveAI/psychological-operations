@@ -204,6 +204,33 @@ pub fn request_key(method: &Method, path: &str, query: &[u8], body: &[u8]) -> [u
     h.finalize().into()
 }
 
+/// Like [`request_key`] but folds the authenticated twid into the
+/// digest. For endpoints whose response varies by authenticated
+/// user (today: `/2/users/me`). The distinct `"cache\0auth\0"`
+/// prefix namespaces these keys away from the unscoped
+/// [`request_key`] scheme so identical (method, path, query, body)
+/// tuples can't collide across the two key spaces.
+pub fn request_key_auth_scoped(
+    twid: &str,
+    method: &Method,
+    path: &str,
+    query: &[u8],
+    body: &[u8],
+) -> [u8; 32] {
+    let mut h = Sha256::new();
+    h.update(b"cache\0auth\0");
+    h.update(twid.as_bytes());
+    h.update(b"\0");
+    h.update(method.as_str().as_bytes());
+    h.update(b"\0");
+    h.update(path.as_bytes());
+    h.update(b"\0");
+    h.update(query);
+    h.update(b"\0");
+    h.update(body);
+    h.finalize().into()
+}
+
 /// Open the SDK's SQLite file (`<config>/plugins/psychological-operations/x-api-cache.sqlite`).
 /// Both the cache and the auth locker share this one file/pool.
 pub(crate) async fn open_pool(config_base_dir: &Path) -> Result<SqlitePool, Error> {

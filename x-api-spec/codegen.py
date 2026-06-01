@@ -21,6 +21,7 @@ SCRIPT_DIR = Path(__file__).parent.resolve()
 REPO_ROOT = SCRIPT_DIR.parent
 SPEC_PATH = SCRIPT_DIR / "openapi.json"
 META_PATH = SCRIPT_DIR / "openapi.meta.json"
+CACHE_OVERRIDES_PATH = SCRIPT_DIR / "cache-overrides.json"
 OUT_DIR = REPO_ROOT / "psychological-operations-sdk" / "src" / "x"
 
 # Stable marker — the cleaner uses `content.startswith(GENERATED_MARKER)`
@@ -88,13 +89,24 @@ def load_spec() -> tuple[dict, str]:
     return spec, sha
 
 
+def load_auth_scoped_paths() -> set[str]:
+    """Return the set of OpenAPI paths whose cache key folds in the
+    authenticated twid. Missing file or empty `auth_scoped` list both
+    yield an empty set."""
+    if not CACHE_OVERRIDES_PATH.exists():
+        return set()
+    data = json.loads(CACHE_OVERRIDES_PATH.read_text())
+    return set(data.get("auth_scoped") or [])
+
+
 # ---- type resolution ------------------------------------------------------
 
 
 class Codegen:
-    def __init__(self, spec: dict, sha: str):
+    def __init__(self, spec: dict, sha: str, auth_scoped_paths: set[str]):
         self.spec = spec
         self.sha = sha
+        self.auth_scoped_paths = auth_scoped_paths
         self.schemas: dict[str, dict] = spec["components"]["schemas"]
         self.parameters: dict[str, dict] = spec["components"].get("parameters", {})
         self.kinds: dict[str, str] = {}     # schema_name -> kind
@@ -884,6 +896,14 @@ class Codegen:
         # emitted by the codegen today, so this collapses to "GET caches,
         # nothing else does".
         cache_lit = "true" if method == "get" else "false"
+        # `auth_scoped` flips on when the response varies by
+        # authenticated user (today: /2/users/me). Folded into the
+        # cache key by the SDK so distinct agents sharing the cache
+        # file don't cross-contaminate. List lives in
+        # `x-api-spec/cache-overrides.json`. Always emitted, even
+        # for non-GET endpoints — the SDK ignores it when `cache` is
+        # false, so emitting uniformly keeps the call shape stable.
+        auth_scoped_lit = "true" if meta["url_path"] in self.auth_scoped_paths else "false"
 
         # Determine whether `req` is referenced in the body. It is unused
         # only when there are no path params, no query params, and no body
@@ -918,41 +938,41 @@ class Codegen:
             # only known case (POST /2/tweets/search/stream/rules).
             f.write(
                 f"    client.send_with_query_and_body({method_const}, "
-                f"{path_expr}, req, &req.body, {cache_lit}).await\n"
+                f"{path_expr}, req, &req.body, {cache_lit}, {auth_scoped_lit}).await\n"
             )
         elif has_query:
             # GET (always uses this branch since GETs always have query),
             # plus the rare non-GET with query but no body.
             if has_response:
                 f.write(
-                    f"    client.send_with_query({method_const}, {path_expr}, req, {cache_lit}).await\n"
+                    f"    client.send_with_query({method_const}, {path_expr}, req, {cache_lit}, {auth_scoped_lit}).await\n"
                 )
             else:
                 f.write(
                     f"    client.send_with_query_no_response({method_const}, "
-                    f"{path_expr}, req, {cache_lit}).await?;\n"
+                    f"{path_expr}, req, {cache_lit}, {auth_scoped_lit}).await?;\n"
                 )
                 f.write(f"    Ok(super::{method}::Response)\n")
         elif has_body:
             body_arg = self._body_arg_expr(body_required)
             if has_response:
                 f.write(
-                    f"    client.send({method_const}, {path_expr}, {body_arg}, {cache_lit}).await\n"
+                    f"    client.send({method_const}, {path_expr}, {body_arg}, {cache_lit}, {auth_scoped_lit}).await\n"
                 )
             else:
                 f.write(
-                    f"    client.send_no_response({method_const}, {path_expr}, {body_arg}, {cache_lit}).await?;\n"
+                    f"    client.send_no_response({method_const}, {path_expr}, {body_arg}, {cache_lit}, {auth_scoped_lit}).await?;\n"
                 )
                 f.write(f"    Ok(super::{method}::Response)\n")
         else:
             # No body, no query — typical DELETE.
             if has_response:
                 f.write(
-                    f"    client.send::<_, ()>({method_const}, {path_expr}, None, {cache_lit}).await\n"
+                    f"    client.send::<_, ()>({method_const}, {path_expr}, None, {cache_lit}, {auth_scoped_lit}).await\n"
                 )
             else:
                 f.write(
-                    f"    client.send_no_response::<()>({method_const}, {path_expr}, None, {cache_lit}).await?;\n"
+                    f"    client.send_no_response::<()>({method_const}, {path_expr}, None, {cache_lit}, {auth_scoped_lit}).await?;\n"
                 )
                 f.write(f"    Ok(super::{method}::Response)\n")
 
@@ -1170,13 +1190,15 @@ def main() -> None:
     if not SPEC_PATH.exists():
         sys.exit(f"missing {SPEC_PATH}; run x-api-spec/fetch.sh first")
     spec, sha = load_spec()
+    auth_scoped_paths = load_auth_scoped_paths()
     print(f"Loaded openapi.json (sha256 {sha[:16]}...)")
+    print(f"Loaded cache-overrides.json ({len(auth_scoped_paths)} auth-scoped paths)")
 
     print("Cleaning previously generated files ...")
     clean_generated(OUT_DIR)
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    cg = Codegen(spec, sha)
+    cg = Codegen(spec, sha, auth_scoped_paths)
     print("Emitting components ...")
     cg.emit_components()
     print("Emitting parameter components ...")

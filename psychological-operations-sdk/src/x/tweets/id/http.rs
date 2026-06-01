@@ -15,7 +15,7 @@ pub async fn get(
     req: &super::get::Request,
 ) -> Result<super::get::Response, Error> {
     let path = format!("tweets/{}", urlencoding::encode(&req.id.to_string()));
-    client.send_with_query(Method::GET, &path, req, true).await
+    client.send_with_query(Method::GET, &path, req, true, false).await
 }
 
 /// DELETE /2/tweets/{id}
@@ -24,6 +24,6 @@ pub async fn delete(
     req: &super::delete::Request,
 ) -> Result<super::delete::Response, Error> {
     let path = format!("tweets/{}", urlencoding::encode(&req.id.to_string()));
-    client.send::<_, ()>(Method::DELETE, &path, None, false).await
+    client.send::<_, ()>(Method::DELETE, &path, None, false, false).await
 }
 

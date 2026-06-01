@@ -15,7 +15,7 @@ pub async fn get(
     req: &super::get::Request,
 ) -> Result<super::get::Response, Error> {
     let path = format!("users/{}/pinned_lists", urlencoding::encode(&req.id.to_string()));
-    client.send_with_query(Method::GET, &path, req, true).await
+    client.send_with_query(Method::GET, &path, req, true, false).await
 }
 
 /// POST /2/users/{id}/pinned_lists
@@ -24,6 +24,6 @@ pub async fn post(
     req: &super::post::Request,
 ) -> Result<super::post::Response, Error> {
     let path = format!("users/{}/pinned_lists", urlencoding::encode(&req.id.to_string()));
-    client.send(Method::POST, &path, Some(&req.body), false).await
+    client.send(Method::POST, &path, Some(&req.body), false, false).await
 }
 
