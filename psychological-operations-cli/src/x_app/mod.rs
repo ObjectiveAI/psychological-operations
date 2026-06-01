@@ -1,11 +1,11 @@
-//! `x_app` subcommand surface.
+//! X-App setup flow (pure business logic — clap surface lives in
+//! `crate::commands::x_app`).
 //!
-//! Today's surface: `x_app setup [--dangerously-reset]` — open
-//! the embedded browser against the master X-App profile so the
-//! operator can sign into X.com, create their X App on
-//! console.x.com, and let the browser's helpers capture
-//! credentials (`x_app.json`, `post_create_dialog.html`,
-//! `oauth_popup.html`).
+//! `setup [--dangerously-reset]` opens the embedded browser
+//! against the master X-App profile so the operator can sign into
+//! X.com, create their X App on console.x.com, and let the
+//! browser's helpers capture credentials (`x_app.json`,
+//! `post_create_dialog.html`, `oauth_popup.html`).
 //!
 //! Pre-flight: if the X-App is **already** fully set up
 //! (signed in + both HTML snapshots complete), the flow refuses
@@ -24,8 +24,6 @@
 
 use std::path::Path;
 
-use clap::Subcommand;
-
 use psychological_operations_sdk::browser::cookies;
 use psychological_operations_sdk::browser::mode::Mode;
 use psychological_operations_sdk::browser::output::Output;
@@ -35,37 +33,7 @@ use psychological_operations_sdk::browser::x_app_credentials::{OAuthPopup, PostC
 use crate::browser::{extract::ensure_extracted, launch, stream};
 use crate::error::Error;
 
-#[derive(Subcommand)]
-pub enum Commands {
-    /// Set up the X-App master OAuth credentials. Spawns the
-    /// embedded browser scoped to `x-app/`; on sign-in the
-    /// operator follows on-screen instructions to capture the
-    /// post-create dialog + OAuth-popup snapshots.
-    ///
-    /// Refuses to run if the X-App is already fully set up
-    /// (signed in + both snapshots complete) — pass
-    /// `--dangerously-reset` to wipe the X-App folder AND every
-    /// persona's auth.json (CEF cookies for personas stay) and
-    /// start over.
-    #[command(name = "setup")]
-    Setup {
-        /// Wipe X-App + every persona's auth folder before
-        /// launching. Required if the X-App is already signed in
-        /// AND both snapshots are complete.
-        #[arg(long)]
-        dangerously_reset: bool,
-    },
-}
-
-impl Commands {
-    pub async fn handle(self, cfg: &crate::run::Config) -> Result<crate::Output, Error> {
-        match self {
-            Commands::Setup { dangerously_reset } => setup(dangerously_reset, cfg).await,
-        }
-    }
-}
-
-async fn setup(
+pub(crate) async fn setup(
     dangerously_reset: bool,
     cfg: &crate::run::Config,
 ) -> Result<crate::Output, Error> {

@@ -1,7 +1,7 @@
-use clap::{Args, Subcommand};
+use clap::Args;
 use objectiveai_sdk::functions::inventions::{
     ParamsState,
-    state::{AlphaScalarState, AlphaVectorState, Params},
+    state::Params,
 };
 
 use crate::input;
@@ -32,7 +32,7 @@ pub struct InventionParams {
 }
 
 impl InventionParams {
-    fn into_params(self) -> Params {
+    pub(crate) fn into_params(self) -> Params {
         Params {
             depth: self.depth,
             min_branch_width: self.min_branch_width,
@@ -144,72 +144,8 @@ impl ForwardArgs {
     }
 }
 
-#[derive(Subcommand)]
-pub enum Commands {
-    /// Invent a scalar function for scoring individual posts
-    AlphaScalar {
-        #[command(flatten)]
-        params: InventionParams,
-        #[command(flatten)]
-        forward: ForwardArgs,
-    },
-    /// Invent a vector function for ranking posts
-    AlphaVector {
-        #[command(flatten)]
-        params: InventionParams,
-        #[command(flatten)]
-        forward: ForwardArgs,
-    },
-    /// Invent from existing state (remote reference or inline JSON)
-    Remote {
-        /// State reference (e.g. remote=mock,name=inv-good-sl)
-        #[arg(long, required_unless_present = "state_inline")]
-        state: Option<String>,
-        /// Inline JSON state
-        #[arg(long, conflicts_with = "state")]
-        state_inline: Option<String>,
-        #[command(flatten)]
-        forward: ForwardArgs,
-    },
-}
-
-impl Commands {
-    pub fn handle(self, cfg: &crate::run::Config) -> Result<crate::Output, crate::error::Error> {
-        match self {
-            Commands::AlphaScalar { params, forward } => {
-                let p = params.into_params();
-                let state = ParamsState::AlphaScalar(AlphaScalarState {
-                    params: p,
-                    input_schema: Some(input::scalar_input_schema()),
-                });
-                run_invention(&state, &forward, cfg)
-            }
-            Commands::AlphaVector { params, forward } => {
-                let p = params.into_params();
-                let state = ParamsState::AlphaVector(AlphaVectorState {
-                    params: p,
-                    input_schema: Some(input::vector_input_schema()),
-                });
-                run_invention(&state, &forward, cfg)
-            }
-            Commands::Remote { state, state_inline, forward } => {
-                let resolved = if let Some(inline) = state_inline {
-                    let parsed: ParamsState = serde_json::from_str(&inline)?;
-                    fill_schema_if_missing(parsed)
-                } else if let Some(ref ref_str) = state {
-                    let fetched = fetch_state(ref_str, cfg)?;
-                    fill_schema_if_missing(fetched)
-                } else {
-                    return Err(crate::error::Error::Other("--state or --state-inline is required".into()));
-                };
-                run_invention(&resolved, &forward, cfg)
-            }
-        }
-    }
-}
-
 /// Fetch a remote invention state via the CLI.
-fn fetch_state(ref_str: &str, cfg: &crate::run::Config) -> Result<ParamsState, crate::error::Error> {
+pub(crate) fn fetch_state(ref_str: &str, cfg: &crate::run::Config) -> Result<ParamsState, crate::error::Error> {
     let output = std::process::Command::new(crate::score::objectiveai_binary(cfg))
         .args(["functions", "inventions", "state", "get", "--path", ref_str])
         .stderr(std::process::Stdio::inherit())
@@ -225,7 +161,7 @@ fn fetch_state(ref_str: &str, cfg: &crate::run::Config) -> Result<ParamsState, c
 }
 
 /// Fill input_schema if it's missing, using our post schema.
-fn fill_schema_if_missing(state: ParamsState) -> ParamsState {
+pub(crate) fn fill_schema_if_missing(state: ParamsState) -> ParamsState {
     match state {
         ParamsState::AlphaScalar(mut s) => {
             if s.input_schema.is_none() {
@@ -267,7 +203,7 @@ fn fill_schema_if_missing(state: ParamsState) -> ParamsState {
 }
 
 /// Shell out to objectiveai CLI via `remote --state-inline`.
-fn run_invention(
+pub(crate) fn run_invention(
     state: &ParamsState,
     fwd: &ForwardArgs,
     cfg: &crate::run::Config,

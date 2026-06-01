@@ -6,11 +6,11 @@
 //! logged-in user (the twid-conflict guard does not fire) and have
 //! no scrape mode.
 //!
-//! Today's surface: `agents login <name>` — spawn the embedded
-//! browser in `--agent-authorize <name>` mode and let it write
-//! `<base>/.../agent/<name>/handles/<twid>/auth.json` via the SDK's
-//! `auth_json` module. Routed through [`crate::login::run`], which
-//! shares all pre-flight + browser-spawn logic with `psyops login`.
+//! Both arms (`login`, `browser`) are thin dispatches into
+//! `crate::login::run` / `crate::persona_browser::run` with
+//! `PersonaKind::Agent`. There is no agent-specific business logic,
+//! so there's no `crate::agents` module — this file is the entire
+//! agent surface.
 
 use clap::Subcommand;
 

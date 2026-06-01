@@ -1,14 +1,6 @@
 use std::path::PathBuf;
 
-use clap::{Parser, Subcommand};
 use envconfig::Envconfig;
-
-use crate::agents;
-use crate::mcp;
-use crate::x_app;
-use crate::invent;
-use crate::targets;
-use crate::psyops;
 
 // ---------------------------------------------------------------------------
 // Env-driven runtime config (3-struct pattern; mirrors objectiveai-cli)
@@ -131,52 +123,8 @@ pub fn load_config() -> Config {
 }
 
 // ---------------------------------------------------------------------------
-// CLI surface
+// Output type returned by command handlers
 // ---------------------------------------------------------------------------
-
-#[derive(Parser)]
-#[command(name = "psychological-operations")]
-#[command(about = "ObjectiveAI-driven X scoring pipeline")]
-struct Cli {
-    #[command(subcommand)]
-    command: Commands,
-}
-
-#[derive(Subcommand)]
-enum Commands {
-    /// Manage psyops (list/get/enable/disable/publish/run/browse/oauth/targets)
-    Psyops {
-        #[command(subcommand)]
-        command: psyops::Commands,
-    },
-    /// Manage agents (oauth)
-    Agents {
-        #[command(subcommand)]
-        command: agents::Commands,
-    },
-    /// Global target destinations
-    Targets {
-        #[command(subcommand)]
-        command: targets::Commands,
-    },
-    /// Invent a function for scoring posts
-    Invent {
-        #[command(subcommand)]
-        command: invent::Commands,
-    },
-    /// Master X dev-account / X-App credentials setup.
-    #[command(name = "x_app")]
-    XApp {
-        #[command(subcommand)]
-        command: x_app::Commands,
-    },
-    /// Embedded X-API MCP server: begin (or attach to) a per-agent
-    /// supervised instance.
-    Mcp {
-        #[command(subcommand)]
-        command: mcp::Commands,
-    },
-}
 
 pub enum Output {
     ConfigGet(String),
@@ -202,48 +150,3 @@ impl std::fmt::Display for Output {
     }
 }
 
-/// Three clap error kinds carry rendered text the user explicitly
-/// asked for (`--help`, `--version`) or that clap auto-renders when
-/// invocation lacks a subcommand. They're informational — not parse
-/// failures — and should bypass the fatal-Error emission path.
-///
-/// Mirrors the upstream objectiveai-cli fix (see `deleteme.md`
-/// scaffolding doc).
-fn is_informational(e: &clap::Error) -> bool {
-    use clap::error::ErrorKind;
-    matches!(
-        e.kind(),
-        ErrorKind::DisplayHelp
-            | ErrorKind::DisplayVersion
-            | ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
-    )
-}
-
-pub async fn run<I, T>(args: I, cfg: &Config) -> Result<String, String>
-where
-    I: IntoIterator<Item = T>,
-    T: Into<std::ffi::OsString> + Clone,
-{
-    let cli = match Cli::try_parse_from(args) {
-        Ok(cli) => cli,
-        // Clap returns Err for `--help`, `--version`, and "no subcommand
-        // given" because none has a `Cli` value to dispatch on. All three
-        // are informational, not failures — return them through the Ok
-        // arm so main.rs emits via `emit_notification_from_payload`
-        // (Notification, exit 0) instead of `emit_error` (Error, exit 1).
-        // Matches the structure of objectiveai's own upstream fix in
-        // `deleteme.md`.
-        Err(e) if is_informational(&e) => return Ok(e.to_string()),
-        Err(e) => return Err(e.to_string()),
-    };
-    let output = match cli.command {
-        Commands::Psyops { command } => command.handle(cfg).await,
-        Commands::Agents { command } => command.handle(cfg).await,
-        Commands::Targets { command } => command.handle(cfg).await,
-        Commands::Invent { command } => command.handle(cfg),
-        Commands::XApp { command } => command.handle(cfg).await,
-        Commands::Mcp { command } => command.handle(cfg).await,
-    }
-    .map_err(|e| e.to_string())?;
-    Ok(output.to_string())
-}

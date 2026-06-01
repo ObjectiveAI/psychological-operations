@@ -1,5 +1,4 @@
 pub mod browse;
-pub mod targets;
 pub mod run;
 pub mod notify;
 
@@ -17,108 +16,8 @@ pub use sort_by::*;
 pub use filter::*;
 pub use stage::*;
 
-use clap::{Args, Subcommand};
+use clap::Args;
 use serde::Serialize;
-
-#[derive(Subcommand)]
-pub enum Commands {
-    /// List all psyops on disk. `enabled` reflects the resolved state at
-    /// each psyop's current commit. `--enabled` and `--disabled` are
-    /// mutually exclusive filters.
-    List {
-        #[arg(long, conflicts_with = "disabled")]
-        enabled: bool,
-        #[arg(long)]
-        disabled: bool,
-    },
-    /// Print the on-disk JSON definition of a psyop.
-    Get {
-        name: String,
-    },
-    /// Mark a psyop as enabled. With `--commit <sha>` only affects that
-    /// commit; otherwise updates the base flag.
-    Enable {
-        name: String,
-        #[arg(long)]
-        commit: Option<String>,
-    },
-    /// Mark a psyop as disabled. With `--commit <sha>` only affects that
-    /// commit; otherwise updates the base flag.
-    Disable {
-        name: String,
-        #[arg(long)]
-        commit: Option<String>,
-    },
-    /// Publish a psyop definition (writes psyop.json + commits in its repo).
-    Publish {
-        #[command(flatten)]
-        args: PublishArgs,
-    },
-    /// Delete a psyop. Removes its directory under `<psyops_dir>/<name>/`
-    /// (including the git repo) and drops any per-psyop overrides from
-    /// `config.json`. Errors if the psyop dir is missing.
-    Delete {
-        name: String,
-    },
-    /// Run enabled psyops in rounds: each round runs all psyops that have
-    /// enough data concurrently; later rounds pick up psyops whose inputs
-    /// depend on earlier rounds' scores. With no flags, runs the full set.
-    /// `--name X` narrows the run to one psyop; `--commit Y` additionally
-    /// requires the psyop's HEAD to match Y. `--commit` without `--name`
-    /// is rejected.
-    Run {
-        #[arg(long)]
-        name: Option<String>,
-        #[arg(long, requires = "name")]
-        commit: Option<String>,
-        /// Pass-through to `objectiveai` for deterministic mock
-        /// outputs. Used by integration tests; optional otherwise.
-        #[arg(long)]
-        seed: Option<i64>,
-    },
-    /// Open the embedded browser for each psyop in turn so the
-    /// operator can scroll x.com and save tweet IDs. Blocks on each
-    /// browser's exit before opening the next. With `--name <X>`
-    /// opens just that one psyop's browser.
-    Browse {
-        #[arg(long)]
-        name: Option<String>,
-        #[arg(long, requires = "name")]
-        commit: Option<String>,
-    },
-    /// Manage per-psyop target destinations.
-    Targets {
-        #[command(subcommand)]
-        command: targets::Commands,
-    },
-    /// Sign in a psyop's X account. Requires the master X-App to
-    /// already be signed in + fully set up (`x_app setup`). Opens
-    /// the embedded browser scoped to `psyop/<name>/`; on sign-in
-    /// the browser drives the OAuth 2.0 PKCE consent screen,
-    /// exchanges the code, and writes auth.json under the psyop's
-    /// data root. Refuses if the psyop is already signed in or
-    /// already has an auth.json for the current X-App — pass
-    /// `--dangerously-reset` to wipe its browser folder and re-login.
-    #[command(name = "login")]
-    Login {
-        name: String,
-        /// Wipe any existing browser state for this psyop before
-        /// signing in. Required when re-logging in for a psyop that
-        /// already has an active session or stored auth.json.
-        #[arg(long)]
-        dangerously_reset: bool,
-    },
-    /// Open the embedded browser as this psyop. Loads x.com under
-    /// the psyop's CEF profile (shared with `psyops browse` /
-    /// `psyops login`). No tweet-ID scraping, no OAuth, no
-    /// twid-conflict guard — just a clean browser. The operator
-    /// closes the window when done; the CLI blocks on that exit.
-    /// The only mode hint shown is "Sign in to X" if not signed in.
-    #[command(name = "browser")]
-    Browser {
-        name: String,
-    },
-}
 
 #[derive(Args)]
 #[group(required = true, multiple = false)]
@@ -150,40 +49,7 @@ struct PsyopEntry {
     commit_sha: String,
 }
 
-impl Commands {
-    pub async fn handle(self, cfg: &crate::run::Config) -> Result<crate::Output, crate::error::Error> {
-        match self {
-            Commands::List { enabled, disabled } => list(enabled, disabled, cfg),
-            Commands::Get { name } => get(&name, cfg),
-            Commands::Enable { name, commit } => set_disabled(&name, commit.as_deref(), false, cfg),
-            Commands::Disable { name, commit } => set_disabled(&name, commit.as_deref(), true, cfg),
-            Commands::Publish { args } => publish(args, cfg),
-            Commands::Delete { name } => delete(&name, cfg),
-            Commands::Run { name, commit, seed } => run::run_all(name.as_deref(), commit.as_deref(), seed, cfg).await,
-            Commands::Browse { name, commit } => browse::run(name.as_deref(), commit.as_deref(), cfg).await,
-            Commands::Targets { command } => command.handle(cfg),
-            Commands::Login { name, dangerously_reset } => {
-                crate::login::run(
-                    psychological_operations_sdk::browser::auth_json::PersonaKind::Psyop,
-                    &name,
-                    dangerously_reset,
-                    cfg,
-                )
-                .await
-            }
-            Commands::Browser { name } => {
-                crate::persona_browser::run(
-                    psychological_operations_sdk::browser::auth_json::PersonaKind::Psyop,
-                    &name,
-                    cfg,
-                )
-                .await
-            }
-        }
-    }
-}
-
-fn list(enabled: bool, disabled: bool, cfg: &crate::run::Config) -> Result<crate::Output, crate::error::Error> {
+pub(crate) fn list(enabled: bool, disabled: bool, cfg: &crate::run::Config) -> Result<crate::Output, crate::error::Error> {
     let json_cfg = crate::config::load(cfg);
     let dir = crate::config::psyops_dir(cfg);
     let mut entries: Vec<PsyopEntry> = Vec::new();
@@ -215,12 +81,12 @@ fn list(enabled: bool, disabled: bool, cfg: &crate::run::Config) -> Result<crate
     Ok(crate::Output::ConfigGet(serde_json::to_string(&entries)?))
 }
 
-fn get(name: &str, cfg: &crate::run::Config) -> Result<crate::Output, crate::error::Error> {
+pub(crate) fn get(name: &str, cfg: &crate::run::Config) -> Result<crate::Output, crate::error::Error> {
     let psyop = self::psyop::load(name, None, cfg)?;
     Ok(crate::Output::ConfigGet(serde_json::to_string(&psyop)?))
 }
 
-fn set_disabled(name: &str, commit: Option<&str>, value: bool, cfg: &crate::run::Config) -> Result<crate::Output, crate::error::Error> {
+pub(crate) fn set_disabled(name: &str, commit: Option<&str>, value: bool, cfg: &crate::run::Config) -> Result<crate::Output, crate::error::Error> {
     let mut json_cfg = crate::config::load(cfg);
     {
         let overrides = json_cfg.psyops.entry(name.to_string()).or_default();
@@ -251,7 +117,7 @@ fn set_disabled(name: &str, commit: Option<&str>, value: bool, cfg: &crate::run:
     Ok(crate::Output::ConfigSet)
 }
 
-fn publish(args: PublishArgs, cfg: &crate::run::Config) -> Result<crate::Output, crate::error::Error> {
+pub(crate) fn publish(args: PublishArgs, cfg: &crate::run::Config) -> Result<crate::Output, crate::error::Error> {
     let psyop: PsyOp = if let Some(inline) = args.source.psyop_inline {
         serde_json::from_str(&inline)?
     } else if let Some(path) = args.source.psyop_file {
@@ -290,7 +156,7 @@ fn publish(args: PublishArgs, cfg: &crate::run::Config) -> Result<crate::Output,
 /// repo) and drop any per-psyop entries from config.json. Returns
 /// `PsyopNotFound` if the dir doesn't exist (treat delete-of-absent
 /// as an error so scripts can `&&` chain).
-fn delete(name: &str, cfg: &crate::run::Config) -> Result<crate::Output, crate::error::Error> {
+pub(crate) fn delete(name: &str, cfg: &crate::run::Config) -> Result<crate::Output, crate::error::Error> {
     let dir = crate::config::psyops_dir(cfg).join(name);
     if !dir.exists() {
         return Err(crate::error::Error::PsyopNotFound(dir.display().to_string()));

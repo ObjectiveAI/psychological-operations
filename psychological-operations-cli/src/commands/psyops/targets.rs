@@ -1,5 +1,10 @@
+//! Per-psyop target destinations (vs. the global ones under
+//! `crate::commands::targets`). These read / write the
+//! `json_cfg.psyops.<name>.{base,commits.<sha>}.targets` lists.
+
 use clap::Subcommand;
 
+use crate::error::Error;
 use crate::targets::destinations::Destination;
 
 #[derive(Subcommand)]
@@ -30,18 +35,23 @@ pub enum Commands {
 }
 
 impl Commands {
-    pub fn handle(self, cfg: &crate::run::Config) -> Result<crate::Output, crate::error::Error> {
+    pub fn handle(self, cfg: &crate::run::Config) -> Result<crate::Output, Error> {
         match self {
             Commands::Get { name, index, commit } => {
                 let json_cfg = crate::config::load(cfg);
-                let list: Vec<Destination> = json_cfg.psyops.get(&name).map(|o| match commit.as_deref() {
-                    Some(sha) => o.commits.get(sha).map(|c| c.targets.clone()).unwrap_or_default(),
-                    None => o.base.targets.clone(),
-                }).unwrap_or_default();
+                let list: Vec<Destination> = json_cfg
+                    .psyops
+                    .get(&name)
+                    .map(|o| match commit.as_deref() {
+                        Some(sha) => o.commits.get(sha).map(|c| c.targets.clone()).unwrap_or_default(),
+                        None => o.base.targets.clone(),
+                    })
+                    .unwrap_or_default();
                 match index {
                     Some(i) => {
-                        let entry = list.get(i)
-                            .ok_or_else(|| crate::error::Error::Other(format!("no target at index {i}")))?;
+                        let entry = list
+                            .get(i)
+                            .ok_or_else(|| Error::Other(format!("no target at index {i}")))?;
                         Ok(crate::Output::ConfigGet(serde_json::to_string(entry)?))
                     }
                     None => Ok(crate::Output::ConfigGet(serde_json::to_string(&list)?)),
@@ -52,7 +62,12 @@ impl Commands {
                 let mut json_cfg = crate::config::load(cfg);
                 let overrides = json_cfg.psyops.entry(name).or_default();
                 match commit.as_deref() {
-                    Some(sha) => overrides.commits.entry(sha.to_string()).or_default().targets.push(parsed),
+                    Some(sha) => overrides
+                        .commits
+                        .entry(sha.to_string())
+                        .or_default()
+                        .targets
+                        .push(parsed),
                     None => overrides.base.targets.push(parsed),
                 }
                 crate::config::save(&json_cfg, cfg)?;
@@ -61,16 +76,23 @@ impl Commands {
             Commands::Del { name, index, commit } => {
                 let mut json_cfg = crate::config::load(cfg);
                 {
-                    let overrides = json_cfg.psyops.get_mut(&name)
-                        .ok_or_else(|| crate::error::Error::Other(format!("no psyop config entry for \"{name}\"")))?;
+                    let overrides = json_cfg.psyops.get_mut(&name).ok_or_else(|| {
+                        Error::Other(format!("no psyop config entry for \"{name}\""))
+                    })?;
                     let target = match commit.as_deref() {
-                        Some(sha) => &mut overrides.commits.get_mut(sha)
-                            .ok_or_else(|| crate::error::Error::Other(format!("no commit override \"{sha}\" for psyop \"{name}\"")))?
+                        Some(sha) => &mut overrides
+                            .commits
+                            .get_mut(sha)
+                            .ok_or_else(|| {
+                                Error::Other(format!(
+                                    "no commit override \"{sha}\" for psyop \"{name}\""
+                                ))
+                            })?
                             .targets,
                         None => &mut overrides.base.targets,
                     };
                     if index >= target.len() {
-                        return Err(crate::error::Error::Other(format!("no target at index {index}")));
+                        return Err(Error::Other(format!("no target at index {index}")));
                     }
                     target.remove(index);
                     if let Some(sha) = commit.as_deref() {
