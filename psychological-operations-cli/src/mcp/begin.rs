@@ -41,7 +41,7 @@ pub async fn run(
     mode: Mode,
     cache_max_size: u64,
     cache_ttl: u64,
-    _cfg: &crate::run::Config,
+    cfg: &crate::run::Config,
 ) -> Result<crate::Output, Error> {
     let mode_str = mode.as_arg_str();
     let state_dir = std::env::temp_dir()
@@ -56,7 +56,8 @@ pub async fn run(
     }
 
     let binary = embed::ensure_extracted().await?;
-    let url = spawn_and_wait(&binary, cache_max_size, cache_ttl, agent, mode).await?;
+    let config_base_dir = cfg.objectiveai_base_dir();
+    let url = spawn_and_wait(&binary, &config_base_dir, cache_max_size, cache_ttl, agent, mode).await?;
 
     tokio::fs::create_dir_all(&state_dir).await?;
     let pid = pid_for_url(&binary)?;
@@ -131,13 +132,15 @@ fn pid_for_url(binary: &Path) -> Result<u32, Error> {
 /// line off stderr. Returns `http://<addr>`.
 async fn spawn_and_wait(
     binary: &Path,
+    config_base_dir: &Path,
     cache_max_size: u64,
     cache_ttl: u64,
     agent: &str,
     mode: Mode,
 ) -> Result<String, Error> {
     let mut cmd = Command::new(binary);
-    cmd.arg("--cache-max-size").arg(cache_max_size.to_string())
+    cmd.arg("--config-base-dir").arg(config_base_dir)
+        .arg("--cache-max-size").arg(cache_max_size.to_string())
         .arg("--cache-ttl").arg(cache_ttl.to_string())
         .arg("--agent").arg(agent)
         .arg("--mode").arg(mode.as_arg_str())
