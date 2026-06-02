@@ -10,6 +10,7 @@ use psychological_operations_sdk::x::tweets as tweets_root;
 use psychological_operations_sdk::x::tweets::id as tweets_id;
 use psychological_operations_sdk::x::tweets::search::recent as tweets_search_recent;
 use psychological_operations_sdk::x::types::{TweetCreateRequest, TweetId};
+use psychological_operations_sdk::x::users::me as users_me;
 use rmcp::ErrorData;
 
 pub(super) fn standard_tweet_request(tweet_id: &str) -> tweets_id::get::Request {
@@ -109,4 +110,22 @@ pub(super) async fn send_create_tweet(
         .map_err(|e| ErrorData::internal_error(format!("tweets: {e}"), None))?;
     serde_json::to_string(&resp.data)
         .map_err(|e| ErrorData::internal_error(format!("serialize: {e}"), None))
+}
+
+/// Resolve the authenticated user's numeric id via `/users/me`.
+/// Used by the engagement tools (like / retweet / bookmark /
+/// get_bookmarks) that need the acting user id in the URL path.
+pub(super) async fn resolve_self_user_id(http: &Client) -> Result<String, ErrorData> {
+    let req = users_me::get::Request {
+        user_fields: None,
+        expansions: None,
+        tweet_fields: None,
+    };
+    let resp = users_me::http::get(http, &req)
+        .await
+        .map_err(|e| ErrorData::internal_error(format!("users/me: {e}"), None))?;
+    let user = resp.data.ok_or_else(|| {
+        ErrorData::internal_error("users/me had no data".to_string(), None)
+    })?;
+    Ok(user.id.0)
 }

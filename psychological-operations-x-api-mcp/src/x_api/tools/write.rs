@@ -7,10 +7,11 @@ use psychological_operations_sdk::x::types::{
 use psychological_operations_sdk::x::users::id::bookmarks as users_id_bookmarks;
 use psychological_operations_sdk::x::users::id::likes as users_id_likes;
 use psychological_operations_sdk::x::users::id::retweets as users_id_retweets;
+use rmcp::model::Extensions;
 use rmcp::{ErrorData, handler::server::wrapper::Parameters, schemars, tool, tool_router};
 
 use super::super::PsychologicalOperationsXApiMcp;
-use super::super::builders::{empty_tweet_create_request, send_create_tweet};
+use super::super::builders::{empty_tweet_create_request, resolve_self_user_id, send_create_tweet};
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct PostRequest {
@@ -61,12 +62,16 @@ impl PsychologicalOperationsXApiMcp {
     async fn post(
         &self,
         Parameters(req): Parameters<PostRequest>,
+        extensions: Extensions,
     ) -> Result<String, ErrorData> {
+        let state = self.resolve_session(&extensions).await?;
+        let http = self.build_client(&state.agent);
+
         let body = TweetCreateRequest {
             text: Some(TweetText(req.text)),
             ..empty_tweet_create_request()
         };
-        send_create_tweet(&self.http, body).await
+        send_create_tweet(&http, body).await
     }
 
     #[tool(
@@ -76,7 +81,11 @@ impl PsychologicalOperationsXApiMcp {
     async fn reply(
         &self,
         Parameters(req): Parameters<ReplyRequest>,
+        extensions: Extensions,
     ) -> Result<String, ErrorData> {
+        let state = self.resolve_session(&extensions).await?;
+        let http = self.build_client(&state.agent);
+
         let body = TweetCreateRequest {
             text: Some(TweetText(req.text)),
             reply: Some(TweetCreateRequestReply {
@@ -86,7 +95,7 @@ impl PsychologicalOperationsXApiMcp {
             }),
             ..empty_tweet_create_request()
         };
-        send_create_tweet(&self.http, body).await
+        send_create_tweet(&http, body).await
     }
 
     #[tool(
@@ -96,13 +105,17 @@ impl PsychologicalOperationsXApiMcp {
     async fn quote(
         &self,
         Parameters(req): Parameters<QuoteRequest>,
+        extensions: Extensions,
     ) -> Result<String, ErrorData> {
+        let state = self.resolve_session(&extensions).await?;
+        let http = self.build_client(&state.agent);
+
         let body = TweetCreateRequest {
             text: Some(TweetText(req.text)),
             quote_tweet_id: Some(TweetId(req.quote_tweet_id)),
             ..empty_tweet_create_request()
         };
-        send_create_tweet(&self.http, body).await
+        send_create_tweet(&http, body).await
     }
 
     #[tool(
@@ -112,15 +125,19 @@ impl PsychologicalOperationsXApiMcp {
     async fn like(
         &self,
         Parameters(req): Parameters<LikeRequest>,
+        extensions: Extensions,
     ) -> Result<String, ErrorData> {
-        let user_id = self.resolve_self_user_id().await?;
+        let state = self.resolve_session(&extensions).await?;
+        let http = self.build_client(&state.agent);
+
+        let user_id = resolve_self_user_id(&http).await?;
         let creq = users_id_likes::post::Request {
             id: UserIdMatchesAuthenticatedUser(user_id),
             body: Some(UsersLikesCreateRequest {
                 tweet_id: TweetId(req.tweet_id),
             }),
         };
-        let resp = users_id_likes::http::post(&self.http, &creq)
+        let resp = users_id_likes::http::post(&http, &creq)
             .await
             .map_err(|e| ErrorData::internal_error(format!("likes: {e}"), None))?;
         serde_json::to_string(&resp.data)
@@ -134,15 +151,19 @@ impl PsychologicalOperationsXApiMcp {
     async fn retweet(
         &self,
         Parameters(req): Parameters<RetweetRequest>,
+        extensions: Extensions,
     ) -> Result<String, ErrorData> {
-        let user_id = self.resolve_self_user_id().await?;
+        let state = self.resolve_session(&extensions).await?;
+        let http = self.build_client(&state.agent);
+
+        let user_id = resolve_self_user_id(&http).await?;
         let creq = users_id_retweets::post::Request {
             id: UserIdMatchesAuthenticatedUser(user_id),
             body: Some(UsersRetweetsCreateRequest {
                 tweet_id: TweetId(req.tweet_id),
             }),
         };
-        let resp = users_id_retweets::http::post(&self.http, &creq)
+        let resp = users_id_retweets::http::post(&http, &creq)
             .await
             .map_err(|e| ErrorData::internal_error(format!("retweets: {e}"), None))?;
         serde_json::to_string(&resp.data)
@@ -156,15 +177,19 @@ impl PsychologicalOperationsXApiMcp {
     async fn bookmark(
         &self,
         Parameters(req): Parameters<BookmarkRequest>,
+        extensions: Extensions,
     ) -> Result<String, ErrorData> {
-        let user_id = self.resolve_self_user_id().await?;
+        let state = self.resolve_session(&extensions).await?;
+        let http = self.build_client(&state.agent);
+
+        let user_id = resolve_self_user_id(&http).await?;
         let creq = users_id_bookmarks::post::Request {
             id: UserIdMatchesAuthenticatedUser(user_id),
             body: BookmarkAddRequest {
                 tweet_id: TweetId(req.tweet_id),
             },
         };
-        let resp = users_id_bookmarks::http::post(&self.http, &creq)
+        let resp = users_id_bookmarks::http::post(&http, &creq)
             .await
             .map_err(|e| ErrorData::internal_error(format!("bookmarks: {e}"), None))?;
         serde_json::to_string(&resp.data)

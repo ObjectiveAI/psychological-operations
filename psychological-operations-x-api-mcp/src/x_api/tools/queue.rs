@@ -1,5 +1,6 @@
 //! Queue tools — read + dequeue the per-agent ingest queue.
 
+use rmcp::model::Extensions;
 use rmcp::{ErrorData, handler::server::wrapper::Parameters, schemars, tool, tool_router};
 
 use super::super::PsychologicalOperationsXApiMcp;
@@ -22,14 +23,17 @@ impl PsychologicalOperationsXApiMcp {
     async fn read_queue(
         &self,
         Parameters(_req): Parameters<ReadQueueRequest>,
+        extensions: Extensions,
     ) -> Result<String, ErrorData> {
-        let q = self
-            .http
+        let state = self.resolve_session(&extensions).await?;
+        let http = self.build_client(&state.agent);
+
+        let q = http
             .queue()
             .await
             .map_err(|e| ErrorData::internal_error(format!("queue open: {e}"), None))?;
         let entries = q
-            .list(&self.agent)
+            .list(&state.agent)
             .await
             .map_err(|e| ErrorData::internal_error(format!("queue list: {e}"), None))?;
         serde_json::to_string(&entries)
@@ -43,14 +47,17 @@ impl PsychologicalOperationsXApiMcp {
     async fn mark_handled(
         &self,
         Parameters(req): Parameters<MarkHandledRequest>,
+        extensions: Extensions,
     ) -> Result<String, ErrorData> {
-        let q = self
-            .http
+        let state = self.resolve_session(&extensions).await?;
+        let http = self.build_client(&state.agent);
+
+        let q = http
             .queue()
             .await
             .map_err(|e| ErrorData::internal_error(format!("queue open: {e}"), None))?;
         let removed = q
-            .delete(&self.agent, &req.tweet_id)
+            .delete(&state.agent, &req.tweet_id)
             .await
             .map_err(|e| ErrorData::internal_error(format!("queue delete: {e}"), None))?;
         Ok(serde_json::json!({ "removed": removed }).to_string())

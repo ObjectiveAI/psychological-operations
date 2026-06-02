@@ -13,16 +13,27 @@
 //!
 //! Binary media bytes come from `Client::fetch_url` — the SDK's sole
 //! hand-written non-codegen call (twimg has no OpenAPI surface).
+//!
+//! `agent` and `mode` are NOT process-wide. They land here per
+//! session via the `X-PSYOP-X-API-AGENT` / `X-PSYOP-X-API-MODE`
+//! headers on the initialize request — recorded by
+//! [`crate::header_session_manager::HeaderSessionManager`] into
+//! [`session::SessionRegistry`] keyed by `Mcp-Session-Id`. Tool
+//! handlers look the pair up via [`PsychologicalOperationsXApiMcp::resolve_session`]
+//! and build a fresh SDK [`Client`] for each call via
+//! [`PsychologicalOperationsXApiMcp::build_client`].
 
 mod builders;
 mod model;
 mod projection;
+pub mod session;
 mod tools;
 
+use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
-use psychological_operations_sdk::x::client::Client;
-use psychological_operations_sdk::x::users::me as users_me;
+use psychological_operations_sdk::x::client::{AuthMode, Client};
 use rmcp::{
     ErrorData, RoleServer, ServerHandler,
     handler::server::router::tool::ToolRouter,
@@ -33,14 +44,14 @@ use rmcp::{
         ServerCapabilities, ServerInfo, Tool,
     },
     service::RequestContext,
+    transport::common::http_header::HEADER_SESSION_ID,
 };
 
 use crate::Mode;
+use session::{SessionRegistry, SessionState};
 
-/// Tools only registered + callable when the server is in
-/// `Mode::Full`. All mutations on X plus the queue-management
-/// surface (the queue holds per-agent work, only meaningful when
-/// the agent is wired for action).
+/// Tools only listed + callable when the *session's* mode is
+/// `Mode::Full`. Read tools (and `whoami`) are always exposed.
 const FULL_ONLY_TOOLS: &[&str] = &[
     "post",
     "reply",
@@ -52,16 +63,21 @@ const FULL_ONLY_TOOLS: &[&str] = &[
     "mark_handled",
 ];
 
+fn is_hidden_for(mode: Mode, tool_name: &str) -> bool {
+    matches!(mode, Mode::Readonly) && FULL_ONLY_TOOLS.contains(&tool_name)
+}
+
 #[derive(Clone)]
 pub struct PsychologicalOperationsXApiMcp {
     pub tool_router: ToolRouter<Self>,
-    pub(super) http: Arc<Client>,
-    mode: Mode,
-    /// Authenticated agent name. Same string passed into
-    /// `AuthMode::Agent(...)` on the inner `Client`; surfaced
-    /// here so the queue tools can key reads/deletes without
-    /// reaching into the Client's private auth state.
-    pub(super) agent: String,
+    pub(super) sessions: Arc<SessionRegistry>,
+    /// Shared HTTP connection pool. Cloning a `reqwest::Client` is
+    /// cheap (Arc internally), so every per-tool SDK `Client` we
+    /// build reuses this pool.
+    pub(super) reqwest: reqwest::Client,
+    pub(super) config_base_dir: PathBuf,
+    pub(super) cache_max_size: u64,
+    pub(super) cache_ttl: Duration,
 }
 
 impl std::fmt::Debug for PsychologicalOperationsXApiMcp {
@@ -72,37 +88,69 @@ impl std::fmt::Debug for PsychologicalOperationsXApiMcp {
 }
 
 impl PsychologicalOperationsXApiMcp {
-    pub fn new(http: Arc<Client>, mode: Mode, agent: String) -> Self {
+    pub fn new(
+        sessions: Arc<SessionRegistry>,
+        reqwest: reqwest::Client,
+        config_base_dir: PathBuf,
+        cache_max_size: u64,
+        cache_ttl: Duration,
+    ) -> Self {
         Self {
             tool_router: tools::read_tools() + tools::write_tools() + tools::queue_tools(),
-            http,
-            mode,
-            agent,
+            sessions,
+            reqwest,
+            config_base_dir,
+            cache_max_size,
+            cache_ttl,
         }
     }
 
-    /// `true` when this tool is registered but should not be listed
-    /// or callable in the current mode.
-    fn is_hidden(&self, tool_name: &str) -> bool {
-        matches!(self.mode, Mode::Readonly) && FULL_ONLY_TOOLS.contains(&tool_name)
+    /// Resolve `Mcp-Session-Id → SessionState` for the currently
+    /// in-flight request. Returns an `invalid_params` rmcp error if
+    /// the request didn't carry a session id, or if the id doesn't
+    /// match any session we've initialized.
+    pub(super) async fn resolve_session(
+        &self,
+        extensions: &rmcp::model::Extensions,
+    ) -> Result<Arc<SessionState>, ErrorData> {
+        let parts = extensions.get::<http::request::Parts>().ok_or_else(|| {
+            ErrorData::internal_error(
+                "missing http request parts on rmcp request".to_string(),
+                None,
+            )
+        })?;
+        let id = parts
+            .headers
+            .get(HEADER_SESSION_ID)
+            .and_then(|v| v.to_str().ok())
+            .ok_or_else(|| {
+                ErrorData::invalid_params(
+                    format!("missing {HEADER_SESSION_ID} header"),
+                    None,
+                )
+            })?;
+        self.sessions
+            .get(&id.to_owned().into())
+            .await
+            .ok_or_else(|| {
+                ErrorData::invalid_params(format!("unknown session: {id}"), None)
+            })
     }
 
-    /// Resolve the authenticated user's numeric id via `/users/me`.
-    /// Used by the engagement tools (like / retweet / bookmark)
-    /// that need the acting user id in the URL path.
-    pub(super) async fn resolve_self_user_id(&self) -> Result<String, ErrorData> {
-        let req = users_me::get::Request {
-            user_fields: None,
-            expansions: None,
-            tweet_fields: None,
-        };
-        let resp = users_me::http::get(&self.http, &req)
-            .await
-            .map_err(|e| ErrorData::internal_error(format!("users/me: {e}"), None))?;
-        let user = resp.data.ok_or_else(|| {
-            ErrorData::internal_error("users/me had no data".to_string(), None)
-        })?;
-        Ok(user.id.0)
+    /// Build a fresh SDK [`Client`] bound to the given `agent`,
+    /// reusing the process-wide reqwest pool and the current
+    /// process-wide cache config. Called once per tool invocation —
+    /// `Client::new` is infallible + synchronous and the SQLite
+    /// `OnceCell`s lazy-init on first use.
+    pub(super) fn build_client(&self, agent: &str) -> Client {
+        Client::new(
+            self.reqwest.clone(),
+            /* mock */ false,
+            self.cache_max_size,
+            self.cache_ttl,
+            self.config_base_dir.clone(),
+            AuthMode::Agent(agent.to_string()),
+        )
     }
 }
 
@@ -126,13 +174,22 @@ impl ServerHandler for PsychologicalOperationsXApiMcp {
     async fn list_tools(
         &self,
         _request: Option<PaginatedRequestParams>,
-        _context: RequestContext<RoleServer>,
+        context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, ErrorData> {
+        // Pre-initialize `list_tools` isn't possible by the MCP
+        // spec (the client must initialize first), so the session
+        // should always be present. If it somehow isn't, fall back
+        // to the safe (readonly) surface instead of erroring — the
+        // client can still see what's available.
+        let mode = match self.resolve_session(&context.extensions).await {
+            Ok(state) => state.mode,
+            Err(_) => Mode::Readonly,
+        };
         let tools: Vec<Tool> = self
             .tool_router
             .list_all()
             .into_iter()
-            .filter(|t| !self.is_hidden(&t.name))
+            .filter(|t| !is_hidden_for(mode, &t.name))
             .collect();
         Ok(ListToolsResult { tools, next_cursor: None })
     }
@@ -142,9 +199,13 @@ impl ServerHandler for PsychologicalOperationsXApiMcp {
         request: CallToolRequestParams,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, ErrorData> {
-        if self.is_hidden(&request.name) {
+        let state = self.resolve_session(&context.extensions).await?;
+        if is_hidden_for(state.mode, &request.name) {
             return Err(ErrorData::invalid_params(
-                format!("tool '{}' is not available in readonly mode", request.name),
+                format!(
+                    "tool '{}' is not available in readonly mode",
+                    request.name
+                ),
                 None,
             ));
         }
@@ -153,10 +214,9 @@ impl ServerHandler for PsychologicalOperationsXApiMcp {
     }
 
     fn get_tool(&self, name: &str) -> Option<Tool> {
-        if self.is_hidden(name) {
-            None
-        } else {
-            self.tool_router.get(name).cloned()
-        }
+        // No session context here — return the tool definition if
+        // we have it. Mode-gating happens in `list_tools` /
+        // `call_tool` where we DO have context.
+        self.tool_router.get(name).cloned()
     }
 }

@@ -1,8 +1,12 @@
-//! `mcp begin` supervisor — probe-or-spawn the per-(agent, mode)
-//! X-API MCP and return its URL.
+//! `mcp begin` supervisor — probe-or-spawn the shared X-API MCP
+//! and return its URL plus the per-session headers a client must
+//! send to bind its session to the requested `(agent, mode)`.
 //!
-//! State per (agent, mode) lives at
-//! `${TMPDIR}/psychological-operations-x-api-mcp-<agent>-<mode>/state.json`.
+//! State lives at `${TMPDIR}/psychological-operations-x-api-mcp/state.json` —
+//! ONE process per host now, not per (agent, mode). The MCP itself
+//! multiplexes sessions by reading `X-PSYOP-X-API-AGENT` /
+//! `X-PSYOP-X-API-MODE` headers off the initialize POST.
+//!
 //! Probe: if state exists, look up the recorded PID via sysinfo and
 //! match the process name; if alive, return the recorded URL.
 //! Otherwise spawn a detached child with `stdin/stdout=null`,
@@ -13,8 +17,9 @@
 //! Unix: kernel re-parents to init).
 //!
 //! Silent respawn on stale state.json: no notification, both probe-hit
-//! and fresh-spawn paths emit the same `Output::Mcp { url }` shape.
+//! and fresh-spawn paths emit the same `Output::Mcp` shape.
 
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
@@ -25,6 +30,16 @@ use tokio::process::Command;
 use crate::commands::mcp::Mode;
 use crate::error::Error;
 use crate::mcp::embed::{self, X_API_MCP_BINARY_NAME};
+
+/// Must stay byte-identical to
+/// `psychological-operations-x-api-mcp/src/x_api/session.rs::HEADER_AGENT`.
+/// Duplicated rather than imported because the MCP crate is
+/// embedded via `build.rs` include_bytes, not linked.
+const HEADER_AGENT: &str = "X-PSYOP-X-API-AGENT";
+
+/// Must stay byte-identical to
+/// `psychological-operations-x-api-mcp/src/x_api/session.rs::HEADER_MODE`.
+const HEADER_MODE: &str = "X-PSYOP-X-API-MODE";
 
 #[derive(Serialize, Deserialize)]
 struct State {
@@ -43,33 +58,34 @@ pub async fn run(
     cache_ttl: u64,
     cfg: &crate::run::Config,
 ) -> Result<crate::Output, Error> {
-    let mode_str = mode.as_arg_str();
-    let state_dir = std::env::temp_dir()
-        .join(format!("psychological-operations-x-api-mcp-{agent}-{mode_str}"));
+    let state_dir = std::env::temp_dir().join("psychological-operations-x-api-mcp");
     let state_file = state_dir.join("state.json");
 
-    if let Some(state) = read_state(&state_file).await? {
-        if is_alive(&state) {
-            return Ok(crate::Output::Mcp { url: state.url });
+    let url = match read_state(&state_file).await? {
+        Some(state) if is_alive(&state) => state.url,
+        _ => {
+            let binary = embed::ensure_extracted().await?;
+            let config_base_dir = cfg.objectiveai_base_dir();
+            let url = spawn_and_wait(&binary, &config_base_dir, cache_max_size, cache_ttl).await?;
+
+            tokio::fs::create_dir_all(&state_dir).await?;
+            let pid = pid_for_url(&binary)?;
+            let state = State {
+                pid,
+                url: url.clone(),
+                exe_name: X_API_MCP_BINARY_NAME.to_string(),
+            };
+            let bytes = serde_json::to_vec(&state)?;
+            tokio::fs::write(&state_file, bytes).await?;
+            url
         }
-        // Stale — fall through to spawn; the write below overwrites.
-    }
-
-    let binary = embed::ensure_extracted().await?;
-    let config_base_dir = cfg.objectiveai_base_dir();
-    let url = spawn_and_wait(&binary, &config_base_dir, cache_max_size, cache_ttl, agent, mode).await?;
-
-    tokio::fs::create_dir_all(&state_dir).await?;
-    let pid = pid_for_url(&binary)?;
-    let state = State {
-        pid,
-        url: url.clone(),
-        exe_name: X_API_MCP_BINARY_NAME.to_string(),
     };
-    let bytes = serde_json::to_vec(&state)?;
-    tokio::fs::write(&state_file, bytes).await?;
 
-    Ok(crate::Output::Mcp { url })
+    let mut headers = BTreeMap::new();
+    headers.insert(HEADER_AGENT.to_string(), agent.to_string());
+    headers.insert(HEADER_MODE.to_string(), mode.as_arg_str().to_string());
+
+    Ok(crate::Output::Mcp { url, headers })
 }
 
 async fn read_state(state_file: &Path) -> Result<Option<State>, Error> {
@@ -135,15 +151,11 @@ async fn spawn_and_wait(
     config_base_dir: &Path,
     cache_max_size: u64,
     cache_ttl: u64,
-    agent: &str,
-    mode: Mode,
 ) -> Result<String, Error> {
     let mut cmd = Command::new(binary);
     cmd.arg("--config-base-dir").arg(config_base_dir)
         .arg("--cache-max-size").arg(cache_max_size.to_string())
         .arg("--cache-ttl").arg(cache_ttl.to_string())
-        .arg("--agent").arg(agent)
-        .arg("--mode").arg(mode.as_arg_str())
         .arg("--port").arg("0")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())

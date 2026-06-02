@@ -12,11 +12,11 @@ use psychological_operations_sdk::x::types::{
 use psychological_operations_sdk::x::users::by::username::username as users_by_username;
 use psychological_operations_sdk::x::users::id::bookmarks as users_id_bookmarks;
 use psychological_operations_sdk::x::users::me as users_me;
+use rmcp::model::{Content, Extensions};
 use rmcp::{ErrorData, handler::server::wrapper::Parameters, schemars, tool, tool_router};
-use rmcp::model::Content;
 
 use super::super::PsychologicalOperationsXApiMcp;
-use super::super::builders::{standard_search_request, standard_tweet_request};
+use super::super::builders::{resolve_self_user_id, standard_search_request, standard_tweet_request};
 use super::super::model::{AttachmentKind, FetchedAttachment, Tweet};
 use super::super::projection::{lookup_attachment, project_tweet};
 
@@ -73,7 +73,11 @@ impl PsychologicalOperationsXApiMcp {
     async fn get_replies(
         &self,
         Parameters(req): Parameters<GetRepliesRequest>,
+        extensions: Extensions,
     ) -> Result<String, ErrorData> {
+        let state = self.resolve_session(&extensions).await?;
+        let http = self.build_client(&state.agent);
+
         let creq = tweets_search_recent::get::Request {
             query: format!("conversation_id:{}", req.tweet_id),
             start_time: None,
@@ -91,7 +95,7 @@ impl PsychologicalOperationsXApiMcp {
             user_fields: None,
             place_fields: None,
         };
-        let resp = tweets_search_recent::http::get(&self.http, &creq)
+        let resp = tweets_search_recent::http::get(&http, &creq)
             .await
             .map_err(|e| ErrorData::internal_error(format!("search: {e}"), None))?;
         let target = req.tweet_id;
@@ -119,14 +123,18 @@ impl PsychologicalOperationsXApiMcp {
     async fn get_bio(
         &self,
         Parameters(req): Parameters<GetBioRequest>,
+        extensions: Extensions,
     ) -> Result<String, ErrorData> {
+        let state = self.resolve_session(&extensions).await?;
+        let http = self.build_client(&state.agent);
+
         let creq = users_by_username::get::Request {
             username: req.handle,
             user_fields: Some(vec![params::UserFields::Description]),
             expansions: None,
             tweet_fields: None,
         };
-        let resp = users_by_username::http::get(&self.http, &creq)
+        let resp = users_by_username::http::get(&http, &creq)
             .await
             .map_err(|e| ErrorData::internal_error(format!("users/by/username: {e}"), None))?;
         Ok(resp.data.and_then(|u| u.description).unwrap_or_default())
@@ -139,14 +147,18 @@ impl PsychologicalOperationsXApiMcp {
     async fn get_profile_picture(
         &self,
         Parameters(req): Parameters<GetProfilePictureRequest>,
+        extensions: Extensions,
     ) -> Result<String, ErrorData> {
+        let state = self.resolve_session(&extensions).await?;
+        let http = self.build_client(&state.agent);
+
         let creq = users_by_username::get::Request {
             username: req.handle,
             user_fields: Some(vec![params::UserFields::ProfileImageUrl]),
             expansions: None,
             tweet_fields: None,
         };
-        let resp = users_by_username::http::get(&self.http, &creq)
+        let resp = users_by_username::http::get(&http, &creq)
             .await
             .map_err(|e| ErrorData::internal_error(format!("users/by/username: {e}"), None))?;
         Ok(resp
@@ -162,9 +174,13 @@ impl PsychologicalOperationsXApiMcp {
     async fn get_tweet(
         &self,
         Parameters(req): Parameters<GetTweetRequest>,
+        extensions: Extensions,
     ) -> Result<String, ErrorData> {
+        let state = self.resolve_session(&extensions).await?;
+        let http = self.build_client(&state.agent);
+
         let creq = standard_tweet_request(&req.tweet_id);
-        let resp = tweets_id::http::get(&self.http, &creq)
+        let resp = tweets_id::http::get(&http, &creq)
             .await
             .map_err(|e| ErrorData::internal_error(format!("tweets/{{id}}: {e}"), None))?;
         let t = resp.data.ok_or_else(|| {
@@ -185,9 +201,13 @@ impl PsychologicalOperationsXApiMcp {
     async fn open_attachment(
         &self,
         Parameters(req): Parameters<OpenAttachmentRequest>,
+        extensions: Extensions,
     ) -> Result<Content, ErrorData> {
+        let state = self.resolve_session(&extensions).await?;
+        let http = self.build_client(&state.agent);
+
         let creq = standard_tweet_request(&req.tweet_id);
-        let resp = tweets_id::http::get(&self.http, &creq)
+        let resp = tweets_id::http::get(&http, &creq)
             .await
             .map_err(|e| ErrorData::internal_error(format!("tweets/{{id}}: {e}"), None))?;
         let (kind, mime) = lookup_attachment(resp.includes.as_ref(), &req.url)
@@ -200,8 +220,7 @@ impl PsychologicalOperationsXApiMcp {
                     None,
                 )
             })?;
-        let bytes = self
-            .http
+        let bytes = http
             .fetch_url(&req.url)
             .await
             .map_err(|e| ErrorData::internal_error(format!("fetch_url: {e}"), None))?;
@@ -222,9 +241,13 @@ impl PsychologicalOperationsXApiMcp {
     async fn run_query(
         &self,
         Parameters(req): Parameters<RunQueryRequest>,
+        extensions: Extensions,
     ) -> Result<String, ErrorData> {
+        let state = self.resolve_session(&extensions).await?;
+        let http = self.build_client(&state.agent);
+
         let creq = standard_search_request(req.query);
-        let resp = tweets_search_recent::http::get(&self.http, &creq)
+        let resp = tweets_search_recent::http::get(&http, &creq)
             .await
             .map_err(|e| ErrorData::internal_error(format!("search: {e}"), None))?;
         let includes = resp.includes.as_ref();
@@ -245,13 +268,17 @@ impl PsychologicalOperationsXApiMcp {
     async fn whoami(
         &self,
         Parameters(_req): Parameters<WhoamiRequest>,
+        extensions: Extensions,
     ) -> Result<String, ErrorData> {
+        let state = self.resolve_session(&extensions).await?;
+        let http = self.build_client(&state.agent);
+
         let req = users_me::get::Request {
             user_fields: Some(vec![params::UserFields::Username]),
             expansions: None,
             tweet_fields: None,
         };
-        let resp = users_me::http::get(&self.http, &req)
+        let resp = users_me::http::get(&http, &req)
             .await
             .map_err(|e| ErrorData::internal_error(format!("users/me: {e}"), None))?;
         Ok(resp.data.map(|u| u.username.0).unwrap_or_default())
@@ -264,8 +291,12 @@ impl PsychologicalOperationsXApiMcp {
     async fn get_bookmarks(
         &self,
         Parameters(_req): Parameters<GetBookmarksRequest>,
+        extensions: Extensions,
     ) -> Result<String, ErrorData> {
-        let user_id = self.resolve_self_user_id().await?;
+        let state = self.resolve_session(&extensions).await?;
+        let http = self.build_client(&state.agent);
+
+        let user_id = resolve_self_user_id(&http).await?;
         let creq = users_id_bookmarks::get::Request {
             id: UserIdMatchesAuthenticatedUser(user_id),
             max_results: Some(100),
@@ -291,7 +322,7 @@ impl PsychologicalOperationsXApiMcp {
             user_fields: Some(vec![params::UserFields::Username]),
             place_fields: None,
         };
-        let resp = users_id_bookmarks::http::get(&self.http, &creq)
+        let resp = users_id_bookmarks::http::get(&http, &creq)
             .await
             .map_err(|e| ErrorData::internal_error(format!("bookmarks: {e}"), None))?;
         let includes = resp.includes.as_ref();
