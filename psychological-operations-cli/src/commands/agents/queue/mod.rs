@@ -5,7 +5,7 @@ use clap::Subcommand;
 use crate::error::Error;
 
 pub mod add;
-pub mod dispatch;
+pub mod executor;
 pub mod handle;
 
 #[derive(Subcommand)]

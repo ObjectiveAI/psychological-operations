@@ -18,6 +18,8 @@ struct EnvConfigBuilder {
     objectiveai_instance_hierarchy: Option<String>,
     #[envconfig(from = "OBJECTIVEAI_AGENT_ID")]
     objectiveai_agent_id: Option<String>,
+    #[envconfig(from = "PSYCHOLOGICAL_OPERATIONS_QUEUE_HANDLER_AGENT")]
+    queue_handler_agent: Option<String>,
     #[envconfig(from = "PSYCHOLOGICAL_OPERATIONS_COMMIT_AUTHOR_NAME")]
     commit_author_name: Option<String>,
     #[envconfig(from = "PSYCHOLOGICAL_OPERATIONS_COMMIT_AUTHOR_EMAIL")]
@@ -32,6 +34,7 @@ impl EnvConfigBuilder {
             objectiveai_base_dir:           self.objectiveai_base_dir,
             objectiveai_instance_hierarchy: self.objectiveai_instance_hierarchy,
             objectiveai_agent_id:           self.objectiveai_agent_id,
+            queue_handler_agent:            self.queue_handler_agent,
             commit_author_name:             self.commit_author_name,
             commit_author_email:            self.commit_author_email,
             commit_time:                    self.commit_time
@@ -45,6 +48,7 @@ pub struct ConfigBuilder {
     pub objectiveai_base_dir:           Option<String>,
     pub objectiveai_instance_hierarchy: Option<String>,
     pub objectiveai_agent_id:           Option<String>,
+    pub queue_handler_agent:            Option<String>,
     pub commit_author_name:             Option<String>,
     pub commit_author_email:            Option<String>,
     pub commit_time:                    Option<i64>,
@@ -73,6 +77,7 @@ impl ConfigBuilder {
             objectiveai_base_dir:           self.objectiveai_base_dir,
             objectiveai_instance_hierarchy: self.objectiveai_instance_hierarchy,
             objectiveai_agent_id:           self.objectiveai_agent_id,
+            queue_handler_agent:            self.queue_handler_agent,
             commit_author_name:             self.commit_author_name,
             commit_author_email:            self.commit_author_email,
             commit_time:                    self.commit_time,
@@ -98,6 +103,13 @@ pub struct Config {
     /// command that needs an agent and doesn't get one on the
     /// command line).
     pub objectiveai_agent_id: Option<String>,
+    /// JSON of `objectiveai_sdk::agent::InlineAgentBaseWithFallbacksOrRemoteCommitOptional`
+    /// (env `PSYCHOLOGICAL_OPERATIONS_QUEUE_HANDLER_AGENT`).
+    /// Identifies the agent definition spawned by `agents queue
+    /// handle` whenever a fresh handler is needed (no stored
+    /// handler, or the stored one is no longer alive). Required by
+    /// that command; parsed once per invocation.
+    pub queue_handler_agent: Option<String>,
     /// Commit author name baked into git commits produced by
     /// `psyops publish`. Default `"psychological-operations"`.
     /// Set via `PSYCHOLOGICAL_OPERATIONS_COMMIT_AUTHOR_NAME`.

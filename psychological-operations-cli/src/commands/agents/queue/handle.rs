@@ -1,40 +1,46 @@
 //! `agents queue handle` — parallel per-agent dispatcher.
 //!
-//! Walks the operator's queue, picks (or spawns) one objectiveai
-//! handler agent per X-API agent, and runs all the per-agent tasks
-//! concurrently via a `JoinSet`. Each task that ends up actually
-//! handling work (queue ≥ 1) emits a single notification:
+//! Walks the queue, picks (or spawns) one objectiveai handler agent per
+//! X-API agent, and runs all the per-agent tasks concurrently via a
+//! `JoinSet`. Each task that actually handles work (queue ≥ 1) emits a
+//! single notification:
 //!
 //! ```json
 //! {"event":"agent_queue_handled","agent":"<name>","handling":<n>,"error":<null|msg>}
 //! ```
 //!
-//! Agents with no queue items are skipped silently — no notification.
-//! Errors are emitted twice: once as a regular plugin-output Error
-//! (so the standard error surface shows it) AND once on the
-//! notification's `error` field.
+//! Agents with no queue items are skipped silently. Errors are emitted
+//! twice: once as a regular plugin-output Error (so the standard error
+//! surface shows it) AND once on the notification's `error` field.
 //!
 //! Per-agent handing-off:
 //! 1. Look up the stored objectiveai handler id for
-//!    `(operator, agent)` in `handler_map`.
-//! 2. If we have one, plugin-dispatch `agents message <handler>` with
-//!    a short prompt.
-//! 3. On failure, plugin-dispatch `agents list active`; if the stored
-//!    handler is still in the list, the message failure was real (we
-//!    propagate). Otherwise the handler is gone — fall through.
-//! 4. Plugin-dispatch `agents spawn` with the full handler prompt.
-//!    Persist the returned `Spawned.agent_id` as the new handler.
+//!    `(caller instance hierarchy, agent)` in `handler_map`.
+//! 2. If we have one, `agents message <handler>` via the SDK's
+//!    plugin command executor.
+//! 3. On failure, `agents list active` and see whether the stored
+//!    handler is still in the list. If yes, the message failure was
+//!    real — propagate. If no, fall through.
+//! 4. `agents spawn` with the configured handler agent definition
+//!    (`PSYCHOLOGICAL_OPERATIONS_QUEUE_HANDLER_AGENT`). The returned
+//!    bare-id `Response` is persisted as the new handler.
 
 use std::sync::Arc;
 use std::time::Duration;
 
+use futures::StreamExt;
+use objectiveai_sdk::agent::InlineAgentBaseWithFallbacksOrRemoteCommitOptional;
+use objectiveai_sdk::cli::command::PluginExecutor;
+use objectiveai_sdk::cli::command::agents::list::active as list_active;
+use objectiveai_sdk::cli::command::agents::message as agents_message;
+use objectiveai_sdk::cli::command::agents::spawn as agents_spawn;
 use psychological_operations_sdk::x::client::{AuthMode, Client};
 use psychological_operations_sdk::x::queue::Queue;
 use tokio::task::JoinSet;
 
 use crate::error::Error;
 
-use super::dispatch;
+use super::executor;
 
 pub async fn run(
     agent_filter: Vec<String>,
@@ -50,6 +56,21 @@ pub async fn run(
             )
         })?
         .to_string();
+
+    let handler_agent: InlineAgentBaseWithFallbacksOrRemoteCommitOptional = {
+        let json = cfg.queue_handler_agent.as_deref().ok_or_else(|| {
+            Error::Other(
+                "PSYCHOLOGICAL_OPERATIONS_QUEUE_HANDLER_AGENT not set — required for \
+                 `agents queue handle`"
+                    .into(),
+            )
+        })?;
+        serde_json::from_str(json).map_err(|e| {
+            Error::Other(format!(
+                "parse PSYCHOLOGICAL_OPERATIONS_QUEUE_HANDLER_AGENT: {e}"
+            ))
+        })?
+    };
 
     let client = Client::new(
         reqwest::Client::new(),
@@ -73,12 +94,17 @@ pub async fn run(
         agents.retain(|a| agent_filter.iter().any(|f| f == a));
     }
 
+    let executor = executor::executor().await;
+
     let mut tasks = JoinSet::new();
     for agent in agents {
         let instance_hierarchy = instance_hierarchy.clone();
         let q = q.clone();
+        let handler_agent = handler_agent.clone();
+        let executor = executor.clone();
         tasks.spawn(async move {
-            let res = handle_one_agent(&instance_hierarchy, &agent, &q).await;
+            let res =
+                handle_one_agent(&instance_hierarchy, &agent, &q, &handler_agent, &executor).await;
             emit_per_agent(&agent, res);
         });
     }
@@ -91,6 +117,8 @@ async fn handle_one_agent(
     instance_hierarchy: &str,
     agent: &str,
     q: &Queue,
+    handler_agent: &InlineAgentBaseWithFallbacksOrRemoteCommitOptional,
+    executor: &PluginExecutor,
 ) -> Result<usize, (usize, String)> {
     let entries = q
         .list(agent)
@@ -100,7 +128,6 @@ async fn handle_one_agent(
         return Ok(0);
     }
     let n = entries.len();
-    let key_prefix = format!("{instance_hierarchy}::{agent}");
 
     // Step 1: try messaging the stored handler.
     let stored = q
@@ -108,38 +135,60 @@ async fn handle_one_agent(
         .await
         .map_err(|e| (n, format!("handler_map get: {e}")))?;
     if let Some(handler_id) = stored.as_deref() {
-        let msg_cmd = format!(
-            r#"agents message {handler_id} --simple "There are {n} new tweets in the queue.""#
-        );
-        let r = dispatch::run(&format!("{key_prefix}::message"), &msg_cmd)
-            .await
-            .map_err(|e| (n, format!("dispatch message: {e}")))?;
-        if r.success() {
-            return Ok(n);
-        }
-
-        // Step 2: list active and check if the handler is still alive.
-        let list_r = dispatch::run(&format!("{key_prefix}::list-active"), "agents list active")
-            .await
-            .map_err(|e| (n, format!("dispatch list-active: {e}")))?;
-        let active = list_r.active_agent_ids();
-        if active.iter().any(|a| a == handler_id) {
-            return Err((n, "agents message failed and handler still active".to_string()));
+        let msg_req = agents_message::Request {
+            agent_instance_hierarchy: handler_id.to_string(),
+            message: agents_message::RequestMessage::Simple(format!(
+                "There are {n} new tweets in the queue."
+            )),
+            seed: None,
+            jq: None,
+        };
+        match agents_message::execute(executor, msg_req).await {
+            Ok(_resp) => {
+                // Queued or Delivered — either is success.
+                return Ok(n);
+            }
+            Err(_) => {
+                // Step 2: check whether the handler is still alive.
+                let list_req = list_active::Request {
+                    parent_agent_instance_hierarchy: None,
+                    jq: None,
+                };
+                let mut stream = list_active::execute(executor, list_req)
+                    .await
+                    .map_err(|e| (n, format!("list active: {e}")))?;
+                let mut still_alive = false;
+                while let Some(item) = stream.next().await {
+                    let item = item.map_err(|e| (n, format!("list active stream: {e}")))?;
+                    if item.agent_id == handler_id {
+                        still_alive = true;
+                        break;
+                    }
+                }
+                if still_alive {
+                    return Err((
+                        n,
+                        "agents message failed and handler still active".to_string(),
+                    ));
+                }
+                // Fall through to spawn.
+            }
         }
     }
 
     // Step 3: spawn a fresh handler and persist its id.
-    let spawn_cmd =
-        format!(r#"agents spawn --simple "There are {n} new tweets in the queue.\n\nHandle each of them.""#);
-    let r = dispatch::run(&format!("{key_prefix}::spawn"), &spawn_cmd)
+    let spawn_req = agents_spawn::Request {
+        prompt: agents_spawn::RequestPrompt::Simple(format!(
+            "There are {n} new tweets in the queue.\n\nHandle each of them."
+        )),
+        agent: handler_agent.clone(),
+        seed: None,
+        dangerous_advanced: None,
+        jq: None,
+    };
+    let spawned_id = agents_spawn::execute(executor, spawn_req)
         .await
-        .map_err(|e| (n, format!("dispatch spawn: {e}")))?;
-    if !r.success() {
-        return Err((n, format!("agents spawn exited {}", r.exit_code)));
-    }
-    let spawned_id = r
-        .spawned_agent_id()
-        .ok_or_else(|| (n, "spawn returned no agent_id".to_string()))?;
+        .map_err(|e| (n, format!("spawn: {e}")))?;
     q.set_handler(instance_hierarchy, agent, &spawned_id)
         .await
         .map_err(|e| (n, format!("handler_map set: {e}")))?;
