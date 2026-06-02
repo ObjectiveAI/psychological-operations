@@ -1,16 +1,24 @@
-//! `SessionManager` wrapper that reads the two psyop-specific
-//! headers off the **initial** initialize request and stashes them
-//! on a disk-backed [`SessionRegistry`], then delegates the rest of
-//! the rmcp session lifecycle to [`LocalSessionManager`].
+//! Custom `SessionManager`. Two non-default behaviors that together
+//! make session-id-as-identity disappear:
 //!
-//! On reconnect the client may send the same `Mcp-Session-Id` it
-//! got on its first connect; tower's reconnect branch
-//! (`rmcp-0.16.0/src/transport/streamable_http_server/tower.rs:304-372`)
-//! never calls `initialize_session`, so we never re-read the
-//! headers — the persisted `(agent, mode)` is the source of truth.
-//! If the persisted state is missing (e.g. stale id from a wiped
-//! sessions db), `has_session(id)` returns false and tower
-//! responds with `401 Unauthorized: Session not found`.
+//! 1. **`has_session` always returns `Ok(true)`.** Tower never
+//!    401s. Any session id the client presents is treated as
+//!    valid for routing purposes.
+//! 2. **Lazy `(handle, worker)` mint on first POST.** When tower
+//!    routes a request through `create_stream` or `accept_message`
+//!    for an id the inner `LocalSessionManager` doesn't currently
+//!    hold, we pull `X-PSYOP-X-API-{AGENT,MODE}` off the current
+//!    message's injected `http::request::Parts`, register
+//!    `SessionState`, spawn the worker + service end, and drive
+//!    the worker past its initial `SessionEvent::InitializeRequest`
+//!    wait state with a synthetic stub. The original message then
+//!    delegates to the inner manager and rides through as if the
+//!    session had existed all along.
+//!
+//! The net effect: the CLI keeps re-sending headers on every
+//! connect; the server keeps state in memory only; a process
+//! restart silently rebuilds the (agent, mode) entry on the very
+//! next request. No disk.
 
 use std::sync::Arc;
 
@@ -20,42 +28,92 @@ use rmcp::model::{
     InitializeRequestParams, JsonRpcRequest, JsonRpcVersion2_0, NumberOrString, ProtocolVersion,
     Request, ServerJsonRpcMessage,
 };
+use rmcp::service::serve_server;
+use rmcp::transport::TransportAdapterIdentity;
+use rmcp::transport::WorkerTransport;
 use rmcp::transport::streamable_http_server::session::SessionManager;
 use rmcp::transport::streamable_http_server::session::local::{
-    LocalSessionHandle, LocalSessionManager, LocalSessionManagerError, SessionError,
+    LocalSessionManager, LocalSessionManagerError, SessionConfig, SessionError,
+    create_local_session,
 };
 use rmcp::transport::streamable_http_server::session::{ServerSseMessage, SessionId};
 
 use crate::Mode;
+use crate::PsychologicalOperationsXApiMcp;
 use crate::x_api::session::{HEADER_AGENT, HEADER_MODE, SessionRegistry, SessionState};
 
 #[derive(Debug, Clone)]
 pub struct HeaderSessionManager {
     inner: Arc<LocalSessionManager>,
     registry: Arc<SessionRegistry>,
+    /// Used by `ensure_session` to spawn a service end onto each
+    /// lazy-created worker.
+    service: PsychologicalOperationsXApiMcp,
 }
 
 impl HeaderSessionManager {
-    pub fn new(registry: Arc<SessionRegistry>) -> Self {
+    pub fn new(registry: Arc<SessionRegistry>, service: PsychologicalOperationsXApiMcp) -> Self {
         Self {
             inner: Arc::new(LocalSessionManager::default()),
             registry,
+            service,
         }
     }
 
-    /// The wrapped rmcp `LocalSessionManager`. Exposed so
-    /// `run.rs::setup` can directly insert resurrected
-    /// [`LocalSessionHandle`]s when restoring persisted sessions
-    /// at startup (rmcp doesn't expose a public method on
-    /// `SessionManager` for "register an externally-built
-    /// handle"; the `sessions` HashMap inside `LocalSessionManager`
-    /// is itself `pub`).
-    pub fn inner(&self) -> &Arc<LocalSessionManager> {
-        &self.inner
-    }
+    /// Make sure the inner `LocalSessionManager` has a handle for
+    /// `id`. If it already does, no-op. Otherwise extract the
+    /// X-PSYOP-* headers from the current message, register
+    /// `SessionState`, mint a worker, attach a service, and feed
+    /// a synthetic initialize so the worker is ready to receive
+    /// the real client message in its main loop.
+    async fn ensure_session(
+        &self,
+        id: &SessionId,
+        message: &ClientJsonRpcMessage,
+    ) -> Result<(), LocalSessionManagerError> {
+        if self.inner.has_session(id).await? {
+            return Ok(());
+        }
 
-    pub fn registry(&self) -> &Arc<SessionRegistry> {
-        &self.registry
+        let state = extract_session_state(message).map_err(error_invalid_input)?;
+        self.registry.record(id.clone(), Arc::new(state)).await;
+
+        let (handle, worker) = create_local_session(id.clone(), SessionConfig::default());
+        let transport = WorkerTransport::spawn(worker);
+
+        // Service-side task. Cleanup mirrors the pattern at
+        // `rmcp-0.16.0/src/transport/streamable_http_server/tower.rs:392-416`
+        // — when the service ends (worker died, transport closed)
+        // we drop the entry from both maps.
+        let svc = self.service.clone();
+        let id_for_close = id.clone();
+        let registry_for_close = self.registry.clone();
+        let inner_for_close = self.inner.clone();
+        tokio::spawn(async move {
+            let res =
+                serve_server::<_, _, _, TransportAdapterIdentity>(svc, transport).await;
+            if let Ok(svc) = res {
+                let _ = svc.waiting().await;
+            }
+            let _ = registry_for_close.remove(&id_for_close).await;
+            inner_for_close.sessions.write().await.remove(&id_for_close);
+        });
+
+        // Drive the worker past its initial
+        // `SessionEvent::InitializeRequest` wait state
+        // (`local.rs:858-870`). The response is discarded; the
+        // real client (if its current message is itself an
+        // initialize) will overwrite peer_info on the next pass
+        // through the worker's main loop.
+        handle
+            .initialize(synthetic_initialize_message())
+            .await
+            .map_err(|e| {
+                error_invalid_input(format!("synthetic initialize: {e}"))
+            })?;
+
+        self.inner.sessions.write().await.insert(id.clone(), handle);
+        Ok(())
     }
 }
 
@@ -72,19 +130,21 @@ impl SessionManager for HeaderSessionManager {
         id: &SessionId,
         message: ClientJsonRpcMessage,
     ) -> Result<ServerJsonRpcMessage, Self::Error> {
-        // Tower only routes here when the client connected WITHOUT
-        // Mcp-Session-Id (fresh session). Extract the two headers,
-        // record into the disk-backed registry, then delegate.
+        // No-session-id POST path: extract headers, record state,
+        // delegate. The inner already has the handle from its
+        // own `create_session` (called by tower right before
+        // this).
         let state = extract_session_state(&message).map_err(error_invalid_input)?;
-        self.registry
-            .record(id.clone(), Arc::new(state))
-            .await
-            .map_err(error_io_other)?;
+        self.registry.record(id.clone(), Arc::new(state)).await;
         self.inner.initialize_session(id, message).await
     }
 
-    async fn has_session(&self, id: &SessionId) -> Result<bool, Self::Error> {
-        self.inner.has_session(id).await
+    /// Always `Ok(true)`. Tower's reject-with-401 path never fires
+    /// for us; the validity of a session id is established
+    /// lazily by `ensure_session` reading headers off the very
+    /// request that uses it.
+    async fn has_session(&self, _id: &SessionId) -> Result<bool, Self::Error> {
+        Ok(true)
     }
 
     async fn close_session(&self, id: &SessionId) -> Result<(), Self::Error> {
@@ -97,6 +157,7 @@ impl SessionManager for HeaderSessionManager {
         id: &SessionId,
         message: ClientJsonRpcMessage,
     ) -> Result<impl Stream<Item = ServerSseMessage> + Send + Sync + 'static, Self::Error> {
+        self.ensure_session(id, &message).await?;
         self.inner.create_stream(id, message).await
     }
 
@@ -105,6 +166,7 @@ impl SessionManager for HeaderSessionManager {
         id: &SessionId,
         message: ClientJsonRpcMessage,
     ) -> Result<(), Self::Error> {
+        self.ensure_session(id, &message).await?;
         self.inner.accept_message(id, message).await
     }
 
@@ -112,6 +174,10 @@ impl SessionManager for HeaderSessionManager {
         &self,
         id: &SessionId,
     ) -> Result<impl Stream<Item = ServerSseMessage> + Send + Sync + 'static, Self::Error> {
+        // GET path: no message, no headers we can extract here.
+        // If the inner doesn't already know the session, the
+        // client gets rmcp's standard "session not found" from
+        // this path. The CLI's MCP client uses POST.
         self.inner.create_standalone_stream(id).await
     }
 
@@ -120,16 +186,17 @@ impl SessionManager for HeaderSessionManager {
         id: &SessionId,
         last_event_id: String,
     ) -> Result<impl Stream<Item = ServerSseMessage> + Send + Sync + 'static, Self::Error> {
+        // Same GET-path constraint as `create_standalone_stream`.
         self.inner.resume(id, last_event_id).await
     }
 }
 
-/// Build a minimal-but-valid `initialize` JSON-RPC request used
-/// during startup rehydration to drive a freshly-spawned worker
-/// past its initial `SessionEvent::InitializeRequest` wait state
-/// (`local.rs:858-870`). No real client receives the response —
-/// the worker is just being seeded so a later real-client
-/// reconnect can run through it as a normal `ClientMessage`.
+/// Minimal-but-valid `initialize` JSON-RPC request used during
+/// lazy `ensure_session` rehydration. Drives the freshly-spawned
+/// worker past its initial `SessionEvent::InitializeRequest` wait
+/// state. `ServerHandler::initialize`'s default impl is
+/// idempotent (set_peer_info overwrites on the next call), so the
+/// real client's subsequent initialize — if any — wins.
 pub fn synthetic_initialize_message() -> ClientJsonRpcMessage {
     let request = Request {
         method: Default::default(),
@@ -160,9 +227,12 @@ fn extract_session_state(message: &ClientJsonRpcMessage) -> Result<SessionState,
         ClientJsonRpcMessage::Request(req) => {
             req.request.extensions().get::<http::request::Parts>()
         }
+        ClientJsonRpcMessage::Notification(not) => {
+            not.notification.extensions().get::<http::request::Parts>()
+        }
         _ => None,
     }
-    .ok_or_else(|| "initialize request missing injected HTTP parts extension".to_string())?;
+    .ok_or_else(|| "message missing injected HTTP parts extension".to_string())?;
 
     let agent = parts
         .headers
@@ -199,8 +269,4 @@ fn error_invalid_input(msg: String) -> LocalSessionManagerError {
         std::io::ErrorKind::InvalidInput,
         msg,
     )))
-}
-
-fn error_io_other<E: std::fmt::Display>(e: E) -> LocalSessionManagerError {
-    LocalSessionManagerError::SessionError(SessionError::Io(std::io::Error::other(e.to_string())))
 }
