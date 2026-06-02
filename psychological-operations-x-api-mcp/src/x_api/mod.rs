@@ -42,9 +42,9 @@ use crate::Mode;
 /// surface (the queue holds per-agent work, only meaningful when
 /// the agent is wired for action).
 const FULL_ONLY_TOOLS: &[&str] = &[
-    "post_tweet",
-    "reply_to_tweet",
-    "quote_tweet",
+    "post",
+    "reply",
+    "quote",
     "like",
     "retweet",
     "bookmark",

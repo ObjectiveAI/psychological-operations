@@ -21,7 +21,7 @@ use super::super::model::{AttachmentKind, FetchedAttachment, Tweet};
 use super::super::projection::{lookup_attachment, project_tweet};
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
-pub struct ListReplyIdsRequest {
+pub struct GetRepliesRequest {
     #[schemars(description = "Numeric ID of the tweet whose replies you want.")]
     pub tweet_id: String,
 }
@@ -70,9 +70,9 @@ impl PsychologicalOperationsXApiMcp {
         name = "get_replies",
         description = "Fetch recent replies to a tweet."
     )]
-    async fn list_reply_ids(
+    async fn get_replies(
         &self,
-        Parameters(req): Parameters<ListReplyIdsRequest>,
+        Parameters(req): Parameters<GetRepliesRequest>,
     ) -> Result<String, ErrorData> {
         let creq = tweets_search_recent::get::Request {
             query: format!("conversation_id:{}", req.tweet_id),

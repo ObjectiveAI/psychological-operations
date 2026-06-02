@@ -13,13 +13,13 @@ use super::super::PsychologicalOperationsXApiMcp;
 use super::super::builders::{empty_tweet_create_request, send_create_tweet};
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
-pub struct PostTweetRequest {
+pub struct PostRequest {
     #[schemars(description = "Body text of the new tweet.")]
     pub text: String,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
-pub struct ReplyToTweetRequest {
+pub struct ReplyRequest {
     #[schemars(description = "Body text of the reply.")]
     pub text: String,
     #[schemars(description = "Numeric ID of the tweet being replied to.")]
@@ -27,7 +27,7 @@ pub struct ReplyToTweetRequest {
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
-pub struct QuoteTweetRequest {
+pub struct QuoteRequest {
     #[schemars(description = "Body text wrapped around the quote.")]
     pub text: String,
     #[schemars(description = "Numeric ID of the tweet being quoted.")]
@@ -58,9 +58,9 @@ impl PsychologicalOperationsXApiMcp {
         name = "post",
         description = "Post a new tweet."
     )]
-    async fn post_tweet(
+    async fn post(
         &self,
-        Parameters(req): Parameters<PostTweetRequest>,
+        Parameters(req): Parameters<PostRequest>,
     ) -> Result<String, ErrorData> {
         let body = TweetCreateRequest {
             text: Some(TweetText(req.text)),
@@ -73,9 +73,9 @@ impl PsychologicalOperationsXApiMcp {
         name = "reply",
         description = "Reply to a tweet."
     )]
-    async fn reply_to_tweet(
+    async fn reply(
         &self,
-        Parameters(req): Parameters<ReplyToTweetRequest>,
+        Parameters(req): Parameters<ReplyRequest>,
     ) -> Result<String, ErrorData> {
         let body = TweetCreateRequest {
             text: Some(TweetText(req.text)),
@@ -93,9 +93,9 @@ impl PsychologicalOperationsXApiMcp {
         name = "quote",
         description = "Quote a tweet."
     )]
-    async fn quote_tweet(
+    async fn quote(
         &self,
-        Parameters(req): Parameters<QuoteTweetRequest>,
+        Parameters(req): Parameters<QuoteRequest>,
     ) -> Result<String, ErrorData> {
         let body = TweetCreateRequest {
             text: Some(TweetText(req.text)),
