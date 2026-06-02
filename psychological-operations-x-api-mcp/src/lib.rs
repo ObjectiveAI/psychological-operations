@@ -1,13 +1,15 @@
 //! Psychological Operations X-API MCP server library.
 //!
-//! Exposes [`Mode`] (so the binary's clap derive can use it) and
-//! [`PsychologicalOperationsXApiMcp`] (the rmcp ServerHandler) for
-//! anyone who wants to wire up the server differently. All runtime
-//! configuration lives at the binary's clap args — there's no
-//! Config struct, no env-var layer.
+//! Other crates can `use psychological_operations_x_api_mcp::{run, setup, serve}`
+//! and embed the server in-process. The binary at `main.rs` is a
+//! thin clap wrapper that parses args and calls [`run`]. All
+//! configuration is explicit at the function signatures — there
+//! is no `Config` struct and no env-var layer.
 
 mod mode;
+mod run;
 mod x_api;
 
 pub use mode::Mode;
+pub use run::{run, serve, setup};
 pub use x_api::PsychologicalOperationsXApiMcp;
