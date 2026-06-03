@@ -36,6 +36,7 @@ use super::Error;
 use super::auth::{self, AuthLock, PersonaKey};
 use super::cache::{Cache, request_key, request_key_auth_scoped};
 use super::locker::Locker;
+use super::mcp::EngagementStore;
 use super::queue::Queue;
 use crate::browser::auth_json::{self, PersonaKind, Tokens};
 use crate::browser::cookies;
@@ -85,6 +86,7 @@ pub struct Client {
     pub(crate) cache: OnceCell<Arc<Cache>>,
     pub(crate) auth_locker: OnceCell<Arc<Locker>>,
     pub(crate) queue: OnceCell<Arc<Queue>>,
+    pub(crate) engagement: OnceCell<Arc<EngagementStore>>,
 }
 
 impl Client {
@@ -111,6 +113,7 @@ impl Client {
             cache: OnceCell::new(),
             auth_locker: OnceCell::new(),
             queue: OnceCell::new(),
+            engagement: OnceCell::new(),
         }
     }
 
@@ -154,6 +157,20 @@ impl Client {
             .get_or_try_init(|| async {
                 let q = Queue::open(&self.config_base_dir).await?;
                 Ok::<_, Error>(Arc::new(q))
+            })
+            .await
+    }
+
+    /// Open the MCP-side engagement store on first call;
+    /// subsequent calls return the cached `Arc`. Lives in its
+    /// own `x-api-mcp.sqlite` sibling file. The MCP write tools
+    /// consult it before issuing an X API engagement and stamp
+    /// it after.
+    pub async fn engagement(&self) -> Result<&Arc<EngagementStore>, Error> {
+        self.engagement
+            .get_or_try_init(|| async {
+                let e = EngagementStore::open(&self.config_base_dir).await?;
+                Ok::<_, Error>(Arc::new(e))
             })
             .await
     }
