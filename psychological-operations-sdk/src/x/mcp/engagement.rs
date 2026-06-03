@@ -1,10 +1,16 @@
-//! Per-(agent, tweet_id) engagement record.
+//! Per-(agent, target) engagement record.
 //!
-//! Four parallel tables — `replies`, `retweets`, `likes`, `quotes`
-//! — each keyed by `(tweet_id, agent)`. Rows are additive: a
-//! presence row means "this agent performed this engagement on
-//! this tweet at some point." `get` joins all four in a single
-//! query and returns the [`Engagement`] struct of bools; each
+//! Tweet-scoped engagements (`replies`, `retweets`, `likes`,
+//! `quotes`) live in four parallel tables, each keyed by
+//! `(tweet_id, agent)`. A fifth table `follows` records
+//! user-scoped engagements keyed by `(user_id, agent)`. All five
+//! are additive: a row's presence means "this agent performed
+//! this engagement at some point."
+//!
+//! [`Engagement::get`] joins the four tweet tables in a single
+//! query and returns the bool-struct. [`Engagement::is_following`]
+//! is a separate single-row probe (follows aren't per-tweet so it
+//! doesn't make sense to bundle into the same struct). Each
 //! `mark_*` is an `INSERT OR IGNORE` into its own table.
 //!
 //! Storage: `<config_base_dir>/plugins/psychological-operations/x-api-mcp.sqlite`,
@@ -27,6 +33,7 @@ const REPLIES_VERSION:  i64 = 1;
 const RETWEETS_VERSION: i64 = 1;
 const LIKES_VERSION:    i64 = 1;
 const QUOTES_VERSION:   i64 = 1;
+const FOLLOWS_VERSION:  i64 = 1;
 
 const REPLIES_CREATE: &str = "CREATE TABLE replies (\
         tweet_id   TEXT    NOT NULL,\
@@ -54,6 +61,13 @@ const QUOTES_CREATE: &str = "CREATE TABLE quotes (\
         agent      TEXT    NOT NULL,\
         created_at INTEGER NOT NULL,\
         PRIMARY KEY (tweet_id, agent)\
+    )";
+
+const FOLLOWS_CREATE: &str = "CREATE TABLE follows (\
+        user_id    TEXT    NOT NULL,\
+        agent      TEXT    NOT NULL,\
+        created_at INTEGER NOT NULL,\
+        PRIMARY KEY (user_id, agent)\
     )";
 
 /// Whether `(agent, tweet_id)` has been recorded in each of the
@@ -105,6 +119,7 @@ impl EngagementStore {
         ensure_table(pool, "retweets", RETWEETS_VERSION, RETWEETS_CREATE).await?;
         ensure_table(pool, "likes",    LIKES_VERSION,    LIKES_CREATE).await?;
         ensure_table(pool, "quotes",   QUOTES_VERSION,   QUOTES_CREATE).await?;
+        ensure_table(pool, "follows",  FOLLOWS_VERSION,  FOLLOWS_CREATE).await?;
         Ok(())
     }
 
@@ -137,30 +152,61 @@ impl EngagementStore {
 
     /// `INSERT OR IGNORE INTO replies   (tweet_id, agent, created_at)`.
     pub async fn mark_replied(&self, agent: &str, tweet_id: &str) -> Result<(), Error> {
-        self.insert("replies", agent, tweet_id).await
+        self.insert("replies", "tweet_id", agent, tweet_id).await
     }
 
     /// `INSERT OR IGNORE INTO retweets  (tweet_id, agent, created_at)`.
     pub async fn mark_retweeted(&self, agent: &str, tweet_id: &str) -> Result<(), Error> {
-        self.insert("retweets", agent, tweet_id).await
+        self.insert("retweets", "tweet_id", agent, tweet_id).await
     }
 
     /// `INSERT OR IGNORE INTO likes     (tweet_id, agent, created_at)`.
     pub async fn mark_liked(&self, agent: &str, tweet_id: &str) -> Result<(), Error> {
-        self.insert("likes", agent, tweet_id).await
+        self.insert("likes", "tweet_id", agent, tweet_id).await
     }
 
     /// `INSERT OR IGNORE INTO quotes    (tweet_id, agent, created_at)`.
     pub async fn mark_quoted(&self, agent: &str, tweet_id: &str) -> Result<(), Error> {
-        self.insert("quotes", agent, tweet_id).await
+        self.insert("quotes", "tweet_id", agent, tweet_id).await
     }
 
-    async fn insert(&self, table: &str, agent: &str, tweet_id: &str) -> Result<(), Error> {
+    /// Whether `(user_id, agent)` is recorded in the `follows`
+    /// table. Single-row probe — follows aren't bundled into the
+    /// per-tweet [`Engagement`] struct because they're keyed by
+    /// X user id, not tweet id.
+    pub async fn is_following(
+        &self,
+        agent: &str,
+        user_id: &str,
+    ) -> Result<bool, Error> {
+        let row: (i64,) = sqlx::query_as(
+            "SELECT EXISTS(SELECT 1 FROM follows WHERE user_id = ? AND agent = ?) AS following",
+        )
+        .bind(user_id)
+        .bind(agent)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| Error::Other(format!("engagement is_following: {e}")))?;
+        Ok(row.0 != 0)
+    }
+
+    /// `INSERT OR IGNORE INTO follows   (user_id, agent, created_at)`.
+    pub async fn mark_followed(&self, agent: &str, user_id: &str) -> Result<(), Error> {
+        self.insert("follows", "user_id", agent, user_id).await
+    }
+
+    async fn insert(
+        &self,
+        table: &str,
+        key_col: &str,
+        agent: &str,
+        key_value: &str,
+    ) -> Result<(), Error> {
         let sql = format!(
-            "INSERT OR IGNORE INTO {table} (tweet_id, agent, created_at) VALUES (?, ?, ?)"
+            "INSERT OR IGNORE INTO {table} ({key_col}, agent, created_at) VALUES (?, ?, ?)"
         );
         sqlx::query(&sql)
-            .bind(tweet_id)
+            .bind(key_value)
             .bind(agent)
             .bind(locker::unix_now())
             .execute(&self.pool)
