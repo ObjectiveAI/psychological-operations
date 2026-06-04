@@ -10,6 +10,7 @@
 use std::time::Duration;
 
 use clap::Subcommand;
+use psychological_operations_sdk::cli::Output;
 
 use crate::error::Error;
 
@@ -33,7 +34,7 @@ pub enum Commands {
 }
 
 impl Commands {
-    pub async fn handle(self, cfg: &crate::run::Config) -> Result<crate::Output, Error> {
+    pub async fn handle(self, cfg: &crate::run::Config) -> Result<Output, Error> {
         match self {
             Commands::Begin { cache_max_size, cache_ttl } => {
                 let config_base_dir = cfg.objectiveai_base_dir();
@@ -50,7 +51,7 @@ impl Commands {
                 // only on bind failure or after the listener stops
                 // accepting (which only happens when the process
                 // is being torn down).
-                Ok(crate::Output::Empty)
+                Ok(Output::Empty)
             }
         }
     }

@@ -3,6 +3,7 @@ use objectiveai_sdk::functions::inventions::{
     ParamsState,
     state::Params,
 };
+use psychological_operations_sdk::cli::Output;
 
 use crate::input;
 
@@ -207,7 +208,7 @@ pub(crate) fn run_invention(
     state: &ParamsState,
     fwd: &ForwardArgs,
     cfg: &crate::run::Config,
-) -> Result<crate::Output, crate::error::Error> {
+) -> Result<Output, crate::error::Error> {
     let state_json = serde_json::to_string(state)?;
 
     let mut args = vec![
@@ -233,5 +234,5 @@ pub(crate) fn run_invention(
         return Err(crate::error::Error::ObjectiveAiCli("invention failed".into()));
     }
 
-    Ok(crate::Output::Empty)
+    Ok(Output::Empty)
 }

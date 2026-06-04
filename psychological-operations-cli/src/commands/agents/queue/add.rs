@@ -5,6 +5,7 @@
 //! `deliverer = Some(agent)`, `message = Some(msg)`, no `psyop` /
 //! `score`.
 
+use psychological_operations_sdk::cli::Output;
 use psychological_operations_sdk::x::client::{AuthMode, Client};
 use psychological_operations_sdk::x::queue::{self, QueueEntry};
 
@@ -14,7 +15,7 @@ pub async fn run(
     tweet_id: &str,
     message: &str,
     cfg: &crate::run::Config,
-) -> Result<crate::Output, Error> {
+) -> Result<Output, Error> {
     let agent = cfg
         .objectiveai_agent_id
         .as_deref()
@@ -50,5 +51,5 @@ pub async fn run(
     .await
     .map_err(|e| Error::Other(format!("queue enqueue: {e}")))?;
 
-    Ok(crate::Output::Empty)
+    Ok(Output::Empty)
 }

@@ -7,6 +7,7 @@
 use std::io::{BufRead, BufReader};
 
 use psychological_operations_sdk::browser::output::Output as BrowserOutput;
+use psychological_operations_sdk::cli::Output;
 
 use crate::browser::{extract::ensure_extracted, launch};
 use crate::db::Db;
@@ -16,7 +17,7 @@ pub async fn run(
     name_filter: Option<&str>,
     commit_filter: Option<&str>,
     cfg: &crate::run::Config,
-) -> Result<crate::Output, Error> {
+) -> Result<Output, Error> {
     let materialized = ensure_extracted(cfg)?;
     let config_base_dir = cfg.objectiveai_base_dir();
 
@@ -42,7 +43,7 @@ pub async fn run(
 
     if names.is_empty() {
         crate::emit::emit(crate::events::Event::BrowseNoPsyops);
-        return Ok(crate::Output::Empty);
+        return Ok(Output::Empty);
     }
 
     crate::emit::emit(crate::events::Event::BrowsePsyopList { count: names.len() });
@@ -122,7 +123,7 @@ pub async fn run(
         });
     }
 
-    Ok(crate::Output::Empty)
+    Ok(Output::Empty)
 }
 
 /// Enumerate psyops on disk in alphabetical order. Same dir-walk

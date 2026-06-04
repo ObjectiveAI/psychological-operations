@@ -13,6 +13,7 @@
 //! agent surface.
 
 use clap::Subcommand;
+use psychological_operations_sdk::cli::Output;
 
 use crate::error::Error;
 
@@ -56,7 +57,7 @@ pub enum Commands {
 }
 
 impl Commands {
-    pub async fn handle(self, cfg: &crate::run::Config) -> Result<crate::Output, Error> {
+    pub async fn handle(self, cfg: &crate::run::Config) -> Result<Output, Error> {
         match self {
             Commands::Login { name, dangerously_reset } => {
                 crate::login::run(

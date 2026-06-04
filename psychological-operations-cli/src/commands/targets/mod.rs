@@ -6,6 +6,7 @@
 //! subcommands.
 
 use clap::Subcommand;
+use psychological_operations_sdk::cli::Output;
 
 use crate::error::Error;
 use crate::targets::destinations::Destination;
@@ -34,7 +35,7 @@ pub enum Commands {
 }
 
 impl Commands {
-    pub async fn handle(self, cfg: &crate::run::Config) -> Result<crate::Output, Error> {
+    pub async fn handle(self, cfg: &crate::run::Config) -> Result<Output, Error> {
         match self {
             Commands::Get { index } => {
                 let json_cfg = crate::config::load(cfg);
@@ -43,9 +44,9 @@ impl Commands {
                         let entry = json_cfg.targets.get(i).ok_or_else(|| {
                             Error::Other(format!("no target at index {i}"))
                         })?;
-                        Ok(crate::Output::ConfigGet(serde_json::to_string(entry)?))
+                        Ok(Output::ConfigGet(serde_json::to_string(entry)?))
                     }
-                    None => Ok(crate::Output::ConfigGet(
+                    None => Ok(Output::ConfigGet(
                         serde_json::to_string(&json_cfg.targets)?,
                     )),
                 }
@@ -55,7 +56,7 @@ impl Commands {
                 let mut json_cfg = crate::config::load(cfg);
                 json_cfg.targets.push(parsed);
                 crate::config::save(&json_cfg, cfg)?;
-                Ok(crate::Output::ConfigSet)
+                Ok(Output::ConfigSet)
             }
             Commands::Del { index } => {
                 let mut json_cfg = crate::config::load(cfg);
@@ -64,12 +65,12 @@ impl Commands {
                 }
                 json_cfg.targets.remove(index);
                 crate::config::save(&json_cfg, cfg)?;
-                Ok(crate::Output::ConfigSet)
+                Ok(Output::ConfigSet)
             }
             Commands::Deliver { psyop } => {
                 let db = crate::db::Db::open(cfg)?;
                 let summary = crate::targets::drain_queue(&db, psyop.as_deref(), cfg).await?;
-                Ok(crate::Output::Api(serde_json::to_string(&summary)?))
+                Ok(Output::Api(serde_json::to_string(&summary)?))
             }
         }
     }

@@ -1,13 +1,11 @@
 //! Tool surface, split by side-effect class so each file stays
-//! short. The three `#[tool_router(router = …, vis = "pub")]`
-//! impl blocks generate three free functions that
-//! [`super::PsychologicalOperationsXApiMcp::new`] combines via the
-//! rmcp `ToolRouter` `+` operator.
+//! short. Each file's `#[tool_router(router = …, vis = "pub")]`
+//! impl block generates a `pub fn` ON the
+//! `PsychologicalOperationsXApiMcp` impl that builds a
+//! `ToolRouter<Self>`; `mod.rs::new` combines them with the rmcp
+//! `+` operator (`Self::read_tools() + Self::write_tools() +
+//! Self::queue_tools()`).
 
 pub mod queue;
 pub mod read;
 pub mod write;
-
-pub use queue::queue_tools;
-pub use read::read_tools;
-pub use write::write_tools;

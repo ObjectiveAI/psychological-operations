@@ -1,6 +1,7 @@
 //! `x_app` subcommand surface.
 
 use clap::Subcommand;
+use psychological_operations_sdk::cli::Output;
 
 use crate::error::Error;
 
@@ -29,7 +30,7 @@ pub enum Commands {
 }
 
 impl Commands {
-    pub async fn handle(self, cfg: &crate::run::Config) -> Result<crate::Output, Error> {
+    pub async fn handle(self, cfg: &crate::run::Config) -> Result<Output, Error> {
         match self {
             Commands::Setup { dangerously_reset } => {
                 setup::run(dangerously_reset, cfg).await

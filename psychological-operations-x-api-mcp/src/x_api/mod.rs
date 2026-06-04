@@ -97,7 +97,7 @@ impl PsychologicalOperationsXApiMcp {
         cache_ttl: Duration,
     ) -> Self {
         Self {
-            tool_router: tools::read_tools() + tools::write_tools() + tools::queue_tools(),
+            tool_router: Self::read_tools() + Self::write_tools() + Self::queue_tools(),
             sessions,
             reqwest,
             config_base_dir,
@@ -192,7 +192,7 @@ impl ServerHandler for PsychologicalOperationsXApiMcp {
             .into_iter()
             .filter(|t| !is_hidden_for(mode, &t.name))
             .collect();
-        Ok(ListToolsResult { tools, next_cursor: None })
+        Ok(ListToolsResult { tools, next_cursor: None, meta: None })
     }
 
     async fn call_tool(

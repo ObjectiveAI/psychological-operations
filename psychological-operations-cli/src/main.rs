@@ -4,10 +4,10 @@ use psychological_operations_cli::emit::{emit_error, emit_notification_from_payl
 
 #[tokio::main]
 async fn main() {
-    let cfg = psychological_operations_cli::load_config();
+    let cfg = psychological_operations_cli::run::load_config();
     let args = std::env::args_os();
 
-    match psychological_operations_cli::run(args, &cfg).await {
+    match psychological_operations_cli::commands::run(args, &cfg).await {
         Ok(output) => {
             if !output.is_empty() {
                 emit_notification_from_payload(&output);

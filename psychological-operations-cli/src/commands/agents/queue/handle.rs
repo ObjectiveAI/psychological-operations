@@ -34,6 +34,7 @@ use objectiveai_sdk::cli::command::PluginExecutor;
 use objectiveai_sdk::cli::command::agents::list::active as list_active;
 use objectiveai_sdk::cli::command::agents::message as agents_message;
 use objectiveai_sdk::cli::command::agents::spawn as agents_spawn;
+use psychological_operations_sdk::cli::Output;
 use psychological_operations_sdk::x::client::{AuthMode, Client};
 use psychological_operations_sdk::x::queue::Queue;
 use tokio::task::JoinSet;
@@ -45,7 +46,7 @@ use super::executor;
 pub async fn run(
     agent_filter: Vec<String>,
     cfg: &crate::run::Config,
-) -> Result<crate::Output, Error> {
+) -> Result<Output, Error> {
     let instance_hierarchy = cfg
         .objectiveai_instance_hierarchy
         .as_deref()
@@ -110,7 +111,7 @@ pub async fn run(
     }
     while tasks.join_next().await.is_some() {}
 
-    Ok(crate::Output::Empty)
+    Ok(Output::Empty)
 }
 
 async fn handle_one_agent(

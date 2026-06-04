@@ -3,6 +3,7 @@
 //! `json_cfg.psyops.<name>.{base,commits.<sha>}.targets` lists.
 
 use clap::Subcommand;
+use psychological_operations_sdk::cli::Output;
 
 use crate::error::Error;
 use crate::targets::destinations::Destination;
@@ -35,7 +36,7 @@ pub enum Commands {
 }
 
 impl Commands {
-    pub fn handle(self, cfg: &crate::run::Config) -> Result<crate::Output, Error> {
+    pub fn handle(self, cfg: &crate::run::Config) -> Result<Output, Error> {
         match self {
             Commands::Get { name, index, commit } => {
                 let json_cfg = crate::config::load(cfg);
@@ -52,9 +53,9 @@ impl Commands {
                         let entry = list
                             .get(i)
                             .ok_or_else(|| Error::Other(format!("no target at index {i}")))?;
-                        Ok(crate::Output::ConfigGet(serde_json::to_string(entry)?))
+                        Ok(Output::ConfigGet(serde_json::to_string(entry)?))
                     }
-                    None => Ok(crate::Output::ConfigGet(serde_json::to_string(&list)?)),
+                    None => Ok(Output::ConfigGet(serde_json::to_string(&list)?)),
                 }
             }
             Commands::Add { name, json, commit } => {
@@ -71,7 +72,7 @@ impl Commands {
                     None => overrides.base.targets.push(parsed),
                 }
                 crate::config::save(&json_cfg, cfg)?;
-                Ok(crate::Output::ConfigSet)
+                Ok(Output::ConfigSet)
             }
             Commands::Del { name, index, commit } => {
                 let mut json_cfg = crate::config::load(cfg);
@@ -105,7 +106,7 @@ impl Commands {
                     json_cfg.psyops.remove(&name);
                 }
                 crate::config::save(&json_cfg, cfg)?;
-                Ok(crate::Output::ConfigSet)
+                Ok(Output::ConfigSet)
             }
         }
     }

@@ -10,6 +10,7 @@ use objectiveai_sdk::functions::inventions::{
     ParamsState,
     state::{AlphaScalarState, AlphaVectorState},
 };
+use psychological_operations_sdk::cli::Output;
 
 use crate::error::Error;
 use crate::input;
@@ -45,7 +46,7 @@ pub enum Commands {
 }
 
 impl Commands {
-    pub fn handle(self, cfg: &crate::run::Config) -> Result<crate::Output, Error> {
+    pub fn handle(self, cfg: &crate::run::Config) -> Result<Output, Error> {
         match self {
             Commands::AlphaScalar { params, forward } => {
                 let p = params.into_params();

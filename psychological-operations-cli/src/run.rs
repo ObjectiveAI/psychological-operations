@@ -157,7 +157,6 @@ pub fn load_config() -> Config {
 }
 
 // Output type lives in the SDK now —
-// `psychological_operations_sdk::cli::Output`. Re-exported from
-// `crate::lib` so existing call sites of `crate::Output::…` keep
-// resolving.
+// `psychological_operations_sdk::cli::Output`. Call sites
+// import it directly; lib.rs intentionally does not re-export.
 

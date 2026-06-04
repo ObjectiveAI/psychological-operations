@@ -31,6 +31,7 @@ use crate::db::{Db, Origin, Post};
 use crate::error::Error;
 use crate::score::{self, ScoredPost};
 use crate::tweet::Tweet;
+use psychological_operations_sdk::cli::Output;
 use psychological_operations_sdk::x::client::{AuthMode, Client};
 use psychological_operations_sdk::x::params::tweet_expansions_parameter::TweetExpansions;
 use psychological_operations_sdk::x::params::tweet_fields_parameter::TweetFields;
@@ -48,7 +49,7 @@ pub async fn run_all(
     commit_filter: Option<&str>,
     seed: Option<i64>,
     cfg: &crate::run::Config,
-) -> Result<crate::Output, Error> {
+) -> Result<Output, Error> {
     let name = name_filter.ok_or_else(|| {
         Error::Other("psyops run requires --name <psyop>".into())
     })?;
@@ -60,7 +61,7 @@ pub async fn run_psyop(
     commit_override: Option<&str>,
     seed: Option<i64>,
     cfg: &crate::run::Config,
-) -> Result<crate::Output, Error> {
+) -> Result<Output, Error> {
     let psyop = super::psyop::load(name, None, cfg)?;
     psyop.validate()?;
 
@@ -166,7 +167,7 @@ pub async fn run_psyop(
         // 11. Drain the queue (filtered to this psyop).
         let _summary = crate::targets::drain_queue(&db, Some(name), cfg).await?;
 
-        return Ok(crate::Output::Empty);
+        return Ok(Output::Empty);
     }
 }
 

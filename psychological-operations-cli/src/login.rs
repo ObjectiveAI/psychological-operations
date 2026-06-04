@@ -32,6 +32,7 @@ use psychological_operations_sdk::browser::mode::Mode;
 use psychological_operations_sdk::browser::output::Output;
 use psychological_operations_sdk::browser::reset;
 use psychological_operations_sdk::browser::x_app_credentials::{OAuthPopup, PostCreateDialog};
+use psychological_operations_sdk::cli::Output as CliOutput;
 use psychological_operations_sdk::x::x_app;
 
 use crate::browser::{extract::ensure_extracted, launch, stream};
@@ -42,7 +43,7 @@ pub async fn run(
     name: &str,
     dangerously_reset: bool,
     cfg: &crate::run::Config,
-) -> Result<crate::Output, Error> {
+) -> Result<CliOutput, Error> {
     let config_base_dir = cfg.objectiveai_base_dir();
 
     // === Pre-flight: X-App ===
@@ -132,7 +133,7 @@ pub async fn run(
     });
 
     outcome
-        .map(|()| crate::Output::Empty)
+        .map(|()| CliOutput::Empty)
         .map_err(Error::Other)
 }
 

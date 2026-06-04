@@ -17,6 +17,7 @@ pub use filter::*;
 pub use stage::*;
 
 use clap::Args;
+use psychological_operations_sdk::cli::Output;
 use serde::Serialize;
 
 #[derive(Args)]
@@ -49,7 +50,7 @@ struct PsyopEntry {
     commit_sha: String,
 }
 
-pub(crate) fn list(enabled: bool, disabled: bool, cfg: &crate::run::Config) -> Result<crate::Output, crate::error::Error> {
+pub(crate) fn list(enabled: bool, disabled: bool, cfg: &crate::run::Config) -> Result<Output, crate::error::Error> {
     let json_cfg = crate::config::load(cfg);
     let dir = crate::config::psyops_dir(cfg);
     let mut entries: Vec<PsyopEntry> = Vec::new();
@@ -78,15 +79,15 @@ pub(crate) fn list(enabled: bool, disabled: bool, cfg: &crate::run::Config) -> R
         }
     }
     entries.sort_by(|a, b| a.name.cmp(&b.name));
-    Ok(crate::Output::ConfigGet(serde_json::to_string(&entries)?))
+    Ok(Output::ConfigGet(serde_json::to_string(&entries)?))
 }
 
-pub(crate) fn get(name: &str, cfg: &crate::run::Config) -> Result<crate::Output, crate::error::Error> {
+pub(crate) fn get(name: &str, cfg: &crate::run::Config) -> Result<Output, crate::error::Error> {
     let psyop = self::psyop::load(name, None, cfg)?;
-    Ok(crate::Output::ConfigGet(serde_json::to_string(&psyop)?))
+    Ok(Output::ConfigGet(serde_json::to_string(&psyop)?))
 }
 
-pub(crate) fn set_disabled(name: &str, commit: Option<&str>, value: bool, cfg: &crate::run::Config) -> Result<crate::Output, crate::error::Error> {
+pub(crate) fn set_disabled(name: &str, commit: Option<&str>, value: bool, cfg: &crate::run::Config) -> Result<Output, crate::error::Error> {
     let mut json_cfg = crate::config::load(cfg);
     {
         let overrides = json_cfg.psyops.entry(name.to_string()).or_default();
@@ -114,10 +115,10 @@ pub(crate) fn set_disabled(name: &str, commit: Option<&str>, value: bool, cfg: &
     if let Some(body) = full_psyop_body(name, &json_cfg, cfg) {
         notify::notify("psyop_edited", &body, cfg);
     }
-    Ok(crate::Output::ConfigSet)
+    Ok(Output::ConfigSet)
 }
 
-pub(crate) fn publish(args: PublishArgs, cfg: &crate::run::Config) -> Result<crate::Output, crate::error::Error> {
+pub(crate) fn publish(args: PublishArgs, cfg: &crate::run::Config) -> Result<Output, crate::error::Error> {
     let psyop: PsyOp = if let Some(inline) = args.source.psyop_inline {
         serde_json::from_str(&inline)?
     } else if let Some(path) = args.source.psyop_file {
@@ -149,14 +150,14 @@ pub(crate) fn publish(args: PublishArgs, cfg: &crate::run::Config) -> Result<cra
     let sub_type = if existed_before { "psyop_edited" } else { "psyop_added" };
     notify::notify(sub_type, &body, cfg);
 
-    Ok(crate::Output::Api(sha))
+    Ok(Output::Api(sha))
 }
 
 /// Delete a psyop on disk: blow away its dir (including the .git
 /// repo) and drop any per-psyop entries from config.json. Returns
 /// `PsyopNotFound` if the dir doesn't exist (treat delete-of-absent
 /// as an error so scripts can `&&` chain).
-pub(crate) fn delete(name: &str, cfg: &crate::run::Config) -> Result<crate::Output, crate::error::Error> {
+pub(crate) fn delete(name: &str, cfg: &crate::run::Config) -> Result<Output, crate::error::Error> {
     let dir = crate::config::psyops_dir(cfg).join(name);
     if !dir.exists() {
         return Err(crate::error::Error::PsyopNotFound(dir.display().to_string()));
@@ -173,7 +174,7 @@ pub(crate) fn delete(name: &str, cfg: &crate::run::Config) -> Result<crate::Outp
         &serde_json::json!({ "name": name }),
         cfg,
     );
-    Ok(crate::Output::Empty)
+    Ok(Output::Empty)
 }
 
 /// Build the `PsyopWithDefinition`-shaped notification body for

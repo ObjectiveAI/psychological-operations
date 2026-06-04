@@ -13,6 +13,7 @@
 //! see `state.rs::derive` for the browser-mode arm.
 
 use psychological_operations_sdk::browser::auth_json::PersonaKind;
+use psychological_operations_sdk::cli::Output;
 
 use crate::browser::{extract::ensure_extracted, launch};
 use crate::error::Error;
@@ -21,7 +22,7 @@ pub async fn run(
     kind: PersonaKind,
     name: &str,
     cfg: &crate::run::Config,
-) -> Result<crate::Output, Error> {
+) -> Result<Output, Error> {
     let materialized = ensure_extracted(cfg)?;
     let config_base_dir = cfg.objectiveai_base_dir();
     let launch_mode = match kind {
@@ -59,5 +60,5 @@ pub async fn run(
         status: status.code(),
     });
 
-    Ok(crate::Output::Empty)
+    Ok(Output::Empty)
 }
