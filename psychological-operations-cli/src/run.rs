@@ -156,25 +156,8 @@ pub fn load_config() -> Config {
     ConfigBuilder::init_from_env().unwrap_or_default().build()
 }
 
-// ---------------------------------------------------------------------------
-// Output type returned by command handlers
-// ---------------------------------------------------------------------------
-
-pub enum Output {
-    ConfigGet(String),
-    ConfigSet,
-    Api(String),
-    Empty,
-}
-
-impl std::fmt::Display for Output {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Output::ConfigGet(s) => write!(f, "{s}"),
-            Output::ConfigSet => write!(f, "ok"),
-            Output::Api(s) => write!(f, "{s}"),
-            Output::Empty => Ok(()),
-        }
-    }
-}
+// Output type lives in the SDK now —
+// `psychological_operations_sdk::cli::Output`. Re-exported from
+// `crate::lib` so existing call sites of `crate::Output::…` keep
+// resolving.
 

@@ -8,4 +8,5 @@
 //! peer modules.
 
 pub mod browser;
+pub mod cli;
 pub mod x;

@@ -18,4 +18,4 @@ pub(crate) mod invent;
 pub mod run;
 
 pub use commands::run;
-pub use run::{Config, Output, load_config};
+pub use run::{Config, load_config};
