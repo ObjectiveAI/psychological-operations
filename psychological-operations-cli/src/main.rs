@@ -1,6 +1,6 @@
-use objectiveai_sdk::cli::output::Level;
+use objectiveai_sdk::cli::Level;
 
-use psychological_operations_cli::emit::{emit_error, emit_notification_from_payload};
+use psychological_operations_cli::output::OutputResult;
 
 #[tokio::main]
 async fn main() {
@@ -10,11 +10,14 @@ async fn main() {
     match psychological_operations_cli::commands::run(args, &cfg).await {
         Ok(output) => {
             if !output.is_empty() {
-                emit_notification_from_payload(&output);
+                let value: serde_json::Value = serde_json::from_str(&output)
+                    .unwrap_or_else(|_| serde_json::Value::String(output));
+                OutputResult::Notification(serde_json::json!({ "value": value })).emit();
             }
         }
         Err(e) => {
-            emit_error(Level::Error, true, serde_json::Value::String(e));
+            OutputResult::error(Level::Error, /* fatal */ true, serde_json::Value::String(e))
+                .emit();
             std::process::exit(1);
         }
     }

@@ -220,10 +220,11 @@ fn score_pipeline(
 
     for (i, stage) in psyop.stages.iter().enumerate() {
         if current.is_empty() {
-            crate::emit::emit(crate::events::Event::StageEmpty {
+            crate::output::OutputResult::from(crate::events::Event::StageEmpty {
                 psyop: name.to_string(),
                 stage: i,
-            });
+            })
+            .emit();
             break;
         }
 
@@ -233,7 +234,7 @@ fn score_pipeline(
         //   {"type":"notification","value":{"event":"stage_begin","stage":N}}
         //   …per-stage scoring notifications…
         //   {"type":"notification","value":{"event":"stage_end","stage":N}}
-        crate::emit::emit(crate::events::Event::StageBegin { stage: i });
+        crate::output::OutputResult::from(crate::events::Event::StageBegin { stage: i }).emit();
 
         let scored: Vec<ScoredPost> = score::score(stage, current, seed, cfg)?;
         for s in &scored {
@@ -258,7 +259,7 @@ fn score_pipeline(
         survivors = after_top.clone();
         current = after_top.into_iter().map(|s| s.post).collect();
 
-        crate::emit::emit(crate::events::Event::StageEnd { stage: i });
+        crate::output::OutputResult::from(crate::events::Event::StageEnd { stage: i }).emit();
     }
 
     Ok(ScoreResult { last_scores, survivors })
@@ -276,10 +277,11 @@ async fn hydrate_for_you(
     if queued.is_empty() {
         return Ok(());
     }
-    crate::emit::emit(crate::events::Event::HydratingQueue {
+    crate::output::OutputResult::from(crate::events::Event::HydratingQueue {
         psyop: name.to_string(),
         count: queued.len(),
-    });
+    })
+    .emit();
     let mut succeeded: Vec<String> = Vec::new();
     for id in queued {
         match fetch_tweet(http, &id).await {
@@ -288,18 +290,20 @@ async fn hydrate_for_you(
                 succeeded.push(id);
             }
             Ok(None) => {
-                crate::emit::emit(crate::events::Event::TweetNotFound {
+                crate::output::OutputResult::from(crate::events::Event::TweetNotFound {
                     psyop: name.to_string(),
                     tweet_id: id.clone(),
-                });
+                })
+                .emit();
                 succeeded.push(id);   // unrecoverable — don't keep retrying
             }
             Err(e) => {
-                crate::emit::emit(crate::events::Event::TweetFetchFailed {
+                crate::output::OutputResult::from(crate::events::Event::TweetFetchFailed {
                     psyop: name.to_string(),
                     tweet_id: id,
                     error: e.to_string(),
-                });
+                })
+                .emit();
                 // leave in queue for next round
             }
         }
@@ -409,30 +413,33 @@ async fn run_queries(
         if !matches!(q.endpoint, SearchEndpoint::Recent) {
             // `/2/tweets/search/all` is Pro/Enterprise only and not wired up
             // yet — skip with a notice.
-            crate::emit::emit(crate::events::Event::QuerySkipped {
+            crate::output::OutputResult::from(crate::events::Event::QuerySkipped {
                 psyop: name.to_string(),
                 query: q.query.clone(),
                 reason: "endpoint_not_recent".to_string(),
-            });
+            })
+            .emit();
             continue;
         }
         match search_recent(http, &q.query).await {
             Ok(posts) => {
-                crate::emit::emit(crate::events::Event::QueryComplete {
+                crate::output::OutputResult::from(crate::events::Event::QueryComplete {
                     psyop: name.to_string(),
                     query: q.query.clone(),
                     count: posts.len(),
-                });
+                })
+                .emit();
                 for p in posts {
                     db.insert_post(&p, name, commit, &Origin::Query(q.query.clone()))?;
                 }
             }
             Err(e) => {
-                crate::emit::emit(crate::events::Event::QueryFailed {
+                crate::output::OutputResult::from(crate::events::Event::QueryFailed {
                     psyop: name.to_string(),
                     query: q.query.clone(),
                     error: e.to_string(),
-                });
+                })
+                .emit();
             }
         }
     }

@@ -44,21 +44,23 @@ pub async fn run(
         /* pipe_stdout = */ false,
     )?;
 
-    crate::emit::emit(crate::events::Event::BrowserSpawned {
+    crate::output::OutputResult::from(crate::events::Event::BrowserSpawned {
         kind: event_kind.into(),
         name: Some(name.to_string()),
         pid: child.id(),
-    });
+    })
+    .emit();
 
     let status = child
         .wait()
         .map_err(|e| Error::Other(format!("waiting for browser ({name}) failed: {e}")))?;
 
-    crate::emit::emit(crate::events::Event::BrowserExit {
+    crate::output::OutputResult::from(crate::events::Event::BrowserExit {
         kind: event_kind.into(),
         name: Some(name.to_string()),
         status: status.code(),
-    });
+    })
+    .emit();
 
     Ok(Output::Empty)
 }

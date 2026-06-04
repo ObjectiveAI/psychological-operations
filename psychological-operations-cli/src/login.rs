@@ -95,11 +95,12 @@ pub async fn run(
         /* pipe_stdout = */ true,
     )?;
 
-    crate::emit::emit(crate::events::Event::BrowserSpawned {
+    crate::output::OutputResult::from(crate::events::Event::BrowserSpawned {
         kind: event_kind.into(),
         name: Some(name.to_string()),
         pid: child.id(),
-    });
+    })
+    .emit();
 
     let child_stdin = child.stdin.take().expect("piped");
     let child_stdout = child.stdout.take().expect("piped");
@@ -126,11 +127,12 @@ pub async fn run(
         .wait()
         .map_err(|e| Error::Other(format!("waiting for browser ({name}) failed: {e}")))?;
 
-    crate::emit::emit(crate::events::Event::BrowserExit {
+    crate::output::OutputResult::from(crate::events::Event::BrowserExit {
         kind: event_kind.into(),
         name: Some(name.to_string()),
         status: status.code(),
-    });
+    })
+    .emit();
 
     outcome
         .map(|()| CliOutput::Empty)

@@ -21,9 +21,10 @@ pub async fn run(
     let materialized = ensure_extracted(cfg)?;
     let config_base_dir = cfg.objectiveai_base_dir();
 
-    crate::emit::emit(crate::events::Event::BrowseBrowserMaterialized {
+    crate::output::OutputResult::from(crate::events::Event::BrowseBrowserMaterialized {
         path: materialized.root.display().to_string(),
-    });
+    })
+    .emit();
 
     let names = match name_filter {
         Some(n) => {
@@ -42,23 +43,24 @@ pub async fn run(
     };
 
     if names.is_empty() {
-        crate::emit::emit(crate::events::Event::BrowseNoPsyops);
+        crate::output::OutputResult::from(crate::events::Event::BrowseNoPsyops).emit();
         return Ok(Output::Empty);
     }
 
-    crate::emit::emit(crate::events::Event::BrowsePsyopList { count: names.len() });
+    crate::output::OutputResult::from(crate::events::Event::BrowsePsyopList { count: names.len() }).emit();
     for (i, name) in names.iter().enumerate() {
         let commit = match (name_filter, commit_filter) {
             (Some(_), Some(c)) => c.to_string(),
             _ => derive_commit(name, cfg)?,
         };
 
-        crate::emit::emit(crate::events::Event::BrowseStarting {
+        crate::output::OutputResult::from(crate::events::Event::BrowseStarting {
             psyop: name.to_string(),
             commit: commit.clone(),
             index: i + 1,
             total: names.len(),
-        });
+        })
+        .emit();
 
         let mut child = launch::spawn(
             &materialized.binary,
@@ -68,11 +70,12 @@ pub async fn run(
             /* pipe_stdout = */ true,
         )?;
 
-        crate::emit::emit(crate::events::Event::BrowserSpawned {
+        crate::output::OutputResult::from(crate::events::Event::BrowserSpawned {
             kind: "psyop_read".into(),
             name: Some(name.clone()),
             pid: child.id(),
-        });
+        })
+        .emit();
 
         // Stream the browser's stdout line-by-line. Each `tweet_id`
         // event lands in the for_you queue; anything else is logged
@@ -115,12 +118,13 @@ pub async fn run(
         let status = child.wait().map_err(|e| {
             Error::Other(format!("waiting for browser ({name}) failed: {e}"))
         })?;
-        crate::emit::emit(crate::events::Event::BrowseSessionEnded {
+        crate::output::OutputResult::from(crate::events::Event::BrowseSessionEnded {
             psyop: name.to_string(),
             status: status.code(),
             inserted,
             skipped,
-        });
+        })
+        .emit();
     }
 
     Ok(Output::Empty)

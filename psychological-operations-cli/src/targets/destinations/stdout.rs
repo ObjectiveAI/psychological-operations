@@ -15,8 +15,9 @@ pub struct Stdout {}
 
 pub async fn send(_cfg: &Stdout, subject: &Subject<'_>) -> Result<(), crate::error::Error> {
     let body = json_body::build(subject);
-    crate::emit::emit(Event::TargetDelivered {
+    crate::output::OutputResult::from(Event::TargetDelivered {
         body: serde_json::to_value(&body)?,
-    });
+    })
+    .emit();
     Ok(())
 }

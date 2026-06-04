@@ -200,25 +200,28 @@ fn emit_per_agent(agent: &str, res: Result<usize, (usize, String)>) {
     match res {
         Ok(0) => {} // silent skip — no entries, no notification
         Ok(n) => {
-            crate::emit::emit_notification(serde_json::json!({
+            crate::output::OutputResult::Notification(serde_json::json!({
                 "event":    "agent_queue_handled",
                 "agent":    agent,
                 "handling": n,
                 "error":    serde_json::Value::Null,
-            }));
+            }))
+            .emit();
         }
         Err((n, msg)) => {
-            crate::emit::emit_error(
-                objectiveai_sdk::cli::output::Level::Warn,
+            crate::output::OutputResult::error(
+                objectiveai_sdk::cli::Level::Warn,
                 /* fatal */ false,
                 serde_json::Value::String(format!("agent {agent}: {msg}")),
-            );
-            crate::emit::emit_notification(serde_json::json!({
+            )
+            .emit();
+            crate::output::OutputResult::Notification(serde_json::json!({
                 "event":    "agent_queue_handled",
                 "agent":    agent,
                 "handling": n,
                 "error":    msg,
-            }));
+            }))
+            .emit();
         }
     }
 }

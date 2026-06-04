@@ -1,6 +1,6 @@
 pub mod commands;
-pub mod emit;
 pub mod events;
+pub mod output;
 pub mod error;
 pub mod config;
 pub mod db;

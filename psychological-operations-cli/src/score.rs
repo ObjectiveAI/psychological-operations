@@ -299,9 +299,10 @@ fn run_function_execution(
     if !errors.is_empty() {
         // Silent fallback to a uniform prior — surface as a Warn so
         // consumers see it but execution continues.
-        crate::emit::emit(crate::events::Event::ObjectiveaiTaskErrors {
+        crate::output::OutputResult::from(crate::events::Event::ObjectiveaiTaskErrors {
             count: errors.len(),
-        });
+        })
+        .emit();
     }
     let inner = execution.get("output").cloned().ok_or_else(|| {
         crate::error::Error::ObjectiveAiCli(
