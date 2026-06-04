@@ -15,8 +15,9 @@
 //! hand-written non-codegen call (twimg has no OpenAPI surface).
 //!
 //! `agent` and `mode` are NOT process-wide. They land here per
-//! session via the `X-PSYOP-X-API-AGENT` / `X-PSYOP-X-API-MODE`
-//! headers on the initialize request — recorded by
+//! session, sourced from the `X-OBJECTIVEAI-ARGUMENTS` JSON-object
+//! header (with `X-OBJECTIVEAI-AGENT-INSTANCE-HIERARCHY` as the
+//! agent fallback) on every request — recorded by
 //! [`crate::header_session_manager::HeaderSessionManager`] into
 //! [`session::SessionRegistry`] keyed by `Mcp-Session-Id`. Tool
 //! handlers look the pair up via [`PsychologicalOperationsXApiMcp::resolve_session`]

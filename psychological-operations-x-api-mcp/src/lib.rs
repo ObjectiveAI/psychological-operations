@@ -6,10 +6,11 @@
 //! configuration is explicit at the function signatures — there
 //! is no `Config` struct and no env-var layer.
 //!
-//! `agent` and `mode` are per-session, sourced from the
-//! `X-PSYOP-X-API-AGENT` and `X-PSYOP-X-API-MODE` HTTP headers on
-//! the initial connect (see
-//! [`crate::header_session_manager::HeaderSessionManager`]).
+//! `agent` and `mode` are per-session, sourced on every connect
+//! from the `X-OBJECTIVEAI-ARGUMENTS` JSON-object header and (for
+//! `agent` as fallback) the `X-OBJECTIVEAI-AGENT-INSTANCE-HIERARCHY`
+//! header — see [`crate::x_api::session`] for the source-resolution
+//! contract.
 
 mod header_session_manager;
 mod mode;
@@ -19,4 +20,4 @@ mod x_api;
 pub use mode::Mode;
 pub use run::{run, serve, setup};
 pub use x_api::PsychologicalOperationsXApiMcp;
-pub use x_api::session::{HEADER_AGENT, HEADER_MODE};
+pub use x_api::session::{HEADER_AGENT_INSTANCE_HIERARCHY, HEADER_ARGUMENTS};

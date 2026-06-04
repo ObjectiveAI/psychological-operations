@@ -19,8 +19,9 @@ pub enum Commands {
     /// localhost port, emits one JSONL line with the URL, then
     /// serves until the process is killed. Per-session
     /// `(agent, mode)` are supplied by the client on connect via
-    /// the `X-PSYOP-X-API-AGENT` / `X-PSYOP-X-API-MODE` HTTP
-    /// headers — this command takes neither.
+    /// the `X-OBJECTIVEAI-ARGUMENTS` JSON-object header (with
+    /// `X-OBJECTIVEAI-AGENT-INSTANCE-HIERARCHY` as the agent
+    /// fallback) — this command takes neither.
     Begin {
         /// Cache budget in bytes (default 256 MiB).
         #[arg(long, default_value_t = 256 * 1024 * 1024)]

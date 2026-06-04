@@ -7,18 +7,22 @@
 //! 2. **Lazy `(handle, worker)` mint on first POST.** When tower
 //!    routes a request through `create_stream` or `accept_message`
 //!    for an id the inner `LocalSessionManager` doesn't currently
-//!    hold, we pull `X-PSYOP-X-API-{AGENT,MODE}` off the current
-//!    message's injected `http::request::Parts`, register
+//!    hold, we pull `(agent, mode)` off the current message's
+//!    injected `http::request::Parts` (per the source resolution
+//!    documented on
+//!    [`crate::x_api::session::HEADER_ARGUMENTS`]), register
 //!    `SessionState`, spawn the worker + service end, and drive
 //!    the worker past its initial `SessionEvent::InitializeRequest`
 //!    wait state with a synthetic stub. The original message then
 //!    delegates to the inner manager and rides through as if the
 //!    session had existed all along.
 //!
-//! The net effect: the CLI keeps re-sending headers on every
-//! connect; the server keeps state in memory only; a process
-//! restart silently rebuilds the (agent, mode) entry on the very
-//! next request. No disk.
+//! The net effect: objectiveai keeps re-sending the per-URL
+//! `X-OBJECTIVEAI-ARGUMENTS` (+ session-global
+//! `X-OBJECTIVEAI-AGENT-INSTANCE-HIERARCHY`) on every connect;
+//! the server keeps state in memory only; a process restart
+//! silently rebuilds the (agent, mode) entry on the very next
+//! request. No disk.
 
 use std::sync::Arc;
 
@@ -40,7 +44,9 @@ use rmcp::transport::streamable_http_server::session::{ServerSseMessage, Session
 
 use crate::Mode;
 use crate::PsychologicalOperationsXApiMcp;
-use crate::x_api::session::{HEADER_AGENT, HEADER_MODE, SessionRegistry, SessionState};
+use crate::x_api::session::{
+    HEADER_AGENT_INSTANCE_HIERARCHY, HEADER_ARGUMENTS, SessionRegistry, SessionState,
+};
 
 #[derive(Debug, Clone)]
 pub struct HeaderSessionManager {
@@ -62,7 +68,7 @@ impl HeaderSessionManager {
 
     /// Make sure the inner `LocalSessionManager` has a handle for
     /// `id`. If it already does, no-op. Otherwise extract the
-    /// X-PSYOP-* headers from the current message, register
+    /// X-OBJECTIVEAI-* headers from the current message, register
     /// `SessionState`, mint a worker, attach a service, and feed
     /// a synthetic initialize so the worker is ready to receive
     /// the real client message in its main loop.
@@ -234,26 +240,60 @@ fn extract_session_state(message: &ClientJsonRpcMessage) -> Result<SessionState,
     }
     .ok_or_else(|| "message missing injected HTTP parts extension".to_string())?;
 
-    let agent = parts
+    // Parse X-OBJECTIVEAI-ARGUMENTS as a JSON object. Absent /
+    // malformed / non-object → empty map. Per-key fallbacks below
+    // still apply.
+    let args: serde_json::Map<String, serde_json::Value> = parts
         .headers
-        .get(HEADER_AGENT)
+        .get(HEADER_ARGUMENTS)
         .and_then(|v| v.to_str().ok())
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .ok_or_else(|| format!("missing or empty {HEADER_AGENT} header"))?;
+        .and_then(|s| serde_json::from_str(s).ok())
+        .unwrap_or_default();
 
-    let mode_str = parts
-        .headers
-        .get(HEADER_MODE)
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .ok_or_else(|| format!("missing or empty {HEADER_MODE} header"))?;
+    // `agent`: try the JSON args first (case-insensitive key), then
+    // fall back to the X-OBJECTIVEAI-AGENT-INSTANCE-HIERARCHY
+    // header. Error only if neither source has a non-empty value.
+    let agent = lookup_string_ci(&args, "agent")
+        .or_else(|| {
+            parts
+                .headers
+                .get(HEADER_AGENT_INSTANCE_HIERARCHY)
+                .and_then(|v| v.to_str().ok())
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+        })
+        .ok_or_else(|| format!(
+            "missing agent: {HEADER_ARGUMENTS}[\"agent\"] absent or empty, \
+             and {HEADER_AGENT_INSTANCE_HIERARCHY} header also absent or empty"
+        ))?;
 
-    let mode = parse_mode(&mode_str)
-        .ok_or_else(|| format!("{HEADER_MODE}: expected 'readonly' or 'full', got {mode_str:?}"))?;
+    // `mode`: JSON args only; no header fallback. Optional —
+    // missing defaults to `Mode::Readonly`. Only a malformed
+    // value (something other than 'readonly' / 'full') is an
+    // error.
+    let mode = match lookup_string_ci(&args, "mode") {
+        Some(s) => parse_mode(&s).ok_or_else(|| {
+            format!("mode: expected 'readonly' or 'full', got {s:?}")
+        })?,
+        None => Mode::Readonly,
+    };
 
     Ok(SessionState { agent, mode })
+}
+
+/// Case-insensitive key lookup over a JSON object. Returns the
+/// matched value as a trimmed non-empty `String`, or `None` if no
+/// key matches, the matched value isn't a string, or it trims to
+/// empty.
+fn lookup_string_ci(
+    map: &serde_json::Map<String, serde_json::Value>,
+    key: &str,
+) -> Option<String> {
+    map.iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case(key))
+        .and_then(|(_, v)| v.as_str())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
 }
 
 fn parse_mode(s: &str) -> Option<Mode> {

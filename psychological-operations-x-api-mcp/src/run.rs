@@ -3,12 +3,15 @@
 //! `TcpListener` or wrap the `axum::Router` first.
 //!
 //! `agent` and `mode` are NOT parameters here. They flow in
-//! per-session via the `X-PSYOP-X-API-AGENT` /
-//! `X-PSYOP-X-API-MODE` headers — see
-//! [`crate::header_session_manager`]. State is in-memory only;
-//! the manager's `ensure_session` lazily re-captures headers
-//! from any request landing for a session id it doesn't yet
-//! hold, so process restart is transparent to the CLI.
+//! per-session via the `X-OBJECTIVEAI-ARGUMENTS` JSON-object
+//! header (with `X-OBJECTIVEAI-AGENT-INSTANCE-HIERARCHY` as the
+//! agent fallback) — see [`crate::x_api::session`] for the
+//! source-resolution contract and
+//! [`crate::header_session_manager`] for the wiring. State is
+//! in-memory only; the manager's `ensure_session` lazily
+//! re-captures the headers from any request landing for a
+//! session id it doesn't yet hold, so process restart is
+//! transparent to the upstream.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -74,10 +77,11 @@ pub async fn serve(listener: tokio::net::TcpListener, app: axum::Router) -> std:
 /// ```
 ///
 /// The host re-wraps the line in its own
-/// `{"type":"notification","value":<this>}` frame. No headers in
-/// the announcement — clients pin `(agent, mode)` per session
-/// via `X-PSYOP-X-API-{AGENT,MODE}` headers on their initial
-/// connect.
+/// `{"type":"notification","value":<this>}` frame. No
+/// `(agent, mode)` in the announcement — clients pin those per
+/// session via the `X-OBJECTIVEAI-ARGUMENTS` header (with
+/// `X-OBJECTIVEAI-AGENT-INSTANCE-HIERARCHY` as the agent
+/// fallback) on every request.
 pub async fn run(
     address: &str,
     port: u16,

@@ -8,8 +8,10 @@ use clap::Parser;
 /// two-tier (in-process + cross-process) lock.
 ///
 /// `agent` and `mode` are NOT flags — clients supply them per
-/// session via the `X-PSYOP-X-API-AGENT` and `X-PSYOP-X-API-MODE`
-/// HTTP headers on the initial connect.
+/// session via the `X-OBJECTIVEAI-ARGUMENTS` JSON-object header
+/// (and `X-OBJECTIVEAI-AGENT-INSTANCE-HIERARCHY` as the agent
+/// fallback) on every connect. See `crate::x_api::session` for
+/// the source-resolution contract.
 #[derive(Parser)]
 #[command(name = "psychological-operations-x-api-mcp")]
 struct Args {
