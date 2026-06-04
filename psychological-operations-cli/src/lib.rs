@@ -16,6 +16,3 @@ pub mod persona_browser;
 pub(crate) mod invent;
 
 pub mod run;
-
-pub use commands::run;
-pub use run::{Config, load_config};
