@@ -12,7 +12,6 @@ pub mod psyops;
 pub mod browser;
 pub mod publish;
 pub mod login;
-pub mod mcp;
 pub mod persona_browser;
 pub(crate) mod invent;
 

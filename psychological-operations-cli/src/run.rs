@@ -164,17 +164,6 @@ pub enum Output {
     ConfigGet(String),
     ConfigSet,
     Api(String),
-    /// X-API MCP `begin` result. The URL of the supervised MCP
-    /// (which serves all agents/modes; the caller multiplexes via
-    /// `headers` on the initial connect).
-    Mcp {
-        url: String,
-        /// HTTP headers the MCP client must send on its initial
-        /// POST. `X-PSYOP-X-API-AGENT` and `X-PSYOP-X-API-MODE`
-        /// pin the session's identity + tool surface for the rest
-        /// of its lifetime.
-        headers: std::collections::BTreeMap<String, String>,
-    },
     Empty,
 }
 
@@ -184,13 +173,6 @@ impl std::fmt::Display for Output {
             Output::ConfigGet(s) => write!(f, "{s}"),
             Output::ConfigSet => write!(f, "ok"),
             Output::Api(s) => write!(f, "{s}"),
-            Output::Mcp { url, headers } => {
-                write!(f, "{}", serde_json::json!({
-                    "type": "mcp",
-                    "url": url,
-                    "headers": headers,
-                }))
-            }
             Output::Empty => Ok(()),
         }
     }

@@ -62,10 +62,22 @@ pub async fn serve(listener: tokio::net::TcpListener, app: axum::Router) -> std:
     axum::serve(listener, app).await
 }
 
-/// All-in-one entrypoint: bind, announce, serve. Prints
-/// `"listening on <addr>"` to stderr once the listener is bound —
-/// the CLI supervisor (`mcp/begin.rs::spawn_and_wait`) reads that
-/// line to learn the URL.
+/// All-in-one entrypoint: bind, announce, serve.
+///
+/// Once the listener is bound, emits one JSONL line on **stdout**
+/// announcing the URL — shape matches the
+/// `PluginOutput::Notification(value)` wire frame the
+/// `psychological-operations-cli` host parses:
+///
+/// ```jsonc
+/// {"value":{"type":"mcp","url":"http://127.0.0.1:54321"}}
+/// ```
+///
+/// The host re-wraps the line in its own
+/// `{"type":"notification","value":<this>}` frame. No headers in
+/// the announcement — clients pin `(agent, mode)` per session
+/// via `X-PSYOP-X-API-{AGENT,MODE}` headers on their initial
+/// connect.
 pub async fn run(
     address: &str,
     port: u16,
@@ -75,6 +87,8 @@ pub async fn run(
 ) -> std::io::Result<()> {
     let (listener, app) = setup(address, port, config_base_dir, cache_max_size, cache_ttl).await?;
     let addr = listener.local_addr()?;
-    eprintln!("listening on {addr}");
+    println!("{}", serde_json::to_string(&serde_json::json!({
+        "value": {"type": "mcp", "url": format!("http://{addr}")}
+    })).expect("url notification serializes"));
     serve(listener, app).await
 }
