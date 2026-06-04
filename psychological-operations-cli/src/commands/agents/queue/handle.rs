@@ -30,7 +30,7 @@ use std::time::Duration;
 
 use futures::StreamExt;
 use objectiveai_sdk::agent::InlineAgentBaseWithFallbacksOrRemoteCommitOptional;
-use objectiveai_sdk::cli::command::PluginExecutor;
+use objectiveai_sdk::cli::command::plugin::PluginExecutor;
 use objectiveai_sdk::cli::command::agents::list::active as list_active;
 use objectiveai_sdk::cli::command::agents::message as agents_message;
 use objectiveai_sdk::cli::command::agents::spawn as agents_spawn;
@@ -40,8 +40,7 @@ use psychological_operations_sdk::x::queue::Queue;
 use tokio::task::JoinSet;
 
 use crate::error::Error;
-
-use super::executor;
+use crate::objectiveai_executor as executor;
 
 pub async fn run(
     agent_filter: Vec<String>,
@@ -137,14 +136,16 @@ async fn handle_one_agent(
         .map_err(|e| (n, format!("handler_map get: {e}")))?;
     if let Some(handler_id) = stored.as_deref() {
         let msg_req = agents_message::Request {
-            agent_instance_hierarchy: handler_id.to_string(),
+            path_type: agents_message::Path::AgentsMessage,
+            parent_agent_instance_hierarchy: None,
+            agent_instance: handler_id.to_string(),
             message: agents_message::RequestMessage::Simple(format!(
                 "There are {n} new tweets in the queue."
             )),
             seed: None,
             jq: None,
         };
-        match agents_message::execute(executor, msg_req).await {
+        match agents_message::execute(executor, msg_req, None).await {
             Ok(_resp) => {
                 // Queued or Delivered — either is success.
                 return Ok(n);
@@ -152,10 +153,11 @@ async fn handle_one_agent(
             Err(_) => {
                 // Step 2: check whether the handler is still alive.
                 let list_req = list_active::Request {
+                    path_type: list_active::Path::AgentsListActive,
                     parent_agent_instance_hierarchy: None,
                     jq: None,
                 };
-                let mut stream = list_active::execute(executor, list_req)
+                let mut stream = list_active::execute(executor, list_req, None)
                     .await
                     .map_err(|e| (n, format!("list active: {e}")))?;
                 let mut still_alive = false;
@@ -179,15 +181,16 @@ async fn handle_one_agent(
 
     // Step 3: spawn a fresh handler and persist its id.
     let spawn_req = agents_spawn::Request {
+        path_type: agents_spawn::Path::AgentsSpawn,
         prompt: agents_spawn::RequestPrompt::Simple(format!(
             "There are {n} new tweets in the queue.\n\nHandle each of them."
         )),
-        agent: handler_agent.clone(),
+        agent: agents_spawn::AgentSpec::Resolved(handler_agent.clone()),
         seed: None,
         dangerous_advanced: None,
         jq: None,
     };
-    let spawned_id = agents_spawn::execute(executor, spawn_req)
+    let spawned_id = agents_spawn::execute(executor, spawn_req, None)
         .await
         .map_err(|e| (n, format!("spawn: {e}")))?;
     q.set_handler(instance_hierarchy, agent, &spawned_id)

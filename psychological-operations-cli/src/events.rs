@@ -83,6 +83,10 @@ pub enum Event {
     TweetFetchFailed      { psyop: String, tweet_id: String, error: String },
     QueryFailed           { psyop: String, query: String, error: String },
     DeliveryFailed        { delivery_id: i64, reason: String },
+    /// The browser child wrote an `{"error": ...}` line on its piped
+    /// stdout while we were streaming for a terminator. Non-fatal:
+    /// the read loop keeps going.
+    BrowserError          { error: String },
 }
 
 impl Event {
@@ -96,7 +100,8 @@ impl Event {
             | Event::TweetNotFound { .. }
             | Event::TweetFetchFailed { .. }
             | Event::QueryFailed { .. }
-            | Event::DeliveryFailed { .. } => Some(Level::Warn),
+            | Event::DeliveryFailed { .. }
+            | Event::BrowserError { .. } => Some(Level::Warn),
             _ => None,
         }
     }

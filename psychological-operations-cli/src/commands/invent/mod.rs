@@ -46,7 +46,7 @@ pub enum Commands {
 }
 
 impl Commands {
-    pub fn handle(self, cfg: &crate::run::Config) -> Result<Output, Error> {
+    pub async fn handle(self, _cfg: &crate::run::Config) -> Result<Output, Error> {
         match self {
             Commands::AlphaScalar { params, forward } => {
                 let p = params.into_params();
@@ -54,7 +54,7 @@ impl Commands {
                     params: p,
                     input_schema: Some(input::scalar_input_schema()),
                 });
-                crate::invent::run_invention(&state, &forward, cfg)
+                crate::invent::run_invention(&state, &forward).await
             }
             Commands::AlphaVector { params, forward } => {
                 let p = params.into_params();
@@ -62,21 +62,21 @@ impl Commands {
                     params: p,
                     input_schema: Some(input::vector_input_schema()),
                 });
-                crate::invent::run_invention(&state, &forward, cfg)
+                crate::invent::run_invention(&state, &forward).await
             }
             Commands::Remote { state, state_inline, forward } => {
                 let resolved = if let Some(inline) = state_inline {
                     let parsed: ParamsState = serde_json::from_str(&inline)?;
                     crate::invent::fill_schema_if_missing(parsed)
                 } else if let Some(ref ref_str) = state {
-                    let fetched = crate::invent::fetch_state(ref_str, cfg)?;
+                    let fetched = crate::invent::fetch_state(ref_str).await?;
                     crate::invent::fill_schema_if_missing(fetched)
                 } else {
                     return Err(Error::Other(
                         "--state or --state-inline is required".into(),
                     ));
                 };
-                crate::invent::run_invention(&resolved, &forward, cfg)
+                crate::invent::run_invention(&resolved, &forward).await
             }
         }
     }

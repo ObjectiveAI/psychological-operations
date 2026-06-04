@@ -50,7 +50,8 @@ where
             return result;
         }
         if let Output::Error { error } = output {
-            eprintln!("browser: {error}");
+            crate::output::OutputResult::from(crate::events::Event::BrowserError { error })
+                .emit();
         }
     }
     Err(eof_message.to_string())

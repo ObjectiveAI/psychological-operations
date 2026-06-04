@@ -120,13 +120,13 @@ impl Commands {
             Commands::List { enabled, disabled } => psyops::list(enabled, disabled, cfg),
             Commands::Get { name } => psyops::get(&name, cfg),
             Commands::Enable { name, commit } => {
-                psyops::set_disabled(&name, commit.as_deref(), false, cfg)
+                psyops::set_disabled(&name, commit.as_deref(), false, cfg).await
             }
             Commands::Disable { name, commit } => {
-                psyops::set_disabled(&name, commit.as_deref(), true, cfg)
+                psyops::set_disabled(&name, commit.as_deref(), true, cfg).await
             }
-            Commands::Publish { args } => psyops::publish(args, cfg),
-            Commands::Delete { name } => psyops::delete(&name, cfg),
+            Commands::Publish { args } => psyops::publish(args, cfg).await,
+            Commands::Delete { name } => psyops::delete(&name, cfg).await,
             Commands::Run { name, commit, seed } => {
                 psyops::run::run_all(name.as_deref(), commit.as_deref(), seed, cfg).await
             }

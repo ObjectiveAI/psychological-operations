@@ -87,7 +87,7 @@ pub(crate) fn get(name: &str, cfg: &crate::run::Config) -> Result<Output, crate:
     Ok(Output::ConfigGet(serde_json::to_string(&psyop)?))
 }
 
-pub(crate) fn set_disabled(name: &str, commit: Option<&str>, value: bool, cfg: &crate::run::Config) -> Result<Output, crate::error::Error> {
+pub(crate) async fn set_disabled(name: &str, commit: Option<&str>, value: bool, cfg: &crate::run::Config) -> Result<Output, crate::error::Error> {
     let mut json_cfg = crate::config::load(cfg);
     {
         let overrides = json_cfg.psyops.entry(name.to_string()).or_default();
@@ -113,12 +113,12 @@ pub(crate) fn set_disabled(name: &str, commit: Option<&str>, value: bool, cfg: &
     // but the entry's `enabled` flag flips — viewers re-render
     // accordingly. Best-effort; silent failures.
     if let Some(body) = full_psyop_body(name, &json_cfg, cfg) {
-        notify::notify("psyop_edited", &body, cfg);
+        notify::notify("psyop_edited", &body).await;
     }
     Ok(Output::ConfigSet)
 }
 
-pub(crate) fn publish(args: PublishArgs, cfg: &crate::run::Config) -> Result<Output, crate::error::Error> {
+pub(crate) async fn publish(args: PublishArgs, cfg: &crate::run::Config) -> Result<Output, crate::error::Error> {
     let psyop: PsyOp = if let Some(inline) = args.source.psyop_inline {
         serde_json::from_str(&inline)?
     } else if let Some(path) = args.source.psyop_file {
@@ -148,7 +148,7 @@ pub(crate) fn publish(args: PublishArgs, cfg: &crate::run::Config) -> Result<Out
         "definition": &psyop,
     });
     let sub_type = if existed_before { "psyop_edited" } else { "psyop_added" };
-    notify::notify(sub_type, &body, cfg);
+    notify::notify(sub_type, &body).await;
 
     Ok(Output::Api(sha))
 }
@@ -157,7 +157,7 @@ pub(crate) fn publish(args: PublishArgs, cfg: &crate::run::Config) -> Result<Out
 /// repo) and drop any per-psyop entries from config.json. Returns
 /// `PsyopNotFound` if the dir doesn't exist (treat delete-of-absent
 /// as an error so scripts can `&&` chain).
-pub(crate) fn delete(name: &str, cfg: &crate::run::Config) -> Result<Output, crate::error::Error> {
+pub(crate) async fn delete(name: &str, cfg: &crate::run::Config) -> Result<Output, crate::error::Error> {
     let dir = crate::config::psyops_dir(cfg).join(name);
     if !dir.exists() {
         return Err(crate::error::Error::PsyopNotFound(dir.display().to_string()));
@@ -172,8 +172,7 @@ pub(crate) fn delete(name: &str, cfg: &crate::run::Config) -> Result<Output, cra
     notify::notify(
         "psyop_deleted",
         &serde_json::json!({ "name": name }),
-        cfg,
-    );
+    ).await;
     Ok(Output::Empty)
 }
 

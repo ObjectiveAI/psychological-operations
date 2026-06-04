@@ -1,4 +1,14 @@
 use clap::Args;
+use futures::StreamExt;
+use objectiveai_sdk::cli::command::agents::spawn::AgentSpec;
+use objectiveai_sdk::cli::command::functions::inventions::{
+    recursive::create::{
+        Request as RecursiveCreateRequest,
+        ResponseItem as RecursiveResponseItem,
+        remote as recursive_remote,
+    },
+    state::get as state_get,
+};
 use objectiveai_sdk::functions::inventions::{
     ParamsState,
     state::Params,
@@ -46,119 +56,34 @@ impl InventionParams {
     }
 }
 
-/// Args forwarded verbatim to the objectiveai CLI.
+/// Args forwarded verbatim to the recursive-invent executor.
 #[derive(Args)]
 pub struct ForwardArgs {
-    /// Agent reference (e.g. favorite=name or remote=github,owner=x,...)
+    /// Inline JSON agent definition (preferred). The recursive
+    /// executor demands the fully resolved agent value at request
+    /// time, so the favorite-by-name form is not supported here.
     #[arg(long)]
-    agent: Option<String>,
-    /// Inline JSON agent definition
-    #[arg(long)]
-    agent_inline: Option<String>,
-    /// ID from the matching `instructions get` subcommand. Required by
-    /// objectiveai's recursive create.
-    #[arg(long)]
-    instructions_id: String,
+    agent_inline: String,
     /// Seed for deterministic mock responses
     #[arg(long)]
     seed: Option<i64>,
-    /// Run in the background: print PID and log path, then exit
+    /// Continuation token from a prior invention response.
     #[arg(long)]
-    detach: bool,
-    /// OpenRouter continuation from a previous response (base64-encoded)
-    #[arg(long)]
-    openrouter_continuation_from_response: Option<String>,
-    /// Claude Agent SDK continuation from a previous response (base64-encoded)
-    #[arg(long)]
-    claude_agent_sdk_continuation_from_response: Option<String>,
-    /// Mock continuation from a previous response (base64-encoded)
-    #[arg(long)]
-    mock_continuation_from_response: Option<String>,
-    /// OpenRouter continuation messages as inline JSON
-    #[arg(long)]
-    openrouter_continuation_messages_inline: Option<String>,
-    /// OpenRouter continuation messages from inline Python code
-    #[arg(long)]
-    openrouter_continuation_messages_python_inline: Option<String>,
-    /// OpenRouter continuation messages from a Python file
-    #[arg(long)]
-    openrouter_continuation_messages_python_file: Option<std::path::PathBuf>,
-    /// Mock continuation messages as inline JSON
-    #[arg(long)]
-    mock_continuation_messages_inline: Option<String>,
-    /// Mock continuation messages from inline Python code
-    #[arg(long)]
-    mock_continuation_messages_python_inline: Option<String>,
-    /// Mock continuation messages from a Python file
-    #[arg(long)]
-    mock_continuation_messages_python_file: Option<std::path::PathBuf>,
-    /// Claude Agent SDK continuation with a session ID
-    #[arg(long)]
-    claude_agent_sdk_continuation_session_id: Option<String>,
+    continuation: Option<String>,
 }
 
-impl ForwardArgs {
-    fn append_to(&self, args: &mut Vec<String>) {
-        if let Some(ref v) = self.agent {
-            args.extend(["--agent".into(), v.clone()]);
-        }
-        if let Some(ref v) = self.agent_inline {
-            args.extend(["--agent-inline".into(), v.clone()]);
-        }
-        args.extend(["--instructions-id".into(), self.instructions_id.clone()]);
-        if let Some(v) = self.seed {
-            args.extend(["--seed".into(), v.to_string()]);
-        }
-        if self.detach {
-            args.push("--detach".into());
-        }
-        if let Some(ref v) = self.openrouter_continuation_from_response {
-            args.extend(["--openrouter-continuation-from-response".into(), v.clone()]);
-        }
-        if let Some(ref v) = self.claude_agent_sdk_continuation_from_response {
-            args.extend(["--claude-agent-sdk-continuation-from-response".into(), v.clone()]);
-        }
-        if let Some(ref v) = self.mock_continuation_from_response {
-            args.extend(["--mock-continuation-from-response".into(), v.clone()]);
-        }
-        if let Some(ref v) = self.openrouter_continuation_messages_inline {
-            args.extend(["--openrouter-continuation-messages-inline".into(), v.clone()]);
-        }
-        if let Some(ref v) = self.openrouter_continuation_messages_python_inline {
-            args.extend(["--openrouter-continuation-messages-python-inline".into(), v.clone()]);
-        }
-        if let Some(ref v) = self.openrouter_continuation_messages_python_file {
-            args.extend(["--openrouter-continuation-messages-python-file".into(), v.display().to_string()]);
-        }
-        if let Some(ref v) = self.mock_continuation_messages_inline {
-            args.extend(["--mock-continuation-messages-inline".into(), v.clone()]);
-        }
-        if let Some(ref v) = self.mock_continuation_messages_python_inline {
-            args.extend(["--mock-continuation-messages-python-inline".into(), v.clone()]);
-        }
-        if let Some(ref v) = self.mock_continuation_messages_python_file {
-            args.extend(["--mock-continuation-messages-python-file".into(), v.display().to_string()]);
-        }
-        if let Some(ref v) = self.claude_agent_sdk_continuation_session_id {
-            args.extend(["--claude-agent-sdk-continuation-session-id".into(), v.clone()]);
-        }
-    }
-}
-
-/// Fetch a remote invention state via the CLI.
-pub(crate) fn fetch_state(ref_str: &str, cfg: &crate::run::Config) -> Result<ParamsState, crate::error::Error> {
-    let output = std::process::Command::new(crate::score::objectiveai_binary(cfg))
-        .args(["functions", "inventions", "state", "get", "--path", ref_str])
-        .stderr(std::process::Stdio::inherit())
-        .output()?;
-
-    if !output.status.success() {
-        return Err(crate::error::Error::ObjectiveAiCli("failed to fetch invention state".into()));
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let state: ParamsState = serde_json::from_str(stdout.trim())?;
-    Ok(state)
+/// Fetch a remote invention state via the PluginExecutor.
+pub(crate) async fn fetch_state(ref_str: &str) -> Result<ParamsState, crate::error::Error> {
+    let executor = crate::objectiveai_executor::executor().await;
+    let req = state_get::Request {
+        path_type: state_get::Path::FunctionsInventionsStateGet,
+        filter: Some(ref_str.to_string()),
+        jq: None,
+    };
+    let resp = state_get::execute(&*executor, req, None)
+        .await
+        .map_err(|e| crate::error::Error::ObjectiveAiCli(format!("inventions state get: {e}")))?;
+    Ok(resp.inner)
 }
 
 /// Fill input_schema if it's missing, using our post schema.
@@ -203,35 +128,43 @@ pub(crate) fn fill_schema_if_missing(state: ParamsState) -> ParamsState {
     }
 }
 
-/// Shell out to objectiveai CLI via `remote --state-inline`.
-pub(crate) fn run_invention(
+/// Drive the in-process recursive-invent executor.
+///
+/// Streams chunks through `OutputResult::Notification` so consumers
+/// see incremental progress. Returns `Output::Empty` on success —
+/// any terminal id is absorbed into the stream.
+pub(crate) async fn run_invention(
     state: &ParamsState,
     fwd: &ForwardArgs,
-    cfg: &crate::run::Config,
 ) -> Result<Output, crate::error::Error> {
-    let state_json = serde_json::to_string(state)?;
+    let executor = crate::objectiveai_executor::executor().await;
+    let agent: AgentSpec = serde_json::from_str(&fwd.agent_inline)
+        .map_err(|e| crate::error::Error::Other(format!("agent_inline parse: {e}")))?;
 
-    let mut args = vec![
-        "functions".into(),
-        "inventions".into(),
-        "recursive".into(),
-        "create".into(),
-        "remote".into(),
-        "--state-inline".into(),
-        state_json,
-    ];
+    let mut advanced = recursive_remote::RequestDangerousAdvanced::default();
+    advanced.stream = Some(true);
+    let request = RecursiveCreateRequest::Remote(recursive_remote::Request {
+        path_type: recursive_remote::Path::FunctionsInventionsRecursiveCreateRemote,
+        state: recursive_remote::RequestState::Inline(state.clone()),
+        agent,
+        continuation: fwd.continuation.clone(),
+        seed: fwd.seed,
+        dangerous_advanced: Some(advanced),
+        jq: None,
+    });
 
-    fwd.append_to(&mut args);
+    let mut stream = objectiveai_sdk::cli::command::functions::inventions::recursive::create::execute(
+        &*executor, request, None,
+    )
+    .await
+    .map_err(|e| crate::error::Error::ObjectiveAiCli(format!("inventions recursive create: {e}")))?;
 
-    let status = std::process::Command::new(crate::score::objectiveai_binary(cfg))
-        .args(&args)
-        .stdin(std::process::Stdio::inherit())
-        .stdout(std::process::Stdio::inherit())
-        .stderr(std::process::Stdio::inherit())
-        .status()?;
-
-    if !status.success() {
-        return Err(crate::error::Error::ObjectiveAiCli("invention failed".into()));
+    while let Some(item) = stream.next().await {
+        let item: RecursiveResponseItem = item.map_err(|e| {
+            crate::error::Error::ObjectiveAiCli(format!("inventions recursive stream: {e}"))
+        })?;
+        let value = serde_json::to_value(&item).expect("ResponseItem serializes");
+        crate::output::OutputResult::Notification(value).emit();
     }
 
     Ok(Output::Empty)

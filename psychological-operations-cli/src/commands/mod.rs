@@ -101,7 +101,7 @@ where
         Commands::Psyops { command } => command.handle(cfg).await,
         Commands::Agents { command } => command.handle(cfg).await,
         Commands::Targets { command } => command.handle(cfg).await,
-        Commands::Invent { command } => command.handle(cfg),
+        Commands::Invent { command } => command.handle(cfg).await,
         Commands::XApp { command } => command.handle(cfg).await,
         Commands::Mcp { command } => command.handle(cfg).await,
     }

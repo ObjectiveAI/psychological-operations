@@ -1,3 +1,14 @@
+use futures::StreamExt;
+use objectiveai_sdk::cli::command::functions::{
+    executions::create::{
+        ResponseItem as CreateResponseItem,
+        FunctionSpec, ProfileSpec,
+        standard::{self, ResponseItem as StandardItem},
+        swiss_system::{self, ResponseItem as SwissItem},
+    },
+    get as functions_get,
+};
+use objectiveai_sdk::cli::command::RemotePathCommitOptionalOrFavorite;
 use objectiveai_sdk::functions::{
     FullInlineFunctionOrRemoteCommitOptional,
     FullInlineFunction,
@@ -5,7 +16,6 @@ use objectiveai_sdk::functions::{
 };
 use objectiveai_sdk::functions::executions::request::Strategy;
 use objectiveai_sdk::RemotePathCommitOptional;
-use serde::Deserialize;
 
 use crate::db::Post;
 use crate::input::{new_post_input_value, PostsInputValue, PostInputValue};
@@ -17,328 +27,184 @@ pub struct ScoredPost {
     pub score: f64,
 }
 
-#[derive(Deserialize)]
-struct ExecutionOutput {
-    output: serde_json::Value,
-}
-
-/// Format a RemotePathCommitOptional for the CLI --path argument.
-/// The CLI expects `key=value,key=value` format, not JSON.
-fn format_remote_ref(path: &RemotePathCommitOptional) -> String {
-    match path {
-        RemotePathCommitOptional::Github { owner, repository, commit } => {
-            let mut s = format!("remote=github,owner={owner},repository={repository}");
-            if let Some(c) = commit {
-                s.push_str(&format!(",commit={c}"));
-            }
-            s
-        }
-        RemotePathCommitOptional::Filesystem { owner, repository, commit } => {
-            let mut s = format!("remote=filesystem,owner={owner},repository={repository}");
-            if let Some(c) = commit {
-                s.push_str(&format!(",commit={c}"));
-            }
-            s
-        }
-        RemotePathCommitOptional::Mock { name } => {
-            format!("remote=mock,name={name}")
-        }
-    }
-}
-
-/// Locate the objectiveai CLI used for subprocess scoring calls
-/// (`functions get`, `executions create`, …).
+/// Fetch a remote function definition and unwrap to inline.
 ///
-/// Resolution order:
-///   1. `PSYCHOLOGICAL_OPERATIONS_OBJECTIVEAI_BINARY` env var
-///      — explicit override. The integration-test harness uses this
-///      to point at a no-viewer release binary so test runs don't
-///      spawn viewer windows.
-///   2. `<HOME|USERPROFILE>/.objectiveai/objectiveai[.exe]` — the
-///      install script's default location. The Windows installer
-///      only updates user-env PATH, which isn't reflected in
-///      already-running shells, so this fallback is what makes the
-///      bare `objectiveai` invocation work after a fresh install.
-///   3. `PATH` lookup (last-resort bare name).
-pub fn objectiveai_binary(_cfg: &crate::run::Config) -> std::path::PathBuf {
-    use std::path::PathBuf;
-    if let Ok(p) = std::env::var("PSYCHOLOGICAL_OPERATIONS_OBJECTIVEAI_BINARY") {
-        return PathBuf::from(p);
-    }
-    let name = if cfg!(windows) { "objectiveai.exe" } else { "objectiveai" };
-    if let Ok(home) = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
-        let candidate = PathBuf::from(home).join(".objectiveai").join(name);
-        if candidate.exists() {
-            return candidate;
-        }
-    }
-    PathBuf::from(name)
-}
-
-/// Spawn an objectiveai CLI subprocess, stream its stdout line-by-line
-/// to **our** stdout (so the host upstream of us sees every progress
-/// notification the inner CLI emits), and return the `value` payload of
-/// the first `notification` whose `value` carries the requested
-/// `terminal_key` top-level field.
-///
-/// Forwarding rules:
-/// - `Output::Begin` / `Output::End` — DROPPED. The host already
-///   bookends our own stream; inner subprocess bookends would
-///   duplicate.
-/// - `Output::Notification(value)` where `value.<terminal_key>` is
-///   present — captured as the return value. Not forwarded (the caller
-///   uses it directly).
-/// - `Output::Notification(value)` otherwise — forwarded verbatim via
-///   `emit_notification` (e.g. `log_stream_ready`, streamed
-///   `inner_errors`).
-/// - `Output::Error(err)` — forwarded via `emit_error`. Fatal errors
-///   propagate as `Err(_)`.
-/// - Any line that fails to parse — forwarded as a raw-string
-///   notification so non-JSONL warnings still surface.
-fn run_objectiveai_subprocess<I, S>(
-    args: I,
-    terminal_key: &str,
-    cfg: &crate::run::Config,
-) -> Result<serde_json::Value, crate::error::Error>
-where
-    I: IntoIterator<Item = S>,
-    S: AsRef<std::ffi::OsStr>,
-{
-    use std::io::{BufRead, BufReader};
-    use objectiveai_sdk::cli::output::{Notification as CliNotif, Output as CliOutput};
-
-    let mut child = std::process::Command::new(objectiveai_binary(cfg))
-        .args(args)
-        .stdin(std::process::Stdio::inherit())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::inherit())
-        .spawn()?;
-
-    let stdout = child.stdout.take().expect("piped stdout");
-    let reader = BufReader::new(stdout);
-
-    let mut terminal: Option<serde_json::Value> = None;
-
-    for line in reader.lines() {
-        let line = line.map_err(|e| crate::error::Error::ObjectiveAiCli(
-            format!("read subprocess stdout: {e}"),
-        ))?;
-        let trimmed = line.trim();
-        if trimmed.is_empty() { continue; }
-
-        match serde_json::from_str::<CliOutput<serde_json::Value>>(trimmed) {
-            Ok(CliOutput::Begin) | Ok(CliOutput::End) => {
-                // Inner bookends — drop. The host already wraps us.
-            }
-            Ok(CliOutput::Notification(CliNotif { value })) => {
-                let is_terminal = value.is_object()
-                    && value.get(terminal_key).is_some();
-                if is_terminal {
-                    terminal = Some(value);
-                } else if value.is_object() {
-                    crate::emit::emit_notification(value);
-                } else {
-                    // Non-object value (rare). Wrap so PluginOutput's
-                    // internal tagging can carry it.
-                    crate::emit::emit_notification(serde_json::json!({"value": value}));
-                }
-            }
-            Ok(CliOutput::Error(err)) => {
-                let fatal = err.fatal;
-                let message_for_err = err.message.clone();
-                crate::emit::emit_error(err.level, err.fatal, err.message);
-                if fatal {
-                    let _ = child.wait();
-                    let msg = message_for_err.as_str()
-                        .map(|s| s.to_string())
-                        .unwrap_or_else(|| message_for_err.to_string());
-                    return Err(crate::error::Error::ObjectiveAiCli(msg));
-                }
-            }
-            Err(_) => {
-                // Non-JSONL line (e.g. a stray warning). Forward
-                // visibly under a `raw` key so it's still in the
-                // stream.
-                crate::emit::emit_notification(serde_json::json!({"raw": trimmed}));
-            }
-        }
-    }
-
-    let status = child.wait()?;
-    if !status.success() && terminal.is_none() {
-        return Err(crate::error::Error::ObjectiveAiCli(
-            format!("subprocess exited non-zero with no `{terminal_key}` notification"),
-        ));
-    }
-
-    terminal.ok_or_else(|| crate::error::Error::ObjectiveAiCli(
-        format!("subprocess produced no `notification` carrying `{terminal_key}`"),
-    ))
-}
-
-/// Fetch a remote function definition via the CLI and deserialize to inline.
-///
-/// Terminal notification shape:
-///   `{"function": <GetFunctionResponse>}`
-/// `GetFunctionResponse` flattens `RemotePath` (remote/owner/…)
-/// alongside the function body (`type`, `description`, `input_schema`,
-/// `tasks`). We pluck the `function` field, drop the path metadata by
-/// deserializing as `FullInlineFunction` (serde ignores unknown fields),
-/// and rely on `InlineFunction` accepting the extra `description` /
-/// `input_schema` keys without complaint.
-fn fetch_function(path: &RemotePathCommitOptional, cfg: &crate::run::Config) -> Result<FullInlineFunction, crate::error::Error> {
-    let ref_str = format_remote_ref(path);
-    let value = run_objectiveai_subprocess(
-        ["functions", "get", "--path", &ref_str],
-        "function",
-        cfg,
-    )?;
-    let function_value = &value["function"];
-    let function: FullInlineFunction = serde_json::from_value(function_value.clone())?;
+/// `functions::get::execute` returns `GetFunctionResponse`, which
+/// flattens `RemotePath` and `FullRemoteFunction`. We round-trip the
+/// `inner` (the function body) through `serde_json::Value` and parse
+/// as `FullInlineFunction` — the wire shape is the same modulo the
+/// flattened path metadata, which `FullInlineFunction`'s untagged
+/// enum walks past via serde's permissive unknown-field handling.
+async fn fetch_function(path: &RemotePathCommitOptional) -> Result<FullInlineFunction, crate::error::Error> {
+    let executor = crate::objectiveai_executor::executor().await;
+    let req = functions_get::Request {
+        path_type: functions_get::Path::FunctionsGet,
+        path: RemotePathCommitOptionalOrFavorite::Resolved(path.clone()),
+        jq: None,
+    };
+    let resp = functions_get::execute(&*executor, req, None)
+        .await
+        .map_err(|e| crate::error::Error::ObjectiveAiCli(format!("functions get: {e}")))?;
+    let value = serde_json::to_value(&resp.inner)?;
+    let function: FullInlineFunction = serde_json::from_value(value)?;
     Ok(function)
 }
 
-/// Resolve a function to its inline definition, fetching if remote.
-fn resolve_function(function: &FullInlineFunctionOrRemoteCommitOptional, cfg: &crate::run::Config) -> Result<FullInlineFunction, crate::error::Error> {
+async fn resolve_function(function: &FullInlineFunctionOrRemoteCommitOptional) -> Result<FullInlineFunction, crate::error::Error> {
     match function {
         FullInlineFunctionOrRemoteCommitOptional::Inline(f) => Ok(f.clone()),
-        FullInlineFunctionOrRemoteCommitOptional::Remote(path) => fetch_function(path, cfg),
+        FullInlineFunctionOrRemoteCommitOptional::Remote(path) => fetch_function(path).await,
     }
 }
 
-/// Fetch a fresh function-execution `--instructions-id` from the CLI. The
-/// objectiveai CLI requires this token on every `executions create` call;
-/// it ties a specific execution to the current instructions revision.
+/// Run a function execution against the SDK's in-process executor.
+/// Dispatches to `standard` or `swiss-system` depending on the
+/// psyop's strategy, in streaming mode so we can intercept the
+/// terminal chunk's `output`.
 ///
-/// Wire: `{"type":"notification","value":{"instructions":"<markdown>"}}`.
-/// The markdown body ends with an `Instructions ID: <id>` line — extract
-/// that ID and return it.
-fn fetch_instructions_id(cfg: &crate::run::Config) -> Result<String, crate::error::Error> {
-    let value = run_objectiveai_subprocess(
-        ["functions", "executions", "instructions", "get"],
-        "instructions",
-        cfg,
-    )?;
-    let instructions = value["instructions"].as_str().ok_or_else(|| {
-        crate::error::Error::ObjectiveAiCli(
-            format!("instructions get notification `instructions` field is not a string: {value}"),
-        )
-    })?;
-    let id = instructions.lines().rev()
-        .find_map(|l| l.trim().strip_prefix("Instructions ID:").map(|s| s.trim().to_string()))
-        .ok_or_else(|| crate::error::Error::ObjectiveAiCli(
-            format!("instructions body missing `Instructions ID:` line: {instructions}"),
-        ))?;
-    Ok(id)
-}
-
-/// Run a function execution via the CLI. Dispatches to either the
-/// `standard` or `swiss-system` subcommand based on the psyop's strategy,
-/// fetches a fresh `--instructions-id` for the call, and always passes the
-/// inline function + profile.
-fn run_function_execution(
+/// We forward every non-terminal `Chunk` as a notification (matching
+/// the old subprocess passthrough), capture the chunk whose `output`
+/// field is populated as the terminal value, and emit a Warn-level
+/// notification if any of its `tasks_errors` flag is set.
+async fn run_function_execution(
     function: &FullInlineFunction,
     profile: &InlineProfileOrRemoteCommitOptional,
     strategy: &Strategy,
-    input_json: &str,
+    input: objectiveai_sdk::functions::expression::InputValue,
     split: bool,
     invert: bool,
     seed: Option<i64>,
-    cfg: &crate::run::Config,
-) -> Result<ExecutionOutput, crate::error::Error> {
-    let function_json = serde_json::to_string(function)?;
-    let profile_json = serde_json::to_string(profile)?;
-    let instructions_id = fetch_instructions_id(cfg)?;
+) -> Result<serde_json::Value, crate::error::Error> {
+    let executor = crate::objectiveai_executor::executor().await;
+    let function_spec = FunctionSpec::Resolved(
+        FullInlineFunctionOrRemoteCommitOptional::Inline(function.clone()),
+    );
+    let profile_spec = ProfileSpec::Resolved(profile.clone());
 
-    let subcommand = match strategy {
-        Strategy::Default => "standard",
-        Strategy::SwissSystem { .. } => "swiss-system",
+    let request = match strategy {
+        Strategy::Default => {
+            let mut advanced = standard::RequestDangerousAdvanced::default();
+            advanced.stream = Some(true);
+            objectiveai_sdk::cli::command::functions::executions::create::Request::Standard(
+                standard::Request {
+                    path_type: standard::Path::FunctionsExecutionsCreateStandard,
+                    function: function_spec,
+                    profile: profile_spec,
+                    input: standard::RequestInput::Inline(input),
+                    continuation: None,
+                    retry_token: None,
+                    seed,
+                    split,
+                    invert,
+                    dangerous_advanced: Some(advanced),
+                    jq: None,
+                },
+            )
+        }
+        Strategy::SwissSystem { pool, rounds } => {
+            let mut advanced = swiss_system::RequestDangerousAdvanced::default();
+            advanced.stream = Some(true);
+            objectiveai_sdk::cli::command::functions::executions::create::Request::SwissSystem(
+                swiss_system::Request {
+                    path_type: swiss_system::Path::FunctionsExecutionsCreateSwissSystem,
+                    function: function_spec,
+                    profile: profile_spec,
+                    input: swiss_system::RequestInput::Inline(input),
+                    continuation: None,
+                    retry_token: None,
+                    seed,
+                    split,
+                    invert,
+                    pool: *pool,
+                    rounds: *rounds,
+                    dangerous_advanced: Some(advanced),
+                    jq: None,
+                },
+            )
+        }
     };
 
-    let mut args = vec![
-        "functions".to_string(), "executions".to_string(), "create".to_string(), subcommand.to_string(),
-        "--instructions-id".to_string(), instructions_id,
-        "--function-inline".to_string(), function_json,
-        "--profile-inline".to_string(), profile_json,
-        "--input-inline".to_string(), input_json.to_string(),
-    ];
+    let mut stream = objectiveai_sdk::cli::command::functions::executions::create::execute(
+        &*executor, request, None,
+    )
+    .await
+    .map_err(|e| crate::error::Error::ObjectiveAiCli(format!("executions create: {e}")))?;
 
-    if let Strategy::SwissSystem { pool, rounds } = strategy {
-        if let Some(p) = pool {
-            args.push("--pool".to_string());
-            args.push(p.to_string());
+    let mut terminal: Option<serde_json::Value> = None;
+
+    while let Some(item) = stream.next().await {
+        let item = item
+            .map_err(|e| crate::error::Error::ObjectiveAiCli(format!("executions create stream: {e}")))?;
+        let (output, tasks_errors, value) = match &item {
+            CreateResponseItem::Standard(StandardItem::Chunk(c)) => (
+                c.output.as_ref().map(|o| serde_json::to_value(&o.output).expect("output serializes")),
+                c.tasks_errors.unwrap_or(false),
+                serde_json::to_value(&item).expect("ResponseItem serializes"),
+            ),
+            CreateResponseItem::SwissSystem(SwissItem::Chunk(c)) => (
+                c.output.as_ref().map(|o| serde_json::to_value(&o.output).expect("output serializes")),
+                c.tasks_errors.unwrap_or(false),
+                serde_json::to_value(&item).expect("ResponseItem serializes"),
+            ),
+            _ => (None, false, serde_json::to_value(&item).expect("ResponseItem serializes")),
+        };
+
+        if tasks_errors {
+            crate::output::OutputResult::from(crate::events::Event::ObjectiveaiTaskErrors {
+                count: 1,
+            })
+            .emit();
         }
-        if let Some(r) = rounds {
-            args.push("--rounds".to_string());
-            args.push(r.to_string());
+
+        match output {
+            Some(o) if terminal.is_none() => {
+                terminal = Some(o);
+            }
+            _ => {
+                // Forward the chunk verbatim as a notification so
+                // consumers see progress.
+                crate::output::OutputResult::Notification(value).emit();
+            }
         }
     }
 
-    if split {
-        args.push("--split".to_string());
-    }
-    if invert {
-        args.push("--invert".to_string());
-    }
-    if let Some(s) = seed {
-        args.push("--seed".to_string());
-        args.push(s.to_string());
-    }
-
-    let value = run_objectiveai_subprocess(args, "execution", cfg)?;
-
-    // Terminal notification wire (v2.0.5):
-    //   {"execution":{"output":<TaskOutputOwned>,"errors":[...]}}
-    // `TaskOutputOwned` (defined in
-    // `objectiveai-sdk-rs/src/functions/expression/params.rs`) is an
-    // untagged enum: scalar → number, vector → array, vectors →
-    // nested arrays, error → object. For our score path we expect an
-    // array (vector or split-scalar).
-    let execution = &value["execution"];
-    let errors = execution.get("errors").and_then(|e| e.as_array()).cloned().unwrap_or_default();
-    if !errors.is_empty() {
-        // Silent fallback to a uniform prior — surface as a Warn so
-        // consumers see it but execution continues.
-        crate::output::OutputResult::from(crate::events::Event::ObjectiveaiTaskErrors {
-            count: errors.len(),
-        })
-        .emit();
-    }
-    let inner = execution.get("output").cloned().ok_or_else(|| {
-        crate::error::Error::ObjectiveAiCli(
-            format!("executions create notification missing `execution.output`: {value}"),
-        )
-    })?;
-
-    Ok(ExecutionOutput { output: inner })
+    terminal.ok_or_else(|| crate::error::Error::ObjectiveAiCli(
+        "executions create produced no terminal chunk with output".into(),
+    ))
 }
 
 /// Run a single stage's function execution against the given posts.
 /// Returns scored posts in score-descending order.
-pub fn score(stage: &Stage, posts: Vec<Post>, seed: Option<i64>, cfg: &crate::run::Config) -> Result<Vec<ScoredPost>, crate::error::Error> {
+pub async fn score(stage: &Stage, posts: Vec<Post>, seed: Option<i64>) -> Result<Vec<ScoredPost>, crate::error::Error> {
     let mut scored: Vec<ScoredPost> = posts.into_iter()
         .map(|p| ScoredPost { post: p, score: 0.0 })
         .collect();
 
-    let function = resolve_function(&stage.function, cfg)?;
+    let function = resolve_function(&stage.function).await?;
     let is_vector = is_vector_function(&function);
 
     let items: Vec<PostInputValue> = scored.iter()
         .map(|s| new_post_input_value(&s.post, stage.images, stage.videos))
         .collect();
 
-    let (input_json, split) = if is_vector {
+    let (input_value, split) = if is_vector {
         let input = PostsInputValue { items };
-        (serde_json::to_string(&input)?, false)
+        (serde_json::to_value(&input)?, false)
     } else {
-        (serde_json::to_string(&items)?, true)
+        (serde_json::to_value(&items)?, true)
     };
 
-    let result = run_function_execution(&function, &stage.profile, &stage.strategy, &input_json, split, stage.invert, seed, cfg)?;
+    let input_value: objectiveai_sdk::functions::expression::InputValue =
+        serde_json::from_value(input_value)?;
 
-    let scores: Vec<f64> = result.output.as_array()
+    let result = run_function_execution(
+        &function, &stage.profile, &stage.strategy, input_value,
+        split, stage.invert, seed,
+    ).await?;
+
+    let scores: Vec<f64> = result.as_array()
         .ok_or_else(|| crate::error::Error::Other(
-            format!("expected array score output, got {}", result.output),
+            format!("expected array score output, got {result}"),
         ))?
         .iter()
         .map(|v| v.as_f64().ok_or_else(|| crate::error::Error::Other(

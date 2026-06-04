@@ -6,7 +6,6 @@ use psychological_operations_sdk::cli::Output;
 use crate::error::Error;
 
 pub mod add;
-pub mod executor;
 pub mod handle;
 
 #[derive(Subcommand)]

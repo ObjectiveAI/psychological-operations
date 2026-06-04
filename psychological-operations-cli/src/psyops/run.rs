@@ -129,7 +129,7 @@ pub async fn run_psyop(
 
         // 7. Hydrate Tweet -> Post by joining with the `contents`
         //    table, then run the multi-stage scoring pipeline.
-        let result = score_pipeline(&db, &psyop, name, trimmed, seed, cfg)?;
+        let result = score_pipeline(&db, &psyop, name, trimmed, seed, cfg).await?;
 
         // 8. Persist scores for every scored post.
         if !result.last_scores.is_empty() {
@@ -180,13 +180,13 @@ struct ScoreResult {
 
 // -- step 7: score pipeline -----------------------------------------------
 
-fn score_pipeline(
+async fn score_pipeline(
     db: &Db,
     psyop: &PsyOp,
     name: &str,
     trimmed: Vec<Tweet>,
     seed: Option<i64>,
-    cfg: &crate::run::Config,
+    _cfg: &crate::run::Config,
 ) -> Result<ScoreResult, Error> {
     // Hydrate Tweet -> Post via contents lookup. Tweets whose
     // contents row is absent are filtered out — by contract those
@@ -236,7 +236,7 @@ fn score_pipeline(
         //   {"type":"notification","value":{"event":"stage_end","stage":N}}
         crate::output::OutputResult::from(crate::events::Event::StageBegin { stage: i }).emit();
 
-        let scored: Vec<ScoredPost> = score::score(stage, current, seed, cfg)?;
+        let scored: Vec<ScoredPost> = score::score(stage, current, seed).await?;
         for s in &scored {
             last_scores.insert(s.post.id.clone(), s.score);
         }
