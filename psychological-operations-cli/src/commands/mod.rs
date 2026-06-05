@@ -12,7 +12,7 @@
 
 use clap::{Parser, Subcommand};
 
-use crate::run::Config;
+use crate::context::Context;
 
 pub mod agents;
 pub mod functions;
@@ -86,7 +86,7 @@ fn is_informational(e: &clap::Error) -> bool {
     )
 }
 
-pub async fn run<I, T>(args: I, cfg: &Config) -> bool
+pub async fn run<I, T>(args: I, ctx: &Context) -> bool
 where
     I: IntoIterator<Item = T>,
     T: Into<std::ffi::OsString> + Clone,
@@ -110,11 +110,11 @@ where
         }
     };
     match cli.command {
-        Commands::Psyops { command } => command.handle(cfg).await,
-        Commands::Agents { command } => command.handle(cfg).await,
-        Commands::Targets { command } => command.handle(cfg).await,
-        Commands::Functions { command } => command.handle(cfg).await,
-        Commands::XApp { command } => command.handle(cfg).await,
-        Commands::Mcp { command } => command.handle(cfg).await,
+        Commands::Psyops { command } => command.handle(ctx).await,
+        Commands::Agents { command } => command.handle(ctx).await,
+        Commands::Targets { command } => command.handle(ctx).await,
+        Commands::Functions { command } => command.handle(ctx).await,
+        Commands::XApp { command } => command.handle(ctx).await,
+        Commands::Mcp { command } => command.handle(ctx).await,
     }
 }

@@ -98,13 +98,13 @@ pub enum Commands {
 }
 
 impl Commands {
-    pub async fn handle(self, cfg: &crate::run::Config) -> bool {
+    pub async fn handle(self, ctx: &crate::context::Context) -> bool {
         let result: Result<Output, Error> = async move {
             match self {
-                Commands::Get { selector, index }  => get::run(selector.resolve()?, index, cfg),
-                Commands::Add { selector, json }   => add::run(selector.resolve()?, json, cfg),
-                Commands::Del { selector, index }  => del::run(selector.resolve()?, index, cfg),
-                Commands::Deliver { selector }     => deliver::run(selector.resolve()?, cfg).await,
+                Commands::Get { selector, index }  => get::run(selector.resolve()?, index, ctx),
+                Commands::Add { selector, json }   => add::run(selector.resolve()?, json, ctx),
+                Commands::Del { selector, index }  => del::run(selector.resolve()?, index, ctx),
+                Commands::Deliver { selector }     => deliver::run(selector.resolve()?, ctx).await,
             }
         }.await;
         crate::output::emit_result(result)

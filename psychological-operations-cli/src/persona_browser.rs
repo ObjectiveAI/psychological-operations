@@ -21,18 +21,18 @@ use crate::error::Error;
 pub async fn run(
     kind: PersonaKind,
     name: &str,
-    cfg: &crate::run::Config,
+    ctx: &crate::context::Context,
 ) -> bool {
-    crate::output::emit_result(run_inner(kind, name, cfg).await)
+    crate::output::emit_result(run_inner(kind, name, ctx).await)
 }
 
 async fn run_inner(
     kind: PersonaKind,
     name: &str,
-    cfg: &crate::run::Config,
+    ctx: &crate::context::Context,
 ) -> Result<Output, Error> {
-    let materialized = ensure_extracted(cfg)?;
-    let config_base_dir = cfg.objectiveai_base_dir();
+    let materialized = ensure_extracted(&ctx.config)?;
+    let config_base_dir = ctx.config.objectiveai_base_dir();
     let launch_mode = match kind {
         PersonaKind::Psyop => launch::Mode::PsyopBrowser { name: name.to_string() },
         PersonaKind::Agent => launch::Mode::AgentBrowser { name: name.to_string() },

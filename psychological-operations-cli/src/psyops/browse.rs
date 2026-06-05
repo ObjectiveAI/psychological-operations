@@ -16,18 +16,18 @@ use crate::error::Error;
 pub async fn run(
     name_filter: Option<&str>,
     commit_filter: Option<&str>,
-    cfg: &crate::run::Config,
+    ctx: &crate::context::Context,
 ) -> bool {
-    crate::output::emit_result(run_inner(name_filter, commit_filter, cfg).await)
+    crate::output::emit_result(run_inner(name_filter, commit_filter, ctx).await)
 }
 
 async fn run_inner(
     name_filter: Option<&str>,
     commit_filter: Option<&str>,
-    cfg: &crate::run::Config,
+    ctx: &crate::context::Context,
 ) -> Result<Output, Error> {
-    let materialized = ensure_extracted(cfg)?;
-    let config_base_dir = cfg.objectiveai_base_dir();
+    let materialized = ensure_extracted(&ctx.config)?;
+    let config_base_dir = ctx.config.objectiveai_base_dir();
 
     crate::output::OutputResult::from(crate::events::Event::BrowseBrowserMaterialized {
         path: materialized.root.display().to_string(),
@@ -46,7 +46,7 @@ async fn run_inner(
             if commit_filter.is_some() {
                 return Err(Error::Other("--commit requires --name".into()));
             }
-            list_psyops(cfg)?
+            list_psyops(ctx)?
         }
     };
 
@@ -59,7 +59,7 @@ async fn run_inner(
     for (i, name) in names.iter().enumerate() {
         let commit = match (name_filter, commit_filter) {
             (Some(_), Some(c)) => c.to_string(),
-            _ => derive_commit(name, cfg)?,
+            _ => derive_commit(name, ctx)?,
         };
 
         crate::output::OutputResult::from(crate::events::Event::BrowseStarting {
@@ -93,7 +93,7 @@ async fn run_inner(
             .stdout
             .take()
             .ok_or_else(|| Error::Other("browser stdout pipe missing".into()))?;
-        let db = Db::open(cfg)?;
+        let db = Db::open(&ctx.config)?;
         let mut inserted: usize = 0;
         let mut skipped: usize = 0;
         for line in BufReader::new(stdout).lines() {
@@ -140,8 +140,8 @@ async fn run_inner(
 
 /// Enumerate psyops on disk in alphabetical order. Same dir-walk
 /// rule as `psyops::list`: must have `psyop.json` + `.git`.
-fn list_psyops(cfg: &crate::run::Config) -> Result<Vec<String>, Error> {
-    let dir = crate::config::psyops_dir(cfg);
+fn list_psyops(ctx: &crate::context::Context) -> Result<Vec<String>, Error> {
+    let dir = crate::config::psyops_dir(&ctx.config);
     if !dir.exists() {
         return Ok(Vec::new());
     }
@@ -163,8 +163,8 @@ fn list_psyops(cfg: &crate::run::Config) -> Result<Vec<String>, Error> {
     Ok(names)
 }
 
-fn derive_commit(name: &str, cfg: &crate::run::Config) -> Result<String, Error> {
-    let dir = crate::config::psyops_dir(cfg).join(name);
+fn derive_commit(name: &str, ctx: &crate::context::Context) -> Result<String, Error> {
+    let dir = crate::config::psyops_dir(&ctx.config).join(name);
     let repo = git2::Repository::open(&dir).map_err(|e| {
         Error::Other(format!("git open failed at {}: {e}", dir.display()))
     })?;

@@ -42,18 +42,18 @@ pub async fn run(
     kind: PersonaKind,
     name: &str,
     dangerously_reset: bool,
-    cfg: &crate::run::Config,
+    ctx: &crate::context::Context,
 ) -> bool {
-    crate::output::emit_result(run_inner(kind, name, dangerously_reset, cfg).await)
+    crate::output::emit_result(run_inner(kind, name, dangerously_reset, ctx).await)
 }
 
 async fn run_inner(
     kind: PersonaKind,
     name: &str,
     dangerously_reset: bool,
-    cfg: &crate::run::Config,
+    ctx: &crate::context::Context,
 ) -> Result<CliOutput, Error> {
-    let config_base_dir = cfg.objectiveai_base_dir();
+    let config_base_dir = ctx.config.objectiveai_base_dir();
 
     // === Pre-flight: X-App ===
     let x_app_twid = check_x_app(&config_base_dir).await?;
@@ -83,7 +83,7 @@ async fn run_inner(
     }
 
     // === Spawn browser in <kind>Authorize mode ===
-    let materialized = ensure_extracted(cfg)?;
+    let materialized = ensure_extracted(&ctx.config)?;
     let launch_mode = match kind {
         PersonaKind::Psyop => launch::Mode::PsyopAuthorize { name: name.to_string() },
         PersonaKind::Agent => launch::Mode::AgentAuthorize { name: name.to_string() },

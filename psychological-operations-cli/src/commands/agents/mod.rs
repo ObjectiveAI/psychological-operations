@@ -54,14 +54,14 @@ pub enum Commands {
 }
 
 impl Commands {
-    pub async fn handle(self, cfg: &crate::run::Config) -> bool {
+    pub async fn handle(self, ctx: &crate::context::Context) -> bool {
         match self {
             Commands::Login { name, dangerously_reset } => {
                 crate::login::run(
                     psychological_operations_sdk::browser::auth_json::PersonaKind::Agent,
                     &name,
                     dangerously_reset,
-                    cfg,
+                    ctx,
                 )
                 .await
             }
@@ -69,11 +69,11 @@ impl Commands {
                 crate::persona_browser::run(
                     psychological_operations_sdk::browser::auth_json::PersonaKind::Agent,
                     &name,
-                    cfg,
+                    ctx,
                 )
                 .await
             }
-            Commands::Queue { command } => command.handle(cfg).await,
+            Commands::Queue { command } => command.handle(ctx).await,
         }
     }
 }

@@ -34,11 +34,11 @@ pub enum Commands {
 }
 
 impl Commands {
-    pub async fn handle(self, cfg: &crate::run::Config) -> bool {
+    pub async fn handle(self, ctx: &crate::context::Context) -> bool {
         let result: Result<Output, Error> = async move {
             match self {
                 Commands::Begin { cache_max_size, cache_ttl } => {
-                    let config_base_dir = cfg.objectiveai_base_dir();
+                    let config_base_dir = ctx.config.objectiveai_base_dir();
                     psychological_operations_x_api_mcp::run(
                         "127.0.0.1",
                         0,

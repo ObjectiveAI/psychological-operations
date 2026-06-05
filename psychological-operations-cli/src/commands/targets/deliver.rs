@@ -17,16 +17,16 @@ use super::Selector;
 
 pub(super) async fn run(
     sel: Selector,
-    cfg: &crate::run::Config,
+    ctx: &crate::context::Context,
 ) -> Result<Output, Error> {
     let (psyop, commit) = match sel {
         Selector::Global                        => (None,           None),
         Selector::PsyopBase   { psyop }         => (Some(psyop),    None),
         Selector::PsyopCommit { psyop, commit } => (Some(psyop),    Some(commit)),
     };
-    let db = crate::db::Db::open(cfg)?;
+    let db = crate::db::Db::open(&ctx.config)?;
     let summary = crate::targets::drain_queue(
-        &db, psyop.as_deref(), commit.as_deref(), cfg,
+        &db, psyop.as_deref(), commit.as_deref(), ctx,
     ).await?;
     Ok(Output::Api(serde_json::to_string(&summary)?))
 }

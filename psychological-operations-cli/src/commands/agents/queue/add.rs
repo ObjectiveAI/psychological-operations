@@ -14,17 +14,17 @@ use crate::error::Error;
 pub async fn run(
     tweet_id: &str,
     message: &str,
-    cfg: &crate::run::Config,
+    ctx: &crate::context::Context,
 ) -> bool {
-    crate::output::emit_result(run_inner(tweet_id, message, cfg).await)
+    crate::output::emit_result(run_inner(tweet_id, message, ctx).await)
 }
 
 async fn run_inner(
     tweet_id: &str,
     message: &str,
-    cfg: &crate::run::Config,
+    ctx: &crate::context::Context,
 ) -> Result<Output, Error> {
-    let agent = cfg
+    let agent = ctx.config
         .objectiveai_agent_id
         .as_deref()
         .ok_or_else(|| {
@@ -39,7 +39,7 @@ async fn run_inner(
         /* mock */ false,
         256 * 1024 * 1024,
         std::time::Duration::from_secs(3600),
-        cfg.objectiveai_base_dir(),
+        ctx.config.objectiveai_base_dir(),
         AuthMode::XApp,
     );
     let q = client

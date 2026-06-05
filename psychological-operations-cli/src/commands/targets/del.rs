@@ -10,9 +10,9 @@ use super::Selector;
 pub(super) fn run(
     sel: Selector,
     index: usize,
-    cfg: &crate::run::Config,
+    ctx: &crate::context::Context,
 ) -> Result<Output, Error> {
-    let mut json_cfg = crate::config::load(cfg);
+    let mut json_cfg = crate::config::load(&ctx.config);
     match sel {
         Selector::Global => {
             if index >= json_cfg.targets.len() {
@@ -27,7 +27,7 @@ pub(super) fn run(
             del_from_psyop(&mut json_cfg, &psyop, Some(&commit), index)?;
         }
     }
-    crate::config::save(&json_cfg, cfg)?;
+    crate::config::save(&json_cfg, &ctx.config)?;
     Ok(Output::ConfigSet)
 }
 

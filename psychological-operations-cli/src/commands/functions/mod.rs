@@ -21,9 +21,9 @@ pub enum Commands {
 }
 
 impl Commands {
-    pub async fn handle(self, cfg: &crate::run::Config) -> bool {
+    pub async fn handle(self, ctx: &crate::context::Context) -> bool {
         match self {
-            Commands::Invent { command } => command.handle(cfg).await,
+            Commands::Invent { command } => command.handle(ctx).await,
         }
     }
 }

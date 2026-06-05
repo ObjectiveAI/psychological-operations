@@ -11,9 +11,9 @@ use super::Selector;
 pub(super) fn run(
     sel: Selector,
     index: Option<usize>,
-    cfg: &crate::run::Config,
+    ctx: &crate::context::Context,
 ) -> Result<Output, Error> {
-    let json_cfg = crate::config::load(cfg);
+    let json_cfg = crate::config::load(&ctx.config);
     let list = list_for(&json_cfg, &sel);
     match index {
         Some(i) => {

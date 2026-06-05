@@ -106,30 +106,30 @@ pub enum Commands {
 }
 
 impl Commands {
-    pub async fn handle(self, cfg: &crate::run::Config) -> bool {
+    pub async fn handle(self, ctx: &crate::context::Context) -> bool {
         match self {
-            Commands::List { enabled, disabled } => psyops::list(enabled, disabled, cfg),
-            Commands::Get { name } => psyops::get(&name, cfg),
+            Commands::List { enabled, disabled } => psyops::list(enabled, disabled, ctx),
+            Commands::Get { name } => psyops::get(&name, ctx),
             Commands::Enable { name, commit } => {
-                psyops::set_disabled(&name, commit.as_deref(), false, cfg).await
+                psyops::set_disabled(&name, commit.as_deref(), false, ctx).await
             }
             Commands::Disable { name, commit } => {
-                psyops::set_disabled(&name, commit.as_deref(), true, cfg).await
+                psyops::set_disabled(&name, commit.as_deref(), true, ctx).await
             }
-            Commands::Publish { args } => psyops::publish(args, cfg).await,
-            Commands::Delete { name } => psyops::delete(&name, cfg).await,
+            Commands::Publish { args } => psyops::publish(args, ctx).await,
+            Commands::Delete { name } => psyops::delete(&name, ctx).await,
             Commands::Run { name, commit, seed } => {
-                psyops::run::run_all(name.as_deref(), commit.as_deref(), seed, cfg).await
+                psyops::run::run_all(name.as_deref(), commit.as_deref(), seed, ctx).await
             }
             Commands::Browse { name, commit } => {
-                psyops::browse::run(name.as_deref(), commit.as_deref(), cfg).await
+                psyops::browse::run(name.as_deref(), commit.as_deref(), ctx).await
             }
             Commands::Login { name, dangerously_reset } => {
                 crate::login::run(
                     psychological_operations_sdk::browser::auth_json::PersonaKind::Psyop,
                     &name,
                     dangerously_reset,
-                    cfg,
+                    ctx,
                 )
                 .await
             }
@@ -137,7 +137,7 @@ impl Commands {
                 crate::persona_browser::run(
                     psychological_operations_sdk::browser::auth_json::PersonaKind::Psyop,
                     &name,
-                    cfg,
+                    ctx,
                 )
                 .await
             }

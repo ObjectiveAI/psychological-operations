@@ -1,6 +1,6 @@
 pub mod commands;
+pub mod context;
 pub mod events;
-pub mod objectiveai_executor;
 pub mod output;
 pub mod error;
 pub mod config;

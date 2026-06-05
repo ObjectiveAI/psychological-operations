@@ -35,16 +35,16 @@ use crate::error::Error;
 
 pub async fn run(
     dangerously_reset: bool,
-    cfg: &crate::run::Config,
+    ctx: &crate::context::Context,
 ) -> bool {
-    crate::output::emit_result(run_inner(dangerously_reset, cfg).await)
+    crate::output::emit_result(run_inner(dangerously_reset, ctx).await)
 }
 
 async fn run_inner(
     dangerously_reset: bool,
-    cfg: &crate::run::Config,
+    ctx: &crate::context::Context,
 ) -> Result<CliOutput, Error> {
-    let config_base_dir = cfg.objectiveai_base_dir();
+    let config_base_dir = ctx.config.objectiveai_base_dir();
 
     // === Pre-flight ===
     let already_set_up = is_fully_set_up(&config_base_dir).await?;
@@ -64,7 +64,7 @@ async fn run_inner(
     }
 
     // === Spawn browser in XApp mode ===
-    let materialized = ensure_extracted(cfg)?;
+    let materialized = ensure_extracted(&ctx.config)?;
     let mut child = launch::spawn(
         &materialized.binary,
         &config_base_dir,

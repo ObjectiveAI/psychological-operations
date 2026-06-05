@@ -22,7 +22,7 @@ pub enum XType {
     Retweet,
 }
 
-pub async fn send(cfg: &X, subject: &Subject<'_>, rt: &crate::run::Config) -> Result<(), crate::error::Error> {
+pub async fn send(cfg: &X, subject: &Subject<'_>, ctx: &crate::context::Context) -> Result<(), crate::error::Error> {
     use psychological_operations_sdk::x::client::{AuthMode, Client};
     use psychological_operations_sdk::x::types::{
         TweetId, UserIdMatchesAuthenticatedUser,
@@ -41,7 +41,7 @@ pub async fn send(cfg: &X, subject: &Subject<'_>, rt: &crate::run::Config) -> Re
         // Cache entry TTL — plumbed but unused today (future
         // time-based eviction will consume it).
         std::time::Duration::from_secs(3600),
-        rt.objectiveai_base_dir(),
+        ctx.config.objectiveai_base_dir(),
         AuthMode::Psyop(name.to_string()),
     );
 

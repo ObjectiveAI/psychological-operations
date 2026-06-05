@@ -50,13 +50,13 @@ struct PsyopEntry {
     commit_sha: String,
 }
 
-pub(crate) fn list(enabled: bool, disabled: bool, cfg: &crate::run::Config) -> bool {
-    crate::output::emit_result(list_inner(enabled, disabled, cfg))
+pub(crate) fn list(enabled: bool, disabled: bool, ctx: &crate::context::Context) -> bool {
+    crate::output::emit_result(list_inner(enabled, disabled, ctx))
 }
 
-fn list_inner(enabled: bool, disabled: bool, cfg: &crate::run::Config) -> Result<Output, crate::error::Error> {
-    let json_cfg = crate::config::load(cfg);
-    let dir = crate::config::psyops_dir(cfg);
+fn list_inner(enabled: bool, disabled: bool, ctx: &crate::context::Context) -> Result<Output, crate::error::Error> {
+    let json_cfg = crate::config::load(&ctx.config);
+    let dir = crate::config::psyops_dir(&ctx.config);
     let mut entries: Vec<PsyopEntry> = Vec::new();
     if dir.exists() {
         for ent in std::fs::read_dir(&dir)? {
@@ -86,19 +86,19 @@ fn list_inner(enabled: bool, disabled: bool, cfg: &crate::run::Config) -> Result
     Ok(Output::ConfigGet(serde_json::to_string(&entries)?))
 }
 
-pub(crate) fn get(name: &str, cfg: &crate::run::Config) -> bool {
+pub(crate) fn get(name: &str, ctx: &crate::context::Context) -> bool {
     crate::output::emit_result((|| -> Result<Output, crate::error::Error> {
-        let psyop = self::psyop::load(name, None, cfg)?;
+        let psyop = self::psyop::load(name, None, ctx)?;
         Ok(Output::ConfigGet(serde_json::to_string(&psyop)?))
     })())
 }
 
-pub(crate) async fn set_disabled(name: &str, commit: Option<&str>, value: bool, cfg: &crate::run::Config) -> bool {
-    crate::output::emit_result(set_disabled_inner(name, commit, value, cfg).await)
+pub(crate) async fn set_disabled(name: &str, commit: Option<&str>, value: bool, ctx: &crate::context::Context) -> bool {
+    crate::output::emit_result(set_disabled_inner(name, commit, value, ctx).await)
 }
 
-async fn set_disabled_inner(name: &str, commit: Option<&str>, value: bool, cfg: &crate::run::Config) -> Result<Output, crate::error::Error> {
-    let mut json_cfg = crate::config::load(cfg);
+async fn set_disabled_inner(name: &str, commit: Option<&str>, value: bool, ctx: &crate::context::Context) -> Result<Output, crate::error::Error> {
+    let mut json_cfg = crate::config::load(&ctx.config);
     {
         let overrides = json_cfg.psyops.entry(name.to_string()).or_default();
         match commit {
@@ -116,23 +116,23 @@ async fn set_disabled_inner(name: &str, commit: Option<&str>, value: bool, cfg: 
     if json_cfg.psyops.get(name).is_some_and(|o| o.is_empty()) {
         json_cfg.psyops.remove(name);
     }
-    crate::config::save(&json_cfg, cfg)?;
+    crate::config::save(&json_cfg, &ctx.config)?;
 
     // Notify the running viewer (if any) that this psyop's surfaced
     // entry just changed. The on-disk psyop body is unchanged here,
     // but the entry's `enabled` flag flips — viewers re-render
     // accordingly. Best-effort; silent failures.
-    if let Some(body) = full_psyop_body(name, &json_cfg, cfg) {
-        notify::notify("psyop_edited", &body).await;
+    if let Some(body) = full_psyop_body(name, &json_cfg, ctx) {
+        notify::notify("psyop_edited", &body, ctx).await;
     }
     Ok(Output::ConfigSet)
 }
 
-pub(crate) async fn publish(args: PublishArgs, cfg: &crate::run::Config) -> bool {
-    crate::output::emit_result(publish_inner(args, cfg).await)
+pub(crate) async fn publish(args: PublishArgs, ctx: &crate::context::Context) -> bool {
+    crate::output::emit_result(publish_inner(args, ctx).await)
 }
 
-async fn publish_inner(args: PublishArgs, cfg: &crate::run::Config) -> Result<Output, crate::error::Error> {
+async fn publish_inner(args: PublishArgs, ctx: &crate::context::Context) -> Result<Output, crate::error::Error> {
     let psyop: PsyOp = if let Some(inline) = args.source.psyop_inline {
         serde_json::from_str(&inline)?
     } else if let Some(path) = args.source.psyop_file {
@@ -142,16 +142,16 @@ async fn publish_inner(args: PublishArgs, cfg: &crate::run::Config) -> Result<Ou
         unreachable!("clap group ensures one is set")
     };
     psyop.validate()?;
-    let dir = crate::config::psyops_dir(cfg).join(&args.name);
+    let dir = crate::config::psyops_dir(&ctx.config).join(&args.name);
     // Detect add vs edit BEFORE publish_file runs — once it commits
     // the file, `psyop.json` exists regardless of which case we're in.
     let existed_before = dir.join("psyop.json").exists();
     let json = serde_json::to_string_pretty(&psyop)? + "\n";
-    let sha = crate::publish::publish_file(&dir, "psyop.json", &json, &args.message, cfg)?;
+    let sha = crate::publish::publish_file(&dir, "psyop.json", &json, &args.message, &ctx.config)?;
 
     // Resolve `enabled` against config overrides for the just-committed
     // commit_sha, then notify the running viewer (if any).
-    let json_cfg = crate::config::load(cfg);
+    let json_cfg = crate::config::load(&ctx.config);
     let is_enabled = !json_cfg.psyops.get(&args.name)
         .map(|o| o.disabled_for(&sha))
         .unwrap_or(false);
@@ -162,7 +162,7 @@ async fn publish_inner(args: PublishArgs, cfg: &crate::run::Config) -> Result<Ou
         "definition": &psyop,
     });
     let sub_type = if existed_before { "psyop_edited" } else { "psyop_added" };
-    notify::notify(sub_type, &body).await;
+    notify::notify(sub_type, &body, ctx).await;
 
     Ok(Output::Api(sha))
 }
@@ -171,25 +171,26 @@ async fn publish_inner(args: PublishArgs, cfg: &crate::run::Config) -> Result<Ou
 /// repo) and drop any per-psyop entries from config.json. Returns
 /// `PsyopNotFound` if the dir doesn't exist (treat delete-of-absent
 /// as an error so scripts can `&&` chain).
-pub(crate) async fn delete(name: &str, cfg: &crate::run::Config) -> bool {
-    crate::output::emit_result(delete_inner(name, cfg).await)
+pub(crate) async fn delete(name: &str, ctx: &crate::context::Context) -> bool {
+    crate::output::emit_result(delete_inner(name, ctx).await)
 }
 
-async fn delete_inner(name: &str, cfg: &crate::run::Config) -> Result<Output, crate::error::Error> {
-    let dir = crate::config::psyops_dir(cfg).join(name);
+async fn delete_inner(name: &str, ctx: &crate::context::Context) -> Result<Output, crate::error::Error> {
+    let dir = crate::config::psyops_dir(&ctx.config).join(name);
     if !dir.exists() {
         return Err(crate::error::Error::PsyopNotFound(dir.display().to_string()));
     }
     std::fs::remove_dir_all(&dir)?;
 
-    let mut json_cfg = crate::config::load(cfg);
+    let mut json_cfg = crate::config::load(&ctx.config);
     if json_cfg.psyops.remove(name).is_some() {
-        crate::config::save(&json_cfg, cfg)?;
+        crate::config::save(&json_cfg, &ctx.config)?;
     }
 
     notify::notify(
         "psyop_deleted",
         &serde_json::json!({ "name": name }),
+        ctx,
     ).await;
     Ok(Output::Empty)
 }
@@ -200,16 +201,16 @@ async fn delete_inner(name: &str, cfg: &crate::run::Config) -> Result<Output, cr
 fn full_psyop_body(
     name: &str,
     json_cfg: &crate::config::Config,
-    cfg: &crate::run::Config,
+    ctx: &crate::context::Context,
 ) -> Option<serde_json::Value> {
-    let dir = crate::config::psyops_dir(cfg).join(name);
+    let dir = crate::config::psyops_dir(&ctx.config).join(name);
     if !dir.join("psyop.json").exists() || !dir.join(".git").exists() {
         return None;
     }
     let repo = git2::Repository::open(&dir).ok()?;
     let head = repo.head().ok()?.peel_to_commit().ok()?;
     let commit_sha = head.id().to_string();
-    let psyop = self::psyop::load(name, None, cfg).ok()?;
+    let psyop = self::psyop::load(name, None, ctx).ok()?;
     let is_enabled = !json_cfg.psyops.get(name)
         .map(|o| o.disabled_for(&commit_sha))
         .unwrap_or(false);

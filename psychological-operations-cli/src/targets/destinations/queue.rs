@@ -24,7 +24,7 @@ pub struct Queue {
 pub async fn send(
     cfg: &Queue,
     subject: &Subject<'_>,
-    rt: &crate::run::Config,
+    ctx: &crate::context::Context,
 ) -> Result<(), crate::error::Error> {
     let Subject::Psyop { name, psyop: _, output } = subject;
 
@@ -33,7 +33,7 @@ pub async fn send(
         /* mock */ false,
         256 * 1024 * 1024,
         std::time::Duration::from_secs(3600),
-        rt.objectiveai_base_dir(),
+        ctx.config.objectiveai_base_dir(),
         AuthMode::XApp,
     );
     let q = client

@@ -40,20 +40,19 @@ use psychological_operations_sdk::x::queue::Queue;
 use tokio::task::JoinSet;
 
 use crate::error::Error;
-use crate::objectiveai_executor as executor;
 
 pub async fn run(
     agent_filter: Vec<String>,
-    cfg: &crate::run::Config,
+    ctx: &crate::context::Context,
 ) -> bool {
-    crate::output::emit_result(run_inner(agent_filter, cfg).await)
+    crate::output::emit_result(run_inner(agent_filter, ctx).await)
 }
 
 async fn run_inner(
     agent_filter: Vec<String>,
-    cfg: &crate::run::Config,
+    ctx: &crate::context::Context,
 ) -> Result<Output, Error> {
-    let instance_hierarchy = cfg
+    let instance_hierarchy = ctx.config
         .objectiveai_instance_hierarchy
         .as_deref()
         .ok_or_else(|| {
@@ -65,7 +64,7 @@ async fn run_inner(
         .to_string();
 
     let handler_agent: InlineAgentBaseWithFallbacksOrRemoteCommitOptional = {
-        let json = cfg.queue_handler_agent.as_deref().ok_or_else(|| {
+        let json = ctx.config.queue_handler_agent.as_deref().ok_or_else(|| {
             Error::Other(
                 "PSYCHOLOGICAL_OPERATIONS_QUEUE_HANDLER_AGENT not set — required for \
                  `agents queue handle`"
@@ -84,7 +83,7 @@ async fn run_inner(
         /* mock */ false,
         256 * 1024 * 1024,
         Duration::from_secs(3600),
-        cfg.objectiveai_base_dir(),
+        ctx.config.objectiveai_base_dir(),
         AuthMode::XApp,
     );
     let q: Arc<Queue> = client
@@ -101,7 +100,7 @@ async fn run_inner(
         agents.retain(|a| agent_filter.iter().any(|f| f == a));
     }
 
-    let executor = executor::executor().await;
+    let executor = ctx.executor.clone();
 
     let mut tasks = JoinSet::new();
     for agent in agents {

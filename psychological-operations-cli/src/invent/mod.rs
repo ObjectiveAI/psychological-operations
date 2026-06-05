@@ -46,11 +46,17 @@ use crate::input;
 /// args into a `ParamsState::AlphaScalar` envelope carrying the
 /// scalar post-input-schema, then dispatches via the shared
 /// `recursive_remote` path.
-pub async fn invent_alpha_scalar(args: alpha_scalar::Args) -> bool {
-    crate::output::emit_result(invent_alpha_scalar_inner(args).await)
+pub async fn invent_alpha_scalar(
+    args: alpha_scalar::Args,
+    ctx: &crate::context::Context,
+) -> bool {
+    crate::output::emit_result(invent_alpha_scalar_inner(args, ctx).await)
 }
 
-async fn invent_alpha_scalar_inner(args: alpha_scalar::Args) -> Result<Output, Error> {
+async fn invent_alpha_scalar_inner(
+    args: alpha_scalar::Args,
+    ctx: &crate::context::Context,
+) -> Result<Output, Error> {
     let req = alpha_scalar::Request::try_from(args)
         .map_err(|e| Error::Other(format!("alpha-scalar args: {e}")))?;
     let state = ParamsState::AlphaScalar(AlphaScalarState {
@@ -75,16 +81,23 @@ async fn invent_alpha_scalar_inner(args: alpha_scalar::Args) -> Result<Output, E
         req.seed,
         dangerous_advanced,
         req.jq,
+        ctx,
     ).await
 }
 
 /// `functions invent alpha-vector`. Mirror of
 /// `invent_alpha_scalar` for the vector schema variant.
-pub async fn invent_alpha_vector(args: alpha_vector::Args) -> bool {
-    crate::output::emit_result(invent_alpha_vector_inner(args).await)
+pub async fn invent_alpha_vector(
+    args: alpha_vector::Args,
+    ctx: &crate::context::Context,
+) -> bool {
+    crate::output::emit_result(invent_alpha_vector_inner(args, ctx).await)
 }
 
-async fn invent_alpha_vector_inner(args: alpha_vector::Args) -> Result<Output, Error> {
+async fn invent_alpha_vector_inner(
+    args: alpha_vector::Args,
+    ctx: &crate::context::Context,
+) -> Result<Output, Error> {
     let req = alpha_vector::Request::try_from(args)
         .map_err(|e| Error::Other(format!("alpha-vector args: {e}")))?;
     let state = ParamsState::AlphaVector(AlphaVectorState {
@@ -109,6 +122,7 @@ async fn invent_alpha_vector_inner(args: alpha_vector::Args) -> Result<Output, E
         req.seed,
         dangerous_advanced,
         req.jq,
+        ctx,
     ).await
 }
 
@@ -116,17 +130,23 @@ async fn invent_alpha_vector_inner(args: alpha_vector::Args) -> Result<Output, E
 /// ref via [`state_get`] (or accepts the `--state-inline` JSON
 /// directly), injects the psyops schema if the resolved state
 /// doesn't carry one, then dispatches via `recursive_remote`.
-pub async fn invent_remote(args: recursive_remote::Args) -> bool {
-    crate::output::emit_result(invent_remote_inner(args).await)
+pub async fn invent_remote(
+    args: recursive_remote::Args,
+    ctx: &crate::context::Context,
+) -> bool {
+    crate::output::emit_result(invent_remote_inner(args, ctx).await)
 }
 
-async fn invent_remote_inner(args: recursive_remote::Args) -> Result<Output, Error> {
+async fn invent_remote_inner(
+    args: recursive_remote::Args,
+    ctx: &crate::context::Context,
+) -> Result<Output, Error> {
     let req = recursive_remote::Request::try_from(args)
         .map_err(|e| Error::Other(format!("remote args: {e}")))?;
     let state = match req.state {
         recursive_remote::RequestState::Inline(state) => fill_schema_if_missing(state),
         recursive_remote::RequestState::Ref(ref_str)  => {
-            let fetched = fetch_state(&ref_str).await?;
+            let fetched = fetch_state(&ref_str, ctx).await?;
             fill_schema_if_missing(fetched)
         }
     };
@@ -137,6 +157,7 @@ async fn invent_remote_inner(args: recursive_remote::Args) -> Result<Output, Err
         req.seed,
         req.dangerous_advanced,
         req.jq,
+        ctx,
     ).await
 }
 
@@ -153,8 +174,9 @@ async fn dispatch_remote(
     seed: Option<i64>,
     dangerous_advanced: Option<recursive_remote::RequestDangerousAdvanced>,
     jq: Option<String>,
+    ctx: &crate::context::Context,
 ) -> Result<Output, Error> {
-    let executor = crate::objectiveai_executor::executor().await;
+    let executor = ctx.executor.clone();
     let stream_requested = dangerous_advanced
         .as_ref()
         .and_then(|a| a.stream)
@@ -195,8 +217,11 @@ async fn dispatch_remote(
 /// used by the `remote` leaf when the operator supplies `--state
 /// <ref>` instead of `--state-inline` (so psyops can inject its
 /// schema before redispatching).
-async fn fetch_state(ref_str: &str) -> Result<ParamsState, Error> {
-    let executor = crate::objectiveai_executor::executor().await;
+async fn fetch_state(
+    ref_str: &str,
+    ctx: &crate::context::Context,
+) -> Result<ParamsState, Error> {
+    let executor = ctx.executor.clone();
     let req = state_get::Request {
         path_type: state_get::Path::FunctionsInventionsStateGet,
         filter: Some(ref_str.to_string()),

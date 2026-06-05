@@ -57,7 +57,7 @@ pub enum Subject<'a> {
 pub async fn send_one(
     dest: &Destination,
     subject: &Subject<'_>,
-    rt: &crate::run::Config,
+    ctx: &crate::context::Context,
 ) -> Result<(), crate::error::Error> {
     match dest {
         Destination::Discord { webhook_url } => discord::send(webhook_url, subject).await,
@@ -67,7 +67,7 @@ pub async fn send_one(
         Destination::File(cfg) => file::send(cfg, subject).await,
         Destination::Exec(cfg) => exec::send(cfg, subject).await,
         Destination::WebSocket(cfg) => websocket::send(cfg, subject).await,
-        Destination::X(cfg) => x::send(cfg, subject, rt).await,
-        Destination::Queue(cfg) => queue::send(cfg, subject, rt).await,
+        Destination::X(cfg) => x::send(cfg, subject, ctx).await,
+        Destination::Queue(cfg) => queue::send(cfg, subject, ctx).await,
     }
 }

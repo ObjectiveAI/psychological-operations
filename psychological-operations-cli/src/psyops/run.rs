@@ -48,13 +48,13 @@ pub async fn run_all(
     name_filter: Option<&str>,
     commit_filter: Option<&str>,
     seed: Option<i64>,
-    cfg: &crate::run::Config,
+    ctx: &crate::context::Context,
 ) -> bool {
     crate::output::emit_result(async {
         let name = name_filter.ok_or_else(|| {
             Error::Other("psyops run requires --name <psyop>".into())
         })?;
-        run_psyop(name, commit_filter, seed, cfg).await
+        run_psyop(name, commit_filter, seed, ctx).await
     }.await)
 }
 
@@ -62,26 +62,26 @@ pub async fn run_psyop(
     name: &str,
     commit_override: Option<&str>,
     seed: Option<i64>,
-    cfg: &crate::run::Config,
+    ctx: &crate::context::Context,
 ) -> Result<Output, Error> {
-    let psyop = super::psyop::load(name, None, cfg)?;
+    let psyop = super::psyop::load(name, None, ctx)?;
     psyop.validate()?;
 
     // Gate the X-app credential preflight on whether this psyop is
     // mocked. Mocked psyops never touch the real X API, so requiring
     // `x_app setup` for them would be pointless friction.
     if !psyop.mock_enabled() {
-        psychological_operations_sdk::x::x_app::config::ensure_setup(&cfg.objectiveai_base_dir())
+        psychological_operations_sdk::x::x_app::config::ensure_setup(&ctx.config.objectiveai_base_dir())
             .map_err(|e| Error::Other(format!("x_app.json: {e}")))?;
     }
 
     let commit = match commit_override {
         Some(c) => c.to_string(),
-        None => derive_commit(name, cfg)?,
+        None => derive_commit(name, ctx)?,
     };
 
-    let db = Db::open(cfg)?;
-    let http = make_http_client(psyop.mock_enabled(), cfg);
+    let db = Db::open(&ctx.config)?;
+    let http = make_http_client(psyop.mock_enabled(), ctx);
 
     // Capture whether the for_you_queue was non-empty at run start —
     // the `query_when_for_you_queued` policy reads this on the
@@ -131,7 +131,7 @@ pub async fn run_psyop(
 
         // 7. Hydrate Tweet -> Post by joining with the `contents`
         //    table, then run the multi-stage scoring pipeline.
-        let result = score_pipeline(&db, &psyop, name, trimmed, seed, cfg).await?;
+        let result = score_pipeline(&db, &psyop, name, trimmed, seed, ctx).await?;
 
         // 8. Persist scores for every scored post.
         if !result.last_scores.is_empty() {
@@ -146,7 +146,7 @@ pub async fn run_psyop(
 
         // 10. Enqueue a delivery_queue row per (target, survivors).
         if !result.survivors.is_empty() {
-            let json_cfg = crate::config::load(cfg);
+            let json_cfg = crate::config::load(&ctx.config);
             let post_ids: Vec<String> = result.survivors.iter()
                 .map(|s| s.post.id.clone())
                 .collect();
@@ -168,7 +168,7 @@ pub async fn run_psyop(
 
         // 11. Drain the queue (narrowed to exactly this
         //     (psyop, commit) — the rows we just enqueued).
-        let _summary = crate::targets::drain_queue(&db, Some(name), Some(&commit), cfg).await?;
+        let _summary = crate::targets::drain_queue(&db, Some(name), Some(&commit), ctx).await?;
 
         return Ok(Output::Empty);
     }
@@ -189,7 +189,7 @@ async fn score_pipeline(
     name: &str,
     trimmed: Vec<Tweet>,
     seed: Option<i64>,
-    _cfg: &crate::run::Config,
+    ctx: &crate::context::Context,
 ) -> Result<ScoreResult, Error> {
     // Hydrate Tweet -> Post via contents lookup. Tweets whose
     // contents row is absent are filtered out — by contract those
@@ -239,7 +239,7 @@ async fn score_pipeline(
         //   {"type":"notification","value":{"event":"stage_end","stage":N}}
         crate::output::OutputResult::from(crate::events::Event::StageBegin { stage: i }).emit();
 
-        let scored: Vec<ScoredPost> = score::score(stage, current, seed).await?;
+        let scored: Vec<ScoredPost> = score::score(stage, current, seed, ctx).await?;
         for s in &scored {
             last_scores.insert(s.post.id.clone(), s.score);
         }
@@ -451,7 +451,7 @@ async fn run_queries(
 
 // -- X API --------------------------------------------------------------------
 
-fn make_http_client(mock: bool, cfg: &crate::run::Config) -> Client {
+fn make_http_client(mock: bool, ctx: &crate::context::Context) -> Client {
     Client::new(
         reqwest::Client::new(),
         mock,
@@ -462,7 +462,7 @@ fn make_http_client(mock: bool, cfg: &crate::run::Config) -> Client {
         // Cache entry TTL — plumbed but unused today (future
         // time-based eviction will consume it).
         std::time::Duration::from_secs(3600),
-        cfg.objectiveai_base_dir(),
+        ctx.config.objectiveai_base_dir(),
         AuthMode::XApp,
     )
 }
@@ -571,8 +571,8 @@ fn lookup_handle(
 
 // -- glue ---------------------------------------------------------------------
 
-fn derive_commit(name: &str, cfg: &crate::run::Config) -> Result<String, Error> {
-    let dir = crate::config::psyops_dir(cfg).join(name);
+fn derive_commit(name: &str, ctx: &crate::context::Context) -> Result<String, Error> {
+    let dir = crate::config::psyops_dir(&ctx.config).join(name);
     let repo = git2::Repository::open(&dir).map_err(|e| {
         Error::Other(format!("git open failed at {}: {e}", dir.display()))
     })?;

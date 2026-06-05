@@ -33,10 +33,10 @@ pub enum Commands {
 }
 
 impl Commands {
-    pub async fn handle(self, cfg: &crate::run::Config) -> bool {
+    pub async fn handle(self, ctx: &crate::context::Context) -> bool {
         match self {
-            Commands::Add { tweet_id, message } => add::run(&tweet_id, &message, cfg).await,
-            Commands::Handle { agent } => handle::run(agent, cfg).await,
+            Commands::Add { tweet_id, message } => add::run(&tweet_id, &message, ctx).await,
+            Commands::Handle { agent } => handle::run(agent, ctx).await,
         }
     }
 }

@@ -77,9 +77,9 @@ fn skip_queries(q: &Option<Vec<Query>>) -> bool {
 /// `commit_sha = Some(sha)` → walk the named commit's tree in
 /// `<psyops_dir>/<name>/`'s git repo and parse `psyop.json`'s blob.
 /// Doesn't touch the working tree.
-pub fn load(name: &str, commit_sha: Option<&str>, cfg: &crate::run::Config) -> Result<PsyOp, crate::error::Error> {
+pub fn load(name: &str, commit_sha: Option<&str>, ctx: &crate::context::Context) -> Result<PsyOp, crate::error::Error> {
     use crate::error::Error;
-    let dir = crate::config::psyops_dir(cfg).join(name);
+    let dir = crate::config::psyops_dir(&ctx.config).join(name);
 
     let bytes: Vec<u8> = match commit_sha {
         None => {
@@ -120,8 +120,8 @@ pub fn load(name: &str, commit_sha: Option<&str>, cfg: &crate::run::Config) -> R
 }
 
 /// Write a psyop's JSON definition back to disk (pretty-printed).
-pub fn save(name: &str, psyop: &PsyOp, cfg: &crate::run::Config) -> Result<(), crate::error::Error> {
-    let path = crate::config::psyops_dir(cfg).join(name).join("psyop.json");
+pub fn save(name: &str, psyop: &PsyOp, ctx: &crate::context::Context) -> Result<(), crate::error::Error> {
+    let path = crate::config::psyops_dir(&ctx.config).join(name).join("psyop.json");
     let json = serde_json::to_string_pretty(psyop)?;
     std::fs::write(&path, json + "\n")?;
     Ok(())

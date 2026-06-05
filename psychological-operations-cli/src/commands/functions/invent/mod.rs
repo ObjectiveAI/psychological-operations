@@ -36,11 +36,11 @@ pub enum Commands {
 }
 
 impl Commands {
-    pub async fn handle(self, _cfg: &crate::run::Config) -> bool {
+    pub async fn handle(self, ctx: &crate::context::Context) -> bool {
         match self {
-            Commands::AlphaScalar(args) => crate::invent::invent_alpha_scalar(args).await,
-            Commands::AlphaVector(args) => crate::invent::invent_alpha_vector(args).await,
-            Commands::Remote(args)      => crate::invent::invent_remote(args).await,
+            Commands::AlphaScalar(args) => crate::invent::invent_alpha_scalar(args, ctx).await,
+            Commands::AlphaVector(args) => crate::invent::invent_alpha_vector(args, ctx).await,
+            Commands::Remote(args)      => crate::invent::invent_remote(args, ctx).await,
         }
     }
 }

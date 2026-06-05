@@ -35,8 +35,11 @@ pub struct ScoredPost {
 /// as `FullInlineFunction` — the wire shape is the same modulo the
 /// flattened path metadata, which `FullInlineFunction`'s untagged
 /// enum walks past via serde's permissive unknown-field handling.
-async fn fetch_function(path: &RemotePathCommitOptional) -> Result<FullInlineFunction, crate::error::Error> {
-    let executor = crate::objectiveai_executor::executor().await;
+async fn fetch_function(
+    path: &RemotePathCommitOptional,
+    ctx: &crate::context::Context,
+) -> Result<FullInlineFunction, crate::error::Error> {
+    let executor = ctx.executor.clone();
     let req = functions_get::Request {
         path_type: functions_get::Path::FunctionsGet,
         path: RemotePathCommitOptionalOrFavorite::Resolved(path.clone()),
@@ -50,10 +53,13 @@ async fn fetch_function(path: &RemotePathCommitOptional) -> Result<FullInlineFun
     Ok(function)
 }
 
-async fn resolve_function(function: &FullInlineFunctionOrRemoteCommitOptional) -> Result<FullInlineFunction, crate::error::Error> {
+async fn resolve_function(
+    function: &FullInlineFunctionOrRemoteCommitOptional,
+    ctx: &crate::context::Context,
+) -> Result<FullInlineFunction, crate::error::Error> {
     match function {
         FullInlineFunctionOrRemoteCommitOptional::Inline(f) => Ok(f.clone()),
-        FullInlineFunctionOrRemoteCommitOptional::Remote(path) => fetch_function(path).await,
+        FullInlineFunctionOrRemoteCommitOptional::Remote(path) => fetch_function(path, ctx).await,
     }
 }
 
@@ -74,8 +80,9 @@ async fn run_function_execution(
     split: bool,
     invert: bool,
     seed: Option<i64>,
+    ctx: &crate::context::Context,
 ) -> Result<serde_json::Value, crate::error::Error> {
-    let executor = crate::objectiveai_executor::executor().await;
+    let executor = ctx.executor.clone();
     let function_spec = FunctionSpec::Resolved(
         FullInlineFunctionOrRemoteCommitOptional::Inline(function.clone()),
     );
@@ -175,12 +182,17 @@ async fn run_function_execution(
 
 /// Run a single stage's function execution against the given posts.
 /// Returns scored posts in score-descending order.
-pub async fn score(stage: &Stage, posts: Vec<Post>, seed: Option<i64>) -> Result<Vec<ScoredPost>, crate::error::Error> {
+pub async fn score(
+    stage: &Stage,
+    posts: Vec<Post>,
+    seed: Option<i64>,
+    ctx: &crate::context::Context,
+) -> Result<Vec<ScoredPost>, crate::error::Error> {
     let mut scored: Vec<ScoredPost> = posts.into_iter()
         .map(|p| ScoredPost { post: p, score: 0.0 })
         .collect();
 
-    let function = resolve_function(&stage.function).await?;
+    let function = resolve_function(&stage.function, ctx).await?;
     let is_vector = is_vector_function(&function);
 
     let items: Vec<PostInputValue> = scored.iter()
@@ -199,7 +211,7 @@ pub async fn score(stage: &Stage, posts: Vec<Post>, seed: Option<i64>) -> Result
 
     let result = run_function_execution(
         &function, &stage.profile, &stage.strategy, input_value,
-        split, stage.invert, seed,
+        split, stage.invert, seed, ctx,
     ).await?;
 
     let scores: Vec<f64> = result.as_array()

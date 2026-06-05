@@ -14,7 +14,7 @@ pub async fn drain_queue(
     db: &crate::db::Db,
     psyop_filter:  Option<&str>,
     commit_filter: Option<&str>,
-    cfg: &crate::run::Config,
+    ctx: &crate::context::Context,
 ) -> Result<DeliverySummary, crate::error::Error> {
     use crate::db::{MediaUrl, Post};
     use crate::psyops::psyop;
@@ -50,7 +50,7 @@ pub async fn drain_queue(
         // Load the psyop as it existed at the queued commit_sha
         // (git tree blob, not working tree). If the repo / commit /
         // file is missing, bump-attempt with a clear message.
-        let psyop_obj = match psyop::load(&row.psyop, Some(&row.psyop_commit_sha), cfg) {
+        let psyop_obj = match psyop::load(&row.psyop, Some(&row.psyop_commit_sha), ctx) {
             Ok(p) => p,
             Err(e) => {
                 let msg = format!("psyop load at {} failed: {e}", row.psyop_commit_sha);
@@ -90,7 +90,7 @@ pub async fn drain_queue(
             output: &stub_refs,
         };
 
-        match send_one(&dest, &subject, cfg).await {
+        match send_one(&dest, &subject, ctx).await {
             Ok(()) => {
                 db.delete_delivery(row.id)?;
                 delivered += 1;

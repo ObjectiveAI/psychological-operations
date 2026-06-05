@@ -25,14 +25,13 @@ fn route_for(sub_type: &str) -> Option<&'static str> {
 
 /// Fire one notification at the host's running viewer. No-op if
 /// `sub_type` is unknown.
-pub async fn notify(sub_type: &str, body: &Value) {
+pub async fn notify(sub_type: &str, body: &Value, ctx: &crate::context::Context) {
     let Some(path) = route_for(sub_type) else { return; };
-    let executor = crate::objectiveai_executor::executor().await;
     let req = viewer_send::Request {
         path_type: viewer_send::Path::ViewerSend,
         path: path.to_string(),
         body: body.clone(),
         jq: None,
     };
-    let _ = viewer_send::execute(&*executor, req, None).await;
+    let _ = viewer_send::execute(&*ctx.executor, req, None).await;
 }
