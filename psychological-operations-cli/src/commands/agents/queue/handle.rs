@@ -116,7 +116,7 @@ async fn run_inner(
     }
     while tasks.join_next().await.is_some() {}
 
-    Ok(Output::Empty)
+    Ok(Output::Ok)
 }
 
 async fn handle_one_agent(

@@ -37,3 +37,10 @@ pub enum Destination {
     #[serde(rename = "queue")]
     Queue(queue::Queue),
 }
+
+/// Returned by `targets deliver` — drain queue counters.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeliverySummary {
+    pub delivered: usize,
+    pub failed:    usize,
+}

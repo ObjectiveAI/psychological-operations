@@ -95,13 +95,14 @@ where
         Ok(cli) => cli,
         // Clap returns Err for `--help`, `--version`, and "no subcommand
         // given" because none has a `Cli` value to dispatch on. All three
-        // are informational, not failures — emit as a Notification carrying
-        // the rendered text, then succeed (exit 0).
+        // are informational, not failures — emit as a typed `Output::Help`
+        // line, then succeed (exit 0).
         Err(e) if is_informational(&e) => {
-            crate::output::OutputResult::Notification(
-                serde_json::json!({ "value": e.to_string() }),
-            )
-            .emit();
+            crate::output::emit_output(
+                psychological_operations_sdk::cli::Output::Help(
+                    psychological_operations_sdk::cli::output::Help { text: e.to_string() },
+                ),
+            );
             return true;
         }
         Err(e) => {

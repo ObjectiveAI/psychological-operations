@@ -52,7 +52,7 @@ async fn run_inner(
 
     if names.is_empty() {
         crate::output::OutputResult::from(crate::events::Event::BrowseNoPsyops).emit();
-        return Ok(Output::Empty);
+        return Ok(Output::Ok);
     }
 
     crate::output::OutputResult::from(crate::events::Event::BrowsePsyopList { count: names.len() }).emit();
@@ -135,7 +135,7 @@ async fn run_inner(
         .emit();
     }
 
-    Ok(Output::Empty)
+    Ok(Output::Ok)
 }
 
 /// Enumerate psyops on disk in alphabetical order. Same dir-walk

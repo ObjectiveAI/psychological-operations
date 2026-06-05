@@ -28,5 +28,5 @@ pub(super) fn run(
         }
     }
     crate::config::save(&json_cfg, &ctx.config)?;
-    Ok(Output::ConfigSet)
+    Ok(Output::Ok)
 }

@@ -11,13 +11,12 @@ pub mod filter;
 // the same shorthand `crate::psyops::*` so call sites that wrote
 // `use crate::psyops::PsyOp;` keep resolving.
 pub use psychological_operations_sdk::cli::psyops::{
-    Filter, ForYou, PsyOp, Query, SearchEndpoint, SortBy, Stage,
-    is_vector_function,
+    Filter, ForYou, PsyOp, PsyopEntry, PublishedPsyop, Query, SearchEndpoint,
+    SortBy, Stage, is_vector_function,
 };
 
 use clap::Args;
 use psychological_operations_sdk::cli::Output;
-use serde::Serialize;
 
 #[derive(Args)]
 #[group(required = true, multiple = false)]
@@ -40,13 +39,6 @@ pub struct PublishArgs {
     /// Commit message
     #[arg(long)]
     pub message: String,
-}
-
-#[derive(Serialize)]
-struct PsyopEntry {
-    name: String,
-    enabled: bool,
-    commit_sha: String,
 }
 
 pub(crate) fn list(
@@ -105,7 +97,7 @@ fn list_inner(
     } else {
         &entries[start..end]
     };
-    Ok(Output::ConfigGet(serde_json::to_string(page)?))
+    Ok(Output::PsyopList(page.to_vec()))
 }
 
 /// Emit the JSON Schema for [`PsyOp`] so agents / operators can
@@ -120,7 +112,7 @@ pub(crate) fn schema() -> bool {
 pub(crate) fn get(name: &str, ctx: &crate::context::Context) -> bool {
     crate::output::emit_result((|| -> Result<Output, crate::error::Error> {
         let psyop = self::psyop::load(name, None, ctx)?;
-        Ok(Output::ConfigGet(serde_json::to_string(&psyop)?))
+        Ok(Output::Psyop(psyop))
     })())
 }
 
@@ -156,7 +148,7 @@ async fn set_disabled_inner(name: &str, commit: Option<&str>, value: bool, ctx: 
     if let Some(body) = full_psyop_body(name, &json_cfg, ctx) {
         notify::notify("psyop_edited", &body, ctx).await;
     }
-    Ok(Output::ConfigSet)
+    Ok(Output::Ok)
 }
 
 pub(crate) async fn publish(args: PublishArgs, ctx: &crate::context::Context) -> bool {
@@ -195,7 +187,11 @@ async fn publish_inner(args: PublishArgs, ctx: &crate::context::Context) -> Resu
     let sub_type = if existed_before { "psyop_edited" } else { "psyop_added" };
     notify::notify(sub_type, &body, ctx).await;
 
-    Ok(Output::Api(sha))
+    Ok(Output::PublishedPsyop(PublishedPsyop {
+        name: args.name,
+        commit_sha: sha,
+        enabled: is_enabled,
+    }))
 }
 
 /// Delete a psyop on disk: blow away its dir (including the .git
@@ -223,7 +219,7 @@ async fn delete_inner(name: &str, ctx: &crate::context::Context) -> Result<Outpu
         &serde_json::json!({ "name": name }),
         ctx,
     ).await;
-    Ok(Output::Empty)
+    Ok(Output::Ok)
 }
 
 /// Build the `PsyopWithDefinition`-shaped notification body for

@@ -15,12 +15,11 @@
 //! clears it — so we just check the parsed value to pick which
 //! call site to enter.
 //!
-//! Wire shape:
-//! - Streaming: each [`ResponseItem`] lands as
-//!   [`OutputResult::Notification`]; terminal output is
-//!   [`Output::Empty`] (the id is the last chunk's job).
-//! - Unary: terminal output is [`Output::Api(id)`] which
-//!   `emit_output` re-wraps as a Notification carrying the id.
+//! Wire shape: each objectiveai `ResponseItem` is remitted
+//! verbatim as `Output::Invention(...)` — one per emission.
+//! Streaming yields N items; unary yields a single
+//! `ResponseItem::Id`. After the per-item emissions, the
+//! command closes with a terminal `Output::Ok` line.
 
 use futures::StreamExt;
 use objectiveai_sdk::cli::command::agents::spawn::AgentSpec;
@@ -191,6 +190,16 @@ async fn dispatch_remote(
         jq,
     };
 
+    // Both branches remit the objectiveai SDK's `ResponseItem`
+    // verbatim as `Output::Invention` — one per emission, 1:1
+    // with what objectiveai gives us. Streaming yields N items;
+    // unary yields a single `ResponseItem::Id`. After emitting
+    // the items, return Output::Ok so the handler's bool
+    // contract closes cleanly. Note that this means the
+    // emit_result wrapper at the leaf entry also emits an Ok
+    // line on success — that's the terminal "command done"
+    // marker; the Invention lines preceding it carry the actual
+    // payload.
     if stream_requested {
         let mut stream = recursive_remote::execute_streaming(&*executor, request, None)
             .await
@@ -199,17 +208,17 @@ async fn dispatch_remote(
             let item = item.map_err(|e| {
                 Error::ObjectiveAiCli(format!("inventions recursive stream: {e}"))
             })?;
-            crate::output::OutputResult::Notification(
-                serde_json::to_value(&item).expect("ResponseItem serializes"),
-            )
-            .emit();
+            crate::output::emit_output(Output::Invention(item));
         }
-        Ok(Output::Empty)
+        Ok(Output::Ok)
     } else {
         let id = recursive_remote::execute(&*executor, request, None)
             .await
             .map_err(|e| Error::ObjectiveAiCli(format!("inventions recursive create: {e}")))?;
-        Ok(Output::Api(id))
+        crate::output::emit_output(Output::Invention(
+            recursive_remote::ResponseItem::Id(id),
+        ));
+        Ok(Output::Ok)
     }
 }
 

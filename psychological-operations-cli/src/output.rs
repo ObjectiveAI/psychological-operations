@@ -78,18 +78,14 @@ impl From<Event> for OutputResult {
 // into one final wire-line + the exit-code bool. The handler
 // chain just propagates the bool up to `main.rs`.
 
-/// Emit the terminal-success `{"value": ...}` notification for a
-/// command's [`Output`]. Output::Empty produces nothing on the
-/// wire; everything else stringifies via [`Output`]'s `Display`,
-/// is parsed back as JSON if possible (so `Output::ConfigGet`'s
-/// JSON-string body unwraps into a real JSON value), and lands in
-/// a `Notification` carrying `{"value": <parsed-or-string>}`.
+/// Emit one terminal-success [`Output`] line. Every variant is
+/// typed; serde does all the work — no Display→parse roundtrip,
+/// no `{"value": ...}` wrapper. The host parses the resulting
+/// JSONL line as `objectiveai_sdk::cli::plugins::Output`'s
+/// untagged catch-all Notification with the externally-tagged
+/// Output JSON as its body.
 pub fn emit_output(output: Output) {
-    let s = output.to_string();
-    if s.is_empty() { return; }
-    let value: serde_json::Value = serde_json::from_str(&s)
-        .unwrap_or_else(|_| serde_json::Value::String(s));
-    OutputResult::Notification(serde_json::json!({ "value": value })).emit();
+    OutputResult::Output(output).emit();
 }
 
 /// Emit the fatal-error wire line that previously came out of

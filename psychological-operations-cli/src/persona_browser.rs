@@ -70,5 +70,5 @@ async fn run_inner(
     })
     .emit();
 
-    Ok(Output::Empty)
+    Ok(Output::Ok)
 }

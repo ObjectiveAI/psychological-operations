@@ -19,3 +19,23 @@ pub use psyop::PsyOp;
 pub use query::{Query, SearchEndpoint};
 pub use sort_by::SortBy;
 pub use stage::{is_vector_function, Stage};
+
+use serde::{Deserialize, Serialize};
+
+/// One row of `psyops list`. Resolved per name + HEAD commit +
+/// config overrides.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PsyopEntry {
+    pub name: String,
+    pub enabled: bool,
+    pub commit_sha: String,
+}
+
+/// Returned by `psyops publish` — captures both the just-
+/// committed sha and the resolved enabled state at that sha.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PublishedPsyop {
+    pub name: String,
+    pub commit_sha: String,
+    pub enabled: bool,
+}

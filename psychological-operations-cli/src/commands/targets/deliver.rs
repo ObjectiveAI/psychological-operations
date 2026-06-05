@@ -28,5 +28,5 @@ pub(super) async fn run(
     let summary = crate::targets::drain_queue(
         &db, psyop.as_deref(), commit.as_deref(), ctx,
     ).await?;
-    Ok(Output::Api(serde_json::to_string(&summary)?))
+    Ok(Output::DeliverySummary(summary))
 }

@@ -14,7 +14,7 @@ use objectiveai_sdk::functions::executions::request::Strategy;
 /// PsyOp carries a `Vec<Stage>` so multi-stage pipelines are the
 /// natural shape: each stage's output, narrowed by `output_threshold`
 /// and/or `output_top`, becomes the next stage's input.
-#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct Stage {
     pub function: FullInlineFunctionOrRemoteCommitOptional,
     pub profile: InlineProfileOrRemoteCommitOptional,

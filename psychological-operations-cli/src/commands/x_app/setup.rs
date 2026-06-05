@@ -106,7 +106,7 @@ async fn run_inner(
     .emit();
 
     outcome
-        .map(|()| CliOutput::Empty)
+        .map(|()| CliOutput::Ok)
         .map_err(Error::Other)
 }
 

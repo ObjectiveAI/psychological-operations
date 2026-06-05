@@ -52,7 +52,7 @@ impl Commands {
                     // only on bind failure or after the listener stops
                     // accepting (which only happens when the process
                     // is being torn down).
-                    Ok(Output::Empty)
+                    Ok(Output::Ok)
                 }
             }
         }.await;

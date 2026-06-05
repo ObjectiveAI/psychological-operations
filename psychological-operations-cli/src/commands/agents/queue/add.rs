@@ -59,5 +59,5 @@ async fn run_inner(
     .await
     .map_err(|e| Error::Other(format!("queue enqueue: {e}")))?;
 
-    Ok(Output::Empty)
+    Ok(Output::Ok)
 }

@@ -7,7 +7,7 @@ use super::sort_by::SortBy;
 use super::stage::Stage;
 
 /// A psyop scores tweets pulled from one or more X v2 sources.
-#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct PsyOp {
     /// Live X v2 search-query inputs. `None` means no query-driven
     /// ingestion for this psyop. An empty `Some(vec![])` is equivalent

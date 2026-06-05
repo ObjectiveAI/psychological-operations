@@ -2,11 +2,7 @@ pub mod destinations;
 
 use destinations::Destination;
 
-#[derive(serde::Serialize)]
-pub struct DeliverySummary {
-    pub delivered: usize,
-    pub failed:    usize,
-}
+pub use psychological_operations_sdk::cli::destinations::DeliverySummary;
 
 /// Drain the delivery queue. The CLI handler wraps this; the runtime
 /// calls it directly after a successful score+enqueue cycle.

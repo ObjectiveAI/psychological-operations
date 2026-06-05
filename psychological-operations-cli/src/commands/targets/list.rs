@@ -27,7 +27,7 @@ pub(super) fn run(
     } else {
         &list[start..end]
     };
-    Ok(Output::ConfigGet(serde_json::to_string(page)?))
+    Ok(Output::DestinationList(page.to_vec()))
 }
 
 fn list_for(cfg: &Config, sel: &Selector) -> Vec<Destination> {

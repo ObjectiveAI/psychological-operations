@@ -170,7 +170,7 @@ pub async fn run_psyop(
         //     (psyop, commit) — the rows we just enqueued).
         let _summary = crate::targets::drain_queue(&db, Some(name), Some(&commit), ctx).await?;
 
-        return Ok(Output::Empty);
+        return Ok(Output::Ok);
     }
 }
 
