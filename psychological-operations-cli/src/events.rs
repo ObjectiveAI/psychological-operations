@@ -87,6 +87,14 @@ pub enum Event {
     /// stdout while we were streaming for a terminator. Non-fatal:
     /// the read loop keeps going.
     BrowserError          { error: String },
+    /// `psyops run` loaded a psyop that failed `validate()`. The
+    /// run is skipped (exit code stays 0); the operator sees this
+    /// warning event with the reason.
+    PsyopInvalidAtRun     { psyop: String, reason: String },
+    /// `psyops browse` skipped a psyop because it has no for_you
+    /// input source. Non-fatal; iteration continues with the
+    /// next psyop.
+    BrowseSkipped         { psyop: String, reason: String },
 }
 
 impl Event {
@@ -101,7 +109,9 @@ impl Event {
             | Event::TweetFetchFailed { .. }
             | Event::QueryFailed { .. }
             | Event::DeliveryFailed { .. }
-            | Event::BrowserError { .. } => Some(Level::Warn),
+            | Event::BrowserError { .. }
+            | Event::PsyopInvalidAtRun { .. } => Some(Level::Warn),
+            Event::BrowseSkipped { .. } => None,
             _ => None,
         }
     }

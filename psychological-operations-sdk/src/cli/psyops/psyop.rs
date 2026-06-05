@@ -15,8 +15,14 @@ pub struct PsyOp {
     /// "field absent" via `skip_queries`.
     #[serde(default, skip_serializing_if = "skip_queries")]
     pub queries: Option<Vec<Query>>,
-    /// Personalized "For You" timeline input.
-    pub for_you: ForYou,
+    /// Personalized "For You" timeline input. `None` means no
+    /// for-you ingestion for this psyop — the CLI runtime skips
+    /// the queue check, the `hydrate_for_you` step, and the
+    /// `query_when_for_you_queued` policy entirely. Publish-time
+    /// validation requires at least one of `queries` (non-empty)
+    /// or `for_you` to be present.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub for_you: Option<ForYou>,
 
     /// Minimum total deduped candidates required before the psyop will
     /// run scoring. If the union of `queries` + `for_you` falls below
@@ -97,7 +103,18 @@ impl PsyOp {
                 q.validate().map_err(|e| format!("queries[{i}]: {e}"))?;
             }
         }
-        self.for_you.validate().map_err(|e| format!("for_you: {e}"))?;
+
+        // A psyop must have at least one input source — either a
+        // non-empty `queries` list, or `for_you` configured.
+        let has_queries = self.queries.as_ref().is_some_and(|qs| !qs.is_empty());
+        let has_for_you = self.for_you.is_some();
+        if !has_queries && !has_for_you {
+            return Err("psyop must have at least one query or for_you".into());
+        }
+
+        if let Some(fy) = &self.for_you {
+            fy.validate().map_err(|e| format!("for_you: {e}"))?;
+        }
         self.sort.validate().map_err(|e| format!("sort: {e}"))?;
 
         if self.stages.is_empty() {

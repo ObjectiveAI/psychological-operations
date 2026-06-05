@@ -39,7 +39,7 @@ use psychological_operations_sdk::x::params::user_fields_parameter::UserFields;
 use psychological_operations_sdk::x::types::TweetId;
 
 use crate::psyops::SearchEndpoint;
-use super::{ForYou, PsyOp, Query};
+use super::{PsyOp, Query};
 
 /// CLI entrypoint kept for `psyops::Commands::Run` — name + optional
 /// explicit commit override. The `commit_filter` is honored as a
@@ -65,7 +65,17 @@ pub async fn run_psyop(
     ctx: &crate::context::Context,
 ) -> Result<Output, Error> {
     let psyop = super::psyop::load(name, None, ctx)?;
-    psyop.validate().map_err(Error::InvalidPsyop)?;
+    if let Err(reason) = psyop.validate() {
+        // Invalid psyop at run-time → skip + emit a warning event
+        // rather than failing the command. The operator sees the
+        // reason in the JSONL stream; exit code stays 0.
+        crate::output::OutputResult::from(crate::events::Event::PsyopInvalidAtRun {
+            psyop: name.to_string(),
+            reason,
+        })
+        .emit();
+        return Ok(Output::Ok);
+    }
 
     // Gate the X-app credential preflight on whether this psyop is
     // mocked. Mocked psyops never touch the real X API, so requiring
@@ -86,13 +96,20 @@ pub async fn run_psyop(
     // Capture whether the for_you_queue was non-empty at run start —
     // the `query_when_for_you_queued` policy reads this on the
     // re-loop iteration to decide whether queries are allowed.
-    let queue_at_start = db.for_you_queue(name, &commit)?;
-    let had_for_you_queued_at_start = !queue_at_start.is_empty();
+    // When `for_you` is unconfigured, there's no queue to check
+    // and the policy becomes a no-op.
+    let had_for_you_queued_at_start = match &psyop.for_you {
+        Some(_) => !db.for_you_queue(name, &commit)?.is_empty(),
+        None    => false,
+    };
     let mut queries_already_ran = false;
 
     loop {
-        // 1. Hydrate the for-you queue (drains everything currently in it).
-        hydrate_for_you(&db, &http, name, &commit).await?;
+        // 1. Hydrate the for-you queue (drains everything currently
+        //    in it). Skipped entirely when `for_you` is unconfigured.
+        if psyop.for_you.is_some() {
+            hydrate_for_you(&db, &http, name, &commit).await?;
+        }
 
         // 2. Read unscored tweets for this (psyop, commit).
         let now = chrono::Utc::now();
@@ -369,7 +386,10 @@ fn origin_lookup<'a>(
 ) -> Option<(Option<&'a crate::psyops::Filter>, Option<u64>)> {
     match origin {
         Origin::ForYou => {
-            let f: &ForYou = &psyop.for_you;
+            // None propagates out — a stale `Origin::ForYou` row
+            // from before `for_you` was removed gets dropped from
+            // the accepted set, same as an unknown query name.
+            let f = psyop.for_you.as_ref()?;
             Some((f.filter.as_ref(), f.priority))
         }
         Origin::Query(q) => {

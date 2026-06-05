@@ -62,6 +62,19 @@ async fn run_inner(
             _ => derive_commit(name, ctx)?,
         };
 
+        // Gate on for_you presence — browse-enqueue is meaningless
+        // for a psyop with no for_you input source (the queue
+        // would never be read).
+        let psyop = super::psyop::load(name, Some(&commit), ctx)?;
+        if psyop.for_you.is_none() {
+            crate::output::OutputResult::from(crate::events::Event::BrowseSkipped {
+                psyop: name.to_string(),
+                reason: "psyop has no for_you input source".into(),
+            })
+            .emit();
+            continue;
+        }
+
         crate::output::OutputResult::from(crate::events::Event::BrowseStarting {
             psyop: name.to_string(),
             commit: commit.clone(),
