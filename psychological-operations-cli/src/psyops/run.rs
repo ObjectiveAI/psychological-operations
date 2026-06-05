@@ -232,13 +232,29 @@ async fn score_pipeline(
         })
         .collect();
 
+    // No scoring stages → every survivor gets max score (1.0).
+    // No StageBegin/StageEnd events fire; the delivery path sees
+    // a clean Vec<ScoredPost> exactly as if a single perfect
+    // stage had run.
+    let stages: &[crate::psyops::Stage] = psyop.stages.as_deref().unwrap_or(&[]);
+    if stages.is_empty() {
+        const MAX_SCORE: f64 = 1.0;
+        let last_scores: HashMap<String, f64> = current
+            .iter().map(|p| (p.id.clone(), MAX_SCORE)).collect();
+        let survivors: Vec<ScoredPost> = current
+            .into_iter()
+            .map(|post| ScoredPost { post, score: MAX_SCORE })
+            .collect();
+        return Ok(ScoreResult { last_scores, survivors });
+    }
+
     // Each post's score = the LAST stage that scored it. Survivors
     // of every stage end up with the final stage's score; posts
     // dropped at stage K end up with stage K's score.
     let mut last_scores: HashMap<String, f64> = HashMap::new();
     let mut survivors: Vec<ScoredPost> = Vec::new();
 
-    for (i, stage) in psyop.stages.iter().enumerate() {
+    for (i, stage) in stages.iter().enumerate() {
         if current.is_empty() {
             crate::output::OutputResult::from(crate::events::Event::StageEmpty {
                 psyop: name.to_string(),

@@ -60,9 +60,14 @@ pub struct PsyOp {
 
     /// Multi-stage scoring pipeline. Posts are scored by `stages[0]`,
     /// optionally narrowed via the stage's `output_threshold` /
-    /// `output_top`, then fed to `stages[1]`, and so on. Must be
-    /// non-empty (validated at publish time).
-    pub stages: Vec<Stage>,
+    /// `output_top`, then fed to `stages[1]`, and so on. `None` or
+    /// `Some(empty)` means no scoring — every survivor of the
+    /// ingest → filter → sort → trim chain gets a max score (1.0)
+    /// and flows through to delivery as-is. Per-stage threshold /
+    /// top-N narrowing therefore doesn't apply when no stages are
+    /// defined.
+    #[serde(default, skip_serializing_if = "skip_stages")]
+    pub stages: Option<Vec<Stage>>,
 }
 
 fn default_true() -> bool { true }
@@ -72,6 +77,16 @@ fn default_true() -> bool { true }
 /// ingestion" so emitting `"queries": []` would just be noise.
 fn skip_queries(q: &Option<Vec<Query>>) -> bool {
     match q {
+        None => true,
+        Some(v) => v.is_empty(),
+    }
+}
+
+/// Skip-serializing predicate for `stages`: omit the field when
+/// it's `None` OR `Some(empty)`. Both shapes mean "no scoring";
+/// the runtime synthesizes max-score survivors instead.
+fn skip_stages(s: &Option<Vec<Stage>>) -> bool {
+    match s {
         None => true,
         Some(v) => v.is_empty(),
     }
@@ -117,11 +132,13 @@ impl PsyOp {
         }
         self.sort.validate().map_err(|e| format!("sort: {e}"))?;
 
-        if self.stages.is_empty() {
-            return Err("stages must not be empty".into());
-        }
-        for (i, s) in self.stages.iter().enumerate() {
-            s.validate().map_err(|e| format!("stages[{i}]: {e}"))?;
+        // Stages may be omitted entirely; if present, each must
+        // validate. No-stages runs flow through with max-score
+        // survivors at runtime.
+        if let Some(stages) = &self.stages {
+            for (i, s) in stages.iter().enumerate() {
+                s.validate().map_err(|e| format!("stages[{i}]: {e}"))?;
+            }
         }
 
         Ok(())
