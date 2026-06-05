@@ -82,7 +82,7 @@ fn is_informational(e: &clap::Error) -> bool {
     )
 }
 
-pub async fn run<I, T>(args: I, cfg: &Config) -> Result<String, String>
+pub async fn run<I, T>(args: I, cfg: &Config) -> bool
 where
     I: IntoIterator<Item = T>,
     T: Into<std::ffi::OsString> + Clone,
@@ -91,13 +91,21 @@ where
         Ok(cli) => cli,
         // Clap returns Err for `--help`, `--version`, and "no subcommand
         // given" because none has a `Cli` value to dispatch on. All three
-        // are informational, not failures — return them through the Ok
-        // arm so main.rs emits via `emit_notification_from_payload`
-        // (Notification, exit 0) instead of `emit_error` (Error, exit 1).
-        Err(e) if is_informational(&e) => return Ok(e.to_string()),
-        Err(e) => return Err(e.to_string()),
+        // are informational, not failures — emit as a Notification carrying
+        // the rendered text, then succeed (exit 0).
+        Err(e) if is_informational(&e) => {
+            crate::output::OutputResult::Notification(
+                serde_json::json!({ "value": e.to_string() }),
+            )
+            .emit();
+            return true;
+        }
+        Err(e) => {
+            crate::output::emit_fatal(e);
+            return false;
+        }
     };
-    let output = match cli.command {
+    match cli.command {
         Commands::Psyops { command } => command.handle(cfg).await,
         Commands::Agents { command } => command.handle(cfg).await,
         Commands::Targets { command } => command.handle(cfg).await,
@@ -105,6 +113,4 @@ where
         Commands::XApp { command } => command.handle(cfg).await,
         Commands::Mcp { command } => command.handle(cfg).await,
     }
-    .map_err(|e| e.to_string())?;
-    Ok(output.to_string())
 }

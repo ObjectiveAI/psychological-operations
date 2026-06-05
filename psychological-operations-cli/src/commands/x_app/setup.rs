@@ -36,6 +36,13 @@ use crate::error::Error;
 pub async fn run(
     dangerously_reset: bool,
     cfg: &crate::run::Config,
+) -> bool {
+    crate::output::emit_result(run_inner(dangerously_reset, cfg).await)
+}
+
+async fn run_inner(
+    dangerously_reset: bool,
+    cfg: &crate::run::Config,
 ) -> Result<CliOutput, Error> {
     let config_base_dir = cfg.objectiveai_base_dir();
 

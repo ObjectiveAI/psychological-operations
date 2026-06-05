@@ -49,11 +49,13 @@ pub async fn run_all(
     commit_filter: Option<&str>,
     seed: Option<i64>,
     cfg: &crate::run::Config,
-) -> Result<Output, Error> {
-    let name = name_filter.ok_or_else(|| {
-        Error::Other("psyops run requires --name <psyop>".into())
-    })?;
-    run_psyop(name, commit_filter, seed, cfg).await
+) -> bool {
+    crate::output::emit_result(async {
+        let name = name_filter.ok_or_else(|| {
+            Error::Other("psyops run requires --name <psyop>".into())
+        })?;
+        run_psyop(name, commit_filter, seed, cfg).await
+    }.await)
 }
 
 pub async fn run_psyop(

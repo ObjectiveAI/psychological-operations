@@ -15,6 +15,14 @@ pub async fn run(
     tweet_id: &str,
     message: &str,
     cfg: &crate::run::Config,
+) -> bool {
+    crate::output::emit_result(run_inner(tweet_id, message, cfg).await)
+}
+
+async fn run_inner(
+    tweet_id: &str,
+    message: &str,
+    cfg: &crate::run::Config,
 ) -> Result<Output, Error> {
     let agent = cfg
         .objectiveai_agent_id

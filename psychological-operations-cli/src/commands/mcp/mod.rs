@@ -34,25 +34,28 @@ pub enum Commands {
 }
 
 impl Commands {
-    pub async fn handle(self, cfg: &crate::run::Config) -> Result<Output, Error> {
-        match self {
-            Commands::Begin { cache_max_size, cache_ttl } => {
-                let config_base_dir = cfg.objectiveai_base_dir();
-                psychological_operations_x_api_mcp::run(
-                    "127.0.0.1",
-                    0,
-                    config_base_dir,
-                    cache_max_size,
-                    Duration::from_secs(cache_ttl),
-                )
-                .await
-                .map_err(|e| Error::Other(format!("mcp run: {e}")))?;
-                // Unreachable under the happy path — `run` returns
-                // only on bind failure or after the listener stops
-                // accepting (which only happens when the process
-                // is being torn down).
-                Ok(Output::Empty)
+    pub async fn handle(self, cfg: &crate::run::Config) -> bool {
+        let result: Result<Output, Error> = async move {
+            match self {
+                Commands::Begin { cache_max_size, cache_ttl } => {
+                    let config_base_dir = cfg.objectiveai_base_dir();
+                    psychological_operations_x_api_mcp::run(
+                        "127.0.0.1",
+                        0,
+                        config_base_dir,
+                        cache_max_size,
+                        Duration::from_secs(cache_ttl),
+                    )
+                    .await
+                    .map_err(|e| Error::Other(format!("mcp run: {e}")))?;
+                    // Unreachable under the happy path — `run` returns
+                    // only on bind failure or after the listener stops
+                    // accepting (which only happens when the process
+                    // is being torn down).
+                    Ok(Output::Empty)
+                }
             }
-        }
+        }.await;
+        crate::output::emit_result(result)
     }
 }

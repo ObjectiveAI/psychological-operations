@@ -22,6 +22,14 @@ pub async fn run(
     kind: PersonaKind,
     name: &str,
     cfg: &crate::run::Config,
+) -> bool {
+    crate::output::emit_result(run_inner(kind, name, cfg).await)
+}
+
+async fn run_inner(
+    kind: PersonaKind,
+    name: &str,
+    cfg: &crate::run::Config,
 ) -> Result<Output, Error> {
     let materialized = ensure_extracted(cfg)?;
     let config_base_dir = cfg.objectiveai_base_dir();

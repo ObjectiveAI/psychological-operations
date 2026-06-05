@@ -10,7 +10,6 @@ use objectiveai_sdk::functions::inventions::{
     ParamsState,
     state::{AlphaScalarState, AlphaVectorState},
 };
-use psychological_operations_sdk::cli::Output;
 
 use crate::error::Error;
 use crate::input;
@@ -46,7 +45,7 @@ pub enum Commands {
 }
 
 impl Commands {
-    pub async fn handle(self, _cfg: &crate::run::Config) -> Result<Output, Error> {
+    pub async fn handle(self, _cfg: &crate::run::Config) -> bool {
         match self {
             Commands::AlphaScalar { params, forward } => {
                 let p = params.into_params();
@@ -65,18 +64,23 @@ impl Commands {
                 crate::invent::run_invention(&state, &forward).await
             }
             Commands::Remote { state, state_inline, forward } => {
-                let resolved = if let Some(inline) = state_inline {
-                    let parsed: ParamsState = serde_json::from_str(&inline)?;
-                    crate::invent::fill_schema_if_missing(parsed)
-                } else if let Some(ref ref_str) = state {
-                    let fetched = crate::invent::fetch_state(ref_str).await?;
-                    crate::invent::fill_schema_if_missing(fetched)
-                } else {
-                    return Err(Error::Other(
-                        "--state or --state-inline is required".into(),
-                    ));
-                };
-                crate::invent::run_invention(&resolved, &forward).await
+                let resolved: Result<ParamsState, Error> = async {
+                    if let Some(inline) = state_inline {
+                        let parsed: ParamsState = serde_json::from_str(&inline)?;
+                        Ok(crate::invent::fill_schema_if_missing(parsed))
+                    } else if let Some(ref ref_str) = state {
+                        let fetched = crate::invent::fetch_state(ref_str).await?;
+                        Ok(crate::invent::fill_schema_if_missing(fetched))
+                    } else {
+                        Err(Error::Other(
+                            "--state or --state-inline is required".into(),
+                        ))
+                    }
+                }.await;
+                match resolved {
+                    Ok(resolved) => crate::invent::run_invention(&resolved, &forward).await,
+                    Err(e) => { crate::output::emit_fatal(e); false }
+                }
             }
         }
     }

@@ -136,6 +136,13 @@ pub(crate) fn fill_schema_if_missing(state: ParamsState) -> ParamsState {
 pub(crate) async fn run_invention(
     state: &ParamsState,
     fwd: &ForwardArgs,
+) -> bool {
+    crate::output::emit_result(run_invention_inner(state, fwd).await)
+}
+
+async fn run_invention_inner(
+    state: &ParamsState,
+    fwd: &ForwardArgs,
 ) -> Result<Output, crate::error::Error> {
     let executor = crate::objectiveai_executor::executor().await;
     let agent: AgentSpec = serde_json::from_str(&fwd.agent_inline)

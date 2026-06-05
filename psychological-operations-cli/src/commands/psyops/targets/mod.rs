@@ -36,8 +36,9 @@ pub enum Commands {
 }
 
 impl Commands {
-    pub fn handle(self, cfg: &crate::run::Config) -> Result<Output, Error> {
-        match self {
+    pub fn handle(self, cfg: &crate::run::Config) -> bool {
+        crate::output::emit_result((|| -> Result<Output, Error> {
+            match self {
             Commands::Get { name, index, commit } => {
                 let json_cfg = crate::config::load(cfg);
                 let list: Vec<Destination> = json_cfg
@@ -109,5 +110,6 @@ impl Commands {
                 Ok(Output::ConfigSet)
             }
         }
+        })())
     }
 }

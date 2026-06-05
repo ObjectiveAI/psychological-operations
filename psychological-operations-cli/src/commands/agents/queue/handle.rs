@@ -45,6 +45,13 @@ use crate::objectiveai_executor as executor;
 pub async fn run(
     agent_filter: Vec<String>,
     cfg: &crate::run::Config,
+) -> bool {
+    crate::output::emit_result(run_inner(agent_filter, cfg).await)
+}
+
+async fn run_inner(
+    agent_filter: Vec<String>,
+    cfg: &crate::run::Config,
 ) -> Result<Output, Error> {
     let instance_hierarchy = cfg
         .objectiveai_instance_hierarchy

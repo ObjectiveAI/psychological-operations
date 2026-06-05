@@ -17,6 +17,14 @@ pub async fn run(
     name_filter: Option<&str>,
     commit_filter: Option<&str>,
     cfg: &crate::run::Config,
+) -> bool {
+    crate::output::emit_result(run_inner(name_filter, commit_filter, cfg).await)
+}
+
+async fn run_inner(
+    name_filter: Option<&str>,
+    commit_filter: Option<&str>,
+    cfg: &crate::run::Config,
 ) -> Result<Output, Error> {
     let materialized = ensure_extracted(cfg)?;
     let config_base_dir = cfg.objectiveai_base_dir();

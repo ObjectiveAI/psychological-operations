@@ -70,3 +70,52 @@ impl From<Event> for OutputResult {
         }
     }
 }
+
+// ─── Terminal emission helpers ──────────────────────────────────
+//
+// Every leaf function callable from a `Commands::handle` arm is
+// `-> bool` and uses these three to convert its terminal outcome
+// into one final wire-line + the exit-code bool. The handler
+// chain just propagates the bool up to `main.rs`.
+
+/// Emit the terminal-success `{"value": ...}` notification for a
+/// command's [`Output`]. Output::Empty produces nothing on the
+/// wire; everything else stringifies via [`Output`]'s `Display`,
+/// is parsed back as JSON if possible (so `Output::ConfigGet`'s
+/// JSON-string body unwraps into a real JSON value), and lands in
+/// a `Notification` carrying `{"value": <parsed-or-string>}`.
+pub fn emit_output(output: Output) {
+    let s = output.to_string();
+    if s.is_empty() { return; }
+    let value: serde_json::Value = serde_json::from_str(&s)
+        .unwrap_or_else(|_| serde_json::Value::String(s));
+    OutputResult::Notification(serde_json::json!({ "value": value })).emit();
+}
+
+/// Emit the fatal-error wire line that previously came out of
+/// `main.rs`'s `Err` arm: `Level::Error`, `fatal: true`, message
+/// as a JSON string.
+pub fn emit_fatal(error: impl std::fmt::Display) {
+    OutputResult::error(
+        Level::Error,
+        /* fatal */ true,
+        serde_json::Value::String(error.to_string()),
+    )
+    .emit();
+}
+
+/// Convert a leaf's internal `Result<Output, E>` into the `bool`
+/// the handler arm wants: emit terminal-success on `Ok`, fatal-error
+/// on `Err`. The thin wrapper at every leaf's `pub async fn` is:
+///
+/// ```ignore
+/// pub async fn foo(...) -> bool {
+///     emit_result(async { /* old ?-chained body */ }.await)
+/// }
+/// ```
+pub fn emit_result<E: std::fmt::Display>(result: Result<Output, E>) -> bool {
+    match result {
+        Ok(output) => { emit_output(output); true }
+        Err(e) => { emit_fatal(e); false }
+    }
+}

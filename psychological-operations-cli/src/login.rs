@@ -43,6 +43,15 @@ pub async fn run(
     name: &str,
     dangerously_reset: bool,
     cfg: &crate::run::Config,
+) -> bool {
+    crate::output::emit_result(run_inner(kind, name, dangerously_reset, cfg).await)
+}
+
+async fn run_inner(
+    kind: PersonaKind,
+    name: &str,
+    dangerously_reset: bool,
+    cfg: &crate::run::Config,
 ) -> Result<CliOutput, Error> {
     let config_base_dir = cfg.objectiveai_base_dir();
 
