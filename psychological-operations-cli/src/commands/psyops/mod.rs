@@ -76,16 +76,6 @@ pub enum Commands {
         #[arg(long)]
         seed: Option<i64>,
     },
-    /// Open the embedded browser for each psyop in turn so the
-    /// operator can scroll x.com and save tweet IDs. Blocks on each
-    /// browser's exit before opening the next. With `--name <X>`
-    /// opens just that one psyop's browser.
-    Browse {
-        #[arg(long)]
-        name: Option<String>,
-        #[arg(long, requires = "name")]
-        commit: Option<String>,
-    },
     /// Sign in a psyop's X account. Requires the master X-App to
     /// already be signed in + fully set up (`x_app setup`). Opens
     /// the embedded browser scoped to `psyop/<name>/`; on sign-in
@@ -132,9 +122,6 @@ impl Commands {
             Commands::Delete { name } => psyops::delete(&name, ctx).await,
             Commands::Run { name, commit, seed } => {
                 psyops::run::run_all(name.as_deref(), commit.as_deref(), seed, ctx).await
-            }
-            Commands::Browse { name, commit } => {
-                psyops::browse::run(name.as_deref(), commit.as_deref(), ctx).await
             }
             Commands::Login { name, dangerously_reset } => {
                 crate::login::run(

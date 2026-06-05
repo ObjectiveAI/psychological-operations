@@ -1,4 +1,4 @@
-pub mod browse;
+pub mod collect;
 pub mod run;
 pub mod notify;
 

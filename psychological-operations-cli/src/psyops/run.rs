@@ -93,6 +93,15 @@ pub async fn run_psyop(
     let db = Db::open(&ctx.config)?;
     let http = make_http_client(psyop.mock_enabled(), ctx);
 
+    // Collect step: open the browser as this psyop and stream the
+    // operator's tweet_id selections into for_you_queue. Skipped
+    // entirely when for_you is unconfigured. Blocks until the
+    // operator closes the browser window — that's the signal to
+    // proceed.
+    if psyop.for_you.is_some() {
+        super::collect::collect_for_you(&db, name, &commit, ctx).await?;
+    }
+
     // Capture whether the for_you_queue was non-empty at run start —
     // the `query_when_for_you_queued` policy reads this on the
     // re-loop iteration to decide whether queries are allowed.
@@ -355,15 +364,26 @@ struct Accepted {
     /// Smallest `Some(_)` priority across this tweet's accepting
     /// origins; `None` if no accepting origin had a priority set.
     priority: Option<u64>,
+    /// `posts.rowid` for this tweet. For for_you-origin tweets
+    /// `rowid` is monotonic with browser-arrival order via
+    /// `hydrate_for_you`'s queue-order traversal — that's what
+    /// `bucket_sort` uses to preserve the operator's click order.
+    rowid: i64,
+    /// True iff at least one accepted origin for this tweet is
+    /// `Origin::ForYou`. Determines which sort rule applies in
+    /// `bucket_sort`: arrival order for for_you, `sort_by` for
+    /// query-only.
+    for_you: bool,
 }
 
 fn filter_with_priority(
     psyop: &PsyOp,
-    entries: Vec<(Tweet, Vec<Origin>)>,
+    entries: Vec<(Tweet, Vec<Origin>, i64)>,
 ) -> Result<Vec<Accepted>, Error> {
     let mut out = Vec::new();
-    for (tweet, origins) in entries {
+    for (tweet, origins, rowid) in entries {
         let mut accepted_some_priority: Vec<Option<u64>> = Vec::new();
+        let mut accepted_for_you = false;
         for origin in &origins {
             let (filter, priority) = match origin_lookup(psyop, origin) {
                 Some(p) => p,
@@ -375,6 +395,9 @@ fn filter_with_priority(
             };
             if passes {
                 accepted_some_priority.push(priority);
+                if matches!(origin, Origin::ForYou) {
+                    accepted_for_you = true;
+                }
             }
         }
         if accepted_some_priority.is_empty() {
@@ -391,7 +414,7 @@ fn filter_with_priority(
                 });
             }
         }
-        out.push(Accepted { tweet, priority: effective });
+        out.push(Accepted { tweet, priority: effective, rowid, for_you: accepted_for_you });
     }
     Ok(out)
 }
@@ -419,20 +442,39 @@ fn origin_lookup<'a>(
 // -- step 5: bucket sort ---------------------------------------------------
 
 fn bucket_sort(psyop: &PsyOp, accepted: Vec<Accepted>) -> Result<Vec<Tweet>, Error> {
-    let mut buckets: BTreeMap<u64, Vec<Tweet>> = BTreeMap::new();
-    let mut none_bucket: Vec<Tweet> = Vec::new();
+    let mut buckets: BTreeMap<u64, Vec<Accepted>> = BTreeMap::new();
+    let mut none_bucket: Vec<Accepted> = Vec::new();
     for a in accepted {
         match a.priority {
-            Some(p) => buckets.entry(p).or_default().push(a.tweet),
-            None    => none_bucket.push(a.tweet),
+            Some(p) => buckets.entry(p).or_default().push(a),
+            None    => none_bucket.push(a),
         }
     }
     let mut final_list = Vec::new();
     for (_p, bucket) in buckets {
-        final_list.extend(crate::psyops::sort_by::evaluate(&psyop.sort, bucket).map_err(Error::Other)?);
+        final_list.extend(sort_bucket(psyop, bucket)?);
     }
-    final_list.extend(crate::psyops::sort_by::evaluate(&psyop.sort, none_bucket).map_err(Error::Other)?);
+    final_list.extend(sort_bucket(psyop, none_bucket)?);
     Ok(final_list)
+}
+
+/// Within one priority bucket, for_you-origin tweets sort by
+/// browser-arrival order (rowid ASC) and come before
+/// query-origin tweets which sort by the psyop's `sort_by`.
+/// Mixed-origin tweets (both query AND for_you sources accepted)
+/// count as for_you — the operator's explicit pick outranks a
+/// query match.
+fn sort_bucket(psyop: &PsyOp, bucket: Vec<Accepted>) -> Result<Vec<Tweet>, Error> {
+    let (mut fy, qs): (Vec<Accepted>, Vec<Accepted>) =
+        bucket.into_iter().partition(|a| a.for_you);
+    fy.sort_by_key(|a| a.rowid);
+    let fy_tweets: Vec<Tweet> = fy.into_iter().map(|a| a.tweet).collect();
+    let q_tweets:  Vec<Tweet> = qs.into_iter().map(|a| a.tweet).collect();
+    let q_sorted = crate::psyops::sort_by::evaluate(&psyop.sort, q_tweets)
+        .map_err(Error::Other)?;
+    let mut out = fy_tweets;
+    out.extend(q_sorted);
+    Ok(out)
 }
 
 // -- step 4 helper: run queries -------------------------------------------

@@ -42,14 +42,6 @@ pub enum Event {
 
     // ── browse / browser ─────────────────────────────────────
     BrowseBrowserMaterialized { path: String },
-    BrowseNoPsyops,
-    BrowsePsyopList            { count: usize },
-    BrowseStarting             {
-        psyop: String,
-        commit: String,
-        index: usize,
-        total: usize,
-    },
     BrowseSessionEnded {
         psyop: String,
         status: Option<i32>,
@@ -91,10 +83,6 @@ pub enum Event {
     /// run is skipped (exit code stays 0); the operator sees this
     /// warning event with the reason.
     PsyopInvalidAtRun     { psyop: String, reason: String },
-    /// `psyops browse` skipped a psyop because it has no for_you
-    /// input source. Non-fatal; iteration continues with the
-    /// next psyop.
-    BrowseSkipped         { psyop: String, reason: String },
 }
 
 impl Event {
@@ -111,7 +99,6 @@ impl Event {
             | Event::DeliveryFailed { .. }
             | Event::BrowserError { .. }
             | Event::PsyopInvalidAtRun { .. } => Some(Level::Warn),
-            Event::BrowseSkipped { .. } => None,
             _ => None,
         }
     }

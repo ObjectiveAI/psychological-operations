@@ -310,12 +310,13 @@ impl Db {
         psyop: &str,
         psyop_commit_sha: &str,
         now: &chrono::DateTime<chrono::Utc>,
-    ) -> Result<Vec<(crate::tweet::Tweet, Vec<Origin>)>, crate::error::Error> {
+    ) -> Result<Vec<(crate::tweet::Tweet, Vec<Origin>, i64)>, crate::error::Error> {
         let mut stmt = self.conn.prepare(
             "SELECT
                 p.id, p.handle, p.created,
                 p.likes, p.retweets, p.replies, p.impressions,
-                s.for_you, s.query
+                s.for_you, s.query,
+                p.rowid
              FROM posts p
              LEFT JOIN sources s ON s.post_id = p.id
              WHERE p.psyop = ?1
@@ -335,6 +336,7 @@ impl Db {
             replies: i64,
             impressions: i64,
             origin: Option<Origin>,
+            rowid: i64,
         }
 
         let rows = stmt.query_map(params![psyop, psyop_commit_sha], |row| {
@@ -354,18 +356,22 @@ impl Db {
                 replies:     row.get(5)?,
                 impressions: row.get(6)?,
                 origin,
+                rowid:       row.get(9)?,
             })
         })?;
 
-        // Collapse the row stream into one (Tweet, Vec<Origin>) per
-        // post id. The query is ORDER BY p.id so all rows for one
-        // post arrive contiguously — a single-pass walk works.
-        let mut out: Vec<(crate::tweet::Tweet, Vec<Origin>)> = Vec::new();
+        // Collapse the row stream into one (Tweet, Vec<Origin>, rowid)
+        // per post id. The query is ORDER BY p.id so all rows for
+        // one post arrive contiguously — a single-pass walk works.
+        // `rowid` is the post's insertion order in `posts`; for
+        // for_you-origin tweets that corresponds to browser-arrival
+        // order via `hydrate_for_you`'s queue-order traversal.
+        let mut out: Vec<(crate::tweet::Tweet, Vec<Origin>, i64)> = Vec::new();
         for r in rows {
             let r = r?;
             let age = compute_age(&r.created, now);
             let push_new = match out.last() {
-                Some((t, _)) => t.id != r.id,
+                Some((t, _, _)) => t.id != r.id,
                 None => true,
             };
             if push_new {
@@ -379,7 +385,7 @@ impl Db {
                     replies:     r.replies     as u64,
                     impressions: r.impressions as u64,
                 };
-                out.push((tweet, Vec::new()));
+                out.push((tweet, Vec::new(), r.rowid));
             }
             if let Some(o) = r.origin {
                 out.last_mut().unwrap().1.push(o);
