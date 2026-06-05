@@ -12,7 +12,8 @@ pub struct DeliverySummary {
 /// calls it directly after a successful score+enqueue cycle.
 pub async fn drain_queue(
     db: &crate::db::Db,
-    psyop_filter: Option<&str>,
+    psyop_filter:  Option<&str>,
+    commit_filter: Option<&str>,
     cfg: &crate::run::Config,
 ) -> Result<DeliverySummary, crate::error::Error> {
     use crate::db::{MediaUrl, Post};
@@ -20,7 +21,7 @@ pub async fn drain_queue(
     use crate::score::ScoredPost;
     use destinations::{send_one, Subject};
 
-    let rows = db.list_pending_deliveries(psyop_filter)?;
+    let rows = db.list_pending_deliveries(psyop_filter, commit_filter)?;
     let mut delivered = 0usize;
     let mut failed = 0usize;
 

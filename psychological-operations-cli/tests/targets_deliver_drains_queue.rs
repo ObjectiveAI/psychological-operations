@@ -10,7 +10,7 @@ use common::TestEnv;
 fn targets_deliver_drains_queue() {
     let env = TestEnv::new("targets_deliver_drains_queue");
 
-    let out = env.run(&["targets", "deliver"]);
+    let out = env.run(&["targets", "deliver", "--global"]);
     assert!(
         out.status.success(),
         "deliver failed: stderr={}",

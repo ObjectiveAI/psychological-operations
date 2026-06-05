@@ -549,44 +549,37 @@ impl Db {
     }
 
     /// Returns all queued (not-yet-redelivered) rows.
-    /// `psyop_filter = Some(name)` narrows to one psyop.
+    /// `psyop_filter = Some(name)` narrows to one psyop;
+    /// `commit_filter = Some(sha)` narrows to one commit. Both
+    /// are independent; `None` on either is a no-op.
     pub fn list_pending_deliveries(
         &self,
-        psyop_filter: Option<&str>,
+        psyop_filter:  Option<&str>,
+        commit_filter: Option<&str>,
     ) -> Result<Vec<QueuedDelivery>, crate::error::Error> {
-        let mut stmt = match psyop_filter {
-            Some(_) => self.conn.prepare(
-                "SELECT id, psyop, psyop_commit_sha, target_json, post_ids_json,
-                        attempts, last_error, last_attempt_at
-                 FROM delivery_queue
-                 WHERE psyop = ?1
-                 ORDER BY id ASC",
-            )?,
-            None => self.conn.prepare(
-                "SELECT id, psyop, psyop_commit_sha, target_json, post_ids_json,
-                        attempts, last_error, last_attempt_at
-                 FROM delivery_queue
-                 ORDER BY id ASC",
-            )?,
-        };
-        let row_to_delivery = |r: &rusqlite::Row| -> rusqlite::Result<QueuedDelivery> {
-            Ok(QueuedDelivery {
-                id:               r.get(0)?,
-                psyop:            r.get(1)?,
-                psyop_commit_sha: r.get(2)?,
-                target_json:      r.get(3)?,
-                post_ids_json:    r.get(4)?,
-                attempts:         r.get(5)?,
-                last_error:       r.get(6)?,
-                last_attempt_at:  r.get(7)?,
-            })
-        };
-        let rows = match psyop_filter {
-            Some(name) => stmt.query_map(params![name], row_to_delivery)?
-                .collect::<Result<Vec<_>, _>>()?,
-            None => stmt.query_map([], row_to_delivery)?
-                .collect::<Result<Vec<_>, _>>()?,
-        };
+        let mut stmt = self.conn.prepare(
+            "SELECT id, psyop, psyop_commit_sha, target_json, post_ids_json,
+                    attempts, last_error, last_attempt_at
+             FROM delivery_queue
+             WHERE (?1 IS NULL OR psyop            = ?1)
+               AND (?2 IS NULL OR psyop_commit_sha = ?2)
+             ORDER BY id ASC",
+        )?;
+        let rows = stmt.query_map(
+            params![psyop_filter, commit_filter],
+            |r: &rusqlite::Row| -> rusqlite::Result<QueuedDelivery> {
+                Ok(QueuedDelivery {
+                    id:               r.get(0)?,
+                    psyop:            r.get(1)?,
+                    psyop_commit_sha: r.get(2)?,
+                    target_json:      r.get(3)?,
+                    post_ids_json:    r.get(4)?,
+                    attempts:         r.get(5)?,
+                    last_error:       r.get(6)?,
+                    last_attempt_at:  r.get(7)?,
+                })
+            },
+        )?.collect::<Result<Vec<_>, _>>()?;
         Ok(rows)
     }
 
