@@ -41,7 +41,9 @@ enum Commands {
         #[command(subcommand)]
         command: agents::Commands,
     },
-    /// Global target destinations
+    /// Target destinations + delivery queue. CRUD ops take a
+    /// `--global` / `--psyop` / `--psyop+--commit` selector;
+    /// `deliver` drains the post-run queue.
     Targets {
         #[command(subcommand)]
         command: targets::Commands,

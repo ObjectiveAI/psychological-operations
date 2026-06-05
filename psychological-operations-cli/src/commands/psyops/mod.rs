@@ -10,8 +10,6 @@ use clap::Subcommand;
 
 use crate::psyops::{self, PublishArgs};
 
-pub mod targets;
-
 #[derive(Subcommand)]
 pub enum Commands {
     /// List all psyops on disk. `enabled` reflects the resolved state at
@@ -78,11 +76,6 @@ pub enum Commands {
         #[arg(long, requires = "name")]
         commit: Option<String>,
     },
-    /// Manage per-psyop target destinations.
-    Targets {
-        #[command(subcommand)]
-        command: self::targets::Commands,
-    },
     /// Sign in a psyop's X account. Requires the master X-App to
     /// already be signed in + fully set up (`x_app setup`). Opens
     /// the embedded browser scoped to `psyop/<name>/`; on sign-in
@@ -131,7 +124,6 @@ impl Commands {
             Commands::Browse { name, commit } => {
                 psyops::browse::run(name.as_deref(), commit.as_deref(), cfg).await
             }
-            Commands::Targets { command } => command.handle(cfg),
             Commands::Login { name, dangerously_reset } => {
                 crate::login::run(
                     psychological_operations_sdk::browser::auth_json::PersonaKind::Psyop,
