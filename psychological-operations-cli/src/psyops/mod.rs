@@ -50,11 +50,23 @@ struct PsyopEntry {
     commit_sha: String,
 }
 
-pub(crate) fn list(enabled: bool, disabled: bool, ctx: &crate::context::Context) -> bool {
-    crate::output::emit_result(list_inner(enabled, disabled, ctx))
+pub(crate) fn list(
+    enabled: bool,
+    disabled: bool,
+    count: Option<usize>,
+    offset: Option<usize>,
+    ctx: &crate::context::Context,
+) -> bool {
+    crate::output::emit_result(list_inner(enabled, disabled, count, offset, ctx))
 }
 
-fn list_inner(enabled: bool, disabled: bool, ctx: &crate::context::Context) -> Result<Output, crate::error::Error> {
+fn list_inner(
+    enabled: bool,
+    disabled: bool,
+    count: Option<usize>,
+    offset: Option<usize>,
+    ctx: &crate::context::Context,
+) -> Result<Output, crate::error::Error> {
     let json_cfg = crate::config::load(&ctx.config);
     let dir = crate::config::psyops_dir(&ctx.config);
     let mut entries: Vec<PsyopEntry> = Vec::new();
@@ -83,7 +95,18 @@ fn list_inner(enabled: bool, disabled: bool, ctx: &crate::context::Context) -> R
         }
     }
     entries.sort_by(|a, b| a.name.cmp(&b.name));
-    Ok(Output::ConfigGet(serde_json::to_string(&entries)?))
+
+    let start = offset.unwrap_or(0);
+    let end = match count {
+        Some(c) => start.saturating_add(c).min(entries.len()),
+        None    => entries.len(),
+    };
+    let page: &[PsyopEntry] = if start >= entries.len() {
+        &[]
+    } else {
+        &entries[start..end]
+    };
+    Ok(Output::ConfigGet(serde_json::to_string(page)?))
 }
 
 pub(crate) fn get(name: &str, ctx: &crate::context::Context) -> bool {

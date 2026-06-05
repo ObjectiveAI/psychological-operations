@@ -14,12 +14,19 @@ use crate::psyops::{self, PublishArgs};
 pub enum Commands {
     /// List all psyops on disk. `enabled` reflects the resolved state at
     /// each psyop's current commit. `--enabled` and `--disabled` are
-    /// mutually exclusive filters.
+    /// mutually exclusive filters. `--count` / `--offset` paginate
+    /// the result (both omitted → entire list).
     List {
         #[arg(long, conflicts_with = "disabled")]
         enabled: bool,
         #[arg(long)]
         disabled: bool,
+        /// Maximum entries to return. Omitted → no upper bound.
+        #[arg(long)]
+        count: Option<usize>,
+        /// Skip the first N entries. Omitted → start at 0.
+        #[arg(long)]
+        offset: Option<usize>,
     },
     /// Print the on-disk JSON definition of a psyop.
     Get {
@@ -108,7 +115,8 @@ pub enum Commands {
 impl Commands {
     pub async fn handle(self, ctx: &crate::context::Context) -> bool {
         match self {
-            Commands::List { enabled, disabled } => psyops::list(enabled, disabled, ctx),
+            Commands::List { enabled, disabled, count, offset } =>
+                psyops::list(enabled, disabled, count, offset, ctx),
             Commands::Get { name } => psyops::get(&name, ctx),
             Commands::Enable { name, commit } => {
                 psyops::set_disabled(&name, commit.as_deref(), false, ctx).await
