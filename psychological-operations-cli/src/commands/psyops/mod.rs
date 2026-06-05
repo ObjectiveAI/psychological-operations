@@ -54,12 +54,6 @@ pub enum Commands {
         #[command(flatten)]
         args: PublishArgs,
     },
-    /// Delete a psyop. Removes its directory under `<psyops_dir>/<name>/`
-    /// (including the git repo) and drops any per-psyop overrides from
-    /// `config.json`. Errors if the psyop dir is missing.
-    Delete {
-        name: String,
-    },
     /// Run enabled psyops in rounds: each round runs all psyops that have
     /// enough data concurrently; later rounds pick up psyops whose inputs
     /// depend on earlier rounds' scores. With no flags, runs the full set.
@@ -119,7 +113,6 @@ impl Commands {
                 psyops::set_disabled(&name, commit.as_deref(), true, ctx).await
             }
             Commands::Publish { args } => psyops::publish(args, ctx).await,
-            Commands::Delete { name } => psyops::delete(&name, ctx).await,
             Commands::Run { name, commit, seed } => {
                 psyops::run::run_all(name.as_deref(), commit.as_deref(), seed, ctx).await
             }

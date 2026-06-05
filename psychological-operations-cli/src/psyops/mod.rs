@@ -194,34 +194,6 @@ async fn publish_inner(args: PublishArgs, ctx: &crate::context::Context) -> Resu
     }))
 }
 
-/// Delete a psyop on disk: blow away its dir (including the .git
-/// repo) and drop any per-psyop entries from config.json. Returns
-/// `PsyopNotFound` if the dir doesn't exist (treat delete-of-absent
-/// as an error so scripts can `&&` chain).
-pub(crate) async fn delete(name: &str, ctx: &crate::context::Context) -> bool {
-    crate::output::emit_result(delete_inner(name, ctx).await)
-}
-
-async fn delete_inner(name: &str, ctx: &crate::context::Context) -> Result<Output, crate::error::Error> {
-    let dir = crate::config::psyops_dir(&ctx.config).join(name);
-    if !dir.exists() {
-        return Err(crate::error::Error::PsyopNotFound(dir.display().to_string()));
-    }
-    std::fs::remove_dir_all(&dir)?;
-
-    let mut json_cfg = crate::config::load(&ctx.config);
-    if json_cfg.psyops.remove(name).is_some() {
-        crate::config::save(&json_cfg, &ctx.config)?;
-    }
-
-    notify::notify(
-        "psyop_deleted",
-        &serde_json::json!({ "name": name }),
-        ctx,
-    ).await;
-    Ok(Output::Ok)
-}
-
 /// Build the `PsyopWithDefinition`-shaped notification body for
 /// `psyop_added` / `psyop_edited`. Returns `None` if the on-disk
 /// state can't be read coherently — caller drops the notify.

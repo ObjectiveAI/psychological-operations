@@ -18,7 +18,6 @@ fn route_for(sub_type: &str) -> Option<&'static str> {
     match sub_type {
         "psyop_added"   => Some("/plugin/psychological-operations/psyops/added"),
         "psyop_edited"  => Some("/plugin/psychological-operations/psyops/edited"),
-        "psyop_deleted" => Some("/plugin/psychological-operations/psyops/deleted"),
         _ => None,
     }
 }
