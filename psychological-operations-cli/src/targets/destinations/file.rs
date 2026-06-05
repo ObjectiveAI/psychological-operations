@@ -1,11 +1,12 @@
 use std::io::Write;
 use std::path::PathBuf;
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::{json_body, Subject};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Mode {
     Urls,
@@ -13,7 +14,7 @@ pub enum Mode {
     Json,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct File {
     pub mode: Mode,
     pub path: PathBuf,

@@ -109,6 +109,15 @@ fn list_inner(
     Ok(Output::ConfigGet(serde_json::to_string(page)?))
 }
 
+/// Emit the JSON Schema for [`PsyOp`] so agents / operators can
+/// see what shape `psyops publish --psyop-inline '<json>'`
+/// accepts. No ctx — pure type derivation.
+pub(crate) fn schema() -> bool {
+    crate::output::emit_result((|| -> Result<Output, crate::error::Error> {
+        Ok(Output::Schema(schemars::schema_for!(self::PsyOp)))
+    })())
+}
+
 pub(crate) fn get(name: &str, ctx: &crate::context::Context) -> bool {
     crate::output::emit_result((|| -> Result<Output, crate::error::Error> {
         let psyop = self::psyop::load(name, None, ctx)?;

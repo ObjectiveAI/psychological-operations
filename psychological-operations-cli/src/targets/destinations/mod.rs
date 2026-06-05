@@ -9,12 +9,13 @@ pub mod telegram;
 pub mod websocket;
 pub mod x;
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::psyops::PsyOp;
 use crate::score::ScoredPost;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "type")]
 pub enum Destination {
     #[serde(rename = "discord")]

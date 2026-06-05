@@ -32,6 +32,9 @@ pub enum Commands {
     Get {
         name: String,
     },
+    /// Emit the JSON Schema for a PsyOp definition — the shape
+    /// `publish --psyop-inline '<json>'` accepts.
+    Schema,
     /// Mark a psyop as enabled. With `--commit <sha>` only affects that
     /// commit; otherwise updates the base flag.
     Enable {
@@ -118,6 +121,7 @@ impl Commands {
             Commands::List { enabled, disabled, count, offset } =>
                 psyops::list(enabled, disabled, count, offset, ctx),
             Commands::Get { name } => psyops::get(&name, ctx),
+            Commands::Schema => psyops::schema(),
             Commands::Enable { name, commit } => {
                 psyops::set_disabled(&name, commit.as_deref(), false, ctx).await
             }

@@ -1,12 +1,13 @@
 use std::collections::BTreeMap;
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::{json_body, Subject};
 
 /// Configuration for an HTTP target destination. Sends a tagged JSON
 /// body describing the subject (psyop or read) to an arbitrary endpoint.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct Http {
     pub url: String,
     #[serde(default = "default_method")]

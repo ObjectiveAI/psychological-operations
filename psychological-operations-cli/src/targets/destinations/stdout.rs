@@ -1,3 +1,4 @@
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::events::Event;
@@ -10,7 +11,7 @@ use super::{json_body, Subject};
 ///
 /// Legacy `{"type":"stdout","mode":"…"}` configs deserialize cleanly:
 /// serde silently drops the unknown `mode` field.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 pub struct Stdout {}
 
 pub async fn send(_cfg: &Stdout, subject: &Subject<'_>) -> Result<(), crate::error::Error> {

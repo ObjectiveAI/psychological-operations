@@ -33,6 +33,7 @@ base64 = "0.22"
 envconfig = "0.11.1"
 psychological-operations-sdk = { path = "../psychological-operations-sdk" }
 psychological-operations-x-api-mcp = { path = "../psychological-operations-x-api-mcp" }
+schemars = "1.2.1"
 
 [dev-dependencies]
 # Integration tests open the per-test data.db for assertions.

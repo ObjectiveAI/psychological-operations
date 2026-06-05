@@ -1,9 +1,10 @@
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::filter::Filter;
 
 /// One live X v2 search-query input on a psyop.
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
 pub struct Query {
     /// X v2 search-operator string (e.g. `"from:user has:media -is:retweet"`).
     pub query: String,
@@ -36,7 +37,7 @@ impl Query {
 }
 
 /// Which X v2 search endpoint a `Query` should hit.
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SearchEndpoint {
     /// `/2/tweets/search/recent` — last 7 days, all access tiers.

@@ -42,6 +42,7 @@ dirs = "6.0.0"
 chrono = { version = "0.4.39", default-features = false, features = ["serde", "clock", "std"] }
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite"] }
 dashmap = "6.2.1"
+schemars = "1.2.1"
 
 # Chromium encrypts cookie values via AES-GCM with a key wrapped
 # in Windows DPAPI. CryptUnprotectData lives in

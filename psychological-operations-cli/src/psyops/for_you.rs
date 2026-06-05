@@ -1,3 +1,4 @@
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::filter::Filter;
@@ -6,7 +7,7 @@ use super::filter::Filter;
 /// mechanism is TBD — the X v2 API has no public algorithmic-feed
 /// endpoint; the most likely candidate is the chronological home
 /// timeline `/2/users/{id}/timelines/reverse_chronological`.
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
 pub struct ForYou {
     /// Higher = preferred when the deduped union is truncated by
     /// `PsyOp.max_posts`. `None` ranks below every `Some(_)`,

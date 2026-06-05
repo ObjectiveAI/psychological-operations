@@ -1,3 +1,4 @@
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use starlark::environment::{Globals, Module};
@@ -19,7 +20,7 @@ use crate::tweet::Tweet;
 ///
 /// `custom` is an optional Starlark boolean expression that
 /// AND-combines with the static gates above. See `evaluate`.
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default, JsonSchema)]
 pub struct Filter {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub min_likes: Option<u64>,

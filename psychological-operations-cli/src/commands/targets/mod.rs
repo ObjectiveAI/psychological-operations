@@ -25,6 +25,7 @@ mod add;
 mod del;
 mod deliver;
 mod list;
+mod schema;
 
 #[derive(Args)]
 #[group(id = "selector", required = true, multiple = false)]
@@ -100,6 +101,9 @@ pub enum Commands {
         #[command(flatten)]
         selector: SelectorArgs,
     },
+    /// Emit the JSON Schema for a Destination — the JSON body
+    /// `targets add <selector> '<json>'` accepts.
+    Schema,
 }
 
 impl Commands {
@@ -111,6 +115,7 @@ impl Commands {
                 Commands::Add { selector, json }   => add::run(selector.resolve()?, json, ctx),
                 Commands::Del { selector, index }  => del::run(selector.resolve()?, index, ctx),
                 Commands::Deliver { selector }     => deliver::run(selector.resolve()?, ctx).await,
+                Commands::Schema                   => schema::run(),
             }
         }.await;
         crate::output::emit_result(result)
