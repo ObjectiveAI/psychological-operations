@@ -1,4 +1,5 @@
-//! `targets get` arm.
+//! `targets list` arm — paginated read of the targets list in
+//! the selected layer.
 
 use psychological_operations_sdk::cli::Output;
 
@@ -10,20 +11,23 @@ use super::Selector;
 
 pub(super) fn run(
     sel: Selector,
-    index: Option<usize>,
+    count: Option<usize>,
+    offset: Option<usize>,
     ctx: &crate::context::Context,
 ) -> Result<Output, Error> {
     let json_cfg = crate::config::load(&ctx.config);
     let list = list_for(&json_cfg, &sel);
-    match index {
-        Some(i) => {
-            let entry = list.get(i).ok_or_else(|| {
-                Error::Other(format!("no target at index {i}"))
-            })?;
-            Ok(Output::ConfigGet(serde_json::to_string(entry)?))
-        }
-        None => Ok(Output::ConfigGet(serde_json::to_string(&list)?)),
-    }
+    let start = offset.unwrap_or(0);
+    let end = match count {
+        Some(c) => start.saturating_add(c).min(list.len()),
+        None    => list.len(),
+    };
+    let page: &[Destination] = if start >= list.len() {
+        &[]
+    } else {
+        &list[start..end]
+    };
+    Ok(Output::ConfigGet(serde_json::to_string(page)?))
 }
 
 fn list_for(cfg: &Config, sel: &Selector) -> Vec<Destination> {

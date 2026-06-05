@@ -24,7 +24,7 @@ use crate::error::Error;
 mod add;
 mod del;
 mod deliver;
-mod get;
+mod list;
 
 #[derive(Args)]
 #[group(id = "selector", required = true, multiple = false)]
@@ -67,13 +67,18 @@ impl SelectorArgs {
 
 #[derive(Subcommand)]
 pub enum Commands {
-    /// Read the targets list selected by --global / --psyop /
-    /// --psyop+--commit. Optional `[index]` narrows to a single
-    /// entry.
-    Get {
+    /// List the targets in the layer selected by --global /
+    /// --psyop / --psyop+--commit. `--count` and `--offset`
+    /// paginate the result (both omitted → entire list).
+    List {
         #[command(flatten)]
         selector: SelectorArgs,
-        index: Option<usize>,
+        /// Maximum entries to return. Omitted → no upper bound.
+        #[arg(long)]
+        count: Option<usize>,
+        /// Skip the first N entries. Omitted → start at 0.
+        #[arg(long)]
+        offset: Option<usize>,
     },
     /// Append a target (Destination-shaped JSON) to the selected
     /// list.
@@ -101,7 +106,8 @@ impl Commands {
     pub async fn handle(self, ctx: &crate::context::Context) -> bool {
         let result: Result<Output, Error> = async move {
             match self {
-                Commands::Get { selector, index }  => get::run(selector.resolve()?, index, ctx),
+                Commands::List { selector, count, offset } =>
+                    list::run(selector.resolve()?, count, offset, ctx),
                 Commands::Add { selector, json }   => add::run(selector.resolve()?, json, ctx),
                 Commands::Del { selector, index }  => del::run(selector.resolve()?, index, ctx),
                 Commands::Deliver { selector }     => deliver::run(selector.resolve()?, ctx).await,
