@@ -9,34 +9,13 @@ pub mod telegram;
 pub mod websocket;
 pub mod x;
 
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
-
 use crate::psyops::PsyOp;
 use crate::score::ScoredPost;
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-#[serde(tag = "type")]
-pub enum Destination {
-    #[serde(rename = "discord")]
-    Discord { webhook_url: String },
-    #[serde(rename = "telegram")]
-    Telegram { bot_token: String, chat_id: String },
-    #[serde(rename = "http")]
-    Http(http::Http),
-    #[serde(rename = "stdout")]
-    Stdout(stdout::Stdout),
-    #[serde(rename = "file")]
-    File(file::File),
-    #[serde(rename = "exec")]
-    Exec(exec::Exec),
-    #[serde(rename = "websocket")]
-    WebSocket(websocket::WebSocket),
-    #[serde(rename = "x")]
-    X(x::X),
-    #[serde(rename = "queue")]
-    Queue(queue::Queue),
-}
+// Type definitions moved to the SDK under
+// `psychological_operations_sdk::cli::destinations`. Re-export the
+// `Destination` enum at this path so call sites keep working.
+pub use psychological_operations_sdk::cli::destinations::Destination;
 
 /// What's being delivered. Text-mode renderers print a per-tweet
 /// line list; JSON-mode renderers emit a tagged Body via

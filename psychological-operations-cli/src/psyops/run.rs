@@ -38,7 +38,7 @@ use psychological_operations_sdk::x::params::tweet_fields_parameter::TweetFields
 use psychological_operations_sdk::x::params::user_fields_parameter::UserFields;
 use psychological_operations_sdk::x::types::TweetId;
 
-use super::query::SearchEndpoint;
+use crate::psyops::SearchEndpoint;
 use super::{ForYou, PsyOp, Query};
 
 /// CLI entrypoint kept for `psyops::Commands::Run` — name + optional
@@ -65,7 +65,7 @@ pub async fn run_psyop(
     ctx: &crate::context::Context,
 ) -> Result<Output, Error> {
     let psyop = super::psyop::load(name, None, ctx)?;
-    psyop.validate()?;
+    psyop.validate().map_err(Error::InvalidPsyop)?;
 
     // Gate the X-app credential preflight on whether this psyop is
     // mocked. Mocked psyops never touch the real X API, so requiring
@@ -337,7 +337,7 @@ fn filter_with_priority(
                 None => continue, // origin no longer present in psyop config
             };
             let passes = match filter {
-                Some(f) => f.evaluate(&tweet).map_err(Error::Other)?,
+                Some(f) => crate::psyops::filter::evaluate(f, &tweet).map_err(Error::Other)?,
                 None => true,
             };
             if passes {
@@ -366,7 +366,7 @@ fn filter_with_priority(
 fn origin_lookup<'a>(
     psyop: &'a PsyOp,
     origin: &Origin,
-) -> Option<(Option<&'a super::filter::Filter>, Option<u64>)> {
+) -> Option<(Option<&'a crate::psyops::Filter>, Option<u64>)> {
     match origin {
         Origin::ForYou => {
             let f: &ForYou = &psyop.for_you;
@@ -393,9 +393,9 @@ fn bucket_sort(psyop: &PsyOp, accepted: Vec<Accepted>) -> Result<Vec<Tweet>, Err
     }
     let mut final_list = Vec::new();
     for (_p, bucket) in buckets {
-        final_list.extend(psyop.sort.evaluate(bucket).map_err(Error::Other)?);
+        final_list.extend(crate::psyops::sort_by::evaluate(&psyop.sort, bucket).map_err(Error::Other)?);
     }
-    final_list.extend(psyop.sort.evaluate(none_bucket).map_err(Error::Other)?);
+    final_list.extend(crate::psyops::sort_by::evaluate(&psyop.sort, none_bucket).map_err(Error::Other)?);
     Ok(final_list)
 }
 

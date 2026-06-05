@@ -1,27 +1,6 @@
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+pub use psychological_operations_sdk::cli::destinations::x::{X, XType};
 
 use super::Subject;
-
-/// "X" target — like or retweet each scored post on behalf of the
-/// psyop's X account. The acting user is determined per-psyop via
-/// the OAuth tokens at `~/.psychological-operations/tokens/<name>.json`,
-/// silently refreshed if expired.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-pub struct X {
-    /// Internal field name uses raw-keyword `r#type` to mirror the
-    /// user's spec; on the wire it serializes as `"action"` to avoid
-    /// collision with the parent `Destination`'s `"type"` tag.
-    #[serde(rename = "action")]
-    pub r#type: XType,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum XType {
-    Like,
-    Retweet,
-}
 
 pub async fn send(cfg: &X, subject: &Subject<'_>, ctx: &crate::context::Context) -> Result<(), crate::error::Error> {
     use psychological_operations_sdk::x::client::{AuthMode, Client};

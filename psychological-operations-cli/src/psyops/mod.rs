@@ -3,18 +3,17 @@ pub mod run;
 pub mod notify;
 
 pub mod psyop;
-pub mod query;
-pub mod for_you;
 pub mod sort_by;
 pub mod filter;
-pub mod stage;
 
-pub use psyop::*;
-pub use query::*;
-pub use for_you::*;
-pub use sort_by::*;
-pub use filter::*;
-pub use stage::*;
+// Type definitions + publish-time validators moved to the SDK
+// under `psychological_operations_sdk::cli::psyops`. Re-export at
+// the same shorthand `crate::psyops::*` so call sites that wrote
+// `use crate::psyops::PsyOp;` keep resolving.
+pub use psychological_operations_sdk::cli::psyops::{
+    Filter, ForYou, PsyOp, Query, SearchEndpoint, SortBy, Stage,
+    is_vector_function,
+};
 
 use clap::Args;
 use psychological_operations_sdk::cli::Output;
@@ -173,7 +172,7 @@ async fn publish_inner(args: PublishArgs, ctx: &crate::context::Context) -> Resu
     } else {
         unreachable!("clap group ensures one is set")
     };
-    psyop.validate()?;
+    psyop.validate().map_err(crate::error::Error::InvalidPsyop)?;
     let dir = crate::config::psyops_dir(&ctx.config).join(&args.name);
     // Detect add vs edit BEFORE publish_file runs — once it commits
     // the file, `psyop.json` exists regardless of which case we're in.

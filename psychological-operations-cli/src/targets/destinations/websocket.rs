@@ -1,27 +1,9 @@
-use std::collections::BTreeMap;
-
 use futures::{SinkExt, StreamExt};
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
 use tokio_tungstenite::tungstenite::{client::IntoClientRequest, http::HeaderValue, Message};
 
+pub use psychological_operations_sdk::cli::destinations::websocket::{Mode, WebSocket};
+
 use super::{json_body, Subject};
-
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum Mode {
-    Urls,
-    UrlsWithScores,
-    Json,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-pub struct WebSocket {
-    pub url: String,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub headers: BTreeMap<String, String>,
-    pub mode: Mode,
-}
 
 pub async fn send(cfg: &WebSocket, subject: &Subject<'_>) -> Result<(), crate::error::Error> {
     let payload = render(&cfg.mode, subject)?;

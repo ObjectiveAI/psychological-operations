@@ -61,10 +61,8 @@ impl Stage {
     }
 }
 
-/// Determine if a function is a vector function. Relocated from
-/// psyop.rs since `function` is now a per-stage concern.
-/// If the function is remote, it must be fetched first (caller
-/// resolves it).
+/// Determine if a function is a vector function. If the function
+/// is remote, it must be fetched first (caller resolves it).
 pub fn is_vector_function(function: &FullInlineFunction) -> bool {
     match function {
         FullInlineFunction::Alpha(alpha) => matches!(alpha, AlphaInlineFunction::Vector(_)),

@@ -7,20 +7,12 @@
 //! `queue()` accessor. `AuthMode::XApp` works fine — auth is
 //! never resolved for queue I/O.
 
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+pub use psychological_operations_sdk::cli::destinations::queue::Queue;
 
 use psychological_operations_sdk::x::client::{AuthMode, Client};
 use psychological_operations_sdk::x::queue::{self, QueueEntry};
 
 use super::Subject;
-
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-pub struct Queue {
-    /// Target agent name. Each scored tweet lands in this
-    /// agent's queue (PRIMARY KEY (agent, tweet_id)).
-    pub agent: String,
-}
 
 pub async fn send(
     cfg: &Queue,
