@@ -3945,8 +3945,6 @@ dependencies = [
 [[package]]
 name = "objectiveai-sdk"
 version = "2.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8f137b313938aafae7f15e8ad546bac3c5459951a9afa3055fff8355382f1fd3"
 dependencies = [
  "anyhow",
  "arbitrary",
@@ -3986,8 +3984,6 @@ dependencies = [
 [[package]]
 name = "objectiveai-sdk-macros"
 version = "2.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3338c5bb6ffa91e9bd25c208af086769172b885b155539497b33a8b290075306"
 
 [[package]]
 name = "once_cell"
@@ -4459,6 +4455,7 @@ dependencies = [
  "rand 0.8.6",
  "reqwest 0.13.4",
  "rusqlite",
+ "schemars 1.2.1",
  "serde",
  "serde_json",
  "serde_path_to_error",
@@ -4483,15 +4480,18 @@ dependencies = [
  "dashmap",
  "dirs",
  "fs4",
+ "objectiveai-sdk",
  "rand 0.8.6",
  "reqwest 0.13.4",
  "rusqlite",
+ "schemars 1.2.1",
  "scraper",
  "serde",
  "serde_json",
  "serde_path_to_error",
  "sha2 0.10.9",
  "sqlx",
+ "starlark",
  "thiserror 2.0.18",
  "tokio",
  "url",

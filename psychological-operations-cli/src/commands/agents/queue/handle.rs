@@ -143,8 +143,11 @@ async fn handle_one_agent(
     if let Some(handler_id) = stored.as_deref() {
         let msg_req = agents_message::Request {
             path_type: agents_message::Path::AgentsMessage,
-            parent_agent_instance_hierarchy: None,
-            agent_instance: handler_id.to_string(),
+            target: agents_message::MessageTarget::Direct {
+                parent_agent_instance_hierarchy: None,
+                agent_instance: handler_id.to_string(),
+                agent_tag: None,
+            },
             message: agents_message::RequestMessage::Simple(format!(
                 "There are {n} new tweets in the queue."
             )),
@@ -195,6 +198,7 @@ async fn handle_one_agent(
         agent: agents_spawn::AgentSpec::Resolved(handler_agent.clone()),
         seed: None,
         dangerous_advanced: None,
+        agent_tag: None,
         jq: None,
     };
     let spawned_id = agents_spawn::execute(executor, spawn_req, None)

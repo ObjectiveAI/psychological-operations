@@ -47,6 +47,32 @@ pub fn alloc_dict<'v>(t: &Tweet, heap: &'v Heap) -> Value<'v> {
     ]))
 }
 
+/// Build the per-post Starlark dict for `OutputTop::Starlark`.
+/// Same key set as [`alloc_dict`] plus `score`. The post is the
+/// `db::Post` shape (no precomputed `age`), so we recompute age
+/// against the supplied `now` using the same helper db hydration
+/// uses — keeps `age` semantics consistent with what
+/// `SortBy::Custom` sees.
+pub fn alloc_post_dict_with_score<'v>(
+    p:     &crate::db::Post,
+    score: f64,
+    now:   &chrono::DateTime<chrono::Utc>,
+    heap:  &'v Heap,
+) -> Value<'v> {
+    let age = crate::db::compute_age(&p.created, now);
+    heap.alloc(AllocDict([
+        ("id",          heap.alloc(p.id.clone())),
+        ("handle",      heap.alloc(p.handle.clone())),
+        ("created",     heap.alloc(p.created.clone())),
+        ("age",         heap.alloc(age as i64)),
+        ("likes",       heap.alloc(p.likes       as i64)),
+        ("retweets",    heap.alloc(p.retweets    as i64)),
+        ("replies",     heap.alloc(p.replies     as i64)),
+        ("impressions", heap.alloc(p.impressions as i64)),
+        ("score",       heap.alloc(score)),
+    ]))
+}
+
 #[cfg(test)]
 pub(crate) fn tw_default(id: &str) -> Tweet {
     Tweet {

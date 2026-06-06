@@ -18,7 +18,7 @@ pub use for_you::ForYou;
 pub use psyop::PsyOp;
 pub use query::{Query, SearchEndpoint};
 pub use sort_by::SortBy;
-pub use stage::{is_vector_function, OutputTop, Stage, StageBase};
+pub use stage::{is_vector_function, parse_output_top, OutputTop, Stage, StageBase};
 
 use serde::{Deserialize, Serialize};
 

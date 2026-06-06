@@ -327,6 +327,11 @@ async fn score_pipeline(
             Some(crate::psyops::OutputTop::Fixed(n)) => {
                 after_threshold.into_iter().take(*n as usize).collect()
             }
+            Some(crate::psyops::OutputTop::Starlark(src)) => {
+                let n = super::output_top::evaluate(src, &after_threshold)
+                    .map_err(crate::error::Error::Other)?;
+                after_threshold.into_iter().take(n).collect()
+            }
             _ => after_threshold,
         };
 

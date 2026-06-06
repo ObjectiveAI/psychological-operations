@@ -5,6 +5,7 @@ pub mod notify;
 pub mod psyop;
 pub mod sort_by;
 pub mod filter;
+pub mod output_top;
 
 // Type definitions + publish-time validators moved to the SDK
 // under `psychological_operations_sdk::cli::psyops`. Re-export at

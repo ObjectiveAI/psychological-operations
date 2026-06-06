@@ -108,7 +108,7 @@ pub struct Db {
 /// `created` that doesn't parse yields 0 — `min_age` filters
 /// would reject it anyway, and we'd rather not error out the whole
 /// runtime over one bad timestamp.
-fn compute_age(created: &str, now: &chrono::DateTime<chrono::Utc>) -> u64 {
+pub(crate) fn compute_age(created: &str, now: &chrono::DateTime<chrono::Utc>) -> u64 {
     match chrono::DateTime::parse_from_rfc3339(created) {
         Ok(t) => {
             let secs = (*now - t.with_timezone(&chrono::Utc)).num_seconds();
