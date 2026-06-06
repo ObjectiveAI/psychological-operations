@@ -13,7 +13,6 @@
 use std::time::Duration;
 
 use clap::Subcommand;
-use objectiveai_sdk::cli::command::binary::BinaryExecutor;
 use psychological_operations_sdk::cli::Output;
 
 use crate::error::Error;
@@ -43,21 +42,20 @@ impl Commands {
             match self {
                 Commands::Begin { cache_max_size, cache_ttl } => {
                     let config_base_dir = ctx.config.objectiveai_base_dir();
-                    // Construct a fresh `BinaryExecutor` here — the X-API
-                    // server holds it for API uniformity with
-                    // `objectiveai-mcp` but never invokes it, so the
-                    // resolved binary path doesn't have to exist. We
-                    // can't share `ctx.executor` (`Arc<PluginExecutor>`)
-                    // because `CommandExecutor` isn't implemented on
-                    // `Arc<T>`.
-                    let executor = BinaryExecutor::new(Some(config_base_dir.clone()));
+                    // Share the CLI's existing PluginExecutor. Every
+                    // field is `Arc`-backed (including the id counter),
+                    // so the clone is a logical handle to the same
+                    // executor — pending map, stdout lock, liveness
+                    // flag, and id sequence are all shared. The X-API
+                    // server doesn't actually invoke it, but if it
+                    // ever does the calls land on the same demuxer.
                     psychological_operations_x_api_mcp::run(
                         "127.0.0.1",
                         0,
                         config_base_dir,
                         cache_max_size,
                         Duration::from_secs(cache_ttl),
-                        executor,
+                        (*ctx.executor).clone(),
                     )
                     .await
                     .map_err(|e| Error::Other(format!("mcp run: {e}")))?;
