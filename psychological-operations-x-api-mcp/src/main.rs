@@ -2,6 +2,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use clap::Parser;
+use objectiveai_sdk::cli::command::binary::BinaryExecutor;
 
 /// X-API MCP server. Drives a streamable-HTTP MCP that proxies the X
 /// v2 API, intermediated by a sqlx-backed response cache and a
@@ -45,12 +46,14 @@ async fn main() -> std::io::Result<()> {
         .init();
 
     let args = Args::parse();
+    let executor = BinaryExecutor::new(Some(args.config_base_dir.clone()));
     psychological_operations_x_api_mcp::run(
         &args.address,
         args.port,
         args.config_base_dir,
         args.cache_max_size,
         Duration::from_secs(args.cache_ttl),
+        executor,
     )
     .await
 }

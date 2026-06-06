@@ -1,15 +1,19 @@
 //! `mcp` subcommand surface.
 //!
 //! `mcp begin` runs the X-API MCP server in-process: this CLI
-//! process becomes the MCP server. The MCP itself emits a single
-//! `{"value":{"type":"mcp","url":"http://…"}}` JSONL line on stdout
-//! when its listener binds; the host re-wraps it as a
-//! `PluginOutput::Notification`. No supervisor, no child stderr,
-//! no `state.json`.
+//! process becomes the MCP server. The server emits a single
+//! `{"type":"mcp","url":"http://…"}` JSONL line on stdout — the
+//! typed [`psychological_operations_sdk::cli::Output::Mcp`] (re-
+//! exported from `objectiveai_sdk::cli::plugins::Output::Mcp`)
+//! variant — when its listener binds. The objectiveai supervisor
+//! parses that as an MCP-URL announcement and dials the URL
+//! through the same path a manifest `mcp_servers` entry uses.
+//! No supervisor, no child stderr, no `state.json`.
 
 use std::time::Duration;
 
 use clap::Subcommand;
+use objectiveai_sdk::cli::command::binary::BinaryExecutor;
 use psychological_operations_sdk::cli::Output;
 
 use crate::error::Error;
@@ -39,12 +43,21 @@ impl Commands {
             match self {
                 Commands::Begin { cache_max_size, cache_ttl } => {
                     let config_base_dir = ctx.config.objectiveai_base_dir();
+                    // Construct a fresh `BinaryExecutor` here — the X-API
+                    // server holds it for API uniformity with
+                    // `objectiveai-mcp` but never invokes it, so the
+                    // resolved binary path doesn't have to exist. We
+                    // can't share `ctx.executor` (`Arc<PluginExecutor>`)
+                    // because `CommandExecutor` isn't implemented on
+                    // `Arc<T>`.
+                    let executor = BinaryExecutor::new(Some(config_base_dir.clone()));
                     psychological_operations_x_api_mcp::run(
                         "127.0.0.1",
                         0,
                         config_base_dir,
                         cache_max_size,
                         Duration::from_secs(cache_ttl),
+                        executor,
                     )
                     .await
                     .map_err(|e| Error::Other(format!("mcp run: {e}")))?;

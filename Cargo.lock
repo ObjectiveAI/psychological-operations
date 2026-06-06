@@ -4509,6 +4509,7 @@ dependencies = [
  "clap",
  "futures",
  "http",
+ "objectiveai-sdk",
  "psychological-operations-sdk",
  "reqwest 0.13.4",
  "rmcp",

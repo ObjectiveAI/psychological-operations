@@ -17,6 +17,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+use objectiveai_sdk::cli::command::CommandExecutor;
+use objectiveai_sdk::cli::command::plugins::run::{Mcp, McpType};
+use objectiveai_sdk::cli::plugins::Output;
 use rmcp::transport::streamable_http_server::{StreamableHttpServerConfig, StreamableHttpService};
 use tokio_util::sync::CancellationToken;
 
@@ -24,13 +27,25 @@ use crate::PsychologicalOperationsXApiMcp;
 use crate::header_session_manager::HeaderSessionManager;
 use crate::x_api::session::SessionRegistry;
 
-pub async fn setup(
-    address: &str,
-    port: u16,
+pub async fn setup<E>(
+    address:         &str,
+    port:            u16,
     config_base_dir: PathBuf,
-    cache_max_size: u64,
-    cache_ttl: Duration,
-) -> std::io::Result<(tokio::net::TcpListener, axum::Router)> {
+    cache_max_size:  u64,
+    cache_ttl:       Duration,
+    executor:        E,
+) -> std::io::Result<(tokio::net::TcpListener, axum::Router)>
+where
+    E: CommandExecutor + Send + Sync + 'static,
+    E::Error: std::fmt::Display + Send + 'static,
+{
+    // Held for API uniformity with `objectiveai-mcp`. The X-API
+    // server doesn't call back into the CLI today, so the executor
+    // is never invoked — the slot exists so embedders / supervisors
+    // treat both MCP servers identically. Wrapping in `Arc` mirrors
+    // `objectiveai-mcp/src/run.rs::setup`.
+    let _executor = Arc::new(executor);
+
     let registry = Arc::new(SessionRegistry::new());
 
     let server = PsychologicalOperationsXApiMcp::new(
@@ -68,31 +83,48 @@ pub async fn serve(listener: tokio::net::TcpListener, app: axum::Router) -> std:
 /// All-in-one entrypoint: bind, announce, serve.
 ///
 /// Once the listener is bound, emits one JSONL line on **stdout**
-/// announcing the URL — shape matches the
-/// `PluginOutput::Notification(value)` wire frame the
-/// `psychological-operations-cli` host parses:
+/// — the typed [`objectiveai_sdk::cli::plugins::Output::Mcp`]
+/// variant carrying the bound URL:
 ///
 /// ```jsonc
-/// {"value":{"type":"mcp","url":"http://127.0.0.1:54321"}}
+/// {"type":"mcp","url":"http://127.0.0.1:54321"}
 /// ```
 ///
-/// The host re-wraps the line in its own
-/// `{"type":"notification","value":<this>}` frame. No
-/// `(agent, mode)` in the announcement — clients pin those per
-/// session via the `X-OBJECTIVEAI-ARGUMENTS` header (with
+/// The host (running this crate either as `mcp begin` from the
+/// CLI or as a standalone binary under the objectiveai
+/// supervisor) parses the line as
+/// `cli::plugins::Output::Mcp(Mcp { … })` and routes the URL
+/// through the same "dial this MCP" pipeline a manifest
+/// `mcp_servers` entry would — see the docstring on
+/// [`objectiveai_sdk::cli::command::plugins::run::Mcp`].
+///
+/// No `(agent, mode)` in the announcement — clients pin those
+/// per session via the `X-OBJECTIVEAI-ARGUMENTS` header (with
 /// `X-OBJECTIVEAI-AGENT-INSTANCE-HIERARCHY` as the agent
 /// fallback) on every request.
-pub async fn run(
-    address: &str,
-    port: u16,
+pub async fn run<E>(
+    address:         &str,
+    port:            u16,
     config_base_dir: PathBuf,
-    cache_max_size: u64,
-    cache_ttl: Duration,
-) -> std::io::Result<()> {
-    let (listener, app) = setup(address, port, config_base_dir, cache_max_size, cache_ttl).await?;
+    cache_max_size:  u64,
+    cache_ttl:       Duration,
+    executor:        E,
+) -> std::io::Result<()>
+where
+    E: CommandExecutor + Send + Sync + 'static,
+    E::Error: std::fmt::Display + Send + 'static,
+{
+    let (listener, app) = setup(
+        address, port, config_base_dir, cache_max_size, cache_ttl, executor,
+    ).await?;
     let addr = listener.local_addr()?;
-    println!("{}", serde_json::to_string(&serde_json::json!({
-        "value": {"type": "mcp", "url": format!("http://{addr}")}
-    })).expect("url notification serializes"));
+    let announcement = Output::Mcp(Mcp {
+        r#type: McpType::Mcp,
+        url:    format!("http://{addr}"),
+    });
+    println!(
+        "{}",
+        serde_json::to_string(&announcement).expect("Output::Mcp serializes"),
+    );
     serve(listener, app).await
 }
