@@ -14,13 +14,8 @@ pub async fn send(cfg: &X, subject: &Subject<'_>, ctx: &crate::context::Context)
     let client = Client::new(
         reqwest::Client::new(),
         psyop.mock_enabled(),
-        // Bytes — explicit per-call size budget for the SQLite response
-        // cache. No `DEFAULT_*` constant — `Client::*` makes this a
-        // required arg and every CLI callsite picks its own value.
-        256 * 1024 * 1024,
-        // Cache entry TTL — plumbed but unused today (future
-        // time-based eviction will consume it).
-        std::time::Duration::from_secs(3600),
+        ctx.cache_max_size,
+        ctx.cache_ttl,
         ctx.config.objectiveai_base_dir(),
         AuthMode::Psyop(name.to_string()),
     );

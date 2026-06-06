@@ -26,7 +26,6 @@
 //!    bare-id `Response` is persisted as the new handler.
 
 use std::sync::Arc;
-use std::time::Duration;
 
 use futures::StreamExt;
 use objectiveai_sdk::agent::InlineAgentBaseWithFallbacksOrRemoteCommitOptional;
@@ -81,8 +80,8 @@ async fn run_inner(
     let client = Client::new(
         reqwest::Client::new(),
         /* mock */ false,
-        256 * 1024 * 1024,
-        Duration::from_secs(3600),
+        ctx.cache_max_size,
+        ctx.cache_ttl,
         ctx.config.objectiveai_base_dir(),
         AuthMode::XApp,
     );

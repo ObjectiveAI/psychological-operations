@@ -37,8 +37,8 @@ async fn run_inner(
     let client = Client::new(
         reqwest::Client::new(),
         /* mock */ false,
-        256 * 1024 * 1024,
-        std::time::Duration::from_secs(3600),
+        ctx.cache_max_size,
+        ctx.cache_ttl,
         ctx.config.objectiveai_base_dir(),
         AuthMode::XApp,
     );
