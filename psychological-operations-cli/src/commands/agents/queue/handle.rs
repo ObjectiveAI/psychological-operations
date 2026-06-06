@@ -149,6 +149,7 @@ async fn handle_one_agent(
                 "There are {n} new tweets in the queue."
             )),
             seed: None,
+            dangerous_advanced: None,
             jq: None,
         };
         match agents_message::execute(executor, msg_req, None).await {

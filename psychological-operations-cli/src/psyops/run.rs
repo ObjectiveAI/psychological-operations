@@ -292,11 +292,14 @@ async fn score_pipeline(
             None => scored,
         };
 
-        // output_top: keep top ceil(N * pct).
-        let after_top: Vec<ScoredPost> = match stage.output_top {
-            Some(p) if !after_threshold.is_empty() => {
-                let n = ((after_threshold.len() as f64) * p).ceil() as usize;
+        // output_top: keep top N (Fixed) or top ceil(N · pct) (Fraction).
+        let after_top: Vec<ScoredPost> = match &stage.output_top {
+            Some(crate::psyops::OutputTop::Fraction(p)) if !after_threshold.is_empty() => {
+                let n = ((after_threshold.len() as f64) * *p).ceil() as usize;
                 after_threshold.into_iter().take(n).collect()
+            }
+            Some(crate::psyops::OutputTop::Fixed(n)) => {
+                after_threshold.into_iter().take(*n as usize).collect()
             }
             _ => after_threshold,
         };

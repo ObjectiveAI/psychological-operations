@@ -11,8 +11,8 @@ pub mod filter;
 // the same shorthand `crate::psyops::*` so call sites that wrote
 // `use crate::psyops::PsyOp;` keep resolving.
 pub use psychological_operations_sdk::cli::psyops::{
-    Filter, ForYou, PsyOp, PsyopEntry, PublishedPsyop, Query, SearchEndpoint,
-    SortBy, Stage, is_vector_function,
+    Filter, ForYou, OutputTop, PsyOp, PsyopEntry, PublishedPsyop, Query,
+    SearchEndpoint, SortBy, Stage, is_vector_function,
 };
 
 use clap::Args;

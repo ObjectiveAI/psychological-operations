@@ -36,11 +36,29 @@ pub struct Stage {
     /// is the last stage). Range `[0.0, 1.0]`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output_threshold: Option<f64>,
-    /// After applying `output_threshold` (if any), keep only the top
-    /// fraction of scoring posts before advancing. Percentage in
-    /// `[0.0, 1.0]` — e.g. `0.25` = top quarter.
+    /// After applying `output_threshold` (if any), narrow the
+    /// surviving set before advancing. Tagged so an agent can
+    /// pick between a `fixed` absolute cap (`{ "type": "fixed",
+    /// "value": 10 }`) and a `fraction` of the bucket
+    /// (`{ "type": "fraction", "value": 0.25 }`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub output_top: Option<f64>,
+    pub output_top: Option<OutputTop>,
+}
+
+/// How to narrow a stage's output before it advances. Adjacent-
+/// tagged on `"type"` + `"value"` so an agent constructing a
+/// Stage body has a clear, schema-discoverable contract for
+/// which payload shape applies.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "type", content = "value", rename_all = "snake_case")]
+pub enum OutputTop {
+    /// Keep the top `value` posts after threshold filtering.
+    /// Acts as an absolute cap; if the surviving bucket is
+    /// smaller than `value`, everything passes through.
+    Fixed(u64),
+    /// Keep the top `ceil(N · value)` posts. `value` is in
+    /// `[0.0, 1.0]` — e.g. `0.25` = top quarter.
+    Fraction(f64),
 }
 
 fn default_true() -> bool { true }
@@ -52,9 +70,20 @@ impl Stage {
                 return Err(format!("output_threshold ({t}) must be in [0.0, 1.0]"));
             }
         }
-        if let Some(p) = self.output_top {
-            if !p.is_finite() || !(0.0..=1.0).contains(&p) {
-                return Err(format!("output_top ({p}) must be in [0.0, 1.0]"));
+        if let Some(top) = &self.output_top {
+            match top {
+                OutputTop::Fraction(p) => {
+                    if !p.is_finite() || !(0.0..=1.0).contains(p) {
+                        return Err(format!(
+                            "output_top.value ({p}) must be in [0.0, 1.0] for fraction"
+                        ));
+                    }
+                }
+                OutputTop::Fixed(_) => {
+                    // u64 already constrains to >= 0; no further
+                    // check. Fixed(0) is allowed (means "drop
+                    // everything"), matching Fraction(0.0).
+                }
             }
         }
         Ok(())
