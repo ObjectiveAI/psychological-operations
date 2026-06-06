@@ -19,7 +19,7 @@ use objectiveai_sdk::RemotePathCommitOptional;
 
 use crate::db::Post;
 use crate::input::{new_post_input_value, PostsInputValue, PostInputValue};
-use crate::psyops::{Stage, is_vector_function};
+use crate::psyops::is_vector_function;
 
 #[derive(Clone)]
 pub struct ScoredPost {
@@ -180,23 +180,31 @@ async fn run_function_execution(
     ))
 }
 
-/// Run a single stage's function execution against the given posts.
-/// Returns scored posts in score-descending order.
-pub async fn score(
-    stage: &Stage,
-    posts: Vec<Post>,
-    seed: Option<i64>,
-    ctx: &crate::context::Context,
+/// Run a single function-stage's objectiveai execution against
+/// the given posts. Returns scored posts in score-descending
+/// order. The `Stage::Bare` variant skips this entirely — the
+/// score_pipeline caller assigns flat 1.0 instead.
+#[allow(clippy::too_many_arguments)]
+pub async fn score_function(
+    function_spec: &FullInlineFunctionOrRemoteCommitOptional,
+    profile:       &InlineProfileOrRemoteCommitOptional,
+    strategy:      &Strategy,
+    invert:        bool,
+    images:        bool,
+    videos:        bool,
+    posts:         Vec<Post>,
+    seed:          Option<i64>,
+    ctx:           &crate::context::Context,
 ) -> Result<Vec<ScoredPost>, crate::error::Error> {
     let mut scored: Vec<ScoredPost> = posts.into_iter()
         .map(|p| ScoredPost { post: p, score: 0.0 })
         .collect();
 
-    let function = resolve_function(&stage.function, ctx).await?;
+    let function = resolve_function(function_spec, ctx).await?;
     let is_vector = is_vector_function(&function);
 
     let items: Vec<PostInputValue> = scored.iter()
-        .map(|s| new_post_input_value(&s.post, stage.images, stage.videos))
+        .map(|s| new_post_input_value(&s.post, images, videos))
         .collect();
 
     let (input_value, split) = if is_vector {
@@ -210,8 +218,8 @@ pub async fn score(
         serde_json::from_value(input_value)?;
 
     let result = run_function_execution(
-        &function, &stage.profile, &stage.strategy, input_value,
-        split, stage.invert, seed, ctx,
+        &function, profile, strategy, input_value,
+        split, invert, seed, ctx,
     ).await?;
 
     let scores: Vec<f64> = result.as_array()

@@ -12,7 +12,7 @@ pub mod filter;
 // `use crate::psyops::PsyOp;` keep resolving.
 pub use psychological_operations_sdk::cli::psyops::{
     Filter, ForYou, OutputTop, PsyOp, PsyopEntry, PublishedPsyop, Query,
-    SearchEndpoint, SortBy, Stage, is_vector_function,
+    SearchEndpoint, SortBy, Stage, StageBase, is_vector_function,
 };
 
 use clap::Args;

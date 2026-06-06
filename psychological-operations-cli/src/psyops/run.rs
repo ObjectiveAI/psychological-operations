@@ -281,19 +281,45 @@ async fn score_pipeline(
         //   {"type":"notification","value":{"event":"stage_end","stage":N}}
         crate::output::OutputResult::from(crate::events::Event::StageBegin { stage: i }).emit();
 
-        let scored: Vec<ScoredPost> = score::score(stage, current, seed, ctx).await?;
+        // Variant-specific scoring + per-variant narrowing.
+        // `Stage::Bare` skips both objectiveai and threshold —
+        // every post is a flat 1.0, then `output_top` (if set)
+        // applies. `Stage::Function` does the full
+        // function-call → threshold → top dance.
+        let (scored, after_threshold) = match stage {
+            crate::psyops::Stage::Bare { .. } => {
+                let scored: Vec<ScoredPost> = current
+                    .into_iter()
+                    .map(|post| ScoredPost { post, score: 1.0 })
+                    .collect();
+                let passthrough = scored.clone();
+                (scored, passthrough)
+            }
+            crate::psyops::Stage::Function {
+                base: _, function, profile, strategy,
+                invert, images, videos, output_threshold,
+            } => {
+                let scored: Vec<ScoredPost> = score::score_function(
+                    function, profile, strategy,
+                    *invert, *images, *videos,
+                    current, seed, ctx,
+                ).await?;
+                // output_threshold: drop scores < threshold.
+                let after_threshold: Vec<ScoredPost> = match output_threshold {
+                    Some(t) => scored.iter().cloned().filter(|s| s.score >= *t).collect(),
+                    None    => scored.clone(),
+                };
+                (scored, after_threshold)
+            }
+        };
         for s in &scored {
             last_scores.insert(s.post.id.clone(), s.score);
         }
 
-        // output_threshold: drop scores < threshold.
-        let after_threshold: Vec<ScoredPost> = match stage.output_threshold {
-            Some(t) => scored.into_iter().filter(|s| s.score >= t).collect(),
-            None => scored,
-        };
-
-        // output_top: keep top N (Fixed) or top ceil(N · pct) (Fraction).
-        let after_top: Vec<ScoredPost> = match &stage.output_top {
+        // output_top: keep top N (Fixed) or top ceil(N · pct)
+        // (Fraction). Lives on the shared StageBase, so it's
+        // applied for both variants.
+        let after_top: Vec<ScoredPost> = match &stage.base().output_top {
             Some(crate::psyops::OutputTop::Fraction(p)) if !after_threshold.is_empty() => {
                 let n = ((after_threshold.len() as f64) * *p).ceil() as usize;
                 after_threshold.into_iter().take(n).collect()
