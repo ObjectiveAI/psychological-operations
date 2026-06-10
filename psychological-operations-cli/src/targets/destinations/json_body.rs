@@ -1,7 +1,5 @@
 use serde::Serialize;
 
-use crate::db::MediaUrl;
-
 use super::Subject;
 
 /// Top-level JSON body shared by destinations that emit a structured payload
@@ -16,17 +14,15 @@ pub enum Body<'a> {
     },
 }
 
-/// One scored tweet in the psyop body.
+/// One scored tweet in the psyop body. Only the id / handle / score
+/// survive into the delivery queue, so that is all a delivered result
+/// carries (plus the derived URL).
 #[derive(Debug, Serialize)]
 #[serde(rename = "Result")]
 pub struct Result_<'a> {
     pub score: f64,
     pub id: &'a str,
     pub handle: &'a str,
-    pub text: &'a str,
-    pub images: &'a [MediaUrl],
-    pub videos: &'a [MediaUrl],
-    pub created: &'a str,
     pub url: String,
 }
 
@@ -36,13 +32,9 @@ pub fn build<'a>(subject: &'a Subject<'a>) -> Body<'a> {
             name,
             results: output.iter().map(|s| Result_ {
                 score: s.score,
-                id: &s.post.id,
-                handle: &s.post.handle,
-                text: &s.post.text,
-                images: &s.post.images,
-                videos: &s.post.videos,
-                created: &s.post.created,
-                url: format!("https://x.com/{}/status/{}", s.post.handle, s.post.id),
+                id: &s.id,
+                handle: &s.handle,
+                url: format!("https://x.com/{}/status/{}", s.handle, s.id),
             }).collect(),
         },
     }
@@ -55,11 +47,10 @@ pub fn lines(subject: &Subject) -> (String, Vec<(String, String)>) {
         Subject::Psyop { name, output, .. } => {
             let header = format!("PsyOp \"{name}\"");
             let lines = output.iter().map(|s| {
-                let url = format!("https://x.com/{}/status/{}", s.post.handle, s.post.id);
+                let url = format!("https://x.com/{}/status/{}", s.handle, s.id);
                 (format!("{:.4}", s.score), url)
             }).collect();
             (header, lines)
         }
     }
 }
-

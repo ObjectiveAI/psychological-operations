@@ -48,7 +48,7 @@ pub async fn send(
         let entry = QueueEntry {
             agent:      agent.clone(),
             agent_kind,
-            tweet_id:   scored.post.id.clone(),
+            tweet_id:   scored.id.clone(),
             psyop:      Some((*name).to_string()),
             score:      Some(scored.score),
             deliverer_agent_instance_hierarchy: None,

@@ -33,7 +33,7 @@ pub async fn send(cfg: &X, subject: &Subject<'_>, ctx: &crate::context::Context)
     let acting_id = UserIdMatchesAuthenticatedUser(me_user.id.0.clone());
 
     for scored in *output {
-        let tweet_id = TweetId(scored.post.id.clone());
+        let tweet_id = TweetId(scored.id.clone());
         match cfg.r#type {
             XType::Like => {
                 let req = psychological_operations_sdk::x::users::id::likes::post::Request {
@@ -42,7 +42,7 @@ pub async fn send(cfg: &X, subject: &Subject<'_>, ctx: &crate::context::Context)
                 };
                 psychological_operations_sdk::x::users::id::likes::http::post(&client, &req).await
                     .map_err(|e| crate::error::Error::Other(format!(
-                        "x like failed for tweet {}: {e}", scored.post.id,
+                        "x like failed for tweet {}: {e}", scored.id,
                     )))?;
             }
             XType::Retweet => {
@@ -52,7 +52,7 @@ pub async fn send(cfg: &X, subject: &Subject<'_>, ctx: &crate::context::Context)
                 };
                 psychological_operations_sdk::x::users::id::retweets::http::post(&client, &req).await
                     .map_err(|e| crate::error::Error::Other(format!(
-                        "x retweet failed for tweet {}: {e}", scored.post.id,
+                        "x retweet failed for tweet {}: {e}", scored.id,
                     )))?;
             }
         }

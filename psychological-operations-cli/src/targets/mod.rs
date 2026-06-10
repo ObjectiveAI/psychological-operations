@@ -12,10 +12,8 @@ pub async fn drain_queue(
     commit_filter: Option<&str>,
     ctx: &crate::context::Context,
 ) -> Result<DeliverySummary, crate::error::Error> {
-    use crate::db::{MediaUrl, Post};
     use crate::psyops::psyop;
-    use crate::score::ScoredPost;
-    use destinations::{send_one, Subject};
+    use destinations::{send_one, DeliveryItem, Subject};
 
     let rows = db.list_pending_deliveries(psyop_filter, commit_filter)?;
     let mut delivered = 0usize;
@@ -57,33 +55,23 @@ pub async fn drain_queue(
             }
         };
 
-        // Synthesize stub ScoredPosts from the queued IDs. Score +
-        // handle are loaded back from the persisted `scores` and
-        // `posts` tables so stdout delivery shows real numbers and
-        // well-formed `https://x.com/<handle>/status/<id>` URLs; the
-        // rest of the Post (text, media, …) stays empty — `contents`
-        // is dropped after scoring, and X delivery only reads
-        // post.id.
+        // Build the delivery items from the queued IDs. Only score +
+        // handle are recoverable (loaded from the persisted `scores` /
+        // `posts` tables); the full post body (text, media, engagement)
+        // was dropped after scoring, so destinations only ever see
+        // id / handle / score.
         let scored = db.get_scored_handles(&post_ids)?;
-        let stubs: Vec<ScoredPost> = post_ids.iter().zip(scored.iter())
-            .map(|(id, (score, handle))| ScoredPost {
-                post: Post {
-                    id: id.clone(),
-                    handle: handle.clone(),
-                    text: String::new(),
-                    images: Vec::<MediaUrl>::new(),
-                    videos: Vec::<MediaUrl>::new(),
-                    created: String::new(),
-                    likes: 0, retweets: 0, replies: 0, impressions: 0,
-                },
-                score: *score,
+        let items: Vec<DeliveryItem> = post_ids.iter().zip(scored.iter())
+            .map(|(id, (score, handle))| DeliveryItem {
+                id:     id.clone(),
+                handle: handle.clone(),
+                score:  *score,
             })
             .collect();
-        let stub_refs: Vec<&ScoredPost> = stubs.iter().collect();
         let subject = Subject::Psyop {
             name:   &row.psyop,
             psyop:  &psyop_obj,
-            output: &stub_refs,
+            output: &items,
         };
 
         match send_one(&dest, &subject, ctx).await {

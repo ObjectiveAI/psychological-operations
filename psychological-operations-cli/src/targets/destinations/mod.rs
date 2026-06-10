@@ -10,22 +10,32 @@ pub mod websocket;
 pub mod x;
 
 use crate::psyops::PsyOp;
-use crate::score::ScoredPost;
 
 // Type definitions moved to the SDK under
 // `psychological_operations_sdk::cli::destinations`. Re-export the
 // `Destination` enum at this path so call sites keep working.
 pub use psychological_operations_sdk::cli::destinations::Destination;
 
+/// One delivered item — the minimal data that survives into the delivery
+/// queue and is therefore available at drain time: the tweet id, the
+/// author handle, and the score. Destinations render from this; the full
+/// post body (text / media / engagement) is dropped after scoring and is
+/// NOT available at delivery.
+pub struct DeliveryItem {
+    pub id: String,
+    pub handle: String,
+    pub score: f64,
+}
+
 /// What's being delivered. Text-mode renderers print a per-tweet
 /// line list; JSON-mode renderers emit a tagged Body via
-/// `json_body::build`. The X destination consumes the post IDs to
+/// `json_body::build`. The X destination consumes the ids to
 /// like / retweet on the platform.
 pub enum Subject<'a> {
     Psyop {
         name: &'a str,
         psyop: &'a PsyOp,
-        output: &'a [&'a ScoredPost],
+        output: &'a [DeliveryItem],
     },
 }
 
