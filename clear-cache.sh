@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
-# clear-cache.sh — wipe regenerable build caches.
+# clear-cache.sh — wipe regenerable build caches (contents-only).
 #
-# Every path that gets removed is enumerated below. The list is exhaustive
+# Directory targets are EMPTIED in place — the folder node itself (and,
+# for a symlinked target, the symlink + its real dir) survives, so mount
+# points, held inodes, and symlinks stay intact. File targets are removed.
+#
+# Every path that gets wiped is enumerated below. The list is exhaustive
 # at the time of writing; if you add a new cache, also add it here.
 #
 # Preserves (intentional — these are consumed by builds / history, NOT caches):
@@ -24,6 +28,29 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$REPO_ROOT"
 
+# wipe_path — clear a cache location WITHOUT removing the node itself.
+#
+#   - directory (or symlink to one) → delete everything inside it,
+#     preserving the (now-empty) directory. For a symlink we resolve to
+#     the physical dir first (`cd` + `pwd -P`), so the symlink AND its
+#     real target both survive — just emptied. Keeps mount points, held
+#     inodes, and symlinks intact.
+#   - regular file (e.g. the viewer .zip) or dangling symlink → removed
+#     outright; a file has no "contents" to preserve.
+#   - missing path → skipped silently.
+wipe_path() {
+  local p="$1"
+  if [ -d "$p" ]; then
+    local real
+    real=$(cd "$p" && pwd -P)
+    echo "Emptying $p/"
+    find "$real" -mindepth 1 -delete
+  elif [ -e "$p" ] || [ -L "$p" ]; then
+    echo "Removing $p"
+    rm -f -- "$p"
+  fi
+}
+
 # Snapshot disk before so we can report freed space.
 freed_before=$(df -k "$REPO_ROOT" | awk 'NR==2 {print $4}')
 
@@ -40,15 +67,7 @@ RUST_TARGETS=(
 )
 
 for t in "${RUST_TARGETS[@]}"; do
-  if [ -L "$t" ]; then
-    real=$(readlink "$t")
-    echo "Removing $t/ → $real (symlink target)"
-    rm -rf -- "$real" 2>/dev/null || true
-    rm -f -- "$t"
-  elif [ -d "$t" ]; then
-    echo "Removing $t/"
-    rm -rf -- "$t"
-  fi
+  wipe_path "$t"
 done
 
 # ---------------------------------------------------------------------------
@@ -62,10 +81,7 @@ STALE_TEST_STATE=(
 )
 
 for d in "${STALE_TEST_STATE[@]}"; do
-  if [ -d "$d" ]; then
-    echo "Removing $d/"
-    rm -rf -- "$d"
-  fi
+  wipe_path "$d"
 done
 
 # ---------------------------------------------------------------------------
@@ -79,10 +95,7 @@ VIEWER_CACHES=(
 )
 
 for p in "${VIEWER_CACHES[@]}"; do
-  if [ -e "$p" ]; then
-    echo "Removing $p"
-    rm -rf -- "$p"
-  fi
+  wipe_path "$p"
 done
 
 freed_after=$(df -k "$REPO_ROOT" | awk 'NR==2 {print $4}')
