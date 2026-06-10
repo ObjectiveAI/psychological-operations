@@ -90,7 +90,7 @@ pub async fn run_psyop(
         None => derive_commit(name, ctx)?,
     };
 
-    let db = Db::open(&ctx.config)?;
+    let db = Db::open(&ctx.config).await?;
     let http = make_http_client(psyop.mock_enabled(), ctx);
 
     // Collect step: open the browser as this psyop and stream the
@@ -108,7 +108,7 @@ pub async fn run_psyop(
     // When `for_you` is unconfigured, there's no queue to check
     // and the policy becomes a no-op.
     let had_for_you_queued_at_start = match &psyop.for_you {
-        Some(_) => !db.for_you_queue(name, &commit)?.is_empty(),
+        Some(_) => !db.for_you_queue(name, &commit).await?.is_empty(),
         None    => false,
     };
     let mut queries_already_ran = false;
@@ -122,7 +122,7 @@ pub async fn run_psyop(
 
         // 2. Read unscored tweets for this (psyop, commit).
         let now = chrono::Utc::now();
-        let entries = db.list_unscored_with_origins(name, &commit, &now)?;
+        let entries = db.list_unscored_with_origins(name, &commit, &now).await?;
 
         // 3. Filter with priority resolution.
         let accepted = filter_with_priority(&psyop, entries)?;
@@ -163,12 +163,12 @@ pub async fn run_psyop(
         if !result.last_scores.is_empty() {
             let ids: Vec<String> = result.last_scores.keys().cloned().collect();
             let scores: Vec<f64> = ids.iter().map(|id| result.last_scores[id]).collect();
-            db.set_scores(&ids, &scores)?;
+            db.set_scores(&ids, &scores).await?;
         }
 
         // 9. Reap content for every post under (name, commit), scored
         //    or not.
-        let _dropped = db.drop_psyop_contents(name, &commit)?;
+        let _dropped = db.drop_psyop_contents(name, &commit).await?;
 
         // 10. Enqueue a delivery_queue row per (target, survivors).
         if !result.survivors.is_empty() {
@@ -180,7 +180,7 @@ pub async fn run_psyop(
 
             for dest in &json_cfg.targets {
                 let target_json = serde_json::to_string(dest)?;
-                db.enqueue_delivery(name, &commit, &target_json, &post_ids_json)?;
+                db.enqueue_delivery(name, &commit, &target_json, &post_ids_json).await?;
             }
             let per_psyop: Vec<crate::targets::destinations::Destination> =
                 json_cfg.psyops.get(name)
@@ -188,7 +188,7 @@ pub async fn run_psyop(
                     .unwrap_or_default();
             for dest in &per_psyop {
                 let target_json = serde_json::to_string(dest)?;
-                db.enqueue_delivery(name, &commit, &target_json, &post_ids_json)?;
+                db.enqueue_delivery(name, &commit, &target_json, &post_ids_json).await?;
             }
         }
 
@@ -221,7 +221,7 @@ async fn score_pipeline(
     // contents row is absent are filtered out — by contract those
     // posts don't exist for our purposes.
     let ids: Vec<String> = trimmed.iter().map(|t| t.id.clone()).collect();
-    let contents = db.fetch_contents(&ids)?;
+    let contents = db.fetch_contents(&ids).await?;
     let mut current: Vec<Post> = trimmed
         .into_iter()
         .filter_map(|t| {
@@ -352,7 +352,7 @@ async fn hydrate_for_you(
     name: &str,
     commit: &str,
 ) -> Result<(), Error> {
-    let queued = db.for_you_queue(name, commit)?;
+    let queued = db.for_you_queue(name, commit).await?;
     if queued.is_empty() {
         return Ok(());
     }
@@ -365,7 +365,7 @@ async fn hydrate_for_you(
     for id in queued {
         match fetch_tweet(http, &id).await {
             Ok(Some(post)) => {
-                db.insert_post(&post, name, commit, &Origin::ForYou)?;
+                db.insert_post(&post, name, commit, &Origin::ForYou).await?;
                 succeeded.push(id);
             }
             Ok(None) => {
@@ -387,7 +387,7 @@ async fn hydrate_for_you(
             }
         }
     }
-    db.dequeue_for_you(name, commit, &succeeded)?;
+    db.dequeue_for_you(name, commit, &succeeded).await?;
     Ok(())
 }
 
@@ -545,7 +545,7 @@ async fn run_queries(
                 })
                 .emit();
                 for p in posts {
-                    db.insert_post(&p, name, commit, &Origin::Query(q.query.clone()))?;
+                    db.insert_post(&p, name, commit, &Origin::Query(q.query.clone())).await?;
                 }
             }
             Err(e) => {

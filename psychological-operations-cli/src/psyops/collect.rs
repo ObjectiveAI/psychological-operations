@@ -70,7 +70,7 @@ pub(crate) async fn collect_for_you(
         }
         match serde_json::from_str::<BrowserOutput>(trimmed) {
             Ok(BrowserOutput::TweetId { id }) => {
-                match db.enqueue_for_you(&id, name, commit) {
+                match db.enqueue_for_you(&id, name, commit).await {
                     Ok(true)  => inserted += 1,
                     Ok(false) => skipped += 1,
                     Err(_)    => skipped += 1,

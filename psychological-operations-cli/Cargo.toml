@@ -13,7 +13,7 @@ tokio = { version = "1.52.1", features = ["full"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 thiserror = "2.0.18"
-rusqlite = { version = "0.31.0", features = ["bundled"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite"] }
 git2 = "0.20.4"
 reqwest = { version = "0.13.2", features = ["json", "query"] }
 chrono = { version = "0.4", features = ["serde"] }
@@ -36,8 +36,6 @@ psychological-operations-x-api-mcp = { path = "../psychological-operations-x-api
 schemars = "1.2.1"
 
 [dev-dependencies]
-# Integration tests open the per-test data.db for assertions.
-rusqlite = { version = "0.31.0", features = ["bundled"] }
 # Blocking download of the objectiveai release binary in the test
 # harness (see tests/common/mod.rs::objectiveai_binary). Runtime deps
 # above pull reqwest with async features; the blocking flavor is

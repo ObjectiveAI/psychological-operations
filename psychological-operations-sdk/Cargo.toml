@@ -14,16 +14,6 @@ url = { version = "2", features = ["serde"] }
 urlencoding = "2.1.3"
 rand = "0.8"
 sha2 = "0.10"
-# Cookies module — read the on-disk CEF cookies SQLite directly so
-# external consumers (CLI, future get_auth_data wrapper) can ask
-# "who's signed in?" without going through the running browser.
-# `bundled` ships SQLite C source inside rusqlite — no system dep.
-#
-# Pinned to 0.31 to match psychological-operations-cli — Cargo's
-# `links = "sqlite3"` constraint allows only one libsqlite3-sys
-# version in the dependency graph. Bump both crates together when
-# the CLI moves.
-rusqlite = { version = "0.31.0", features = ["bundled"] }
 base64 = "0.22.1"
 aes-gcm = "0.10.3"
 # `full` features brought along when x-api folded in — the OAuth

@@ -365,11 +365,6 @@ impl TestEnv {
 
     /// Path to the per-test sqlite DB.
     pub fn db_path(&self) -> PathBuf { self.dir.join("data.db") }
-
-    /// Read-only sqlite handle for assertions.
-    pub fn db(&self) -> rusqlite::Connection {
-        rusqlite::Connection::open(self.db_path()).expect("open test db")
-    }
 }
 
 impl Drop for TestEnv {

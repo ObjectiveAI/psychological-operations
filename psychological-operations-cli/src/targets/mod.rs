@@ -15,7 +15,7 @@ pub async fn drain_queue(
     use crate::psyops::psyop;
     use destinations::{send_one, DeliveryItem, Subject};
 
-    let rows = db.list_pending_deliveries(psyop_filter, commit_filter)?;
+    let rows = db.list_pending_deliveries(psyop_filter, commit_filter).await?;
     let mut delivered = 0usize;
     let mut failed = 0usize;
 
@@ -25,7 +25,7 @@ pub async fn drain_queue(
             Err(e) => {
                 let msg = format!("malformed target_json: {e}");
                 crate::output::OutputResult::from(crate::events::Event::DeliveryFailed { delivery_id: row.id, reason: msg.clone() }).emit();
-                db.bump_delivery_attempt(row.id, &msg)?;
+                db.bump_delivery_attempt(row.id, &msg).await?;
                 failed += 1;
                 continue;
             }
@@ -35,7 +35,7 @@ pub async fn drain_queue(
             Err(e) => {
                 let msg = format!("malformed post_ids_json: {e}");
                 crate::output::OutputResult::from(crate::events::Event::DeliveryFailed { delivery_id: row.id, reason: msg.clone() }).emit();
-                db.bump_delivery_attempt(row.id, &msg)?;
+                db.bump_delivery_attempt(row.id, &msg).await?;
                 failed += 1;
                 continue;
             }
@@ -49,7 +49,7 @@ pub async fn drain_queue(
             Err(e) => {
                 let msg = format!("psyop load at {} failed: {e}", row.psyop_commit_sha);
                 crate::output::OutputResult::from(crate::events::Event::DeliveryFailed { delivery_id: row.id, reason: msg.clone() }).emit();
-                db.bump_delivery_attempt(row.id, &msg)?;
+                db.bump_delivery_attempt(row.id, &msg).await?;
                 failed += 1;
                 continue;
             }
@@ -60,7 +60,7 @@ pub async fn drain_queue(
         // `posts` tables); the full post body (text, media, engagement)
         // was dropped after scoring, so destinations only ever see
         // id / handle / score.
-        let scored = db.get_scored_handles(&post_ids)?;
+        let scored = db.get_scored_handles(&post_ids).await?;
         let items: Vec<DeliveryItem> = post_ids.iter().zip(scored.iter())
             .map(|(id, (score, handle))| DeliveryItem {
                 id:     id.clone(),
@@ -76,13 +76,13 @@ pub async fn drain_queue(
 
         match send_one(&dest, &subject, ctx).await {
             Ok(()) => {
-                db.delete_delivery(row.id)?;
+                db.delete_delivery(row.id).await?;
                 delivered += 1;
             }
             Err(e) => {
                 let msg = e.to_string();
                 crate::output::OutputResult::from(crate::events::Event::DeliveryFailed { delivery_id: row.id, reason: msg.clone() }).emit();
-                db.bump_delivery_attempt(row.id, &msg)?;
+                db.bump_delivery_attempt(row.id, &msg).await?;
                 failed += 1;
             }
         }

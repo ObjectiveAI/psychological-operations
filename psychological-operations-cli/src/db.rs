@@ -1,7 +1,10 @@
 use std::time::Duration;
 
-use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
+use sqlx::Row;
+use sqlx::sqlite::{
+    SqliteConnectOptions, SqliteJournalMode, SqlitePool, SqlitePoolOptions,
+};
 
 use crate::config;
 
@@ -101,7 +104,7 @@ pub enum Origin {
 }
 
 pub struct Db {
-    conn: Connection,
+    pool: SqlitePool,
 }
 
 /// Parse `created` (RFC 3339) and return seconds since `now`. A
@@ -119,16 +122,22 @@ pub(crate) fn compute_age(created: &str, now: &chrono::DateTime<chrono::Utc>) ->
 }
 
 impl Db {
-    pub fn open(cfg: &crate::run::Config) -> Result<Self, crate::error::Error> {
+    pub async fn open(cfg: &crate::run::Config) -> Result<Self, crate::error::Error> {
         let path = config::db_path(cfg);
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let conn = Connection::open(&path)?;
-        conn.execute_batch("PRAGMA journal_mode = WAL;")?;
-        conn.busy_timeout(Duration::from_secs(30))?;
-        conn.execute_batch(SCHEMA)?;
-        Ok(Self { conn })
+        let opts = SqliteConnectOptions::new()
+            .filename(&path)
+            .create_if_missing(true)
+            .journal_mode(SqliteJournalMode::Wal)
+            .busy_timeout(Duration::from_secs(30));
+        let pool = SqlitePoolOptions::new()
+            .max_connections(100)
+            .connect_with(opts)
+            .await?;
+        sqlx::raw_sql(SCHEMA).execute(&pool).await?;
+        Ok(Self { pool })
     }
 
     /// Ingest a post under `(psyop, psyop_commit_sha)` with the given
@@ -160,7 +169,7 @@ impl Db {
     /// origin). The post-row creation status is intentionally not
     /// surfaced — multi-source posts shouldn't be reported as
     /// "skipped" just because the post itself was already known.
-    pub fn insert_post(
+    pub async fn insert_post(
         &self,
         post: &Post,
         psyop: &str,
@@ -171,53 +180,65 @@ impl Db {
             Origin::ForYou => (1_i64, None),
             Origin::Query(q) => (0_i64, Some(q.as_str())),
         };
-        let tx = self.conn.unchecked_transaction()?;
+        let mut tx = self.pool.begin().await?;
 
-        // Already scored? Skip everything. Use SELECT 1 ... LIMIT 1
-        // inside the transaction so we observe a consistent snapshot.
-        let already_scored: bool = tx
-            .query_row(
-                "SELECT 1 FROM scores WHERE post_id = ?1 LIMIT 1",
-                params![post.id],
-                |_| Ok(true),
-            )
-            .or_else(|e| match e {
-                rusqlite::Error::QueryReturnedNoRows => Ok(false),
-                other => Err(other),
-            })?;
-        if already_scored {
-            tx.commit()?;
+        // Already scored? Skip everything. The SELECT runs inside the
+        // transaction so we observe a consistent snapshot.
+        let already_scored: Option<i64> = sqlx::query_scalar(
+            "SELECT 1 FROM scores WHERE post_id = ? LIMIT 1",
+        )
+        .bind(&post.id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if already_scored.is_some() {
+            tx.commit().await?;
             return Ok(false);
         }
 
-        tx.execute(
+        sqlx::query(
             "INSERT OR IGNORE INTO posts
                 (id, psyop, psyop_commit_sha,
                  handle, created, likes, retweets, replies, impressions)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-            params![
-                post.id, psyop, psyop_commit_sha,
-                post.handle, post.created,
-                post.likes as i64, post.retweets as i64, post.replies as i64,
-                post.impressions as i64,
-            ],
-        )?;
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&post.id)
+        .bind(psyop)
+        .bind(psyop_commit_sha)
+        .bind(&post.handle)
+        .bind(&post.created)
+        .bind(post.likes as i64)
+        .bind(post.retweets as i64)
+        .bind(post.replies as i64)
+        .bind(post.impressions as i64)
+        .execute(&mut *tx)
+        .await?;
 
-        let source_inserted = tx.execute(
+        let source_inserted = sqlx::query(
             "INSERT OR IGNORE INTO sources (post_id, for_you, query)
-             VALUES (?1, ?2, ?3)",
-            params![post.id, for_you, query],
-        )? > 0;
+             VALUES (?, ?, ?)",
+        )
+        .bind(&post.id)
+        .bind(for_you)
+        .bind(query)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected()
+            > 0;
 
         let images_json = serde_json::to_string(&post.images)?;
         let videos_json = serde_json::to_string(&post.videos)?;
-        tx.execute(
+        sqlx::query(
             "INSERT OR IGNORE INTO contents (post_id, text, images, videos)
-             VALUES (?1, ?2, ?3, ?4)",
-            params![post.id, post.text, images_json, videos_json],
-        )?;
+             VALUES (?, ?, ?, ?)",
+        )
+        .bind(&post.id)
+        .bind(&post.text)
+        .bind(&images_json)
+        .bind(&videos_json)
+        .execute(&mut *tx)
+        .await?;
 
-        tx.commit()?;
+        tx.commit().await?;
         Ok(source_inserted)
     }
 
@@ -230,41 +251,43 @@ impl Db {
     ///
     /// `INSERT OR IGNORE` — duplicate triples are silently coalesced.
     /// Returns `true` iff a new queue row was created.
-    pub fn enqueue_for_you(
+    pub async fn enqueue_for_you(
         &self,
         post_id: &str,
         psyop: &str,
         psyop_commit_sha: &str,
     ) -> Result<bool, crate::error::Error> {
-        let n = self.conn.execute(
+        let n = sqlx::query(
             "INSERT OR IGNORE INTO for_you_queue
                 (post_id, psyop, psyop_commit_sha)
-             VALUES (?1, ?2, ?3)",
-            params![post_id, psyop, psyop_commit_sha],
-        )?;
+             VALUES (?, ?, ?)",
+        )
+        .bind(post_id)
+        .bind(psyop)
+        .bind(psyop_commit_sha)
+        .execute(&self.pool)
+        .await?
+        .rows_affected();
         Ok(n > 0)
     }
 
     /// Runtime entry point. Returns every queued post_id for this
     /// `(psyop, psyop_commit_sha)` ordered by `ingested_at ASC` so
     /// older observations get hydrated first.
-    pub fn for_you_queue(
+    pub async fn for_you_queue(
         &self,
         psyop: &str,
         psyop_commit_sha: &str,
     ) -> Result<Vec<String>, crate::error::Error> {
-        let mut stmt = self.conn.prepare(
+        let out: Vec<String> = sqlx::query_scalar(
             "SELECT post_id FROM for_you_queue
-              WHERE psyop = ?1 AND psyop_commit_sha = ?2
+              WHERE psyop = ? AND psyop_commit_sha = ?
               ORDER BY ingested_at ASC",
-        )?;
-        let rows = stmt.query_map(params![psyop, psyop_commit_sha], |row| {
-            row.get::<_, String>(0)
-        })?;
-        let mut out = Vec::new();
-        for r in rows {
-            out.push(r?);
-        }
+        )
+        .bind(psyop)
+        .bind(psyop_commit_sha)
+        .fetch_all(&self.pool)
+        .await?;
         Ok(out)
     }
 
@@ -272,7 +295,7 @@ impl Db {
     /// successfully hydrated them via `insert_post`. Caller passes
     /// only the ids it actually persisted, so a partial X-API
     /// failure leaves the rest in the queue for the next round.
-    pub fn dequeue_for_you(
+    pub async fn dequeue_for_you(
         &self,
         psyop: &str,
         psyop_commit_sha: &str,
@@ -281,17 +304,21 @@ impl Db {
         if post_ids.is_empty() {
             return Ok(());
         }
-        let tx = self.conn.unchecked_transaction()?;
+        let mut tx = self.pool.begin().await?;
         for id in post_ids {
-            tx.execute(
+            sqlx::query(
                 "DELETE FROM for_you_queue
-                  WHERE post_id = ?1
-                    AND psyop = ?2
-                    AND psyop_commit_sha = ?3",
-                params![id, psyop, psyop_commit_sha],
-            )?;
+                  WHERE post_id = ?
+                    AND psyop = ?
+                    AND psyop_commit_sha = ?",
+            )
+            .bind(id)
+            .bind(psyop)
+            .bind(psyop_commit_sha)
+            .execute(&mut *tx)
+            .await?;
         }
-        tx.commit()?;
+        tx.commit().await?;
         Ok(())
     }
 
@@ -305,60 +332,31 @@ impl Db {
     /// source row from being silently dropped — every tweet *should*
     /// have at least one source, but we don't bet runtime
     /// correctness on it.
-    pub fn list_unscored_with_origins(
+    pub async fn list_unscored_with_origins(
         &self,
         psyop: &str,
         psyop_commit_sha: &str,
         now: &chrono::DateTime<chrono::Utc>,
     ) -> Result<Vec<(crate::tweet::Tweet, Vec<Origin>, i64)>, crate::error::Error> {
-        let mut stmt = self.conn.prepare(
+        let rows = sqlx::query(
             "SELECT
                 p.id, p.handle, p.created,
                 p.likes, p.retweets, p.replies, p.impressions,
                 s.for_you, s.query,
-                p.rowid
+                p.rowid AS rowid
              FROM posts p
              LEFT JOIN sources s ON s.post_id = p.id
-             WHERE p.psyop = ?1
-               AND p.psyop_commit_sha = ?2
+             WHERE p.psyop = ?
+               AND p.psyop_commit_sha = ?
                AND NOT EXISTS (
                  SELECT 1 FROM scores sc WHERE sc.post_id = p.id
                )
              ORDER BY p.id",
-        )?;
-
-        struct Row {
-            id: String,
-            handle: String,
-            created: String,
-            likes: i64,
-            retweets: i64,
-            replies: i64,
-            impressions: i64,
-            origin: Option<Origin>,
-            rowid: i64,
-        }
-
-        let rows = stmt.query_map(params![psyop, psyop_commit_sha], |row| {
-            let for_you: Option<i64> = row.get(7)?;
-            let query: Option<String> = row.get(8)?;
-            let origin = match for_you {
-                Some(1) => Some(Origin::ForYou),
-                Some(0) => Some(Origin::Query(query.unwrap_or_default())),
-                _       => None,   // LEFT JOIN miss
-            };
-            Ok(Row {
-                id:          row.get(0)?,
-                handle:      row.get(1)?,
-                created:     row.get(2)?,
-                likes:       row.get(3)?,
-                retweets:    row.get(4)?,
-                replies:     row.get(5)?,
-                impressions: row.get(6)?,
-                origin,
-                rowid:       row.get(9)?,
-            })
-        })?;
+        )
+        .bind(psyop)
+        .bind(psyop_commit_sha)
+        .fetch_all(&self.pool)
+        .await?;
 
         // Collapse the row stream into one (Tweet, Vec<Origin>, rowid)
         // per post id. The query is ORDER BY p.id so all rows for
@@ -367,27 +365,42 @@ impl Db {
         // for_you-origin tweets that corresponds to browser-arrival
         // order via `hydrate_for_you`'s queue-order traversal.
         let mut out: Vec<(crate::tweet::Tweet, Vec<Origin>, i64)> = Vec::new();
-        for r in rows {
-            let r = r?;
-            let age = compute_age(&r.created, now);
+        for row in rows {
+            let id: String = row.get("id");
+            let handle: String = row.get("handle");
+            let created: String = row.get("created");
+            let likes: i64 = row.get("likes");
+            let retweets: i64 = row.get("retweets");
+            let replies: i64 = row.get("replies");
+            let impressions: i64 = row.get("impressions");
+            let for_you: Option<i64> = row.get("for_you");
+            let query: Option<String> = row.get("query");
+            let rowid: i64 = row.get("rowid");
+
+            let origin = match for_you {
+                Some(1) => Some(Origin::ForYou),
+                Some(0) => Some(Origin::Query(query.unwrap_or_default())),
+                _ => None, // LEFT JOIN miss
+            };
+            let age = compute_age(&created, now);
             let push_new = match out.last() {
-                Some((t, _, _)) => t.id != r.id,
+                Some((t, _, _)) => t.id != id,
                 None => true,
             };
             if push_new {
                 let tweet = crate::tweet::Tweet {
-                    id: r.id.clone(),
-                    handle: r.handle,
-                    created: r.created,
+                    id: id.clone(),
+                    handle,
+                    created,
                     age,
-                    likes:       r.likes       as u64,
-                    retweets:    r.retweets    as u64,
-                    replies:     r.replies     as u64,
-                    impressions: r.impressions as u64,
+                    likes:       likes       as u64,
+                    retweets:    retweets    as u64,
+                    replies:     replies     as u64,
+                    impressions: impressions as u64,
                 };
-                out.push((tweet, Vec::new(), r.rowid));
+                out.push((tweet, Vec::new(), rowid));
             }
-            if let Some(o) = r.origin {
+            if let Some(o) = origin {
                 out.last_mut().unwrap().1.push(o);
             }
         }
@@ -403,7 +416,7 @@ impl Db {
     ///
     /// Batches SELECTs in chunks of 500 to stay well under SQLite's
     /// default 999-bind-param cap.
-    pub fn fetch_contents(
+    pub async fn fetch_contents(
         &self,
         post_ids: &[String],
     ) -> Result<
@@ -419,24 +432,22 @@ impl Db {
         }
         const CHUNK: usize = 500;
         for chunk in post_ids.chunks(CHUNK) {
-            let placeholders = vec!["?"; chunk.len()].join(",");
-            let sql = format!(
-                "SELECT post_id, text, images, videos
-                   FROM contents
-                  WHERE post_id IN ({placeholders})",
+            let mut qb = sqlx::QueryBuilder::new(
+                "SELECT post_id, text, images, videos FROM contents WHERE post_id IN (",
             );
-            let mut stmt = self.conn.prepare(&sql)?;
-            let params_vec: Vec<&dyn rusqlite::ToSql> =
-                chunk.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
-            let rows = stmt.query_map(params_vec.as_slice(), |row| {
-                let id: String = row.get(0)?;
-                let text: String = row.get(1)?;
-                let images_json: String = row.get(2)?;
-                let videos_json: String = row.get(3)?;
-                Ok((id, text, images_json, videos_json))
-            })?;
-            for r in rows {
-                let (id, text, images_json, videos_json) = r?;
+            {
+                let mut sep = qb.separated(", ");
+                for id in chunk {
+                    sep.push_bind(id);
+                }
+            }
+            qb.push(")");
+            let rows = qb.build().fetch_all(&self.pool).await?;
+            for row in rows {
+                let id: String = row.get("post_id");
+                let text: String = row.get("text");
+                let images_json: String = row.get("images");
+                let videos_json: String = row.get("videos");
                 let images: Vec<MediaUrl> =
                     serde_json::from_str(&images_json).unwrap_or_default();
                 let videos: Vec<MediaUrl> =
@@ -449,38 +460,43 @@ impl Db {
 
     /// Look up the persisted score + handle for each `post_id`, in
     /// the same order as `ids`. Joins `posts` + `scores` so a single
-    /// query backs the delivery worker's `ScoredPost` stub
-    /// rehydration (score) and its URL formatting (handle goes into
+    /// query backs the delivery worker's score rehydration and its URL
+    /// formatting (handle goes into
     /// `https://x.com/<handle>/status/<id>`). Missing rows fall back
     /// to `(0.0, "")`.
-    pub fn get_scored_handles(
+    pub async fn get_scored_handles(
         &self,
         ids: &[String],
     ) -> Result<Vec<(f64, String)>, crate::error::Error> {
         if ids.is_empty() {
             return Ok(Vec::new());
         }
-        let placeholders = vec!["?"; ids.len()].join(",");
-        let sql = format!(
-            "SELECT p.id, p.handle, COALESCE(s.score, 0.0)
-               FROM posts p
-               LEFT JOIN scores s ON s.post_id = p.id
-              WHERE p.id IN ({placeholders})",
+        let mut qb = sqlx::QueryBuilder::new(
+            "SELECT p.id AS id, p.handle AS handle, COALESCE(s.score, 0.0) AS score \
+               FROM posts p \
+               LEFT JOIN scores s ON s.post_id = p.id \
+              WHERE p.id IN (",
         );
-        let params = rusqlite::params_from_iter(ids.iter());
-        let mut stmt = self.conn.prepare(&sql)?;
-        let mut rows = stmt.query(params)?;
+        {
+            let mut sep = qb.separated(", ");
+            for id in ids {
+                sep.push_bind(id);
+            }
+        }
+        qb.push(")");
+        let rows = qb.build().fetch_all(&self.pool).await?;
         let mut by_id: std::collections::HashMap<String, (f64, String)> =
             std::collections::HashMap::new();
-        while let Some(row) = rows.next()? {
-            let id: String = row.get(0)?;
-            let handle: String = row.get(1)?;
-            let score: f64 = row.get(2)?;
+        for row in rows {
+            let id: String = row.get("id");
+            let handle: String = row.get("handle");
+            let score: f64 = row.get("score");
             by_id.insert(id, (score, handle));
         }
-        Ok(ids.iter().map(|id|
-            by_id.get(id).cloned().unwrap_or_else(|| (0.0, String::new()))
-        ).collect())
+        Ok(ids
+            .iter()
+            .map(|id| by_id.get(id).cloned().unwrap_or_else(|| (0.0, String::new())))
+            .collect())
     }
 
     /// Upsert score rows keyed by `post_id` and drop the matching
@@ -489,28 +505,31 @@ impl Db {
     /// commit) context isn't repeated on the scores row; it's
     /// recoverable via the matching `posts` row. `ids` and `scores`
     /// must be the same length.
-    pub fn set_scores(
+    pub async fn set_scores(
         &self,
         ids: &[String],
         scores: &[f64],
     ) -> Result<(), crate::error::Error> {
         assert_eq!(ids.len(), scores.len(), "ids/scores length mismatch");
-        let tx = self.conn.unchecked_transaction()?;
+        let mut tx = self.pool.begin().await?;
         for (id, score) in ids.iter().zip(scores.iter()) {
-            tx.execute(
+            sqlx::query(
                 "INSERT INTO scores (post_id, score)
-                 VALUES (?1, ?2)
+                 VALUES (?, ?)
                  ON CONFLICT(post_id) DO UPDATE SET
                      score     = excluded.score,
                      scored_at = datetime('now')",
-                params![id, score],
-            )?;
-            tx.execute(
-                "DELETE FROM contents WHERE post_id = ?1",
-                params![id],
-            )?;
+            )
+            .bind(id)
+            .bind(*score)
+            .execute(&mut *tx)
+            .await?;
+            sqlx::query("DELETE FROM contents WHERE post_id = ?")
+                .bind(id)
+                .execute(&mut *tx)
+                .await?;
         }
-        tx.commit()?;
+        tx.commit().await?;
         Ok(())
     }
 
@@ -518,103 +537,123 @@ impl Db {
     /// runtime uses this after scoring so every applicable target
     /// gets a queued row, and `targets deliver` (a.k.a.
     /// `drain_queue`) sweeps them uniformly.
-    pub fn enqueue_delivery(
+    pub async fn enqueue_delivery(
         &self,
         psyop: &str,
         psyop_commit_sha: &str,
         target_json: &str,
         post_ids_json: &str,
     ) -> Result<i64, crate::error::Error> {
-        self.conn.execute(
+        let id: i64 = sqlx::query_scalar(
             "INSERT INTO delivery_queue
                 (psyop, psyop_commit_sha, target_json, post_ids_json)
-             VALUES (?1, ?2, ?3, ?4)",
-            params![psyop, psyop_commit_sha, target_json, post_ids_json],
-        )?;
-        Ok(self.conn.last_insert_rowid())
+             VALUES (?, ?, ?, ?)
+             RETURNING id",
+        )
+        .bind(psyop)
+        .bind(psyop_commit_sha)
+        .bind(target_json)
+        .bind(post_ids_json)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(id)
     }
 
     /// Reap `contents` for every post under (psyop, commit). Idempotent;
     /// safe after `set_scores` (which already drops content for the
     /// scored ids — this catches unscored posts whose content would
     /// otherwise leak forever). Returns the number of rows deleted.
-    pub fn drop_psyop_contents(
+    pub async fn drop_psyop_contents(
         &self,
         psyop: &str,
         psyop_commit_sha: &str,
     ) -> Result<usize, crate::error::Error> {
-        let n = self.conn.execute(
+        let n = sqlx::query(
             "DELETE FROM contents
              WHERE post_id IN (
                  SELECT id FROM posts
-                 WHERE psyop = ?1 AND psyop_commit_sha = ?2
+                 WHERE psyop = ? AND psyop_commit_sha = ?
              )",
-            params![psyop, psyop_commit_sha],
-        )?;
-        Ok(n)
+        )
+        .bind(psyop)
+        .bind(psyop_commit_sha)
+        .execute(&self.pool)
+        .await?
+        .rows_affected();
+        Ok(n as usize)
     }
 
     /// Returns all queued (not-yet-redelivered) rows.
     /// `psyop_filter = Some(name)` narrows to one psyop;
     /// `commit_filter = Some(sha)` narrows to one commit. Both
     /// are independent; `None` on either is a no-op.
-    pub fn list_pending_deliveries(
+    pub async fn list_pending_deliveries(
         &self,
         psyop_filter:  Option<&str>,
         commit_filter: Option<&str>,
     ) -> Result<Vec<QueuedDelivery>, crate::error::Error> {
-        let mut stmt = self.conn.prepare(
+        // Positional `?` can't be reused, so each filter is bound
+        // twice — once for the `IS NULL` guard, once for the match.
+        let rows = sqlx::query(
             "SELECT id, psyop, psyop_commit_sha, target_json, post_ids_json,
                     attempts, last_error, last_attempt_at
              FROM delivery_queue
-             WHERE (?1 IS NULL OR psyop            = ?1)
-               AND (?2 IS NULL OR psyop_commit_sha = ?2)
+             WHERE (? IS NULL OR psyop            = ?)
+               AND (? IS NULL OR psyop_commit_sha = ?)
              ORDER BY id ASC",
-        )?;
-        let rows = stmt.query_map(
-            params![psyop_filter, commit_filter],
-            |r: &rusqlite::Row| -> rusqlite::Result<QueuedDelivery> {
-                Ok(QueuedDelivery {
-                    id:               r.get(0)?,
-                    psyop:            r.get(1)?,
-                    psyop_commit_sha: r.get(2)?,
-                    target_json:      r.get(3)?,
-                    post_ids_json:    r.get(4)?,
-                    attempts:         r.get(5)?,
-                    last_error:       r.get(6)?,
-                    last_attempt_at:  r.get(7)?,
-                })
-            },
-        )?.collect::<Result<Vec<_>, _>>()?;
-        Ok(rows)
+        )
+        .bind(psyop_filter)
+        .bind(psyop_filter)
+        .bind(commit_filter)
+        .bind(commit_filter)
+        .fetch_all(&self.pool)
+        .await?;
+        let out = rows
+            .into_iter()
+            .map(|r| QueuedDelivery {
+                id:               r.get("id"),
+                psyop:            r.get("psyop"),
+                psyop_commit_sha: r.get("psyop_commit_sha"),
+                target_json:      r.get("target_json"),
+                post_ids_json:    r.get("post_ids_json"),
+                attempts:         r.get("attempts"),
+                last_error:       r.get("last_error"),
+                last_attempt_at:  r.get("last_attempt_at"),
+            })
+            .collect();
+        Ok(out)
     }
 
     /// Bump `attempts`, update `last_error` + `last_attempt_at`.
     /// Use when a retry attempt for a queued row fails again.
-    pub fn bump_delivery_attempt(
+    pub async fn bump_delivery_attempt(
         &self,
         id: i64,
         last_error: &str,
     ) -> Result<(), crate::error::Error> {
         let now = chrono::Utc::now().to_rfc3339();
-        self.conn.execute(
+        sqlx::query(
             "UPDATE delivery_queue
              SET attempts        = attempts + 1,
-                 last_error      = ?2,
-                 last_attempt_at = ?3
-             WHERE id = ?1",
-            params![id, last_error, now],
-        )?;
+                 last_error      = ?,
+                 last_attempt_at = ?
+             WHERE id = ?",
+        )
+        .bind(last_error)
+        .bind(&now)
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 
     /// Delete a queued delivery row (delivered successfully, or
     /// operator-pruned).
-    pub fn delete_delivery(&self, id: i64) -> Result<(), crate::error::Error> {
-        self.conn.execute(
-            "DELETE FROM delivery_queue WHERE id = ?1",
-            params![id],
-        )?;
+    pub async fn delete_delivery(&self, id: i64) -> Result<(), crate::error::Error> {
+        sqlx::query("DELETE FROM delivery_queue WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 }

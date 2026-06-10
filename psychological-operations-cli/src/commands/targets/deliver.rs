@@ -24,7 +24,7 @@ pub(super) async fn run(
         Selector::PsyopBase   { psyop }         => (Some(psyop),    None),
         Selector::PsyopCommit { psyop, commit } => (Some(psyop),    Some(commit)),
     };
-    let db = crate::db::Db::open(&ctx.config)?;
+    let db = crate::db::Db::open(&ctx.config).await?;
     let summary = crate::targets::drain_queue(
         &db, psyop.as_deref(), commit.as_deref(), ctx,
     ).await?;
