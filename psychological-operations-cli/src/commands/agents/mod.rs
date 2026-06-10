@@ -14,7 +14,7 @@
 
 use clap::Subcommand;
 
-pub mod queue;
+pub mod enqueue;
 
 #[derive(Subcommand)]
 pub enum Commands {
@@ -45,11 +45,17 @@ pub enum Commands {
     Browser {
         name: String,
     },
-    /// Per-(operator, agent) tweet handling queue.
-    #[command(name = "queue")]
-    Queue {
-        #[command(subcommand)]
-        command: queue::Commands,
+    /// Enqueue a tweet for the current agent (sourced from
+    /// `OBJECTIVEAI_AGENT_ID`) into the per-agent, caller-agnostic
+    /// queue.
+    #[command(name = "enqueue")]
+    Enqueue {
+        /// Numeric ID of the tweet.
+        #[arg(long)]
+        tweet_id: String,
+        /// Free-text note for the agent. Required.
+        #[arg(long)]
+        message: String,
     },
 }
 
@@ -73,7 +79,9 @@ impl Commands {
                 )
                 .await
             }
-            Commands::Queue { command } => command.handle(ctx).await,
+            Commands::Enqueue { tweet_id, message } => {
+                enqueue::run(&tweet_id, &message, ctx).await
+            }
         }
     }
 }

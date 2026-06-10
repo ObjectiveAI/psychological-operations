@@ -1,4 +1,4 @@
-//! `agents queue add --tweet-id <id> --message <msg>` — the caller
+//! `agents enqueue --tweet-id <id> --message <msg>` — the caller
 //! flags a tweet for the agent named in `OBJECTIVEAI_AGENT_ID`.
 //!
 //! The queue itself is per-agent (caller-agnostic). Row shape:
@@ -29,7 +29,7 @@ async fn run_inner(
         .as_deref()
         .ok_or_else(|| {
             Error::Other(
-                "OBJECTIVEAI_AGENT_ID not set — required for `agents queue add`"
+                "OBJECTIVEAI_AGENT_ID not set — required for `agents enqueue`"
                     .into(),
             )
         })?;

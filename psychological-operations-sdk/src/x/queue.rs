@@ -8,7 +8,7 @@
 //! - **Psyop pipelines** — a tweet that scored above its threshold
 //!   lands here with `psyop = Some(name)` + `score = Some(value)` +
 //!   no `deliverer` / `message`.
-//! - **`agents queue add`** — an operator flags a tweet for an agent
+//! - **`agents enqueue`** — an operator flags a tweet for an agent
 //!   with `deliverer = Some(agent)` + `message = Some(note)` + no
 //!   `psyop` / `score`.
 //!
