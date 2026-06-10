@@ -16,6 +16,7 @@ use clap::Subcommand;
 
 mod agent_ref;
 pub mod enqueue;
+pub mod notify;
 
 use agent_ref::AgentRef;
 
@@ -64,6 +65,12 @@ pub enum Commands {
         #[arg(long)]
         message: String,
     },
+    /// Notify every agent that has queued tweets. For each distinct
+    /// agent, enqueues an `agents message` (keyed
+    /// `psychological-operations`) reporting how many tweets are
+    /// waiting. All sends run concurrently.
+    #[command(name = "notify")]
+    Notify,
 }
 
 impl Commands {
@@ -93,6 +100,7 @@ impl Commands {
                 let kind = agent.kind();
                 enqueue::run(&name, kind, &tweet_id, &message, ctx).await
             }
+            Commands::Notify => notify::run(ctx).await,
         }
     }
 }

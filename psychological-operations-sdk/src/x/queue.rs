@@ -191,6 +191,31 @@ impl Queue {
         Ok(rows.into_iter().map(|r| r.get::<String, _>("agent")).collect())
     }
 
+    /// Tweet counts grouped by `(agent, agent_kind)` — one tuple per
+    /// distinct agent + kind with the number of queued rows. Single
+    /// query; alphabetical by agent.
+    pub async fn counts_by_agent_kind(&self) -> Result<Vec<(String, AgentKind, i64)>, Error> {
+        let rows = sqlx::query(
+            "SELECT agent, agent_kind, COUNT(*) AS n \
+             FROM queue \
+             GROUP BY agent, agent_kind \
+             ORDER BY agent ASC",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| Error::Other(format!("queue counts: {e}")))?;
+        Ok(rows
+            .into_iter()
+            .map(|r| {
+                (
+                    r.get::<String, _>("agent"),
+                    AgentKind::from_db(r.get::<String, _>("agent_kind").as_str()),
+                    r.get::<i64, _>("n"),
+                )
+            })
+            .collect())
+    }
+
     /// Delete `(agent, tweet_id)` if present. Returns `true` if a
     /// row was removed.
     pub async fn delete(
