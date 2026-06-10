@@ -2,13 +2,19 @@
 //!
 //! Exactly one of `--agent-tag` / `--me` / `--agent-instance` is
 //! required; `--parent-agent-instance-hierarchy` is only valid alongside
-//! `--agent-instance`. [`AgentRef::resolve`] collapses the selection to a
-//! single agent `name`, which becomes a filesystem path segment
-//! (`…/browser/agent/<name>/…`) and the flat CEF profile dir
-//! `agent-<name>` — so every form except a verbatim tag replaces '/' with
-//! '_'. A tag containing '/' is rejected at parse time instead.
+//! `--agent-instance`. Two resolutions, intentionally different:
+//!
+//! - [`AgentRef::resolve_name`] — for `agents login` / `agents browser`:
+//!   collapses '/' to '_' so the result is a single filesystem path
+//!   segment (`…/browser/agent/<name>/`, flat CEF profile `agent-<name>`).
+//! - [`AgentRef::resolve_raw`] — for `agents enqueue`: verbatim, '/'
+//!   preserved (the queue stores the agent and deliverer raw).
+//!
+//! In both, the tag is used verbatim; a tag containing '/' is rejected at
+//! parse time.
 
 use clap::{ArgGroup, Args};
+use psychological_operations_sdk::x::queue::AgentKind;
 
 #[derive(Debug, Args)]
 #[command(group = ArgGroup::new("agent_ref")
@@ -38,25 +44,44 @@ pub struct AgentRef {
 }
 
 impl AgentRef {
-    /// Collapse the selector to the resolved agent `name`. The clap
-    /// `agent_ref` group guarantees exactly one selector is set; the
-    /// final `unreachable!` mirrors `browser::args::Args::initial_mode`.
-    ///
-    /// Every form except a verbatim `--agent-tag` replaces '/' with '_'
-    /// so the name is a single path segment (see the module docs).
-    pub fn resolve(&self, cfg: &crate::run::Config) -> String {
+    /// The resolved agent string **without** path-safety collapsing —
+    /// the tag verbatim; `--me` / `--agent-instance` keep their '/'
+    /// separators. Used by `agents enqueue`, where the queue stores the
+    /// agent (and the deliverer) verbatim. The clap `agent_ref` group
+    /// guarantees exactly one selector is set; the final `unreachable!`
+    /// mirrors `browser::args::Args::initial_mode`.
+    pub fn resolve_raw(&self, cfg: &crate::run::Config) -> String {
         if let Some(tag) = self.agent_tag.as_deref() {
             tag.to_string()
         } else if self.me {
-            cfg.objectiveai_agent_instance_hierarchy.replace('/', "_")
+            cfg.objectiveai_agent_instance_hierarchy.clone()
         } else if let Some(inst) = self.agent_instance.as_deref() {
-            let full = match self.parent_agent_instance_hierarchy.as_deref() {
+            match self.parent_agent_instance_hierarchy.as_deref() {
                 Some(parent) => format!("{parent}/{inst}"),
                 None => format!("{}/{}", cfg.objectiveai_agent_instance_hierarchy, inst),
-            };
-            full.replace('/', "_")
+            }
         } else {
             unreachable!("clap ArgGroup agent_ref required=true, multiple=false")
+        }
+    }
+
+    /// The resolved persona **name** for `agents login` / `agents
+    /// browser`: [`resolve_raw`](Self::resolve_raw) with '/' collapsed to
+    /// '_' so it is a single filesystem path segment (it becomes
+    /// `…/browser/agent/<name>/` and the flat CEF profile `agent-<name>`).
+    /// The tag is already verbatim and slash-free (rejected at parse).
+    pub fn resolve_name(&self, cfg: &crate::run::Config) -> String {
+        self.resolve_raw(cfg).replace('/', "_")
+    }
+
+    /// Which `agent_kind` this selector resolves to: `--agent-tag`
+    /// yields [`AgentKind::AgentTag`]; `--me` / `--agent-instance`
+    /// yield [`AgentKind::AgentInstanceHierarchy`].
+    pub fn kind(&self) -> AgentKind {
+        if self.agent_tag.is_some() {
+            AgentKind::AgentTag
+        } else {
+            AgentKind::AgentInstanceHierarchy
         }
     }
 }
@@ -99,44 +124,54 @@ mod tests {
     }
 
     #[test]
-    fn tag_is_verbatim() {
-        assert_eq!(sel(Some("my-tag"), false, None, None).resolve(&cfg("h")), "my-tag");
+    fn tag_verbatim_both_resolutions() {
+        let s = sel(Some("my-tag"), false, None, None);
+        assert_eq!(s.resolve_name(&cfg("h")), "my-tag");
+        assert_eq!(s.resolve_raw(&cfg("h")), "my-tag");
     }
 
     #[test]
-    fn me_collapses_hierarchy() {
-        assert_eq!(sel(None, true, None, None).resolve(&cfg("a/b/c")), "a_b_c");
+    fn me_name_collapses_raw_keeps_slashes() {
+        let s = sel(None, true, None, None);
+        assert_eq!(s.resolve_name(&cfg("a/b/c")), "a_b_c");
+        assert_eq!(s.resolve_raw(&cfg("a/b/c")), "a/b/c");
     }
 
     #[test]
     fn me_default_hierarchy() {
-        assert_eq!(
-            sel(None, true, None, None).resolve(&cfg("psychological-operations")),
-            "psychological-operations"
-        );
+        let s = sel(None, true, None, None);
+        assert_eq!(s.resolve_name(&cfg("psychological-operations")), "psychological-operations");
+        assert_eq!(s.resolve_raw(&cfg("psychological-operations")), "psychological-operations");
     }
 
     #[test]
-    fn instance_no_parent_uses_hierarchy() {
-        assert_eq!(sel(None, false, Some("inst"), None).resolve(&cfg("a/b")), "a_b_inst");
+    fn instance_no_parent_name_vs_raw() {
+        let s = sel(None, false, Some("inst"), None);
+        assert_eq!(s.resolve_name(&cfg("a/b")), "a_b_inst");
+        assert_eq!(s.resolve_raw(&cfg("a/b")), "a/b/inst");
     }
 
     #[test]
-    fn instance_with_parent_ignores_hierarchy() {
-        assert_eq!(
-            sel(None, false, Some("inst"), Some("p/q")).resolve(&cfg("ignored")),
-            "p_q_inst"
-        );
-    }
-
-    #[test]
-    fn instance_value_slash_collapses() {
-        assert_eq!(sel(None, false, Some("x/y"), None).resolve(&cfg("h")), "h_x_y");
+    fn instance_with_parent_name_vs_raw() {
+        let s = sel(None, false, Some("inst"), Some("p/q"));
+        assert_eq!(s.resolve_name(&cfg("ignored")), "p_q_inst");
+        assert_eq!(s.resolve_raw(&cfg("ignored")), "p/q/inst");
     }
 
     #[test]
     fn tag_parser_rejects_slash() {
         assert!(tag_without_slash("a/b").is_err());
         assert_eq!(tag_without_slash("a-b").unwrap(), "a-b");
+    }
+
+    #[test]
+    fn kind_reflects_selector() {
+        assert_eq!(sel(Some("t"), false, None, None).kind(), AgentKind::AgentTag);
+        assert_eq!(sel(None, true, None, None).kind(), AgentKind::AgentInstanceHierarchy);
+        assert_eq!(sel(None, false, Some("i"), None).kind(), AgentKind::AgentInstanceHierarchy);
+        assert_eq!(
+            sel(None, false, Some("i"), Some("p")).kind(),
+            AgentKind::AgentInstanceHierarchy
+        );
     }
 }

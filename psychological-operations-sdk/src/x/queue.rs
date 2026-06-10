@@ -7,10 +7,15 @@
 //!
 //! - **Psyop pipelines** — a tweet that scored above its threshold
 //!   lands here with `psyop = Some(name)` + `score = Some(value)` +
-//!   no `deliverer` / `message`.
+//!   no `deliverer_agent_instance_hierarchy` / `message`.
 //! - **`agents enqueue`** — an operator flags a tweet for an agent
-//!   with `deliverer = Some(agent)` + `message = Some(note)` + no
-//!   `psyop` / `score`.
+//!   with `message = Some(note)` + the caller's
+//!   `deliverer_agent_instance_hierarchy` (from
+//!   `OBJECTIVEAI_AGENT_INSTANCE_HIERARCHY`, verbatim) + no `psyop` /
+//!   `score`.
+//!
+//! Every row also records `agent_kind` — whether the `agent` column is
+//! an `agent_tag` or an `agent_instance_hierarchy`.
 //!
 //! Agent-side, the `read_queue` MCP tool lists pending entries and
 //! `mark_handled` removes one.
@@ -33,32 +38,64 @@ use sqlx::sqlite::{
 use super::Error;
 use super::locker;
 
-// v3 reverts the v2 mistake of partitioning the queue by caller —
-// the queue is per-agent, not per-(caller, agent). Bumping the
-// version forces an on-disk wipe of any v2 rows.
-const QUEUE_VERSION: i64 = 3;
+// v4 adds `agent_kind` and renames `deliverer` ->
+// `deliverer_agent_instance_hierarchy`. The queue carries only
+// transient rows, so bumping the version just wipes + recreates the
+// table on next open.
+const QUEUE_VERSION: i64 = 4;
 
 const QUEUE_CREATE: &str = "CREATE TABLE queue (\
-        agent      TEXT    NOT NULL,\
-        tweet_id   TEXT    NOT NULL,\
-        psyop      TEXT,\
-        score      REAL,\
-        deliverer  TEXT,\
-        message    TEXT,\
-        queued_at  INTEGER NOT NULL,\
+        agent                              TEXT    NOT NULL,\
+        agent_kind                         TEXT    NOT NULL,\
+        tweet_id                           TEXT    NOT NULL,\
+        psyop                              TEXT,\
+        score                              REAL,\
+        deliverer_agent_instance_hierarchy TEXT,\
+        message                            TEXT,\
+        queued_at                          INTEGER NOT NULL,\
         PRIMARY KEY (agent, tweet_id)\
     )";
+
+/// How the `agent` column should be interpreted: a tag name, or an
+/// agent-instance-hierarchy string. Stored as the snake_case TEXT
+/// `"agent_tag"` / `"agent_instance_hierarchy"`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentKind {
+    AgentTag,
+    AgentInstanceHierarchy,
+}
+
+impl AgentKind {
+    /// The TEXT form persisted in the `agent_kind` column.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            AgentKind::AgentTag => "agent_tag",
+            AgentKind::AgentInstanceHierarchy => "agent_instance_hierarchy",
+        }
+    }
+
+    /// Parse the `agent_kind` column back into the enum. Anything that
+    /// isn't `"agent_tag"` is treated as an instance hierarchy.
+    fn from_db(s: &str) -> AgentKind {
+        match s {
+            "agent_tag" => AgentKind::AgentTag,
+            _ => AgentKind::AgentInstanceHierarchy,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueueEntry {
     pub agent: String,
+    pub agent_kind: AgentKind,
     pub tweet_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub psyop: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub score: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub deliverer: Option<String>,
+    pub deliverer_agent_instance_hierarchy: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
     pub queued_at: i64,
@@ -107,14 +144,16 @@ impl Queue {
     pub async fn enqueue(&self, entry: &QueueEntry) -> Result<(), Error> {
         sqlx::query(
             "INSERT OR REPLACE INTO queue \
-             (agent, tweet_id, psyop, score, deliverer, message, queued_at) \
-             VALUES (?, ?, ?, ?, ?, ?, ?)",
+             (agent, agent_kind, tweet_id, psyop, score, \
+              deliverer_agent_instance_hierarchy, message, queued_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&entry.agent)
+        .bind(entry.agent_kind.as_str())
         .bind(&entry.tweet_id)
         .bind(entry.psyop.as_deref())
         .bind(entry.score)
-        .bind(entry.deliverer.as_deref())
+        .bind(entry.deliverer_agent_instance_hierarchy.as_deref())
         .bind(entry.message.as_deref())
         .bind(entry.queued_at)
         .execute(&self.pool)
@@ -126,7 +165,8 @@ impl Queue {
     /// All entries for `agent`, oldest first.
     pub async fn list(&self, agent: &str) -> Result<Vec<QueueEntry>, Error> {
         let rows = sqlx::query(
-            "SELECT agent, tweet_id, psyop, score, deliverer, message, queued_at \
+            "SELECT agent, agent_kind, tweet_id, psyop, score, \
+                    deliverer_agent_instance_hierarchy, message, queued_at \
              FROM queue \
              WHERE agent = ? \
              ORDER BY queued_at ASC",
@@ -172,13 +212,16 @@ impl Queue {
 
 fn row_to_entry(row: sqlx::sqlite::SqliteRow) -> QueueEntry {
     QueueEntry {
-        agent:     row.get("agent"),
-        tweet_id:  row.get("tweet_id"),
-        psyop:     row.try_get("psyop").ok(),
-        score:     row.try_get("score").ok(),
-        deliverer: row.try_get("deliverer").ok(),
-        message:   row.try_get("message").ok(),
-        queued_at: row.get("queued_at"),
+        agent:      row.get("agent"),
+        agent_kind: AgentKind::from_db(row.get::<String, _>("agent_kind").as_str()),
+        tweet_id:   row.get("tweet_id"),
+        psyop:      row.try_get("psyop").ok(),
+        score:      row.try_get("score").ok(),
+        deliverer_agent_instance_hierarchy: row
+            .try_get("deliverer_agent_instance_hierarchy")
+            .ok(),
+        message:    row.try_get("message").ok(),
+        queued_at:  row.get("queued_at"),
     }
 }
 

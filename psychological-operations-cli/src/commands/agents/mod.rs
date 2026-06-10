@@ -70,7 +70,7 @@ impl Commands {
     pub async fn handle(self, ctx: &crate::context::Context) -> bool {
         match self {
             Commands::Login { agent, dangerously_reset } => {
-                let name = agent.resolve(&ctx.config);
+                let name = agent.resolve_name(&ctx.config);
                 crate::login::run(
                     psychological_operations_sdk::browser::auth_json::PersonaKind::Agent,
                     &name,
@@ -80,7 +80,7 @@ impl Commands {
                 .await
             }
             Commands::Browser { agent } => {
-                let name = agent.resolve(&ctx.config);
+                let name = agent.resolve_name(&ctx.config);
                 crate::persona_browser::run(
                     psychological_operations_sdk::browser::auth_json::PersonaKind::Agent,
                     &name,
@@ -89,8 +89,9 @@ impl Commands {
                 .await
             }
             Commands::Enqueue { agent, tweet_id, message } => {
-                let name = agent.resolve(&ctx.config);
-                enqueue::run(&name, &tweet_id, &message, ctx).await
+                let name = agent.resolve_raw(&ctx.config);
+                let kind = agent.kind();
+                enqueue::run(&name, kind, &tweet_id, &message, ctx).await
             }
         }
     }
