@@ -1,13 +1,15 @@
-//! `Destination::Queue { agent }` — psyop delivery target that
-//! writes each scored tweet into the SDK's per-agent queue.
+//! `Destination::AgentQueue` — psyop delivery target that writes each
+//! scored tweet into the SDK's per-agent queue. The target agent is
+//! selected by `agent_tag` or `agent_instance_hierarchy` (untagged
+//! [`AgentQueue`]); that choice also sets each row's `agent_kind`. Both
+//! forms are used verbatim — no '/' collapsing.
 //!
-//! The Queue is local SQLite (see
-//! `psychological_operations_sdk::x::queue`); calling it doesn't
-//! hit the X API. We open a Client purely to use its lazy
-//! `queue()` accessor. `AuthMode::XApp` works fine — auth is
-//! never resolved for queue I/O.
+//! The queue is local SQLite (see
+//! `psychological_operations_sdk::x::queue`); calling it doesn't hit the
+//! X API. We open a Client purely to use its lazy `queue()` accessor.
+//! `AuthMode::XApp` works fine — auth is never resolved for queue I/O.
 
-pub use psychological_operations_sdk::cli::destinations::queue::Queue;
+pub use psychological_operations_sdk::cli::destinations::agent_queue::AgentQueue;
 
 use psychological_operations_sdk::x::client::{AuthMode, Client};
 use psychological_operations_sdk::x::queue::{self, AgentKind, QueueEntry};
@@ -15,11 +17,18 @@ use psychological_operations_sdk::x::queue::{self, AgentKind, QueueEntry};
 use super::Subject;
 
 pub async fn send(
-    cfg: &Queue,
+    cfg: &AgentQueue,
     subject: &Subject<'_>,
     ctx: &crate::context::Context,
 ) -> Result<(), crate::error::Error> {
     let Subject::Psyop { name, psyop: _, output } = subject;
+
+    let (agent, agent_kind) = match cfg {
+        AgentQueue::AgentTag { agent_tag } => (agent_tag.clone(), AgentKind::AgentTag),
+        AgentQueue::AgentInstanceHierarchy { agent_instance_hierarchy } => {
+            (agent_instance_hierarchy.clone(), AgentKind::AgentInstanceHierarchy)
+        }
+    };
 
     let client = Client::new(
         reqwest::Client::new(),
@@ -37,11 +46,8 @@ pub async fn send(
 
     for scored in *output {
         let entry = QueueEntry {
-            agent:      cfg.agent.clone(),
-            // TODO(broader refactor): the psyop Queue destination's
-            // `agent` is an operator-configured name; treat it as a tag
-            // for now. Revisit when the destination config carries kind.
-            agent_kind: AgentKind::AgentTag,
+            agent:      agent.clone(),
+            agent_kind,
             tweet_id:   scored.post.id.clone(),
             psyop:      Some((*name).to_string()),
             score:      Some(scored.score),

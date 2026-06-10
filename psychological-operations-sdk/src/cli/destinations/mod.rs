@@ -13,7 +13,7 @@ pub mod file;
 pub mod exec;
 pub mod websocket;
 pub mod x;
-pub mod queue;
+pub mod agent_queue;
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "type")]
@@ -34,8 +34,8 @@ pub enum Destination {
     WebSocket(websocket::WebSocket),
     #[serde(rename = "x")]
     X(x::X),
-    #[serde(rename = "queue")]
-    Queue(queue::Queue),
+    #[serde(rename = "agent_queue")]
+    AgentQueue(agent_queue::AgentQueue),
 }
 
 /// Returned by `targets deliver` — drain queue counters.

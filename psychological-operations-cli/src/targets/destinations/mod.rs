@@ -3,7 +3,7 @@ pub mod exec;
 pub mod file;
 pub mod http;
 pub mod json_body;
-pub mod queue;
+pub mod agent_queue;
 pub mod stdout;
 pub mod telegram;
 pub mod websocket;
@@ -48,6 +48,6 @@ pub async fn send_one(
         Destination::Exec(cfg) => exec::send(cfg, subject).await,
         Destination::WebSocket(cfg) => websocket::send(cfg, subject).await,
         Destination::X(cfg) => x::send(cfg, subject, ctx).await,
-        Destination::Queue(cfg) => queue::send(cfg, subject, ctx).await,
+        Destination::AgentQueue(cfg) => agent_queue::send(cfg, subject, ctx).await,
     }
 }
