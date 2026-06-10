@@ -63,7 +63,7 @@ async fn notify_one(executor: &PluginExecutor, agent: String, kind: AgentKind, n
         path_type: agents_message::Path::AgentsMessage,
         target: target_for(&agent, kind),
         message: agents_message::RequestMessage::Simple(format!(
-            "There are {n} tweets in the queue"
+            "There are {n} tweets in the queue for '{agent}' (you)."
         )),
         enqueue: Some(agents_message::EnqueueMode::Keyed {
             key: NOTIFY_KEY.to_string(),
