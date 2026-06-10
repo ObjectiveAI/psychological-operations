@@ -6,12 +6,3 @@ members = [
     "psychological-operations-cli",
     "psychological-operations-x-api-mcp",
 ]
-
-# Pin objectiveai-sdk to the local checkout so the SDK can
-# depend on it with `default-features = false, features =
-# ["cli"]`. 2.1.0 on crates.io has a bug where json_schema.rs
-# references `cli::command::AgentArguments` (gated under
-# `cli-executor`) unconditionally; the local checkout carries
-# the cfg fix until 2.1.1 ships.
-[patch.crates-io]
-objectiveai-sdk = { path = "../objectiveai/objectiveai-sdk-rs" }

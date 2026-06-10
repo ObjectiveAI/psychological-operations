@@ -14,6 +14,5 @@ pub mod browser;
 pub mod publish;
 pub mod login;
 pub mod persona_browser;
-pub mod invent;
 
 pub mod run;

@@ -1,6 +1,7 @@
 use futures::StreamExt;
 use objectiveai_sdk::cli::command::functions::{
-    executions::create::{
+    execute::{
+        self,
         ResponseItem as CreateResponseItem,
         FunctionSpec, ProfileSpec,
         standard::{self, ResponseItem as StandardItem},
@@ -90,58 +91,54 @@ async fn run_function_execution(
 
     let request = match strategy {
         Strategy::Default => {
-            let mut advanced = standard::RequestDangerousAdvanced::default();
-            advanced.stream = Some(true);
-            objectiveai_sdk::cli::command::functions::executions::create::Request::Standard(
-                standard::Request {
-                    path_type: standard::Path::FunctionsExecutionsCreateStandard,
-                    function: function_spec,
-                    profile: profile_spec,
-                    input: standard::RequestInput::Inline(input),
-                    continuation: None,
-                    retry_token: None,
-                    seed,
-                    split,
-                    invert,
-                    dangerous_advanced: Some(advanced),
-                    jq: None,
-                },
-            )
+            let advanced = standard::RequestDangerousAdvanced {
+                stream: Some(true),
+                seed,
+            };
+            execute::Request::Standard(standard::Request {
+                path_type: standard::Path::FunctionsExecuteStandard,
+                function: function_spec,
+                profile: profile_spec,
+                input: standard::RequestInput::Inline(input),
+                continuation: None,
+                retry_token: None,
+                split,
+                invert,
+                dangerous_advanced: Some(advanced),
+                jq: None,
+            })
         }
         Strategy::SwissSystem { pool, rounds } => {
-            let mut advanced = swiss_system::RequestDangerousAdvanced::default();
-            advanced.stream = Some(true);
-            objectiveai_sdk::cli::command::functions::executions::create::Request::SwissSystem(
-                swiss_system::Request {
-                    path_type: swiss_system::Path::FunctionsExecutionsCreateSwissSystem,
-                    function: function_spec,
-                    profile: profile_spec,
-                    input: swiss_system::RequestInput::Inline(input),
-                    continuation: None,
-                    retry_token: None,
-                    seed,
-                    split,
-                    invert,
-                    pool: *pool,
-                    rounds: *rounds,
-                    dangerous_advanced: Some(advanced),
-                    jq: None,
-                },
-            )
+            let advanced = swiss_system::RequestDangerousAdvanced {
+                stream: Some(true),
+                seed,
+            };
+            execute::Request::SwissSystem(swiss_system::Request {
+                path_type: swiss_system::Path::FunctionsExecuteSwissSystem,
+                function: function_spec,
+                profile: profile_spec,
+                input: swiss_system::RequestInput::Inline(input),
+                continuation: None,
+                retry_token: None,
+                split,
+                invert,
+                pool: *pool,
+                rounds: *rounds,
+                dangerous_advanced: Some(advanced),
+                jq: None,
+            })
         }
     };
 
-    let mut stream = objectiveai_sdk::cli::command::functions::executions::create::execute(
-        &*executor, request, None,
-    )
-    .await
-    .map_err(|e| crate::error::Error::ObjectiveAiCli(format!("executions create: {e}")))?;
+    let mut stream = execute::execute(&*executor, request, None)
+        .await
+        .map_err(|e| crate::error::Error::ObjectiveAiCli(format!("functions execute: {e}")))?;
 
     let mut terminal: Option<serde_json::Value> = None;
 
     while let Some(item) = stream.next().await {
         let item = item
-            .map_err(|e| crate::error::Error::ObjectiveAiCli(format!("executions create stream: {e}")))?;
+            .map_err(|e| crate::error::Error::ObjectiveAiCli(format!("functions execute stream: {e}")))?;
         let (output, tasks_errors, value) = match &item {
             CreateResponseItem::Standard(StandardItem::Chunk(c)) => (
                 c.output.as_ref().map(|o| serde_json::to_value(&o.output).expect("output serializes")),
@@ -176,7 +173,7 @@ async fn run_function_execution(
     }
 
     terminal.ok_or_else(|| crate::error::Error::ObjectiveAiCli(
-        "executions create produced no terminal chunk with output".into(),
+        "functions execute produced no terminal chunk with output".into(),
     ))
 }
 

@@ -15,7 +15,6 @@ use clap::{Parser, Subcommand};
 use crate::context::Context;
 
 pub mod agents;
-pub mod functions;
 pub mod mcp;
 pub mod psyops;
 pub mod targets;
@@ -47,13 +46,6 @@ enum Commands {
     Targets {
         #[command(subcommand)]
         command: targets::Commands,
-    },
-    /// Function-side subcommands (invention, etc.). Mirrors the
-    /// `objectiveai functions` subtree; psyops auto-applies its
-    /// post input-schema where applicable.
-    Functions {
-        #[command(subcommand)]
-        command: functions::Commands,
     },
     /// Master X dev-account / X-App credentials setup.
     #[command(name = "x_app")]
@@ -114,7 +106,6 @@ where
         Commands::Psyops { command } => command.handle(ctx).await,
         Commands::Agents { command } => command.handle(ctx).await,
         Commands::Targets { command } => command.handle(ctx).await,
-        Commands::Functions { command } => command.handle(ctx).await,
         Commands::XApp { command } => command.handle(ctx).await,
         Commands::Mcp { command } => command.handle(ctx).await,
     }

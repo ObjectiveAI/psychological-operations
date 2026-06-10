@@ -2701,6 +2701,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "df3b46402a9d5adb4c86a0cf463f42e19994e3ee891101b1841f30a545cb49a9"
 
 [[package]]
+name = "humantime"
+version = "2.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "135b12329e5e3ce057a9f972339ea52bc954fe1e9358ef27f95e89716fbc5424"
+
+[[package]]
 name = "hybrid-array"
 version = "0.4.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3740,7 +3746,7 @@ version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "680998035259dcfcafe653688bf2aa6d3e2dc05e98be6ab46afb089dc84f1df8"
 dependencies = [
- "proc-macro-crate 1.3.1",
+ "proc-macro-crate 3.5.0",
  "proc-macro2",
  "quote",
  "syn 2.0.117",
@@ -3944,7 +3950,9 @@ dependencies = [
 
 [[package]]
 name = "objectiveai-sdk"
-version = "2.1.0"
+version = "2.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "453402b1fc6433ecd8241ef880c79e724363fcaf73a52420fe9f8c5192db63e7"
 dependencies = [
  "anyhow",
  "arbitrary",
@@ -3959,12 +3967,14 @@ dependencies = [
  "futures",
  "futures-util",
  "getrandom 0.3.4",
+ "humantime",
  "indexmap 2.14.0",
  "jmespath",
  "json-escape",
  "mime2ext",
  "objectiveai-sdk-macros",
  "rand 0.9.4",
+ "regex",
  "reqwest 0.12.28",
  "reqwest-eventsource",
  "rust_decimal",
@@ -3983,7 +3993,9 @@ dependencies = [
 
 [[package]]
 name = "objectiveai-sdk-macros"
-version = "2.1.0"
+version = "2.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ea4a8b06ef8f346c881a29b6616929464bb729b93d4053db27f353d1ef913cce"
 
 [[package]]
 name = "once_cell"

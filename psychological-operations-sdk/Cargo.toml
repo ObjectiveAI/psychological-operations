@@ -50,12 +50,10 @@ schemars = "1.2.1"
 # with the CLI's starlark when both can move past sqlite 0.28.
 starlark = "0.13.0"
 # Only the `cli` feature — gives us the type definitions for
-# `Stage` (FullInlineFunction*, Strategy) and the
-# `Output::Invention` payload
-# (`recursive::create::remote::ResponseItem`). The default
+# `Stage` (FullInlineFunction*, Strategy). The default
 # features pull executor / http / env / viewer / mcp which the
 # SDK doesn't need (the CLI binary keeps the full set).
-objectiveai-sdk = { version = "2.1.0", default-features = false, features = ["cli"] }
+objectiveai-sdk = { version = "2.1.1", default-features = false, features = ["cli"] }
 
 # Chromium encrypts cookie values via AES-GCM with a key wrapped
 # in Windows DPAPI. CryptUnprotectData lives in

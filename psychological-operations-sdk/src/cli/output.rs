@@ -12,7 +12,6 @@
 //! - `Output::PsyopList(v)` → `{"psyop_list": [...]}`
 //! - etc.
 
-use objectiveai_sdk::cli::command::functions::inventions::recursive::create::remote::ResponseItem as InventionResponseItem;
 use schemars::Schema;
 use serde::{Deserialize, Serialize};
 
@@ -25,8 +24,7 @@ use crate::cli::psyops::{PsyOp, PsyopEntry, PublishedPsyop};
 #[serde(rename_all = "snake_case")]
 pub enum Output {
     /// Generic success ack — set / disable / delete / run /
-    /// browse / login / setup / queue-handle / mcp-begin /
-    /// invention-streaming, etc.
+    /// browse / login / setup / queue-handle / mcp-begin, etc.
     Ok,
     /// JSON Schema dump from `psyops schema` / `targets schema`.
     Schema(Schema),
@@ -45,14 +43,6 @@ pub enum Output {
     DestinationList(Vec<Destination>),
     /// `targets deliver` — drain summary.
     DeliverySummary(DeliverySummary),
-
-    // ── functions ──────────────────────────────────────────
-    /// `functions invent {alpha-scalar|alpha-vector|remote}` —
-    /// each emission carries the objectiveai SDK's
-    /// `recursive::create::remote::ResponseItem` verbatim
-    /// (`Chunk` for streaming items, `Id` for the unary terminal
-    /// id). The CLI emits one `Output::Invention` per item.
-    Invention(InventionResponseItem),
 
     // ── meta ───────────────────────────────────────────────
     /// `--help` / `--version` / "missing subcommand" rendered

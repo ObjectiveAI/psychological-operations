@@ -3,7 +3,6 @@
 use clap::Subcommand;
 
 pub mod add;
-pub mod handle;
 
 #[derive(Subcommand)]
 pub enum Commands {
@@ -19,24 +18,12 @@ pub enum Commands {
         #[arg(long)]
         message: String,
     },
-    /// Walk the queue and hand each agent's pending work off to
-    /// objectiveai. Runs all agents concurrently.
-    #[command(name = "handle")]
-    Handle {
-        /// Restrict to specific X-API agents. Repeatable. When
-        /// omitted, runs for every agent with ≥1 queued row.
-        /// Agents with no rows are silently skipped (no
-        /// notification emitted).
-        #[arg(long)]
-        agent: Vec<String>,
-    },
 }
 
 impl Commands {
     pub async fn handle(self, ctx: &crate::context::Context) -> bool {
         match self {
             Commands::Add { tweet_id, message } => add::run(&tweet_id, &message, ctx).await,
-            Commands::Handle { agent } => handle::run(agent, ctx).await,
         }
     }
 }
