@@ -98,10 +98,10 @@ pub struct Config {
     /// When `None`, defaults to `~/.objectiveai`. Our state goes in
     /// `<this>/plugins/.psychological-operations/`.
     pub objectiveai_base_dir: Option<String>,
-    /// Default agent id (env `OBJECTIVEAI_AGENT_ID`).
-    /// Used as the fallback by `mcp begin --agent` (and any other
-    /// command that needs an agent and doesn't get one on the
-    /// command line).
+    /// Default agent id (env `OBJECTIVEAI_AGENT_ID`). Currently unused —
+    /// captured for parity with the objectiveai agent-environment
+    /// contract (alongside `objectiveai_agent_full_id` / `_remote` /
+    /// `_instance_hierarchy`).
     pub objectiveai_agent_id: Option<String>,
     /// Agent's fully-qualified id (env `OBJECTIVEAI_AGENT_FULL_ID`).
     /// Currently unused — captured for parity with the objectiveai

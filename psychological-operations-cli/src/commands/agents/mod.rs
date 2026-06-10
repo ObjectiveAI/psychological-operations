@@ -6,15 +6,18 @@
 //! logged-in user (the twid-conflict guard does not fire) and have
 //! no scrape mode.
 //!
-//! Both arms (`login`, `browser`) are thin dispatches into
-//! `crate::login::run` / `crate::persona_browser::run` with
-//! `PersonaKind::Agent`. There is no agent-specific business logic,
-//! so there's no `crate::agents` module — this file is the entire
-//! agent surface.
+//! All three subcommands (`login`, `browser`, `enqueue`) select their
+//! agent via the shared [`agent_ref::AgentRef`] argument group, which
+//! resolves to a single agent `name`. `login` / `browser` are thin
+//! dispatches into `crate::login::run` / `crate::persona_browser::run`
+//! with `PersonaKind::Agent`; `enqueue` lives in the `enqueue` module.
 
 use clap::Subcommand;
 
+mod agent_ref;
 pub mod enqueue;
+
+use agent_ref::AgentRef;
 
 #[derive(Subcommand)]
 pub enum Commands {
@@ -28,7 +31,8 @@ pub enum Commands {
     /// `--dangerously-reset` to wipe its browser folder and re-login.
     #[command(name = "login")]
     Login {
-        name: String,
+        #[command(flatten)]
+        agent: AgentRef,
         /// Wipe any existing browser state for this agent before
         /// signing in. Required when re-logging in for an agent
         /// that already has an active session or stored auth.json.
@@ -43,13 +47,16 @@ pub enum Commands {
     /// not signed in.
     #[command(name = "browser")]
     Browser {
-        name: String,
+        #[command(flatten)]
+        agent: AgentRef,
     },
-    /// Enqueue a tweet for the current agent (sourced from
-    /// `OBJECTIVEAI_AGENT_ID`) into the per-agent, caller-agnostic
-    /// queue.
+    /// Enqueue a tweet for the selected agent into the per-agent,
+    /// caller-agnostic queue. The agent is chosen by the shared
+    /// `--agent-tag` / `--me` / `--agent-instance` selector.
     #[command(name = "enqueue")]
     Enqueue {
+        #[command(flatten)]
+        agent: AgentRef,
         /// Numeric ID of the tweet.
         #[arg(long)]
         tweet_id: String,
@@ -62,7 +69,8 @@ pub enum Commands {
 impl Commands {
     pub async fn handle(self, ctx: &crate::context::Context) -> bool {
         match self {
-            Commands::Login { name, dangerously_reset } => {
+            Commands::Login { agent, dangerously_reset } => {
+                let name = agent.resolve(&ctx.config);
                 crate::login::run(
                     psychological_operations_sdk::browser::auth_json::PersonaKind::Agent,
                     &name,
@@ -71,7 +79,8 @@ impl Commands {
                 )
                 .await
             }
-            Commands::Browser { name } => {
+            Commands::Browser { agent } => {
+                let name = agent.resolve(&ctx.config);
                 crate::persona_browser::run(
                     psychological_operations_sdk::browser::auth_json::PersonaKind::Agent,
                     &name,
@@ -79,8 +88,9 @@ impl Commands {
                 )
                 .await
             }
-            Commands::Enqueue { tweet_id, message } => {
-                enqueue::run(&tweet_id, &message, ctx).await
+            Commands::Enqueue { agent, tweet_id, message } => {
+                let name = agent.resolve(&ctx.config);
+                enqueue::run(&name, &tweet_id, &message, ctx).await
             }
         }
     }

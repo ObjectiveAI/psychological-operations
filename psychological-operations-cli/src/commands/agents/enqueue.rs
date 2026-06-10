@@ -1,5 +1,7 @@
-//! `agents enqueue --tweet-id <id> --message <msg>` — the caller
-//! flags a tweet for the agent named in `OBJECTIVEAI_AGENT_ID`.
+//! `agents enqueue <agent-selector> --tweet-id <id> --message <msg>` —
+//! the caller flags a tweet for the agent named by the shared
+//! `--agent-tag` / `--me` / `--agent-instance` selector (resolved by the
+//! caller; this module receives the final agent name).
 //!
 //! The queue itself is per-agent (caller-agnostic). Row shape:
 //! `deliverer = Some(agent)`, `message = Some(msg)`, no `psyop` /
@@ -12,28 +14,20 @@ use psychological_operations_sdk::x::queue::{self, QueueEntry};
 use crate::error::Error;
 
 pub async fn run(
+    agent: &str,
     tweet_id: &str,
     message: &str,
     ctx: &crate::context::Context,
 ) -> bool {
-    crate::output::emit_result(run_inner(tweet_id, message, ctx).await)
+    crate::output::emit_result(run_inner(agent, tweet_id, message, ctx).await)
 }
 
 async fn run_inner(
+    agent: &str,
     tweet_id: &str,
     message: &str,
     ctx: &crate::context::Context,
 ) -> Result<Output, Error> {
-    let agent = ctx.config
-        .objectiveai_agent_id
-        .as_deref()
-        .ok_or_else(|| {
-            Error::Other(
-                "OBJECTIVEAI_AGENT_ID not set — required for `agents enqueue`"
-                    .into(),
-            )
-        })?;
-
     let client = Client::new(
         reqwest::Client::new(),
         /* mock */ false,
