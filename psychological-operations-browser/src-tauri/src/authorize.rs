@@ -176,7 +176,7 @@ pub async fn maybe_start_flow(handle: &AppHandle<Wry>) {
     let handle_for_task = handle.clone();
     tauri::async_runtime::spawn(async move {
         if let Err(e) =
-            run_flow(handle_for_task, kind, persona_name, persona_twid, x_app_twid).await
+            run_flow(handle_for_task, kind, persona_name, persona_twid).await
         {
             let _ = Output::Log {
                 message: format!("authorize: flow failed: {e}"),
@@ -195,7 +195,6 @@ async fn run_flow(
     kind: PersonaKind,
     persona_name: String,
     persona_twid: String,
-    x_app_twid: String,
 ) -> Result<(), String> {
     let (client_id, client_secret) = read_x_app_creds(&handle).await?;
     let pkce = pkce_generate();
