@@ -7,8 +7,7 @@
 //!   as a `cfg: &crate::run::Config` arg.
 //! - `executor` — the SDK's in-process [`PluginExecutor`],
 //!   `Arc`-wrapped so handlers that fan it out into nested tasks
-//!   (e.g. `agents queue handle`'s per-agent `JoinSet`) can
-//!   `clone()` cheaply. `PluginExecutor::new()` consumes process
+//!   can `clone()` cheaply. `PluginExecutor::new()` consumes process
 //!   stdin/stdout, so there can only ever be one per process —
 //!   building `Context` exactly once in `main` enforces that
 //!   invariant.

@@ -1,4 +1,4 @@
-//! Per-agent tweet handling queue + per-(operator, agent) handler map.
+//! Per-agent tweet handling queue.
 //!
 //! Queue rows are keyed by `(agent, tweet_id)` — the queue is a
 //! shared "to-do list" for each X-API persona, **not** partitioned
@@ -14,15 +14,6 @@
 //!
 //! Agent-side, the `read_queue` MCP tool lists pending entries and
 //! `mark_handled` removes one.
-//!
-//! The sibling `handler_map` table records which objectiveai agent
-//! has been spawned to manage a given
-//! `(objectiveai_instance_hierarchy, agent)` pair. This **is**
-//! per-caller — different caller-agent-instance-hierarchies run
-//! their own handler agents (with their own objectiveai sessions)
-//! against the same shared queue. Subsequent `agents queue handle`
-//! runs by the same caller `agents message` the existing handler
-//! instead of spawning a fresh one each time.
 //!
 //! Storage: `<config_base_dir>/plugins/psychological-operations/queue.sqlite`,
 //! a separate file from the response cache. WAL + 5 s busy timeout so
@@ -45,13 +36,7 @@ use super::locker;
 // v3 reverts the v2 mistake of partitioning the queue by caller —
 // the queue is per-agent, not per-(caller, agent). Bumping the
 // version forces an on-disk wipe of any v2 rows.
-const QUEUE_VERSION:       i64 = 3;
-// v2 renames the `objectiveai_agent_id` column +
-// PRIMARY KEY component to `objectiveai_instance_hierarchy`
-// (upstream naming change — "caller agent instance hierarchy").
-// Wipe-and-recreate is fine here; the table only carries
-// transient mapping rows.
-const HANDLER_MAP_VERSION: i64 = 2;
+const QUEUE_VERSION: i64 = 3;
 
 const QUEUE_CREATE: &str = "CREATE TABLE queue (\
         agent      TEXT    NOT NULL,\
@@ -62,13 +47,6 @@ const QUEUE_CREATE: &str = "CREATE TABLE queue (\
         message    TEXT,\
         queued_at  INTEGER NOT NULL,\
         PRIMARY KEY (agent, tweet_id)\
-    )";
-
-const HANDLER_MAP_CREATE: &str = "CREATE TABLE handler_map (\
-        objectiveai_instance_hierarchy TEXT NOT NULL,\
-        agent                          TEXT NOT NULL,\
-        handler_id                     TEXT NOT NULL,\
-        PRIMARY KEY (objectiveai_instance_hierarchy, agent)\
     )";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -86,9 +64,8 @@ pub struct QueueEntry {
     pub queued_at: i64,
 }
 
-/// SQLite-backed per-agent tweet queue + per-(caller instance
-/// hierarchy, agent) handler map. Open via [`Queue::open`] or —
-/// preferred — through `Client::queue()` (lazy `OnceCell`).
+/// SQLite-backed per-agent tweet queue. Open via [`Queue::open`]
+/// or — preferred — through `Client::queue()` (lazy `OnceCell`).
 pub struct Queue {
     pool: SqlitePool,
 }
@@ -102,8 +79,8 @@ impl std::fmt::Debug for Queue {
 impl Queue {
     /// Open (creating if missing) the queue file under
     /// `<config_base_dir>/plugins/psychological-operations/queue.sqlite`.
-    /// Enables WAL + a 5 s busy timeout. Creates / upgrades both
-    /// tables on first open.
+    /// Enables WAL + a 5 s busy timeout. Creates / upgrades the
+    /// queue table on first open.
     pub async fn open(config_base_dir: &Path) -> Result<Self, Error> {
         let pool = open_pool(config_base_dir).await?;
         Self::ensure_schema(&pool).await?;
@@ -121,8 +98,7 @@ impl Queue {
         .await
         .map_err(|e| Error::Other(format!("queue schema_version: {e}")))?;
 
-        ensure_table(pool, "queue",       QUEUE_VERSION,       QUEUE_CREATE).await?;
-        ensure_table(pool, "handler_map", HANDLER_MAP_VERSION, HANDLER_MAP_CREATE).await?;
+        ensure_table(pool, "queue", QUEUE_VERSION, QUEUE_CREATE).await?;
         Ok(())
     }
 
@@ -191,48 +167,6 @@ impl Queue {
         .await
         .map_err(|e| Error::Other(format!("queue delete: {e}")))?;
         Ok(result.rows_affected() > 0)
-    }
-
-    /// Look up the objectiveai agent id we previously spawned to
-    /// handle this `(caller instance hierarchy, agent)` queue.
-    /// Returns `None` if no handler has been recorded yet.
-    pub async fn get_handler(
-        &self,
-        objectiveai_instance_hierarchy: &str,
-        agent: &str,
-    ) -> Result<Option<String>, Error> {
-        let row: Option<(String,)> = sqlx::query_as(
-            "SELECT handler_id FROM handler_map \
-             WHERE objectiveai_instance_hierarchy = ? AND agent = ?",
-        )
-        .bind(objectiveai_instance_hierarchy)
-        .bind(agent)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| Error::Other(format!("handler_map get: {e}")))?;
-        Ok(row.map(|(id,)| id))
-    }
-
-    /// Upsert the handler mapping for
-    /// `(caller instance hierarchy, agent) → handler_id`.
-    pub async fn set_handler(
-        &self,
-        objectiveai_instance_hierarchy: &str,
-        agent: &str,
-        handler_id: &str,
-    ) -> Result<(), Error> {
-        sqlx::query(
-            "INSERT OR REPLACE INTO handler_map \
-             (objectiveai_instance_hierarchy, agent, handler_id) \
-             VALUES (?, ?, ?)",
-        )
-        .bind(objectiveai_instance_hierarchy)
-        .bind(agent)
-        .bind(handler_id)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| Error::Other(format!("handler_map set: {e}")))?;
-        Ok(())
     }
 }
 
