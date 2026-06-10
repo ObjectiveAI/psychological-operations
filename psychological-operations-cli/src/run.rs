@@ -16,6 +16,12 @@ struct EnvConfigBuilder {
     objectiveai_base_dir: Option<String>,
     #[envconfig(from = "OBJECTIVEAI_AGENT_ID")]
     objectiveai_agent_id: Option<String>,
+    #[envconfig(from = "OBJECTIVEAI_AGENT_FULL_ID")]
+    objectiveai_agent_full_id: Option<String>,
+    #[envconfig(from = "OBJECTIVEAI_AGENT_REMOTE")]
+    objectiveai_agent_remote: Option<String>,
+    #[envconfig(from = "OBJECTIVEAI_AGENT_INSTANCE_HIERARCHY")]
+    objectiveai_agent_instance_hierarchy: Option<String>,
     #[envconfig(from = "PSYCHOLOGICAL_OPERATIONS_COMMIT_AUTHOR_NAME")]
     commit_author_name: Option<String>,
     #[envconfig(from = "PSYCHOLOGICAL_OPERATIONS_COMMIT_AUTHOR_EMAIL")]
@@ -29,9 +35,12 @@ impl EnvConfigBuilder {
         ConfigBuilder {
             objectiveai_base_dir: self.objectiveai_base_dir,
             objectiveai_agent_id: self.objectiveai_agent_id,
-            commit_author_name:   self.commit_author_name,
-            commit_author_email:  self.commit_author_email,
-            commit_time:          self.commit_time
+            objectiveai_agent_full_id: self.objectiveai_agent_full_id,
+            objectiveai_agent_remote: self.objectiveai_agent_remote,
+            objectiveai_agent_instance_hierarchy: self.objectiveai_agent_instance_hierarchy,
+            commit_author_name: self.commit_author_name,
+            commit_author_email: self.commit_author_email,
+            commit_time: self.commit_time
                 .and_then(|s| s.trim().parse::<i64>().ok()),
         }
     }
@@ -41,9 +50,12 @@ impl EnvConfigBuilder {
 pub struct ConfigBuilder {
     pub objectiveai_base_dir: Option<String>,
     pub objectiveai_agent_id: Option<String>,
-    pub commit_author_name:   Option<String>,
-    pub commit_author_email:  Option<String>,
-    pub commit_time:          Option<i64>,
+    pub objectiveai_agent_full_id: Option<String>,
+    pub objectiveai_agent_remote: Option<String>,
+    pub objectiveai_agent_instance_hierarchy: Option<String>,
+    pub commit_author_name: Option<String>,
+    pub commit_author_email: Option<String>,
+    pub commit_time: Option<i64>,
 }
 
 impl Envconfig for ConfigBuilder {
@@ -68,9 +80,14 @@ impl ConfigBuilder {
         Config {
             objectiveai_base_dir: self.objectiveai_base_dir,
             objectiveai_agent_id: self.objectiveai_agent_id,
-            commit_author_name:   self.commit_author_name,
-            commit_author_email:  self.commit_author_email,
-            commit_time:          self.commit_time,
+            objectiveai_agent_full_id: self.objectiveai_agent_full_id,
+            objectiveai_agent_remote: self.objectiveai_agent_remote,
+            objectiveai_agent_instance_hierarchy: self
+                .objectiveai_agent_instance_hierarchy
+                .unwrap_or_else(|| "psychological-operations".to_string()),
+            commit_author_name: self.commit_author_name,
+            commit_author_email: self.commit_author_email,
+            commit_time: self.commit_time,
         }
     }
 }
@@ -86,6 +103,19 @@ pub struct Config {
     /// command that needs an agent and doesn't get one on the
     /// command line).
     pub objectiveai_agent_id: Option<String>,
+    /// Agent's fully-qualified id (env `OBJECTIVEAI_AGENT_FULL_ID`).
+    /// Currently unused — captured for parity with the objectiveai
+    /// agent-environment contract.
+    pub objectiveai_agent_full_id: Option<String>,
+    /// Agent's remote ref (env `OBJECTIVEAI_AGENT_REMOTE`).
+    /// Currently unused — captured for parity with the objectiveai
+    /// agent-environment contract.
+    pub objectiveai_agent_remote: Option<String>,
+    /// Agent instance hierarchy (env
+    /// `OBJECTIVEAI_AGENT_INSTANCE_HIERARCHY`). Required; defaults to
+    /// `"psychological-operations"` when the env var is unset.
+    /// Currently unused.
+    pub objectiveai_agent_instance_hierarchy: String,
     /// Commit author name baked into git commits produced by
     /// `psyops publish`. Default `"psychological-operations"`.
     /// Set via `PSYCHOLOGICAL_OPERATIONS_COMMIT_AUTHOR_NAME`.
