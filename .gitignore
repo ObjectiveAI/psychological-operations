@@ -1,6 +1,8 @@
 *.exe
 *.zip
 node_modules/
+# Repo-local build tools installed by install-bin.sh (ninja, ...).
+/bin/
 dist/
 .claude/
 target/

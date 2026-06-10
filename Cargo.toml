@@ -6,3 +6,10 @@ members = [
     "psychological-operations-cli",
     "psychological-operations-x-api-mcp",
 ]
+
+# Build-tool versions consumed by install-bin.sh (mirrors objectiveai's
+# build-bin.sh / [workspace.metadata.tools] pattern). ninja is needed by
+# cef-dll-sys: the browser crate's CEF C++ wrapper builds via CMake's
+# Ninja generator.
+[workspace.metadata.tools]
+ninja = "1.13.1"
