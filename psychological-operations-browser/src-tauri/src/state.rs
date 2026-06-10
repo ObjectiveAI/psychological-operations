@@ -346,7 +346,9 @@ fn home_url_for_current_mode() -> Option<&'static str> {
         Mode::XApp => Some("https://console.x.com/"),
         Mode::PsyopRead { .. }
         | Mode::PsyopAuthorize { .. }
-        | Mode::AgentAuthorize { .. } => Some("https://x.com/"),
+        | Mode::AgentAuthorize { .. }
+        | Mode::PsyopBrowser { .. }
+        | Mode::AgentBrowser { .. } => Some("https://x.com/"),
     }
 }
 
