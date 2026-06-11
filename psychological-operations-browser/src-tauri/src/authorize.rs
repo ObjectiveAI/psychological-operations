@@ -600,7 +600,7 @@ pub async fn find_other_psyop_owning_twid(
             // <sibling>/handles/<twid>/ — list each x_app_twid leaf
             // dir and check it for auth.json.
             let persona_dir = config_base_dir
-                .join("plugins")
+                .join("plugins-state")
                 .join("psychological-operations")
                 .join("browser")
                 .join("psyop")

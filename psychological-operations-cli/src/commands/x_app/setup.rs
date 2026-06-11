@@ -123,7 +123,7 @@ async fn is_fully_set_up(config_base_dir: &Path) -> Result<bool, Error> {
     };
 
     let x_app_handle_dir = config_base_dir
-        .join("plugins")
+        .join("plugins-state")
         .join("psychological-operations")
         .join("browser")
         .join("x-app")

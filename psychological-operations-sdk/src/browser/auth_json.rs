@@ -12,7 +12,7 @@
 //! Layout (per persona twid × per X-App twid, per psyop/agent):
 //!
 //! ```text
-//! <config-base-dir>/plugins/psychological-operations/browser/<kind>/<name>/handles/<persona_twid>/<x_app_twid>/
+//! <config-base-dir>/plugins-state/psychological-operations/browser/<kind>/<name>/handles/<persona_twid>/<x_app_twid>/
 //!   └── auth.json                  (serialized `Tokens` blob)
 //! ```
 //!
@@ -107,7 +107,7 @@ fn persona_dir(
     x_app_twid: &str,
 ) -> PathBuf {
     config_base_dir
-        .join("plugins")
+        .join("plugins-state")
         .join("psychological-operations")
         .join("browser")
         .join(kind.dir_segment())

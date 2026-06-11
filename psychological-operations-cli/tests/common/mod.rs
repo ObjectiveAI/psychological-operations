@@ -5,7 +5,7 @@
 //!      under `tests/`) to the runtime CONFIG_BASE_DIR
 //!      `tests/.t-<name>/.objectiveai/`. Then it manually copies
 //!      our built binary to
-//!      `<base>/plugins/psychological-operations/plugin[.exe]` so
+//!      `<base>/plugins-state/psychological-operations/plugin[.exe]` so
 //!      the objectiveai host can dispatch to it.
 //!   2. Spawns the `objectiveai` host binary with
 //!      `psychological-operations <subcmd> …` args — exercising
@@ -20,7 +20,7 @@
 //! Each test asset folder is laid out:
 //!   assets/<name>/
 //!   ├── .objectiveai/                                   # initial state (committed)
-//!   │   └── plugins/psychological-operations/...        # our state lives here
+//!   │   └── plugins-state/psychological-operations/...        # our state lives here
 //!   ├── stdout.txt                                      # expected stdout
 //!   └── stderr.txt                                      # expected stderr
 //!
@@ -203,7 +203,7 @@ pub fn objectiveai_binary() -> &'static Path {
 /// `data.db` rows reference).
 ///
 /// Asset folders just drop in whatever psyops they need under
-/// `.objectiveai/plugins/psychological-operations/psyops/<name>/psyop.json`;
+/// `.objectiveai/plugins-state/psychological-operations/psyops/<name>/psyop.json`;
 /// the harness handles all of them uniformly.
 fn git_init_psyops(psyops_dir: &Path) {
     let cfg = psychological_operations_cli::run::Config {
@@ -276,7 +276,7 @@ impl TestEnv {
         // Per-test runtime layout mirrors the live install:
         //
         //   <root>/.t-<name>/.objectiveai/                    ← CONFIG_BASE_DIR
-        //   <root>/.t-<name>/.objectiveai/plugins/psychological-operations/
+        //   <root>/.t-<name>/.objectiveai/plugins-state/psychological-operations/
         //     ├── plugin[.exe]                                ← installed binary
         //     ├── data.db / psyops/ / config.json / ...       ← our state
         //
@@ -290,13 +290,13 @@ impl TestEnv {
         let runtime = std::env::temp_dir().join("psyops-t").join(name);
         let _ = std::fs::remove_dir_all(&runtime);
         let base = runtime.join(".objectiveai");
-        let state = base.join("plugins").join("psychological-operations");
+        let state = base.join("plugins-state").join("psychological-operations");
         std::fs::create_dir_all(&state).expect("create test state dir");
 
         // Copy the asset's .objectiveai/ verbatim into the runtime
         // CONFIG_BASE_DIR. Asset structure:
-        //   assets/<name>/.objectiveai/plugins/psychological-operations/data.db
-        //   assets/<name>/.objectiveai/plugins/psychological-operations/psyops/...
+        //   assets/<name>/.objectiveai/plugins-state/psychological-operations/data.db
+        //   assets/<name>/.objectiveai/plugins-state/psychological-operations/psyops/...
         let assets = assets_dir().join(name);
         let initial = assets.join(".objectiveai");
         if initial.exists() {

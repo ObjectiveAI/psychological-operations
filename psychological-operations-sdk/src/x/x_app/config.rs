@@ -61,15 +61,15 @@ pub fn ensure_setup(config_base_dir: &Path) -> Result<XAppConfig, Error> {
     Ok(cfg)
 }
 
-/// `<config-base-dir>/plugins/psychological-operations/x_app.json`.
+/// `<config-base-dir>/plugins-state/psychological-operations/x_app.json`.
 /// `config_base_dir` is the outer root (objectiveai's base — same
 /// convention as `psychological_operations_sdk::browser::auth_json`'s
-/// paths). The `plugins/psychological-operations/` suffix is added
+/// paths). The `plugins-state/psychological-operations/` suffix is added
 /// here so callers can pass the same path argument they pass to the
 /// SDK.
 pub fn path(config_base_dir: &Path) -> PathBuf {
     config_base_dir
-        .join("plugins")
+        .join("plugins-state")
         .join("psychological-operations")
         .join("x_app.json")
 }

@@ -24,9 +24,9 @@ use psychological_operations_sdk::browser::mode::Mode;
 pub struct Args {
     /// Base directory for psych-ops state. Mode-specific session
     /// data (cookies, IndexedDB, cache, ...) lives under
-    /// `<config-base-dir>/plugins/psychological-operations/browser/cef-root/<mode-subdir>/`.
+    /// `<config-base-dir>/plugins-state/psychological-operations/browser/cef-root/<mode-subdir>/`.
     /// Credentials live alongside at
-    /// `<config-base-dir>/plugins/psychological-operations/browser/<mode-subdir>/`.
+    /// `<config-base-dir>/plugins-state/psychological-operations/browser/<mode-subdir>/`.
     #[arg(long)]
     pub config_base_dir: PathBuf,
 

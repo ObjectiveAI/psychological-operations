@@ -15,9 +15,9 @@ use super::auth_json::PersonaKind;
 
 /// Recursively delete both subdirs that hold a persona's state:
 ///
-/// * `<config>/plugins/psychological-operations/browser/<kind>/<name>/`
+/// * `<config>/plugins-state/psychological-operations/browser/<kind>/<name>/`
 ///   — the OAuth tokens / `auth.json` tree.
-/// * `<config>/plugins/psychological-operations/browser/cef-root/<kind>-<name>/`
+/// * `<config>/plugins-state/psychological-operations/browser/cef-root/<kind>-<name>/`
 ///   — the CEF profile, including the cookies SQLite store. The
 ///   `<kind>-<name>` naming mirrors `cookies::cache_subdir_for`
 ///   for `Mode::{PsyopRead, PsyopAuthorize, AgentAuthorize}` —
@@ -28,7 +28,7 @@ pub fn wipe_persona(
     name: &str,
 ) -> std::io::Result<()> {
     let browser_root = config_base_dir
-        .join("plugins")
+        .join("plugins-state")
         .join("psychological-operations")
         .join("browser");
     let kind_seg = match kind {
@@ -51,9 +51,9 @@ fn rm_rf_optional(path: &Path) -> std::io::Result<()> {
 
 /// Recursively delete both X-App subdirs:
 ///
-/// * `<config>/plugins/psychological-operations/browser/x-app/`
+/// * `<config>/plugins-state/psychological-operations/browser/x-app/`
 ///   — the HTML snapshots dir.
-/// * `<config>/plugins/psychological-operations/browser/cef-root/x-app/`
+/// * `<config>/plugins-state/psychological-operations/browser/cef-root/x-app/`
 ///   — the CEF profile (cookies, IndexedDB, etc.).
 ///
 /// `NotFound` on either side is swallowed (clean state already).
@@ -61,7 +61,7 @@ fn rm_rf_optional(path: &Path) -> std::io::Result<()> {
 /// the browser into a fresh state.
 pub fn wipe_x_app(config_base_dir: &Path) -> std::io::Result<()> {
     let browser_root = config_base_dir
-        .join("plugins")
+        .join("plugins-state")
         .join("psychological-operations")
         .join("browser");
     rm_rf_optional(&browser_root.join("x-app"))?;
@@ -82,7 +82,7 @@ pub fn wipe_x_app(config_base_dir: &Path) -> std::io::Result<()> {
 /// directories may not exist yet on a fresh install.
 pub fn wipe_all_persona_auth_dirs(config_base_dir: &Path) -> std::io::Result<()> {
     let browser_root = config_base_dir
-        .join("plugins")
+        .join("plugins-state")
         .join("psychological-operations")
         .join("browser");
     for kind_seg in ["psyop", "agent"] {

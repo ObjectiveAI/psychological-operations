@@ -11,7 +11,7 @@ struct EnvConfigBuilder {
     /// objectiveai's base directory. We share the same env name so a
     /// single setting controls both objectiveai-cli and this plugin.
     /// Default `~/.objectiveai`. Our state goes in
-    /// `<base>/plugins/.psychological-operations/`.
+    /// `<base>/plugins-state/.psychological-operations/`.
     #[envconfig(from = "CONFIG_BASE_DIR")]
     objectiveai_base_dir: Option<String>,
     #[envconfig(from = "OBJECTIVEAI_AGENT_ID")]
@@ -96,7 +96,7 @@ impl ConfigBuilder {
 pub struct Config {
     /// objectiveai-cli's base directory (shared env: `CONFIG_BASE_DIR`).
     /// When `None`, defaults to `~/.objectiveai`. Our state goes in
-    /// `<this>/plugins/.psychological-operations/`.
+    /// `<this>/plugins-state/.psychological-operations/`.
     pub objectiveai_base_dir: Option<String>,
     /// Default agent id (env `OBJECTIVEAI_AGENT_ID`). Currently unused —
     /// captured for parity with the objectiveai agent-environment
@@ -144,7 +144,7 @@ impl Config {
     }
 
     /// Our state directory:
-    /// `<objectiveai_base>/plugins/psychological-operations`.
+    /// `<objectiveai_base>/plugins-state/psychological-operations`.
     ///
     /// Matches objectiveai-cli's per-plugin subdir install layout
     /// (`<plugins_dir>/<repository>/`). State files (data.db, psyops/,
@@ -152,7 +152,7 @@ impl Config {
     /// this dir alongside the installed binary.
     pub fn base_dir(&self) -> PathBuf {
         self.objectiveai_base_dir()
-            .join("plugins")
+            .join("plugins-state")
             .join("psychological-operations")
     }
 }

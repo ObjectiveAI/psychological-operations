@@ -55,7 +55,7 @@ pub fn mode_data_dir(handle: &AppHandle<Wry>, mode: &Mode) -> std::path::PathBuf
     let base = handle
         .state::<Args>()
         .config_base_dir
-        .join("plugins")
+        .join("plugins-state")
         .join("psychological-operations")
         .join("browser");
     match mode {
@@ -76,7 +76,7 @@ pub fn cef_root_cache_dir(handle: &AppHandle<Wry>) -> std::path::PathBuf {
     handle
         .state::<Args>()
         .config_base_dir
-        .join("plugins")
+        .join("plugins-state")
         .join("psychological-operations")
         .join("browser")
         .join("cef-root")

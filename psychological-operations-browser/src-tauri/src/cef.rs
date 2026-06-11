@@ -162,7 +162,7 @@ pub fn run_helper_and_exit() -> ! {
 /// `cache_root` is the SHARED parent directory under which every
 /// per-account `RequestContext` cache subdir lives. For this
 /// binary that's
-/// `<config-base-dir>/plugins/psychological-operations/browser/cef-root/`.
+/// `<config-base-dir>/plugins-state/psychological-operations/browser/cef-root/`.
 /// Per-account isolation comes from [`create_browser`]'s
 /// `cache_subdir` argument — the cache root itself is process-
 /// global and CAN NOT be changed after init (CEF's

@@ -20,7 +20,7 @@
 //! Agent-side, the `read_queue` MCP tool lists pending entries and
 //! `mark_handled` removes one.
 //!
-//! Storage: `<config_base_dir>/plugins/psychological-operations/queue.sqlite`,
+//! Storage: `<config_base_dir>/plugins-state/psychological-operations/queue.sqlite`,
 //! a separate file from the response cache. WAL + 5 s busy timeout so
 //! concurrent processes don't fail with `SQLITE_BUSY`. Schemas are
 //! version-tracked in a `schema_version` table; bumping a constant
@@ -115,7 +115,7 @@ impl std::fmt::Debug for Queue {
 
 impl Queue {
     /// Open (creating if missing) the queue file under
-    /// `<config_base_dir>/plugins/psychological-operations/queue.sqlite`.
+    /// `<config_base_dir>/plugins-state/psychological-operations/queue.sqlite`.
     /// Enables WAL + a 5 s busy timeout. Creates / upgrades the
     /// queue table on first open.
     pub async fn open(config_base_dir: &Path) -> Result<Self, Error> {
@@ -299,10 +299,10 @@ pub fn unix_now() -> i64 {
 }
 
 /// Open the queue's SQLite file (a sibling of `x-api-cache.sqlite`
-/// under `<config>/plugins/psychological-operations/`).
+/// under `<config>/plugins-state/psychological-operations/`).
 async fn open_pool(config_base_dir: &Path) -> Result<SqlitePool, Error> {
     let dir = config_base_dir
-        .join("plugins")
+        .join("plugins-state")
         .join("psychological-operations");
     std::fs::create_dir_all(&dir)
         .map_err(|e| Error::Other(format!("queue mkdir: {e}")))?;

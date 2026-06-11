@@ -120,7 +120,7 @@ pub async fn signed_in_x_user_id(
     use sqlx::sqlite::SqliteConnectOptions;
 
     let cef_root = config_base_dir
-        .join("plugins")
+        .join("plugins-state")
         .join("psychological-operations")
         .join("browser")
         .join("cef-root");

@@ -13,7 +13,7 @@
 //! doesn't make sense to bundle into the same struct). Each
 //! `mark_*` is an `INSERT OR IGNORE` into its own table.
 //!
-//! Storage: `<config_base_dir>/plugins/psychological-operations/x-api-mcp.sqlite`,
+//! Storage: `<config_base_dir>/plugins-state/psychological-operations/x-api-mcp.sqlite`,
 //! sibling to `x-api-cache.sqlite` and `queue.sqlite`. WAL + 5 s
 //! busy timeout, schema versioned via the same `schema_version`
 //! pattern queue.rs uses.
@@ -95,7 +95,7 @@ impl std::fmt::Debug for EngagementStore {
 
 impl EngagementStore {
     /// Open (creating if missing) the engagement file under
-    /// `<config_base_dir>/plugins/psychological-operations/x-api-mcp.sqlite`.
+    /// `<config_base_dir>/plugins-state/psychological-operations/x-api-mcp.sqlite`.
     /// Enables WAL + a 5 s busy timeout. Creates / upgrades all
     /// four tables on first open.
     pub async fn open(config_base_dir: &Path) -> Result<Self, Error> {
@@ -259,10 +259,10 @@ async fn ensure_table(
 
 /// Open the engagement's SQLite file (a sibling of
 /// `x-api-cache.sqlite` and `queue.sqlite` under
-/// `<config>/plugins/psychological-operations/`).
+/// `<config>/plugins-state/psychological-operations/`).
 async fn open_pool(config_base_dir: &Path) -> Result<SqlitePool, Error> {
     let dir = config_base_dir
-        .join("plugins")
+        .join("plugins-state")
         .join("psychological-operations");
     std::fs::create_dir_all(&dir)
         .map_err(|e| Error::Other(format!("engagement mkdir: {e}")))?;

@@ -37,7 +37,7 @@ impl Mode {
 
 /// Spawn the browser. `config_base_dir` is the objectiveai base dir
 /// (mirrors what the SDK's `auth_json` / `x_app_credentials` modules
-/// expect) — the browser builds `<base>/plugins/psychological-operations/browser/...`
+/// expect) — the browser builds `<base>/plugins-state/psychological-operations/browser/...`
 /// underneath it.
 ///
 /// * `pipe_stdin` — pipe the child's stdin so the caller can send

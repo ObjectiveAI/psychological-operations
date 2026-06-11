@@ -168,7 +168,7 @@ async fn check_x_app(config_base_dir: &Path) -> Result<String, Error> {
     }
 
     let x_app_handle_dir = config_base_dir
-        .join("plugins")
+        .join("plugins-state")
         .join("psychological-operations")
         .join("browser")
         .join("x-app")

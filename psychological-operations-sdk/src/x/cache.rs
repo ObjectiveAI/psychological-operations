@@ -55,7 +55,7 @@ impl std::fmt::Debug for Cache {
 
 impl Cache {
     /// Open (creating if missing) the cache file under
-    /// `<config_base_dir>/plugins/psychological-operations/x-api-cache.sqlite`.
+    /// `<config_base_dir>/plugins-state/psychological-operations/x-api-cache.sqlite`.
     /// Enables WAL + a 5 s busy timeout so concurrent processes
     /// don't fail with `SQLITE_BUSY` on contention. Creates both
     /// the `cache` and `locks` tables.
@@ -231,11 +231,11 @@ pub fn request_key_auth_scoped(
     h.finalize().into()
 }
 
-/// Open the SDK's SQLite file (`<config>/plugins/psychological-operations/x-api-cache.sqlite`).
+/// Open the SDK's SQLite file (`<config>/plugins-state/psychological-operations/x-api-cache.sqlite`).
 /// Both the cache and the auth locker share this one file/pool.
 pub(crate) async fn open_pool(config_base_dir: &Path) -> Result<SqlitePool, Error> {
     let dir = config_base_dir
-        .join("plugins")
+        .join("plugins-state")
         .join("psychological-operations");
     std::fs::create_dir_all(&dir)
         .map_err(|e| Error::Other(format!("cache mkdir: {e}")))?;
