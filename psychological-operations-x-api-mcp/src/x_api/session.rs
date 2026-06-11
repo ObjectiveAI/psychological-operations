@@ -6,10 +6,11 @@
 //! tool handler via
 //! [`super::PsychologicalOperationsXApiMcp::resolve_session`].
 //!
-//! Only the two values the client supplies belong here: `agent`
-//! and `mode`. Everything else (`config_base_dir`,
-//! `cache_max_size`, `cache_ttl`) is process-wide and lives on the
-//! server struct.
+//! Only the values the client supplies belong here: `agent`,
+//! `mode`, and the agent instance hierarchy (the quota-ledger
+//! key). Everything else (`config_base_dir`, `cache_max_size`,
+//! `cache_ttl`, the quota limits) is process-wide and lives on
+//! the server struct.
 //!
 //! ## Where `agent` and `mode` come from
 //!
@@ -55,12 +56,18 @@ pub const HEADER_ARGUMENTS: &str = "X-OBJECTIVEAI-ARGUMENTS";
 /// when the arguments map doesn't carry one.
 pub const HEADER_AGENT_INSTANCE_HIERARCHY: &str = "X-OBJECTIVEAI-AGENT-INSTANCE-HIERARCHY";
 
-/// The two values pulled from the request HTTP headers and pinned
+/// The values pulled from the request HTTP headers and pinned
 /// to the rmcp session in memory.
 #[derive(Debug, Clone)]
 pub struct SessionState {
     pub agent: String,
     pub mode: Mode,
+    /// Session-global agent-id chain from
+    /// [`HEADER_AGENT_INSTANCE_HIERARCHY`]; falls back to the
+    /// resolved `agent` when the header is absent. Keys the
+    /// per-caller API request log (and thus the read/write
+    /// quota ledger).
+    pub agent_instance_hierarchy: String,
 }
 
 /// In-memory map of `SessionId → SessionState`. Shared between the

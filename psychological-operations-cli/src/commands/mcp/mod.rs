@@ -25,7 +25,9 @@ pub enum Commands {
     /// `(agent, mode)` are supplied by the client on connect via
     /// the `X-OBJECTIVEAI-ARGUMENTS` JSON-object header (with
     /// `X-OBJECTIVEAI-AGENT-INSTANCE-HIERARCHY` as the agent
-    /// fallback) — this command takes neither.
+    /// fallback) — this command takes neither. The per-caller
+    /// read/write API quotas come from [`crate::context::Context`]
+    /// (the single source of truth), not from flags here.
     Begin {
         /// Cache budget in bytes (default 256 MiB).
         #[arg(long, default_value_t = 256 * 1024 * 1024)]
@@ -55,6 +57,8 @@ impl Commands {
                         config_base_dir,
                         cache_max_size,
                         Duration::from_secs(cache_ttl),
+                        ctx.quota_read,
+                        ctx.quota_write,
                         (*ctx.executor).clone(),
                     )
                     .await

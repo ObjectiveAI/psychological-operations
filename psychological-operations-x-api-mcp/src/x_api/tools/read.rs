@@ -76,7 +76,7 @@ impl PsychologicalOperationsXApiMcp {
         extensions: Extensions,
     ) -> Result<String, ErrorData> {
         let state = self.resolve_session(&extensions).await?;
-        let http = self.build_client(&state.agent);
+        let http = self.build_client(&state);
 
         let creq = tweets_search_recent::get::Request {
             query: format!("conversation_id:{}", req.tweet_id),
@@ -126,7 +126,7 @@ impl PsychologicalOperationsXApiMcp {
         extensions: Extensions,
     ) -> Result<String, ErrorData> {
         let state = self.resolve_session(&extensions).await?;
-        let http = self.build_client(&state.agent);
+        let http = self.build_client(&state);
 
         let creq = users_by_username::get::Request {
             username: req.handle,
@@ -150,7 +150,7 @@ impl PsychologicalOperationsXApiMcp {
         extensions: Extensions,
     ) -> Result<String, ErrorData> {
         let state = self.resolve_session(&extensions).await?;
-        let http = self.build_client(&state.agent);
+        let http = self.build_client(&state);
 
         let creq = users_by_username::get::Request {
             username: req.handle,
@@ -177,7 +177,7 @@ impl PsychologicalOperationsXApiMcp {
         extensions: Extensions,
     ) -> Result<String, ErrorData> {
         let state = self.resolve_session(&extensions).await?;
-        let http = self.build_client(&state.agent);
+        let http = self.build_client(&state);
 
         let creq = standard_tweet_request(&req.tweet_id);
         let resp = tweets_id::http::get(&http, &creq)
@@ -204,7 +204,7 @@ impl PsychologicalOperationsXApiMcp {
         extensions: Extensions,
     ) -> Result<Content, ErrorData> {
         let state = self.resolve_session(&extensions).await?;
-        let http = self.build_client(&state.agent);
+        let http = self.build_client(&state);
 
         let creq = standard_tweet_request(&req.tweet_id);
         let resp = tweets_id::http::get(&http, &creq)
@@ -244,7 +244,7 @@ impl PsychologicalOperationsXApiMcp {
         extensions: Extensions,
     ) -> Result<String, ErrorData> {
         let state = self.resolve_session(&extensions).await?;
-        let http = self.build_client(&state.agent);
+        let http = self.build_client(&state);
 
         let creq = standard_search_request(req.query);
         let resp = tweets_search_recent::http::get(&http, &creq)
@@ -271,7 +271,7 @@ impl PsychologicalOperationsXApiMcp {
         extensions: Extensions,
     ) -> Result<String, ErrorData> {
         let state = self.resolve_session(&extensions).await?;
-        let http = self.build_client(&state.agent);
+        let http = self.build_client(&state);
 
         let req = users_me::get::Request {
             user_fields: Some(vec![params::UserFields::Username]),
@@ -294,7 +294,7 @@ impl PsychologicalOperationsXApiMcp {
         extensions: Extensions,
     ) -> Result<String, ErrorData> {
         let state = self.resolve_session(&extensions).await?;
-        let http = self.build_client(&state.agent);
+        let http = self.build_client(&state);
 
         let user_id = resolve_self_user_id(&http).await?;
         let creq = users_id_bookmarks::get::Request {

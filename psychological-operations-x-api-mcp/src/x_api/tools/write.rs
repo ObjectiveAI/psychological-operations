@@ -65,7 +65,7 @@ impl PsychologicalOperationsXApiMcp {
         extensions: Extensions,
     ) -> Result<String, ErrorData> {
         let state = self.resolve_session(&extensions).await?;
-        let http = self.build_client(&state.agent);
+        let http = self.build_client(&state);
 
         let body = TweetCreateRequest {
             text: Some(TweetText(req.text)),
@@ -84,7 +84,7 @@ impl PsychologicalOperationsXApiMcp {
         extensions: Extensions,
     ) -> Result<String, ErrorData> {
         let state = self.resolve_session(&extensions).await?;
-        let http = self.build_client(&state.agent);
+        let http = self.build_client(&state);
 
         let body = TweetCreateRequest {
             text: Some(TweetText(req.text)),
@@ -108,7 +108,7 @@ impl PsychologicalOperationsXApiMcp {
         extensions: Extensions,
     ) -> Result<String, ErrorData> {
         let state = self.resolve_session(&extensions).await?;
-        let http = self.build_client(&state.agent);
+        let http = self.build_client(&state);
 
         let body = TweetCreateRequest {
             text: Some(TweetText(req.text)),
@@ -128,7 +128,7 @@ impl PsychologicalOperationsXApiMcp {
         extensions: Extensions,
     ) -> Result<String, ErrorData> {
         let state = self.resolve_session(&extensions).await?;
-        let http = self.build_client(&state.agent);
+        let http = self.build_client(&state);
 
         let user_id = resolve_self_user_id(&http).await?;
         let creq = users_id_likes::post::Request {
@@ -154,7 +154,7 @@ impl PsychologicalOperationsXApiMcp {
         extensions: Extensions,
     ) -> Result<String, ErrorData> {
         let state = self.resolve_session(&extensions).await?;
-        let http = self.build_client(&state.agent);
+        let http = self.build_client(&state);
 
         let user_id = resolve_self_user_id(&http).await?;
         let creq = users_id_retweets::post::Request {
@@ -180,7 +180,7 @@ impl PsychologicalOperationsXApiMcp {
         extensions: Extensions,
     ) -> Result<String, ErrorData> {
         let state = self.resolve_session(&extensions).await?;
-        let http = self.build_client(&state.agent);
+        let http = self.build_client(&state);
 
         let user_id = resolve_self_user_id(&http).await?;
         let creq = users_id_bookmarks::post::Request {

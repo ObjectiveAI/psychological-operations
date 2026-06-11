@@ -26,6 +26,14 @@ struct Args {
     /// Per-entry cache TTL in seconds.
     #[arg(long)]
     cache_ttl: u64,
+    /// Read quota: max GET X-API requests per caller (agent
+    /// instance hierarchy) per trailing hour.
+    #[arg(long, default_value_t = 50)]
+    quota_read: u64,
+    /// Write quota: max non-GET (POST/PUT/DELETE/PATCH) X-API
+    /// requests per caller per trailing hour.
+    #[arg(long, default_value_t = 10)]
+    quota_write: u64,
     /// Bind address — hidden; supervisor-internal.
     #[arg(long, default_value = "127.0.0.1", hide = true)]
     address: String,
@@ -53,6 +61,8 @@ async fn main() -> std::io::Result<()> {
         args.config_base_dir,
         args.cache_max_size,
         Duration::from_secs(args.cache_ttl),
+        args.quota_read,
+        args.quota_write,
         executor,
     )
     .await

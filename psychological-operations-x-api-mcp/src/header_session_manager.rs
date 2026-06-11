@@ -250,18 +250,21 @@ fn extract_session_state(message: &ClientJsonRpcMessage) -> Result<SessionState,
         .and_then(|s| serde_json::from_str(s).ok())
         .unwrap_or_default();
 
+    // The session-global agent-id chain. Doubles as the fallback
+    // source for `agent` below, and as the per-caller key for the
+    // API request log (quota ledger).
+    let hierarchy = parts
+        .headers
+        .get(HEADER_AGENT_INSTANCE_HIERARCHY)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+
     // `agent`: try the JSON args first (case-insensitive key), then
     // fall back to the X-OBJECTIVEAI-AGENT-INSTANCE-HIERARCHY
     // header. Error only if neither source has a non-empty value.
     let agent = lookup_string_ci(&args, "agent")
-        .or_else(|| {
-            parts
-                .headers
-                .get(HEADER_AGENT_INSTANCE_HIERARCHY)
-                .and_then(|v| v.to_str().ok())
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-        })
+        .or_else(|| hierarchy.clone())
         .ok_or_else(|| format!(
             "missing agent: {HEADER_ARGUMENTS}[\"agent\"] absent or empty, \
              and {HEADER_AGENT_INSTANCE_HIERARCHY} header also absent or empty"
@@ -278,7 +281,12 @@ fn extract_session_state(message: &ClientJsonRpcMessage) -> Result<SessionState,
         None => Mode::Readonly,
     };
 
-    Ok(SessionState { agent, mode })
+    // Header absent ⇒ the resolved agent (which, in that case,
+    // necessarily came from the args map) stands in as the
+    // ledger key.
+    let agent_instance_hierarchy = hierarchy.unwrap_or_else(|| agent.clone());
+
+    Ok(SessionState { agent, mode, agent_instance_hierarchy })
 }
 
 /// Case-insensitive key lookup over a JSON object. Returns the

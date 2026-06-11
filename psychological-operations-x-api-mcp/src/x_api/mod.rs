@@ -34,7 +34,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use psychological_operations_sdk::x::client::{AuthMode, Client};
+use psychological_operations_sdk::x::client::{AuthMode, Client, QuotaConfig};
 use rmcp::{
     ErrorData, RoleServer, ServerHandler,
     handler::server::router::tool::ToolRouter,
@@ -79,6 +79,13 @@ pub struct PsychologicalOperationsXApiMcp {
     pub(super) config_base_dir: PathBuf,
     pub(super) cache_max_size: u64,
     pub(super) cache_ttl: Duration,
+    /// Max GET X-API requests per caller (agent instance
+    /// hierarchy) per trailing hour. Attached to every per-tool
+    /// SDK `Client` via [`QuotaConfig`].
+    pub(super) quota_read: u64,
+    /// Max non-GET (POST/PUT/DELETE/PATCH) X-API requests per
+    /// caller per trailing hour.
+    pub(super) quota_write: u64,
 }
 
 impl std::fmt::Debug for PsychologicalOperationsXApiMcp {
@@ -95,6 +102,8 @@ impl PsychologicalOperationsXApiMcp {
         config_base_dir: PathBuf,
         cache_max_size: u64,
         cache_ttl: Duration,
+        quota_read: u64,
+        quota_write: u64,
     ) -> Self {
         Self {
             tool_router: Self::read_tools() + Self::write_tools() + Self::queue_tools(),
@@ -103,6 +112,8 @@ impl PsychologicalOperationsXApiMcp {
             config_base_dir,
             cache_max_size,
             cache_ttl,
+            quota_read,
+            quota_write,
         }
     }
 
@@ -138,20 +149,29 @@ impl PsychologicalOperationsXApiMcp {
             })
     }
 
-    /// Build a fresh SDK [`Client`] bound to the given `agent`,
+    /// Build a fresh SDK [`Client`] bound to the session's agent,
     /// reusing the process-wide reqwest pool and the current
-    /// process-wide cache config. Called once per tool invocation —
+    /// process-wide cache config, with the read/write quota
+    /// attached (keyed by the session's agent instance
+    /// hierarchy). Called once per tool invocation —
     /// `Client::new` is infallible + synchronous and the SQLite
-    /// `OnceCell`s lazy-init on first use.
-    pub(super) fn build_client(&self, agent: &str) -> Client {
+    /// `OnceCell`s lazy-init on first use. A tool call that fires
+    /// N X-API requests gates + deducts each one individually at
+    /// the SDK's send choke points.
+    pub(super) fn build_client(&self, state: &SessionState) -> Client {
         Client::new(
             self.reqwest.clone(),
             /* mock */ false,
             self.cache_max_size,
             self.cache_ttl,
             self.config_base_dir.clone(),
-            AuthMode::Agent(agent.to_string()),
+            AuthMode::Agent(state.agent.clone()),
         )
+        .with_quota(QuotaConfig {
+            read_per_hour:  self.quota_read,
+            write_per_hour: self.quota_write,
+            agent_instance_hierarchy: state.agent_instance_hierarchy.clone(),
+        })
     }
 }
 

@@ -26,7 +26,7 @@ impl PsychologicalOperationsXApiMcp {
         extensions: Extensions,
     ) -> Result<String, ErrorData> {
         let state = self.resolve_session(&extensions).await?;
-        let http = self.build_client(&state.agent);
+        let http = self.build_client(&state);
 
         let q = http
             .queue()
@@ -50,7 +50,7 @@ impl PsychologicalOperationsXApiMcp {
         extensions: Extensions,
     ) -> Result<String, ErrorData> {
         let state = self.resolve_session(&extensions).await?;
-        let http = self.build_client(&state.agent);
+        let http = self.build_client(&state);
 
         let q = http
             .queue()

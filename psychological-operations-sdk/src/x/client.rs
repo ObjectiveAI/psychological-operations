@@ -36,7 +36,7 @@ use super::Error;
 use super::auth::{self, AuthLock, PersonaKey};
 use super::cache::{Cache, request_key, request_key_auth_scoped};
 use super::locker::Locker;
-use super::mcp::EngagementStore;
+use super::mcp::{EngagementStore, RequestLogStore};
 use super::queue::Queue;
 use crate::browser::auth_json::{self, PersonaKind, Tokens};
 use crate::browser::cookies;
@@ -68,6 +68,28 @@ pub enum AuthMode {
     Agent(String),
 }
 
+/// Optional per-caller read/write request quota, attached via
+/// [`Client::with_quota`]. Absent (the default for every
+/// non-MCP construction site) means unmetered.
+///
+/// Quota is a sliding window over the request log: before each
+/// real X-API HTTP request fires, the caller's logged requests
+/// of the same class (read = GET, write = everything else) in
+/// the trailing hour are counted; at or over the limit, the
+/// request is rejected with [`Error::QuotaExceeded`] and nothing
+/// is logged. Cache hits never fire a request, so they neither
+/// check nor deduct.
+#[derive(Debug, Clone)]
+pub struct QuotaConfig {
+    /// Max GET requests per trailing hour.
+    pub read_per_hour: u64,
+    /// Max non-GET (POST/PUT/DELETE/PATCH) requests per
+    /// trailing hour.
+    pub write_per_hour: u64,
+    /// Ledger key — the MCP session's agent instance hierarchy.
+    pub agent_instance_hierarchy: String,
+}
+
 /// X v2 API client. See module docs.
 #[derive(Debug, Clone)]
 pub struct Client {
@@ -83,10 +105,15 @@ pub struct Client {
     pub(crate) cache_ttl: Duration,
     pub(crate) config_base_dir: Arc<PathBuf>,
     pub(crate) auth_mode: AuthMode,
+    /// `Some` ⇒ every real X-API HTTP request is gated + logged
+    /// per [`QuotaConfig`]. `None` ⇒ unmetered (CLI / psyop
+    /// construction sites).
+    pub(crate) quota: Option<QuotaConfig>,
     pub(crate) cache: OnceCell<Arc<Cache>>,
     pub(crate) auth_locker: OnceCell<Arc<Locker>>,
     pub(crate) queue: OnceCell<Arc<Queue>>,
     pub(crate) engagement: OnceCell<Arc<EngagementStore>>,
+    pub(crate) request_log: OnceCell<Arc<RequestLogStore>>,
 }
 
 impl Client {
@@ -110,11 +137,21 @@ impl Client {
             cache_ttl,
             config_base_dir: Arc::new(config_base_dir),
             auth_mode,
+            quota: None,
             cache: OnceCell::new(),
             auth_locker: OnceCell::new(),
             queue: OnceCell::new(),
             engagement: OnceCell::new(),
+            request_log: OnceCell::new(),
         }
+    }
+
+    /// Attach a read/write quota (see [`QuotaConfig`]). Chainable
+    /// — `Client::new` keeps its signature so existing
+    /// construction sites stay unmetered and untouched.
+    pub fn with_quota(mut self, quota: QuotaConfig) -> Self {
+        self.quota = Some(quota);
+        self
     }
 
     // ===================================================================
@@ -171,6 +208,19 @@ impl Client {
             .get_or_try_init(|| async {
                 let e = EngagementStore::open(&self.config_base_dir).await?;
                 Ok::<_, Error>(Arc::new(e))
+            })
+            .await
+    }
+
+    /// Open the API request log on first call; subsequent calls
+    /// return the cached `Arc`. Shares the engagement store's
+    /// `x-api-mcp.sqlite` file. Only consulted when a
+    /// [`QuotaConfig`] is attached — see [`Self::quota_gate`].
+    pub async fn request_log(&self) -> Result<&Arc<RequestLogStore>, Error> {
+        self.request_log
+            .get_or_try_init(|| async {
+                let r = RequestLogStore::open(&self.config_base_dir).await?;
+                Ok::<_, Error>(Arc::new(r))
             })
             .await
     }
@@ -454,7 +504,7 @@ impl Client {
             return crate::x::mock::send_with_query(method, path, query);
         }
         let rb = self.request(method, path).await?.query(query);
-        let raw = self.execute_cached(rb, cache, auth_scoped).await?;
+        let raw = self.execute_cached(rb, cache, auth_scoped, /* quota */ true).await?;
         decode_body(&raw)
     }
 
@@ -478,7 +528,7 @@ impl Client {
         if let Some(b) = body {
             rb = rb.json(b);
         }
-        let raw = self.execute_cached(rb, cache, auth_scoped).await?;
+        let raw = self.execute_cached(rb, cache, auth_scoped, /* quota */ true).await?;
         decode_body(&raw)
     }
 
@@ -498,13 +548,16 @@ impl Client {
         if self.mock {
             return crate::x::mock::send_with_query_no_response(method, path, query);
         }
-        let response = self
+        // Build before sending (rather than `.send()`) so the
+        // quota gate sees the full URL including the query.
+        let req = self
             .request(method, path)
             .await?
             .query(query)
-            .send()
-            .await
-            .map_err(Error::Transport)?;
+            .build()
+            .map_err(Error::RequestBuild)?;
+        self.quota_gate(req.method(), req.url().as_str()).await?;
+        let response = self.client.execute(req).await.map_err(Error::Transport)?;
         let code = response.status();
         if code.is_success() {
             return Ok(());
@@ -531,7 +584,7 @@ impl Client {
             return crate::x::mock::send_with_query_and_body(method, path, query, body);
         }
         let rb = self.request(method, path).await?.query(query).json(body);
-        let raw = self.execute_cached(rb, cache, auth_scoped).await?;
+        let raw = self.execute_cached(rb, cache, auth_scoped, /* quota */ true).await?;
         decode_body(&raw)
     }
 
@@ -555,7 +608,9 @@ impl Client {
         if let Some(b) = body {
             rb = rb.json(b);
         }
-        let response = rb.send().await.map_err(Error::Transport)?;
+        let req = rb.build().map_err(Error::RequestBuild)?;
+        self.quota_gate(req.method(), req.url().as_str()).await?;
+        let response = self.client.execute(req).await.map_err(Error::Transport)?;
         let code = response.status();
         if code.is_success() {
             return Ok(());
@@ -573,19 +628,55 @@ impl Client {
             ));
         }
         let rb = self.client.get(url);
-        self.execute_cached(rb, /* cache */ true, /* auth_scoped */ false).await
+        // quota = false: twimg media isn't the X API — excluded
+        // from the read quota and the request log.
+        self.execute_cached(rb, /* cache */ true, /* auth_scoped */ false, /* quota */ false).await
+    }
+
+    /// Read/write quota gate — runs immediately before a real
+    /// X-API HTTP request fires. Cache hits never reach this (see
+    /// [`Self::execute_cached`]); mock mode short-circuits
+    /// earlier; `fetch_url` passes `quota = false` (twimg media,
+    /// not the X API). No-op without a [`QuotaConfig`].
+    ///
+    /// GET = read quota; everything else = write quota. The check
+    /// and the deduction (the log row) are one atomic INSERT —
+    /// see [`RequestLogStore::try_log`].
+    async fn quota_gate(&self, method: &Method, url: &str) -> Result<(), Error> {
+        let Some(q) = &self.quota else { return Ok(()) };
+        let read = *method == Method::GET;
+        let limit = if read { q.read_per_hour } else { q.write_per_hour };
+        let ok = self
+            .request_log()
+            .await?
+            .try_log(&q.agent_instance_hierarchy, method.as_str(), url, limit)
+            .await?;
+        if ok {
+            return Ok(());
+        }
+        let kind = if read { "read" } else { "write" };
+        Err(Error::QuotaExceeded(format!(
+            "{kind} quota reached: all {limit} {kind} API requests allowed in \
+             the past hour have been used; no more {kind} requests can be made \
+             for now. Requests age out of the sliding 1-hour window \
+             continuously — retry later."
+        )))
     }
 
     /// Build the request, then either route through the cache or
     /// fire it directly. Returns raw 2xx response bytes. When
     /// `auth_scoped` is set, the cache key folds in the
     /// authenticated twid so distinct agents (sharing this Client's
-    /// cache file) get distinct entries.
+    /// cache file) get distinct entries. When `quota` is set, the
+    /// quota gate runs right before the HTTP request actually
+    /// fires — inside the cache-miss closure, so cache hits never
+    /// check, log, or deduct.
     async fn execute_cached(
         &self,
         rb: reqwest::RequestBuilder,
         cache: bool,
         auth_scoped: bool,
+        quota: bool,
     ) -> Result<Vec<u8>, Error> {
         let req = rb.build().map_err(Error::RequestBuild)?;
         if cache {
@@ -596,13 +687,21 @@ impl Client {
             } else {
                 key_from_request(&req)
             };
-            let client = self.client.clone();
             cache_ref
-                .get_or_fetch(&key, move || async move {
-                    run_request_raw(client, req).await
+                .get_or_fetch(&key, || async move {
+                    // Cache miss — a real request is about to
+                    // fire. Hits return from `peek` before this
+                    // closure runs.
+                    if quota {
+                        self.quota_gate(req.method(), req.url().as_str()).await?;
+                    }
+                    run_request_raw(self.client.clone(), req).await
                 })
                 .await
         } else {
+            if quota {
+                self.quota_gate(req.method(), req.url().as_str()).await?;
+            }
             run_request_raw(self.client.clone(), req).await
         }
     }

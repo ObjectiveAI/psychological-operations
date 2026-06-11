@@ -33,6 +33,8 @@ pub async fn setup<E>(
     config_base_dir: PathBuf,
     cache_max_size:  u64,
     cache_ttl:       Duration,
+    quota_read:      u64,
+    quota_write:     u64,
     executor:        E,
 ) -> std::io::Result<(tokio::net::TcpListener, axum::Router)>
 where
@@ -54,6 +56,8 @@ where
         config_base_dir,
         cache_max_size,
         cache_ttl,
+        quota_read,
+        quota_write,
     );
 
     let session_manager = Arc::new(HeaderSessionManager::new(registry.clone(), server.clone()));
@@ -108,6 +112,8 @@ pub async fn run<E>(
     config_base_dir: PathBuf,
     cache_max_size:  u64,
     cache_ttl:       Duration,
+    quota_read:      u64,
+    quota_write:     u64,
     executor:        E,
 ) -> std::io::Result<()>
 where
@@ -115,7 +121,8 @@ where
     E::Error: std::fmt::Display + Send + 'static,
 {
     let (listener, app) = setup(
-        address, port, config_base_dir, cache_max_size, cache_ttl, executor,
+        address, port, config_base_dir, cache_max_size, cache_ttl,
+        quota_read, quota_write, executor,
     ).await?;
     let addr = listener.local_addr()?;
     let announcement = Output::Mcp(Mcp {
