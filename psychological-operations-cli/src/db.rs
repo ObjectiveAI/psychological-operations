@@ -73,6 +73,11 @@ const SCHEMA: &str = "
     );
     CREATE INDEX IF NOT EXISTS delivery_queue_by_psyop
         ON delivery_queue(psyop, psyop_commit_sha);
+
+    CREATE TABLE IF NOT EXISTS psyop_runs (
+        psyop        TEXT    PRIMARY KEY,
+        last_run_at  INTEGER NOT NULL
+    );
 ";
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -654,6 +659,43 @@ impl Db {
             .bind(id)
             .execute(&self.pool)
             .await?;
+        Ok(())
+    }
+
+    /// Unix seconds of this psyop's last successful run, or `None`
+    /// if it has never completed one. Keyed by psyop name only —
+    /// republishing (a new commit_sha) doesn't reset the interval
+    /// throttle.
+    pub async fn get_last_run(
+        &self,
+        psyop: &str,
+    ) -> Result<Option<i64>, crate::error::Error> {
+        let out: Option<i64> = sqlx::query_scalar(
+            "SELECT last_run_at FROM psyop_runs WHERE psyop = ?",
+        )
+        .bind(psyop)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(out)
+    }
+
+    /// Record `at` (unix seconds) as this psyop's last successful
+    /// run. The runtime stamps on completion — not at start — so a
+    /// failed run retries immediately instead of waiting out the
+    /// interval.
+    pub async fn set_last_run(
+        &self,
+        psyop: &str,
+        at: i64,
+    ) -> Result<(), crate::error::Error> {
+        sqlx::query(
+            "INSERT OR REPLACE INTO psyop_runs (psyop, last_run_at)
+             VALUES (?, ?)",
+        )
+        .bind(psyop)
+        .bind(at)
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 }

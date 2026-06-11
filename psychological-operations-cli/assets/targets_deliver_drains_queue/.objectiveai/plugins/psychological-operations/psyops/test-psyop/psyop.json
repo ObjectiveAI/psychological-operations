@@ -1,5 +1,6 @@
 {
   "for_you": {},
+  "interval": "1h",
   "min_posts": 2,
   "max_posts": 10,
   "sort": "newest",

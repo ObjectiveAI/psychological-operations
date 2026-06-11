@@ -83,6 +83,11 @@ pub enum Event {
     /// run is skipped (exit code stays 0); the operator sees this
     /// warning event with the reason.
     PsyopInvalidAtRun     { psyop: String, reason: String },
+    /// `psyops run` was invoked before the psyop's `interval` had
+    /// elapsed since its last successful run. The run is skipped
+    /// (exit code stays 0); `remaining_secs` is how much longer
+    /// the operator has to wait.
+    PsyopSkippedInterval  { psyop: String, interval: String, remaining_secs: u64 },
 }
 
 impl Event {
@@ -98,7 +103,8 @@ impl Event {
             | Event::QueryFailed { .. }
             | Event::DeliveryFailed { .. }
             | Event::BrowserError { .. }
-            | Event::PsyopInvalidAtRun { .. } => Some(Level::Warn),
+            | Event::PsyopInvalidAtRun { .. }
+            | Event::PsyopSkippedInterval { .. } => Some(Level::Warn),
             _ => None,
         }
     }

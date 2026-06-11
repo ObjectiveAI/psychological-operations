@@ -91,6 +91,26 @@ pub async fn run_psyop(
     };
 
     let db = Db::open(&ctx.config).await?;
+
+    // Interval gate: each psyop records its last successful run
+    // (keyed by name, not commit — republishing doesn't reset the
+    // throttle). If `interval` hasn't elapsed yet, skip with a
+    // warning event, same non-fatal shape as PsyopInvalidAtRun.
+    // validate() above guarantees the parse.
+    let interval = psyop.interval_duration().expect("validated interval");
+    if let Some(last_run) = db.get_last_run(name).await? {
+        let elapsed = (chrono::Utc::now().timestamp() - last_run).max(0) as u64;
+        if elapsed < interval.as_secs() {
+            crate::output::OutputResult::from(crate::events::Event::PsyopSkippedInterval {
+                psyop: name.to_string(),
+                interval: psyop.interval.clone(),
+                remaining_secs: interval.as_secs() - elapsed,
+            })
+            .emit();
+            return Ok(Output::Ok);
+        }
+    }
+
     let http = make_http_client(psyop.mock_enabled(), ctx);
 
     // Collect step: open the browser as this psyop and stream the
@@ -195,6 +215,10 @@ pub async fn run_psyop(
         // 11. Drain the queue (narrowed to exactly this
         //     (psyop, commit) — the rows we just enqueued).
         let _summary = crate::targets::drain_queue(&db, Some(name), Some(&commit), ctx).await?;
+
+        // Stamp the interval throttle only on success — a failed
+        // run bails via `?` above and stays immediately retryable.
+        db.set_last_run(name, chrono::Utc::now().timestamp()).await?;
 
         return Ok(Output::Ok);
     }

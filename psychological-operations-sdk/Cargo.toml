@@ -30,6 +30,10 @@ dirs = "6.0.0"
 # range against `=0.4.39`, so bumping requires a coordinated bump
 # in objectiveai-sdk first.
 chrono = { version = "0.4.39", default-features = false, features = ["serde", "clock", "std"] }
+# Parses the `interval` field on psyops ("1h 30m" → Duration).
+# Already in-tree as a transitive of objectiveai-sdk; declared
+# directly because PsyOp::validate() calls it.
+humantime = "2"
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite"] }
 dashmap = "6.2.1"
 schemars = "1.2.1"

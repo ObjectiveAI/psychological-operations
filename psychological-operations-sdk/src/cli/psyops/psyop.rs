@@ -24,6 +24,13 @@ pub struct PsyOp {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub for_you: Option<ForYou>,
 
+    /// Minimum wall-clock time between runs, as a humantime duration
+    /// string (e.g. `"1h 30m"`). `psyops run` records each psyop's
+    /// last successful run and skips the psyop (exit 0, with a
+    /// warning event) until the interval has elapsed. Validated at
+    /// publish time via [`humantime::parse_duration`]; must be > 0.
+    pub interval: String,
+
     /// Minimum total deduped candidates required before the psyop will
     /// run scoring. If the union of `queries` + `for_you` falls below
     /// this, the psyop is skipped.
@@ -102,7 +109,19 @@ impl PsyOp {
     /// Publish-time consistency check. Returns a free-form error
     /// string; CLI callers wrap with their own `Error::InvalidPsyop`
     /// variant.
+    /// Parsed form of [`interval`](Self::interval). `Err` carries
+    /// the same message `validate()` rejects with — callers that
+    /// have already validated can safely unwrap.
+    pub fn interval_duration(&self) -> Result<std::time::Duration, String> {
+        humantime::parse_duration(&self.interval)
+            .map_err(|e| format!("interval: invalid humantime duration: {e}"))
+    }
+
     pub fn validate(&self) -> Result<(), String> {
+        let interval = self.interval_duration()?;
+        if interval.is_zero() {
+            return Err("interval: must be > 0".into());
+        }
         if self.max_posts == 0 {
             return Err("max_posts must be > 0".into());
         }

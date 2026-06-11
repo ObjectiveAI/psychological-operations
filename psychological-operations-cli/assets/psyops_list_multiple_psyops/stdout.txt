@@ -1,3 +1,3 @@
 {"type":"begin"}
-{"type":"notification","value":{"value":[{"name":"a-psyop","enabled":true,"commit_sha":"6643ae2f019129e0665ff3b4420b1c5e66ecb5fc"},{"name":"b-psyop","enabled":true,"commit_sha":"6643ae2f019129e0665ff3b4420b1c5e66ecb5fc"},{"name":"c-psyop","enabled":true,"commit_sha":"6643ae2f019129e0665ff3b4420b1c5e66ecb5fc"}]}}
+{"type":"notification","value":{"value":[{"name":"a-psyop","enabled":true,"commit_sha":"5c6061eaea458e48623fd6747e96dedf3d649065"},{"name":"b-psyop","enabled":true,"commit_sha":"5c6061eaea458e48623fd6747e96dedf3d649065"},{"name":"c-psyop","enabled":true,"commit_sha":"5c6061eaea458e48623fd6747e96dedf3d649065"}]}}
 {"type":"end"}
