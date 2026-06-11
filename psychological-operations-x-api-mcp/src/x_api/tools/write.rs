@@ -7,7 +7,7 @@ use psychological_operations_sdk::x::types::{
 use psychological_operations_sdk::x::users::id::bookmarks as users_id_bookmarks;
 use psychological_operations_sdk::x::users::id::likes as users_id_likes;
 use psychological_operations_sdk::x::users::id::retweets as users_id_retweets;
-use rmcp::model::Extensions;
+use rmcp::model::{CallToolResult, Content, Extensions};
 use rmcp::{ErrorData, handler::server::wrapper::Parameters, schemars, tool, tool_router};
 
 use super::super::PsychologicalOperationsXApiMcp;
@@ -63,7 +63,7 @@ impl PsychologicalOperationsXApiMcp {
         &self,
         Parameters(req): Parameters<PostRequest>,
         extensions: Extensions,
-    ) -> Result<String, ErrorData> {
+    ) -> Result<CallToolResult, ErrorData> {
         let state = self.resolve_session(&extensions).await?;
         let http = self.build_client(&state);
 
@@ -71,7 +71,8 @@ impl PsychologicalOperationsXApiMcp {
             text: Some(TweetText(req.text)),
             ..empty_tweet_create_request()
         };
-        send_create_tweet(&http, body).await
+        let result = send_create_tweet(&http, body).await?;
+        self.respond_with_quota(&http, &state, Content::text(result)).await
     }
 
     #[tool(
@@ -82,7 +83,7 @@ impl PsychologicalOperationsXApiMcp {
         &self,
         Parameters(req): Parameters<ReplyRequest>,
         extensions: Extensions,
-    ) -> Result<String, ErrorData> {
+    ) -> Result<CallToolResult, ErrorData> {
         let state = self.resolve_session(&extensions).await?;
         let http = self.build_client(&state);
 
@@ -95,7 +96,8 @@ impl PsychologicalOperationsXApiMcp {
             }),
             ..empty_tweet_create_request()
         };
-        send_create_tweet(&http, body).await
+        let result = send_create_tweet(&http, body).await?;
+        self.respond_with_quota(&http, &state, Content::text(result)).await
     }
 
     #[tool(
@@ -106,7 +108,7 @@ impl PsychologicalOperationsXApiMcp {
         &self,
         Parameters(req): Parameters<QuoteRequest>,
         extensions: Extensions,
-    ) -> Result<String, ErrorData> {
+    ) -> Result<CallToolResult, ErrorData> {
         let state = self.resolve_session(&extensions).await?;
         let http = self.build_client(&state);
 
@@ -115,7 +117,8 @@ impl PsychologicalOperationsXApiMcp {
             quote_tweet_id: Some(TweetId(req.quote_tweet_id)),
             ..empty_tweet_create_request()
         };
-        send_create_tweet(&http, body).await
+        let result = send_create_tweet(&http, body).await?;
+        self.respond_with_quota(&http, &state, Content::text(result)).await
     }
 
     #[tool(
@@ -126,7 +129,7 @@ impl PsychologicalOperationsXApiMcp {
         &self,
         Parameters(req): Parameters<LikeRequest>,
         extensions: Extensions,
-    ) -> Result<String, ErrorData> {
+    ) -> Result<CallToolResult, ErrorData> {
         let state = self.resolve_session(&extensions).await?;
         let http = self.build_client(&state);
 
@@ -140,8 +143,9 @@ impl PsychologicalOperationsXApiMcp {
         let resp = users_id_likes::http::post(&http, &creq)
             .await
             .map_err(|e| ErrorData::internal_error(format!("likes: {e}"), None))?;
-        serde_json::to_string(&resp.data)
-            .map_err(|e| ErrorData::internal_error(format!("serialize: {e}"), None))
+        let body = serde_json::to_string(&resp.data)
+            .map_err(|e| ErrorData::internal_error(format!("serialize: {e}"), None))?;
+        self.respond_with_quota(&http, &state, Content::text(body)).await
     }
 
     #[tool(
@@ -152,7 +156,7 @@ impl PsychologicalOperationsXApiMcp {
         &self,
         Parameters(req): Parameters<RetweetRequest>,
         extensions: Extensions,
-    ) -> Result<String, ErrorData> {
+    ) -> Result<CallToolResult, ErrorData> {
         let state = self.resolve_session(&extensions).await?;
         let http = self.build_client(&state);
 
@@ -166,8 +170,9 @@ impl PsychologicalOperationsXApiMcp {
         let resp = users_id_retweets::http::post(&http, &creq)
             .await
             .map_err(|e| ErrorData::internal_error(format!("retweets: {e}"), None))?;
-        serde_json::to_string(&resp.data)
-            .map_err(|e| ErrorData::internal_error(format!("serialize: {e}"), None))
+        let body = serde_json::to_string(&resp.data)
+            .map_err(|e| ErrorData::internal_error(format!("serialize: {e}"), None))?;
+        self.respond_with_quota(&http, &state, Content::text(body)).await
     }
 
     #[tool(
@@ -178,7 +183,7 @@ impl PsychologicalOperationsXApiMcp {
         &self,
         Parameters(req): Parameters<BookmarkRequest>,
         extensions: Extensions,
-    ) -> Result<String, ErrorData> {
+    ) -> Result<CallToolResult, ErrorData> {
         let state = self.resolve_session(&extensions).await?;
         let http = self.build_client(&state);
 
@@ -192,7 +197,8 @@ impl PsychologicalOperationsXApiMcp {
         let resp = users_id_bookmarks::http::post(&http, &creq)
             .await
             .map_err(|e| ErrorData::internal_error(format!("bookmarks: {e}"), None))?;
-        serde_json::to_string(&resp.data)
-            .map_err(|e| ErrorData::internal_error(format!("serialize: {e}"), None))
+        let body = serde_json::to_string(&resp.data)
+            .map_err(|e| ErrorData::internal_error(format!("serialize: {e}"), None))?;
+        self.respond_with_quota(&http, &state, Content::text(body)).await
     }
 }

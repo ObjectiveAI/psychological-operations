@@ -40,7 +40,7 @@ use rmcp::{
     handler::server::router::tool::ToolRouter,
     handler::server::tool::ToolCallContext,
     model::{
-        CallToolRequestParams, CallToolResult, Implementation,
+        CallToolRequestParams, CallToolResult, Content, Implementation,
         ListToolsResult, PaginatedRequestParams, ProtocolVersion,
         ServerCapabilities, ServerInfo, Tool,
     },
@@ -172,6 +172,33 @@ impl PsychologicalOperationsXApiMcp {
             write_per_hour: self.quota_write,
             agent_instance_hierarchy: state.agent_instance_hierarchy.clone(),
         })
+    }
+
+    /// Wrap a tool's result `body` with the caller's current quota
+    /// usage as the FIRST content part. The ledger is read AFTER
+    /// the tool's API calls ran, so the header reflects this
+    /// call's own deductions. Only for tools that touch the X API
+    /// — the queue tools (DB-only) keep returning plain strings.
+    pub(super) async fn respond_with_quota(
+        &self,
+        http: &Client,
+        state: &SessionState,
+        body: Content,
+    ) -> Result<CallToolResult, ErrorData> {
+        let log = http.request_log().await.map_err(|e| {
+            ErrorData::internal_error(format!("request log open: {e}"), None)
+        })?;
+        let (reads, writes) = log
+            .usage(&state.agent_instance_hierarchy)
+            .await
+            .map_err(|e| {
+                ErrorData::internal_error(format!("quota usage read: {e}"), None)
+            })?;
+        let header = Content::text(format!(
+            "[X Quota Usage (resets hourly)] Read: {reads}/{}, Write: {writes}/{}\n\n",
+            self.quota_read, self.quota_write,
+        ));
+        Ok(CallToolResult::success(vec![header, body]))
     }
 }
 

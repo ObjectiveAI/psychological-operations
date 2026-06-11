@@ -126,6 +126,30 @@ impl RequestLogStore {
         .rows_affected();
         Ok(inserted > 0)
     }
+
+    /// `(reads, writes)` this caller has logged in the trailing
+    /// hour — the same counts [`Self::try_log`] gates on. Read
+    /// AFTER a tool's API calls, it reflects that call's own
+    /// deductions.
+    pub async fn usage(
+        &self,
+        agent_instance_hierarchy: &str,
+    ) -> Result<(u64, u64), Error> {
+        let cutoff = locker::unix_now() - 3600;
+        let row: (i64, i64) = sqlx::query_as(
+            "SELECT \
+                 COALESCE(SUM(method = 'GET'), 0), \
+                 COALESCE(SUM(method != 'GET'), 0) \
+             FROM api_requests \
+             WHERE agent_instance_hierarchy = ? AND requested_at > ?",
+        )
+        .bind(agent_instance_hierarchy)
+        .bind(cutoff)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| Error::Other(format!("request log usage: {e}")))?;
+        Ok((row.0.max(0) as u64, row.1.max(0) as u64))
+    }
 }
 
 /// Idempotent table create/upgrade. Mirrors

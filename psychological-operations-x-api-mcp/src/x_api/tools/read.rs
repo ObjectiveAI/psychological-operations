@@ -12,7 +12,7 @@ use psychological_operations_sdk::x::types::{
 use psychological_operations_sdk::x::users::by::username::username as users_by_username;
 use psychological_operations_sdk::x::users::id::bookmarks as users_id_bookmarks;
 use psychological_operations_sdk::x::users::me as users_me;
-use rmcp::model::{Content, Extensions};
+use rmcp::model::{CallToolResult, Content, Extensions};
 use rmcp::{ErrorData, handler::server::wrapper::Parameters, schemars, tool, tool_router};
 
 use super::super::PsychologicalOperationsXApiMcp;
@@ -74,7 +74,7 @@ impl PsychologicalOperationsXApiMcp {
         &self,
         Parameters(req): Parameters<GetRepliesRequest>,
         extensions: Extensions,
-    ) -> Result<String, ErrorData> {
+    ) -> Result<CallToolResult, ErrorData> {
         let state = self.resolve_session(&extensions).await?;
         let http = self.build_client(&state);
 
@@ -112,8 +112,9 @@ impl PsychologicalOperationsXApiMcp {
                 }).then_some(id)
             })
             .collect();
-        serde_json::to_string(&ids)
-            .map_err(|e| ErrorData::internal_error(format!("serialize ids: {e}"), None))
+        let body = serde_json::to_string(&ids)
+            .map_err(|e| ErrorData::internal_error(format!("serialize ids: {e}"), None))?;
+        self.respond_with_quota(&http, &state, Content::text(body)).await
     }
 
     #[tool(
@@ -124,7 +125,7 @@ impl PsychologicalOperationsXApiMcp {
         &self,
         Parameters(req): Parameters<GetBioRequest>,
         extensions: Extensions,
-    ) -> Result<String, ErrorData> {
+    ) -> Result<CallToolResult, ErrorData> {
         let state = self.resolve_session(&extensions).await?;
         let http = self.build_client(&state);
 
@@ -137,7 +138,8 @@ impl PsychologicalOperationsXApiMcp {
         let resp = users_by_username::http::get(&http, &creq)
             .await
             .map_err(|e| ErrorData::internal_error(format!("users/by/username: {e}"), None))?;
-        Ok(resp.data.and_then(|u| u.description).unwrap_or_default())
+        let body = resp.data.and_then(|u| u.description).unwrap_or_default();
+        self.respond_with_quota(&http, &state, Content::text(body)).await
     }
 
     #[tool(
@@ -148,7 +150,7 @@ impl PsychologicalOperationsXApiMcp {
         &self,
         Parameters(req): Parameters<GetProfilePictureRequest>,
         extensions: Extensions,
-    ) -> Result<String, ErrorData> {
+    ) -> Result<CallToolResult, ErrorData> {
         let state = self.resolve_session(&extensions).await?;
         let http = self.build_client(&state);
 
@@ -161,10 +163,11 @@ impl PsychologicalOperationsXApiMcp {
         let resp = users_by_username::http::get(&http, &creq)
             .await
             .map_err(|e| ErrorData::internal_error(format!("users/by/username: {e}"), None))?;
-        Ok(resp
+        let body = resp
             .data
             .and_then(|u| u.profile_image_url.map(|url| url.to_string()))
-            .unwrap_or_default())
+            .unwrap_or_default();
+        self.respond_with_quota(&http, &state, Content::text(body)).await
     }
 
     #[tool(
@@ -175,7 +178,7 @@ impl PsychologicalOperationsXApiMcp {
         &self,
         Parameters(req): Parameters<GetTweetRequest>,
         extensions: Extensions,
-    ) -> Result<String, ErrorData> {
+    ) -> Result<CallToolResult, ErrorData> {
         let state = self.resolve_session(&extensions).await?;
         let http = self.build_client(&state);
 
@@ -190,8 +193,9 @@ impl PsychologicalOperationsXApiMcp {
             )
         })?;
         let projected = project_tweet(&t, resp.includes.as_ref());
-        serde_json::to_string(&projected)
-            .map_err(|e| ErrorData::internal_error(format!("serialize tweet: {e}"), None))
+        let body = serde_json::to_string(&projected)
+            .map_err(|e| ErrorData::internal_error(format!("serialize tweet: {e}"), None))?;
+        self.respond_with_quota(&http, &state, Content::text(body)).await
     }
 
     #[tool(
@@ -202,7 +206,7 @@ impl PsychologicalOperationsXApiMcp {
         &self,
         Parameters(req): Parameters<OpenAttachmentRequest>,
         extensions: Extensions,
-    ) -> Result<Content, ErrorData> {
+    ) -> Result<CallToolResult, ErrorData> {
         let state = self.resolve_session(&extensions).await?;
         let http = self.build_client(&state);
 
@@ -226,12 +230,13 @@ impl PsychologicalOperationsXApiMcp {
             .map_err(|e| ErrorData::internal_error(format!("fetch_url: {e}"), None))?;
         let fetched = FetchedAttachment { kind, mime, bytes };
         let b64 = base64::engine::general_purpose::STANDARD.encode(&fetched.bytes);
-        Ok(match fetched.kind {
+        let body = match fetched.kind {
             AttachmentKind::Photo => Content::image(b64, fetched.mime),
             AttachmentKind::Video | AttachmentKind::AnimatedGif => {
                 Content::text(format!("data:{};base64,{}", fetched.mime, b64))
             }
-        })
+        };
+        self.respond_with_quota(&http, &state, body).await
     }
 
     #[tool(
@@ -242,7 +247,7 @@ impl PsychologicalOperationsXApiMcp {
         &self,
         Parameters(req): Parameters<RunQueryRequest>,
         extensions: Extensions,
-    ) -> Result<String, ErrorData> {
+    ) -> Result<CallToolResult, ErrorData> {
         let state = self.resolve_session(&extensions).await?;
         let http = self.build_client(&state);
 
@@ -257,8 +262,9 @@ impl PsychologicalOperationsXApiMcp {
             .iter()
             .map(|t| project_tweet(t, includes))
             .collect();
-        serde_json::to_string(&projected)
-            .map_err(|e| ErrorData::internal_error(format!("serialize tweets: {e}"), None))
+        let body = serde_json::to_string(&projected)
+            .map_err(|e| ErrorData::internal_error(format!("serialize tweets: {e}"), None))?;
+        self.respond_with_quota(&http, &state, Content::text(body)).await
     }
 
     #[tool(
@@ -269,7 +275,7 @@ impl PsychologicalOperationsXApiMcp {
         &self,
         Parameters(_req): Parameters<WhoamiRequest>,
         extensions: Extensions,
-    ) -> Result<String, ErrorData> {
+    ) -> Result<CallToolResult, ErrorData> {
         let state = self.resolve_session(&extensions).await?;
         let http = self.build_client(&state);
 
@@ -281,7 +287,8 @@ impl PsychologicalOperationsXApiMcp {
         let resp = users_me::http::get(&http, &req)
             .await
             .map_err(|e| ErrorData::internal_error(format!("users/me: {e}"), None))?;
-        Ok(resp.data.map(|u| u.username.0).unwrap_or_default())
+        let body = resp.data.map(|u| u.username.0).unwrap_or_default();
+        self.respond_with_quota(&http, &state, Content::text(body)).await
     }
 
     #[tool(
@@ -292,7 +299,7 @@ impl PsychologicalOperationsXApiMcp {
         &self,
         Parameters(_req): Parameters<GetBookmarksRequest>,
         extensions: Extensions,
-    ) -> Result<String, ErrorData> {
+    ) -> Result<CallToolResult, ErrorData> {
         let state = self.resolve_session(&extensions).await?;
         let http = self.build_client(&state);
 
@@ -332,7 +339,8 @@ impl PsychologicalOperationsXApiMcp {
             .iter()
             .map(|t| project_tweet(t, includes))
             .collect();
-        serde_json::to_string(&projected)
-            .map_err(|e| ErrorData::internal_error(format!("serialize tweets: {e}"), None))
+        let body = serde_json::to_string(&projected)
+            .map_err(|e| ErrorData::internal_error(format!("serialize tweets: {e}"), None))?;
+        self.respond_with_quota(&http, &state, Content::text(body)).await
     }
 }
