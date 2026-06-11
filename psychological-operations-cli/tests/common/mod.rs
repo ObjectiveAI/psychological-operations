@@ -2,20 +2,25 @@
 //!   1. Constructs a `TestEnv`. The constructor copies the
 //!      committed initial state from
 //!      `assets/<name>/.objectiveai/` (crate-root `assets/`, NOT
-//!      under `tests/`) to the runtime CONFIG_BASE_DIR
-//!      `tests/.t-<name>/.objectiveai/`. Then it manually copies
-//!      our built binary to
-//!      `<base>/plugins-state/psychological-operations/plugin[.exe]` so
-//!      the objectiveai host can dispatch to it.
+//!      under `tests/`) to a runtime CONFIG_BASE_DIR in the OS
+//!      temp dir. Then it manually installs our built binary at
+//!      `<base>/plugins/<owner>/psychological-operations/<version>/plugin[.exe]`
+//!      — the v2.1.1 host's plugin-binary layout (distinct from
+//!      the plugin's own STATE root at
+//!      `<base>/plugins-state/psychological-operations/`).
 //!   2. Spawns the `objectiveai` host binary with
-//!      `psychological-operations <subcmd> …` args — exercising
-//!      the real `objectiveai psychological-operations <subcmd>`
-//!      dispatch path, not our binary directly.
-//!   3. Captures stdout + stderr.
+//!      `plugins run --owner … --name psychological-operations
+//!      --version … --args '["<subcmd>", …]'` — the real v2.1.1
+//!      dispatch path (the legacy `objectiveai <plugin-name> …`
+//!      top-level alias is gone).
+//!   3. Captures stdout + stderr. At v2.1.1 the host forwards our
+//!      plugin's JSONL essentially verbatim (untagged
+//!      ResponseItem; no `{"type":"begin"}`/`{"type":"end"}`
+//!      bookends, those died with 2.0.x), and re-emits any plugin
+//!      stderr line as a bare `{"type":"error","message":null}`
+//!      stdout item.
 //!   4. Asserts against committed snapshots under
-//!      `assets/<name>/{stdout,stderr}.txt`. The host wraps our
-//!      plugin's PluginOutput stream with `{"type":"begin"}` /
-//!      `{"type":"end"}` bookend lines on stdout.
+//!      `assets/<name>/{stdout,stderr}.txt`.
 //!
 //! Each test asset folder is laid out:
 //!   assets/<name>/
@@ -24,10 +29,29 @@
 //!   ├── stdout.txt                                      # expected stdout
 //!   └── stderr.txt                                      # expected stderr
 //!
+//! ## Embedded postgres
+//!
+//! Every v2.1.1 host invocation bootstraps an embedded postgres
+//! under its CONFIG_BASE_DIR before doing anything else: binaries
+//! extracted to `db-bin/` (~163 MB, from bytes bundled inside the
+//! cli binary — no network), cluster data at `db/`, and a
+//! postmaster that deliberately OUTLIVES the cli process.
+//! Per-test that would mean gigabytes of extracts per run and a
+//! leaked postmaster per test, so the harness:
+//!   - warms up ONE shared install under
+//!     `tests/.target-binaries/pg-warmup/db-bin` (see
+//!     [`pg_shared_install`]) and links it into each test base as
+//!     `db-bin` — postgresql_embedded skips the extract when
+//!     `installation_dir` already exists; cluster data stays
+//!     per-test;
+//!   - stops the per-test postmaster in `Drop` (see
+//!     [`kill_postmaster`]) before wiping the runtime dir.
+//!
 //! Tests run in PARALLEL — env vars are per-subprocess
 //! (`Command::env`), never set on the test process itself.
 //! Drop wipes the runtime copy on completion (or
-//! `PSYOPS_KEEP_TEST_STATE=1` to preserve for debugging).
+//! `PSYOPS_KEEP_TEST_STATE=1` to preserve for debugging — the
+//! postmaster is stopped either way).
 
 #![allow(dead_code)]   // Helpers used by individual test files.
 
@@ -36,6 +60,50 @@ pub mod snapshot;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
+
+/// Windows: clear `HANDLE_FLAG_INHERIT` on this test process's
+/// stdio handles before spawning anything. cargo runs the test
+/// binary with piped stdio, and those pipe handles are marked
+/// inheritable — every grandchild spawned with
+/// `bInheritHandles=TRUE` (which Rust's `Command` uses whenever
+/// stdio is piped) would inherit them as stray raw handles. The
+/// embedded postmaster the objectiveai host leaves running is
+/// exactly such a grandchild: with the flag set it keeps cargo's
+/// stdout pipe open forever and the outer `cargo test` never sees
+/// EOF. Mirrors `objectiveai_cli::clear_stdio_inheritance`, which
+/// solves the same leak one level down.
+#[cfg(windows)]
+fn clear_stdio_inheritance() {
+    use std::os::windows::io::AsRawHandle;
+    const HANDLE_FLAG_INHERIT: u32 = 0x1;
+    unsafe extern "system" {
+        fn SetHandleInformation(
+            handle: *mut core::ffi::c_void,
+            mask: u32,
+            flags: u32,
+        ) -> i32;
+    }
+    let handles = [
+        std::io::stdin().as_raw_handle(),
+        std::io::stdout().as_raw_handle(),
+        std::io::stderr().as_raw_handle(),
+    ];
+    for h in handles {
+        if !h.is_null() {
+            unsafe { SetHandleInformation(h.cast(), HANDLE_FLAG_INHERIT, 0) };
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn clear_stdio_inheritance() {}
+
+/// Run [`clear_stdio_inheritance`] exactly once, before the first
+/// subprocess spawn of the test process.
+fn ensure_stdio_not_inherited() {
+    static DONE: OnceLock<()> = OnceLock::new();
+    DONE.get_or_init(clear_stdio_inheritance);
+}
 
 fn manifest_dir() -> PathBuf { PathBuf::from(env!("CARGO_MANIFEST_DIR")) }
 fn repo_root() -> PathBuf { manifest_dir().join("..") }
@@ -46,11 +114,25 @@ fn target_binaries_dir() -> PathBuf { tests_dir().join(".target-binaries") }
 /// Run `psychological-operations-browser/scripts/build-bundle.{ps1,sh}`
 /// once per cargo-test process so the CLI's build.rs finds the
 /// embedded browser bundle. Idempotent — the script overwrites
-/// the same paths each time.
+/// the same paths each time. Debug profile: tests don't need an
+/// optimized browser, and the release CEF build is enormous.
+/// The browser crate's CEF build needs `ninja` — prepend the
+/// repo-root `bin/` (where `install-bin.sh` drops it) to the
+/// script's PATH.
 fn ensure_browser_bundle() {
     static DONE: OnceLock<()> = OnceLock::new();
     DONE.get_or_init(|| {
+        ensure_stdio_not_inherited();
         let target = host_triple();
+        let bin_dir = repo_root().join("bin");
+        let path_var = match std::env::var_os("PATH") {
+            Some(p) => {
+                let mut parts = vec![bin_dir.clone()];
+                parts.extend(std::env::split_paths(&p));
+                std::env::join_paths(parts).expect("join PATH")
+            }
+            None => bin_dir.clone().into(),
+        };
         let status = if cfg!(windows) {
             // Prefer pwsh (PowerShell 7); fall back to Windows PowerShell.
             let shell = if Command::new("pwsh").arg("-NoProfile").arg("-Command").arg("$null").status().map(|s| s.success()).unwrap_or(false) {
@@ -60,15 +142,15 @@ fn ensure_browser_bundle() {
             };
             Command::new(shell)
                 .args(["-NoProfile", "-File", "psychological-operations-browser/scripts/build-bundle.ps1"])
-                .arg("-Release")
                 .arg("-Target").arg(target)
+                .env("PATH", &path_var)
                 .current_dir(repo_root())
                 .status()
         } else {
             Command::new(bash_command())
                 .arg("psychological-operations-browser/scripts/build-bundle.sh")
-                .arg("--release")
                 .arg("--target").arg(target)
+                .env("PATH", &path_var)
                 .current_dir(repo_root())
                 .status()
         }
@@ -79,7 +161,9 @@ fn ensure_browser_bundle() {
 
 
 /// Build our `psychological-operations` binary once per cargo-test
-/// process. Subsequent calls return the cached path.
+/// process. Subsequent calls return the cached path. Debug profile
+/// — matches the bundle above, and the plugin's runtime speed is
+/// irrelevant to the assertions.
 pub fn psyops_binary() -> &'static Path {
     static BIN: OnceLock<PathBuf> = OnceLock::new();
     BIN.get_or_init(|| {
@@ -90,7 +174,6 @@ pub fn psyops_binary() -> &'static Path {
             .args([
                 "build",
                 "--bin", "psychological-operations",
-                "--release",
                 "--target-dir", target.to_str().unwrap(),
                 "--manifest-path", manifest_dir().join("Cargo.toml").to_str().unwrap(),
             ])
@@ -98,7 +181,7 @@ pub fn psyops_binary() -> &'static Path {
             .expect("spawn cargo build psychological-operations");
         assert!(status.success(), "psychological-operations build failed");
         let exe = if cfg!(windows) { "psychological-operations.exe" } else { "psychological-operations" };
-        target.join("release").join(exe)
+        target.join("debug").join(exe)
     }).as_path()
 }
 
@@ -139,19 +222,30 @@ fn bash_command() -> &'static Path {
 /// Bump this when you want tests to run against a newer release
 /// (snapshots are wire-format-coupled to the host version, so a bump
 /// often requires `UPDATE_PSYOPS_SNAPSHOTS=1` regen alongside it).
-const OBJECTIVEAI_VERSION: &str = "2.0.10";
+const OBJECTIVEAI_VERSION: &str = "2.1.1";
+
+/// Plugin coordinate for the manual test install. The v2.1.1 host
+/// resolves plugin binaries at
+/// `<base>/plugins/<owner>/<name>/<version>/plugin[.exe]`; for a
+/// hand-placed binary the owner/version are arbitrary as long as
+/// the `plugins run` invocation passes the same triple. No
+/// `objectiveai.json` manifest is needed — `plugins run` only
+/// resolves the binary path.
+const PLUGIN_OWNER:   &str = "ObjectiveAI";
+const PLUGIN_NAME:    &str = "psychological-operations";
+const PLUGIN_VERSION: &str = "0.0.0";
 
 /// Filename for the prebuilt `objectiveai` release asset on the
 /// current host, matching the upload convention in
-/// `objectiveai/.github/workflows/release.yml`. We pull the
-/// `-no-viewer` variant because the Tauri viewer is dead weight for
-/// the score-path tests.
+/// `objectiveai/.github/workflows/release.yml`. v2.1.1 ships the
+/// viewer as its own `-viewer` asset, so the plain cli asset is
+/// already viewer-free (the 2.0.x `-no-viewer` variant is gone).
 fn objectiveai_asset_name() -> &'static str {
-    if      cfg!(all(target_os = "windows", target_arch = "x86_64"))  { "objectiveai-windows-x86_64-no-viewer.exe" }
-    else if cfg!(all(target_os = "macos",   target_arch = "aarch64")) { "objectiveai-macos-aarch64-no-viewer" }
-    else if cfg!(all(target_os = "macos",   target_arch = "x86_64"))  { "objectiveai-macos-x86_64-no-viewer" }
-    else if cfg!(all(target_os = "linux",   target_arch = "aarch64")) { "objectiveai-linux-aarch64-no-viewer" }
-    else if cfg!(all(target_os = "linux",   target_arch = "x86_64"))  { "objectiveai-linux-x86_64-no-viewer" }
+    if      cfg!(all(target_os = "windows", target_arch = "x86_64"))  { "objectiveai-windows-x86_64.exe" }
+    else if cfg!(all(target_os = "macos",   target_arch = "aarch64")) { "objectiveai-macos-aarch64" }
+    else if cfg!(all(target_os = "macos",   target_arch = "x86_64"))  { "objectiveai-macos-x86_64" }
+    else if cfg!(all(target_os = "linux",   target_arch = "aarch64")) { "objectiveai-linux-aarch64" }
+    else if cfg!(all(target_os = "linux",   target_arch = "x86_64"))  { "objectiveai-linux-x86_64" }
     else { panic!("unsupported host platform — extend objectiveai_asset_name()") }
 }
 
@@ -175,7 +269,17 @@ pub fn objectiveai_binary() -> &'static Path {
                 "https://github.com/ObjectiveAI/objectiveai/releases/download/v{OBJECTIVEAI_VERSION}/{asset}",
             );
             eprintln!("downloading objectiveai v{OBJECTIVEAI_VERSION}: {url}");
-            let bytes = reqwest::blocking::get(&url)
+            // No client timeout: the v2.1.1 asset embeds the
+            // postgres archive (hundreds of MB) and reqwest's
+            // default 30 s window kills the body mid-stream
+            // ("error decoding response body").
+            let client = reqwest::blocking::Client::builder()
+                .timeout(None)
+                .build()
+                .expect("build download client");
+            let bytes = client
+                .get(&url)
+                .send()
                 .and_then(|r| r.error_for_status())
                 .and_then(|r| r.bytes())
                 .unwrap_or_else(|e| panic!("download {url}: {e}"));
@@ -193,6 +297,103 @@ pub fn objectiveai_binary() -> &'static Path {
         }
         cached
     }).as_path()
+}
+
+/// Shared embedded-postgres install (`db-bin/`) for every test base
+/// dir. Warmed up once per machine under
+/// `tests/.target-binaries/pg-warmup/` by running `objectiveai
+/// --help` — the host builds its Context (which bootstraps
+/// postgres, extracting the bundled binaries) before arg parsing,
+/// so even `--help` populates the install. The warmup postmaster
+/// is stopped afterwards; only the extracted `db-bin/` is kept.
+fn pg_shared_install() -> &'static Path {
+    static DIR: OnceLock<PathBuf> = OnceLock::new();
+    DIR.get_or_init(|| {
+        let warmup = target_binaries_dir().join("pg-warmup");
+        let install = warmup.join("db-bin");
+        if !install.exists() {
+            std::fs::create_dir_all(&warmup).expect("create pg warmup dir");
+            let out = Command::new(objectiveai_binary())
+                .arg("--help")
+                .env("CONFIG_BASE_DIR", &warmup)
+                .output()
+                .expect("spawn objectiveai --help for pg warmup");
+            assert!(
+                out.status.success(),
+                "pg warmup failed: stdout={} stderr={}",
+                String::from_utf8_lossy(&out.stdout),
+                String::from_utf8_lossy(&out.stderr),
+            );
+            assert!(install.exists(), "pg warmup did not produce db-bin/");
+        }
+        // Stop the warmup postmaster (fresh from the run above, or
+        // leaked by a crashed prior test process). Its cluster under
+        // `pg-warmup/db/` is never used by tests.
+        kill_postmaster(&warmup);
+        install
+    }).as_path()
+}
+
+/// Stop the postmaster whose pid is recorded on line 1 of
+/// `<base>/db/postmaster.pid`. The objectiveai host deliberately
+/// leaves it running (right for a developer base dir, wrong for a
+/// throwaway test dir). Identity-checked kill: the pid is only
+/// killed when the OS reports its image name as postgres, so a
+/// stale pid file whose pid got recycled can't take out an
+/// innocent process. Best-effort throughout — a postmaster that
+/// already exited is success.
+fn kill_postmaster(base: &Path) {
+    let pid_file = base.join("db").join("postmaster.pid");
+    let Ok(content) = std::fs::read_to_string(&pid_file) else { return };
+    let Some(pid) = content.lines().next().map(str::trim) else { return };
+    if pid.is_empty() || !pid.chars().all(|c| c.is_ascii_digit()) {
+        return;
+    }
+    if cfg!(windows) {
+        // /FI filters AND together: only a process that is BOTH this
+        // pid AND named postgres.exe is killed. /T takes the worker
+        // children (checkpointer, bgwriter, backends) down with the
+        // postmaster — a hard-killed postmaster doesn't reliably
+        // reap them on Windows, and a lingering worker keeps the
+        // data dir (and any inherited pipe handles) locked.
+        let _ = Command::new("taskkill")
+            .args(["/F", "/T", "/FI", &format!("PID eq {pid}"), "/FI", "IMAGENAME eq postgres.exe"])
+            .output();
+    } else {
+        let name_is_postgres = Command::new("ps")
+            .args(["-p", pid, "-o", "comm="])
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).contains("postgres"))
+            .unwrap_or(false);
+        if name_is_postgres {
+            let _ = Command::new("kill").args(["-9", pid]).output();
+        }
+    }
+    // The hard kill leaves the pid file behind; drop it so a later
+    // `kill_postmaster` on the same base doesn't chase a dead pid.
+    let _ = std::fs::remove_file(&pid_file);
+}
+
+/// Link `link` → existing directory `target`: NTFS junction on
+/// Windows (works without admin or developer mode), symlink
+/// elsewhere. Used to share the postgres install across test bases.
+fn link_dir(target: &Path, link: &Path) {
+    #[cfg(windows)]
+    {
+        let out = Command::new("cmd")
+            .arg("/C").arg("mklink").arg("/J")
+            .arg(link).arg(target)
+            .output()
+            .expect("spawn mklink /J");
+        assert!(
+            out.status.success(),
+            "mklink /J {} -> {} failed: {}",
+            link.display(), target.display(),
+            String::from_utf8_lossy(&out.stderr),
+        );
+    }
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(target, link).expect("symlink shared dir");
 }
 
 /// Generic per-psyop git-init: walks `psyops_dir`, and for each
@@ -273,6 +474,7 @@ impl TestEnv {
     /// would have produced (committed assets can't include nested
     /// `.git` dirs without git treating them as embedded repos).
     pub fn new(name: &str) -> Self {
+        ensure_stdio_not_inherited();
         // Per-test runtime layout mirrors the live install:
         //
         //   <root>/.t-<name>/.objectiveai/                    ← CONFIG_BASE_DIR
@@ -303,22 +505,37 @@ impl TestEnv {
             copy_dir_recursive(&initial, &base);
         }
 
-        // Manual plugin install: copy our built binary to the
-        // per-plugin subdir as `plugin[.exe]`, matching the layout
-        // `objectiveai plugins install` produces from GitHub. We use
-        // manual copy because the install command requires network +
-        // a published release.
+        // Manual plugin install: copy our built binary to the v2.1.1
+        // host's plugin-binary layout
+        // `plugins/<owner>/<name>/<version>/plugin[.exe]`, matching
+        // what `objectiveai plugins install` produces from GitHub. We
+        // use manual copy because the install command requires
+        // network + a published release. (This `plugins/` tree holds
+        // host-resolved BINARIES; the plugin's own state root above
+        // is the separate `plugins-state/` tree.)
         let plugin_bin = if cfg!(windows) { "plugin.exe" } else { "plugin" };
-        std::fs::copy(psyops_binary(), state.join(plugin_bin))
+        let plugin_dir = base
+            .join("plugins")
+            .join(PLUGIN_OWNER)
+            .join(PLUGIN_NAME)
+            .join(PLUGIN_VERSION);
+        std::fs::create_dir_all(&plugin_dir).expect("create plugin install dir");
+        std::fs::copy(psyops_binary(), plugin_dir.join(plugin_bin))
             .expect("install plugin binary");
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let p = state.join(plugin_bin);
+            let p = plugin_dir.join(plugin_bin);
             let mut perms = std::fs::metadata(&p).expect("plugin perms").permissions();
             perms.set_mode(0o755);
             std::fs::set_permissions(&p, perms).expect("chmod plugin");
         }
+
+        // Pre-link the shared postgres install as `db-bin` so the
+        // host's embedded-postgres bootstrap skips its ~163 MB
+        // per-base extract (it early-returns when the installation
+        // dir exists). Cluster data (`db/`) stays per-test.
+        link_dir(pg_shared_install(), &base.join("db-bin"));
 
         let psyops_dir = state.join("psyops");
         if psyops_dir.exists() {
@@ -328,19 +545,18 @@ impl TestEnv {
         Self { name: name.into(), dir: state, base, assets }
     }
 
-    /// Build a `Command` for invoking our plugin via the objectiveai
-    /// host (the real dispatch path: `objectiveai psychological-operations
-    /// <subcmd>`). Per-subprocess env, not per-process.
+    /// Build a `Command` for invoking the objectiveai host with this
+    /// test's env. Per-subprocess env, not per-process.
     pub fn cmd(&self) -> Command {
         let mut cmd = Command::new(objectiveai_binary());
-        cmd.arg("psychological-operations");
         cmd.env("CONFIG_BASE_DIR",                              &self.base);
-        // Score-path subprocesses re-invoke the objectiveai CLI for
-        // `functions get` / `executions create`. Point them at the
-        // same no-viewer release binary we downloaded for the host so
-        // tests don't spawn viewer windows.
-        cmd.env("PSYCHOLOGICAL_OPERATIONS_OBJECTIVEAI_BINARY",  objectiveai_binary());
-        // X mocking moved from this process-wide env var to a
+        // The host stamps OBJECTIVEAI_AGENT_INSTANCE_HIERARCHY on the
+        // plugin subprocess from its own config (default "cli") —
+        // pin it so anything that records the caller's hierarchy
+        // (e.g. `agents enqueue`'s deliverer column) is
+        // deterministic in snapshots.
+        cmd.env("OBJECTIVEAI_AGENT_INSTANCE_HIERARCHY",         "test-harness");
+        // X mocking moved from a process-wide env var to a
         // per-psyop `mock` field. Every test fixture's psyop.json
         // sets `"mock": true` instead.
         cmd.env("PSYCHOLOGICAL_OPERATIONS_COMMIT_AUTHOR_NAME",  "psyops-test");
@@ -352,10 +568,24 @@ impl TestEnv {
         cmd
     }
 
-    /// Run a CLI invocation; capture stdout + stderr.
+    /// Run one plugin invocation through the host's real dispatch
+    /// path — `objectiveai plugins run --owner … --name … --version
+    /// … --args '["<subcmd>", …]'` — and capture stdout + stderr.
+    /// (The 2.0.x `objectiveai psychological-operations <subcmd>`
+    /// top-level alias no longer exists.)
     pub fn run(&self, args: &[&str]) -> CapturedOutput {
-        let out = self.cmd().args(args).output()
-            .expect("spawn psychological-operations");
+        let args_json = serde_json::to_string(args)
+            .expect("plugin args serialize");
+        let out = self.cmd()
+            .args([
+                "plugins", "run",
+                "--owner",   PLUGIN_OWNER,
+                "--name",    PLUGIN_NAME,
+                "--version", PLUGIN_VERSION,
+                "--args",    &args_json,
+            ])
+            .output()
+            .expect("spawn objectiveai plugins run");
         CapturedOutput {
             status: out.status,
             stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
@@ -369,8 +599,15 @@ impl TestEnv {
 
 impl Drop for TestEnv {
     fn drop(&mut self) {
+        // The host left a per-base postmaster running by design —
+        // stop ours before (maybe) deleting its data dir out from
+        // under it. Applies to the keep-state path too: preserved
+        // state shouldn't leak a live process.
+        kill_postmaster(&self.base);
+
         // Wipe the entire runtime dir (parent of `.objectiveai`),
-        // not just `self.base` — keeps tests/ clean between runs.
+        // not just `self.base` — keeps the temp root clean between
+        // runs.
         let runtime = self.base.parent().unwrap_or(&self.base).to_path_buf();
         if std::env::var_os("PSYOPS_KEEP_TEST_STATE").is_some() {
             eprintln!(
@@ -379,6 +616,19 @@ impl Drop for TestEnv {
             );
             return;
         }
-        let _ = std::fs::remove_dir_all(&runtime);
+        // The killed postmaster's handles release asynchronously on
+        // Windows — retry the wipe a few times before giving up.
+        for attempt in 0..5 {
+            match std::fs::remove_dir_all(&runtime) {
+                Ok(()) => return,
+                Err(_) if attempt < 4 => {
+                    std::thread::sleep(std::time::Duration::from_millis(250));
+                }
+                Err(e) => eprintln!(
+                    "warning: failed to wipe {}: {e}",
+                    runtime.display(),
+                ),
+            }
+        }
     }
 }

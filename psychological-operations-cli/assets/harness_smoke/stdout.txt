@@ -1,3 +1,1 @@
-{"type":"begin"}
-{"type":"notification","value":{"value":[]}}
-{"type":"end"}
+{"psyop_list":[]}
