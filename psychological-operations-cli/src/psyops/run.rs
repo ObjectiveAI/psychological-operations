@@ -118,7 +118,13 @@ pub async fn run_psyop(
     // entirely when for_you is unconfigured. Blocks until the
     // operator closes the browser window — that's the signal to
     // proceed.
-    if psyop.for_you.is_some() {
+    //
+    // Mocked runs skip it: collection is an interactive CEF browser
+    // session against the real X site, which a mock psyop has no
+    // business opening (same rationale as the mock-gated `x_app`
+    // preflight above). A mocked run operates purely on whatever is
+    // already queued in `for_you_queue`.
+    if psyop.for_you.is_some() && !psyop.mock_enabled() {
         super::collect::collect_for_you(&db, name, &commit, ctx).await?;
     }
 

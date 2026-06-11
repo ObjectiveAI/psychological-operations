@@ -1,7 +1,5 @@
-{"type":"begin"}
-{"type":"notification","value":{"event":"query_complete","psyop":"target-psyop","query":"target only","count":4}}
-{"type":"notification","value":{"event":"stage_begin","stage":0}}
-{"type":"notification","value":{"log_stream_ready":"<id>"}}
-{"type":"notification","value":{"event":"stage_end","stage":0}}
-{"type":"notification","value":{"event":"target_delivered","body":{"kind":"psyop","name":"target-psyop","results":[{"score":0.5,"id":"1903404806175488944","handle":"mockuser_7cf284f819227bb0","text":"","images":[],"videos":[],"created":"","url":"https://x.com/mockuser_7cf284f819227bb0/status/1903404806175488944"},{"score":0.5,"id":"1908015976714396055","handle":"mockuser_29be9e97fac2e197","text":"","images":[],"videos":[],"created":"","url":"https://x.com/mockuser_29be9e97fac2e197/status/1908015976714396055"},{"score":0.5,"id":"1936392592589580124","handle":"mockuser_568c1e05692de75c","text":"","images":[],"videos":[],"created":"","url":"https://x.com/mockuser_568c1e05692de75c/status/1936392592589580124"},{"score":0.5,"id":"1959197364034543857","handle":"mockuser_c31c4d83866320f1","text":"","images":[],"videos":[],"created":"","url":"https://x.com/mockuser_c31c4d83866320f1/status/1959197364034543857"}]}}}
-{"type":"end"}
+{"event":"query_complete","psyop":"target-psyop","query":"target only","count":4}
+{"event":"stage_begin","stage":0}
+{"event":"stage_end","stage":0}
+{"event":"target_delivered","body":{"kind":"psyop","name":"target-psyop","results":[{"score":0.5,"id":"1903404806175488944","handle":"mockuser_7cf284f819227bb0","url":"https://x.com/mockuser_7cf284f819227bb0/status/1903404806175488944"},{"score":0.5,"id":"1908015976714396055","handle":"mockuser_29be9e97fac2e197","url":"https://x.com/mockuser_29be9e97fac2e197/status/1908015976714396055"},{"score":0.5,"id":"1936392592589580124","handle":"mockuser_568c1e05692de75c","url":"https://x.com/mockuser_568c1e05692de75c/status/1936392592589580124"},{"score":0.5,"id":"1959197364034543857","handle":"mockuser_c31c4d83866320f1","url":"https://x.com/mockuser_c31c4d83866320f1/status/1959197364034543857"}]}}
+"ok"

@@ -10,6 +10,7 @@
   "mock": true,
   "stages": [
     {
+      "type": "function",
       "function": { "remote": "mock", "name": "tweet-ranker" },
       "profile":  { "remote": "mock", "name": "high-logprobs-duo" },
       "strategy": { "type": "default" },

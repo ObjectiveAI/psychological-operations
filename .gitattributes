@@ -1,0 +1,13 @@
+# Test fixtures encode a deterministic git commit SHA: the harness
+# reads each `assets/**/psyop.json` from the working tree and
+# re-commits it (pinned author/time/message) to reproduce a known
+# `psyop_commit_sha` that the seeded `data.db` rows reference. That
+# SHA is byte-sensitive, so the working-tree bytes must be identical
+# on every machine regardless of `core.autocrlf`. Force LF.
+psychological-operations-cli/assets/**/psyop.json text eol=lf
+
+# Seeded SQLite fixtures + the embedded browser bundle are binary —
+# never line-ending-convert or diff them as text.
+*.db binary
+*.sqlite binary
+*.zip binary

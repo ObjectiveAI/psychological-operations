@@ -84,10 +84,28 @@ async fn run_function_execution(
     ctx: &crate::context::Context,
 ) -> Result<serde_json::Value, crate::error::Error> {
     let executor = ctx.executor.clone();
-    let function_spec = FunctionSpec::Resolved(
-        FullInlineFunctionOrRemoteCommitOptional::Inline(function.clone()),
-    );
-    let profile_spec = ProfileSpec::Resolved(profile.clone());
+
+    // Pass the function / profile / input as FILE PATHS, not inline
+    // JSON. The SDK's in-process `PluginExecutor` emits a nested
+    // command as `argv.join(" ")` and the objectiveai host re-splits
+    // it with `split_whitespace` (no shlex) — so any argument that
+    // contains a space is shattered into separate tokens and clap
+    // rejects the reconstructed command. The scoring input carries
+    // tweet text (and the function / profile carry instruction
+    // prose), all of which contain spaces. Writing each to a temp
+    // file and passing its (space-free) path is the only encoding
+    // that survives the protocol. Files live until the nested
+    // command has been served; the `_tmp` guard reaps them on return.
+    let tmp = ExecTempDir::new(ctx)?;
+    let fn_path = tmp.write_json(
+        "function.json",
+        &FullInlineFunctionOrRemoteCommitOptional::Inline(function.clone()),
+    )?;
+    let profile_path = tmp.write_json("profile.json", profile)?;
+    let input_path = tmp.write_json("input.json", &input)?;
+
+    let function_spec = FunctionSpec::File(fn_path);
+    let profile_spec = ProfileSpec::File(profile_path);
 
     let request = match strategy {
         Strategy::Default => {
@@ -99,7 +117,7 @@ async fn run_function_execution(
                 path_type: standard::Path::FunctionsExecuteStandard,
                 function: function_spec,
                 profile: profile_spec,
-                input: standard::RequestInput::Inline(input),
+                input: standard::RequestInput::File(input_path),
                 continuation: None,
                 retry_token: None,
                 split,
@@ -117,7 +135,7 @@ async fn run_function_execution(
                 path_type: swiss_system::Path::FunctionsExecuteSwissSystem,
                 function: function_spec,
                 profile: profile_spec,
-                input: swiss_system::RequestInput::Inline(input),
+                input: swiss_system::RequestInput::File(input_path),
                 continuation: None,
                 retry_token: None,
                 split,
@@ -139,18 +157,16 @@ async fn run_function_execution(
     while let Some(item) = stream.next().await {
         let item = item
             .map_err(|e| crate::error::Error::ObjectiveAiCli(format!("functions execute stream: {e}")))?;
-        let (output, tasks_errors, value) = match &item {
+        let (output, tasks_errors) = match &item {
             CreateResponseItem::Standard(StandardItem::Chunk(c)) => (
                 c.output.as_ref().map(|o| serde_json::to_value(&o.output).expect("output serializes")),
                 c.tasks_errors.unwrap_or(false),
-                serde_json::to_value(&item).expect("ResponseItem serializes"),
             ),
             CreateResponseItem::SwissSystem(SwissItem::Chunk(c)) => (
                 c.output.as_ref().map(|o| serde_json::to_value(&o.output).expect("output serializes")),
                 c.tasks_errors.unwrap_or(false),
-                serde_json::to_value(&item).expect("ResponseItem serializes"),
             ),
-            _ => (None, false, serde_json::to_value(&item).expect("ResponseItem serializes")),
+            _ => (None, false),
         };
 
         if tasks_errors {
@@ -163,18 +179,73 @@ async fn run_function_execution(
         match output {
             Some(o) if terminal.is_none() => {
                 terminal = Some(o);
+                // Stop at the terminal chunk — never drain an
+                // executor stream to its end. The host writes a
+                // nested command's stream-terminating marker only
+                // after the plugin's stdout EOFs, so waiting for
+                // "no more items" here deadlocks (we wait on the
+                // host, the host waits on our exit).
+                break;
             }
-            _ => {
-                // Forward the chunk verbatim as a notification so
-                // consumers see progress.
-                crate::output::OutputResult::Notification(value).emit();
-            }
+            // Non-terminal chunks are NOT forwarded. They're a
+            // per-vote streaming firehose carrying wall-clock
+            // timestamps and random ids (hundreds per execution) —
+            // non-deterministic noise, not progress a consumer can
+            // act on. The deterministic `stage_begin` / `stage_end`
+            // events (emitted by `score_pipeline`) mark progress
+            // instead. Only the terminal output is retained.
+            _ => {}
         }
     }
 
     terminal.ok_or_else(|| crate::error::Error::ObjectiveAiCli(
         "functions execute produced no terminal chunk with output".into(),
     ))
+}
+
+/// Throwaway directory holding one function-execution's file-passed
+/// args (function / profile / input JSON). Lives under
+/// `<base>/plugins-state/psychological-operations/exec-tmp/<pid>-<seq>/`
+/// — a path with no spaces, so the nested `functions execute` command
+/// the host reconstructs by `split_whitespace` can carry it intact.
+/// Removed on drop, which the caller holds until after the execution
+/// stream is fully consumed (the host reads the files while serving
+/// the nested command).
+struct ExecTempDir {
+    dir: std::path::PathBuf,
+}
+
+impl ExecTempDir {
+    fn new(ctx: &crate::context::Context) -> Result<Self, crate::error::Error> {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static SEQ: AtomicU64 = AtomicU64::new(0);
+        let seq = SEQ.fetch_add(1, Ordering::Relaxed);
+        let dir = ctx
+            .config
+            .objectiveai_base_dir()
+            .join("plugins-state")
+            .join("psychological-operations")
+            .join("exec-tmp")
+            .join(format!("{}-{seq}", std::process::id()));
+        std::fs::create_dir_all(&dir)?;
+        Ok(Self { dir })
+    }
+
+    fn write_json<T: serde::Serialize>(
+        &self,
+        name: &str,
+        value: &T,
+    ) -> Result<std::path::PathBuf, crate::error::Error> {
+        let path = self.dir.join(name);
+        std::fs::write(&path, serde_json::to_string(value)?)?;
+        Ok(path)
+    }
+}
+
+impl Drop for ExecTempDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.dir);
+    }
 }
 
 /// Run a single function-stage's objectiveai execution against

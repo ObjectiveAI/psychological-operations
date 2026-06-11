@@ -549,6 +549,16 @@ impl Db {
         target_json: &str,
         post_ids_json: &str,
     ) -> Result<i64, crate::error::Error> {
+        // Run the INSERT … RETURNING inside an EXPLICIT transaction
+        // and commit it. `fetch_one` stops stepping the statement
+        // after the single returned row, so under WAL on a
+        // multi-connection pool the implicit autocommit doesn't
+        // finalize until that connection is reused — and a read on
+        // a *different* pool connection (e.g. the very next
+        // `drain_queue` in `psyops run`) wouldn't see the row.
+        // `tx.commit()` makes the write durable + cross-connection
+        // visible before we return.
+        let mut tx = self.pool.begin().await?;
         let id: i64 = sqlx::query_scalar(
             "INSERT INTO delivery_queue
                 (psyop, psyop_commit_sha, target_json, post_ids_json)
@@ -559,8 +569,9 @@ impl Db {
         .bind(psyop_commit_sha)
         .bind(target_json)
         .bind(post_ids_json)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *tx)
         .await?;
+        tx.commit().await?;
         Ok(id)
     }
 

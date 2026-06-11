@@ -57,13 +57,30 @@ async fn run_inner(ctx: &crate::context::Context) -> Result<Output, Error> {
 }
 
 /// Enqueue one `agents message --enqueue-with-key psychological-operations`
-/// for `agent`, emitting each stream item (or the error) as-is.
+/// for `agent`, emitting the response (or the error) as-is.
+///
+/// Exactly ONE item is read from the stream — the enqueue-mode
+/// `agents message` answers with a single terminal `Enqueued`.
+/// Never drain an executor stream to its end: the host writes a
+/// nested command's stream-terminating marker only after the
+/// plugin's stdout EOFs, so waiting for "no more items" deadlocks
+/// (we wait on the host, the host waits on our exit). Same
+/// convention as the SDK's own `execute_one`.
 async fn notify_one(executor: &PluginExecutor, agent: String, kind: AgentKind, n: i64) {
     let request = agents_message::Request {
         path_type: agents_message::Path::AgentsMessage,
         target: target_for(&agent, kind),
+        // The message MUST be whitespace-free. The SDK's
+        // PluginExecutor emits a nested command as `argv.join(" ")`
+        // and the objectiveai host re-tokenizes it with
+        // `split_whitespace` (no shlex) — so any argument carrying a
+        // space is shattered into separate tokens and clap rejects
+        // the reconstructed command. A readable sentence here makes
+        // `agents message` fail to parse; underscores keep the
+        // notification one token while still naming the agent + count
+        // (the recipient is an agent, not a human reader).
         message: agents_message::RequestMessage::Simple(format!(
-            "There are {n} tweets in the queue for '{agent}' (you)."
+            "psychological-operations:{n}_queued_tweet(s)_for_you,_agent={agent}"
         )),
         enqueue: Some(agents_message::EnqueueMode::Keyed {
             key: NOTIFY_KEY.to_string(),
@@ -72,14 +89,11 @@ async fn notify_one(executor: &PluginExecutor, agent: String, kind: AgentKind, n
         jq: None,
     };
     match agents_message::execute_streaming(executor, request, None).await {
-        Ok(mut stream) => {
-            while let Some(item) = stream.next().await {
-                match item {
-                    Ok(item) => emit_item(&item),
-                    Err(e) => emit_error(&agent, &e.to_string()),
-                }
-            }
-        }
+        Ok(mut stream) => match stream.next().await {
+            Some(Ok(item)) => emit_item(&item),
+            Some(Err(e)) => emit_error(&agent, &e.to_string()),
+            None => emit_error(&agent, "agents message produced no response"),
+        },
         Err(e) => emit_error(&agent, &e.to_string()),
     }
 }

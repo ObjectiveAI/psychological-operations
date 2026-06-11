@@ -236,16 +236,19 @@ impl Queue {
 }
 
 fn row_to_entry(row: sqlx::sqlite::SqliteRow) -> QueueEntry {
+    // Nullable columns decode as `Option<T>` directly — NOT
+    // `try_get::<T>(..).ok()`: sqlx-sqlite decodes a NULL into
+    // `T`'s default (`""` / `0.0`) instead of erroring, so that
+    // idiom silently turned NULL into `Some("")` / `Some(0.0)`.
     QueueEntry {
         agent:      row.get("agent"),
         agent_kind: AgentKind::from_db(row.get::<String, _>("agent_kind").as_str()),
         tweet_id:   row.get("tweet_id"),
-        psyop:      row.try_get("psyop").ok(),
-        score:      row.try_get("score").ok(),
-        deliverer_agent_instance_hierarchy: row
-            .try_get("deliverer_agent_instance_hierarchy")
-            .ok(),
-        message:    row.try_get("message").ok(),
+        psyop:      row.get::<Option<String>, _>("psyop"),
+        score:      row.get::<Option<f64>, _>("score"),
+        deliverer_agent_instance_hierarchy:
+            row.get::<Option<String>, _>("deliverer_agent_instance_hierarchy"),
+        message:    row.get::<Option<String>, _>("message"),
         queued_at:  row.get("queued_at"),
     }
 }

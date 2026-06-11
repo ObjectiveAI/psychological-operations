@@ -10,6 +10,7 @@
   "mock": true,
   "stages": [
     {
+      "type": "function",
       "function": { "remote": "mock", "name": "tweet-scorer" },
       "profile":  { "remote": "mock", "name": "solo-instruction" },
       "strategy": { "type": "default" },
@@ -18,6 +19,7 @@
       "videos": false
     },
     {
+      "type": "function",
       "function": { "remote": "mock", "name": "tweet-scorer" },
       "profile":  { "remote": "mock", "name": "solo-instruction" },
       "strategy": { "type": "default" },

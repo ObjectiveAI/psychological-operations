@@ -1,7 +1,5 @@
-{"type":"begin"}
-{"type":"notification","value":{"event":"query_complete","psyop":"test-psyop","query":"logprobs duo swarm","count":3}}
-{"type":"notification","value":{"event":"stage_begin","stage":0}}
-{"type":"notification","value":{"log_stream_ready":"<id>"}}
-{"type":"notification","value":{"event":"stage_end","stage":0}}
-{"type":"notification","value":{"event":"target_delivered","body":{"kind":"psyop","name":"test-psyop","results":[{"score":0.51733846263747,"id":"1974882017977645198","handle":"mockuser_4934253f71a7388e","text":"","images":[],"videos":[],"created":"","url":"https://x.com/mockuser_4934253f71a7388e/status/1974882017977645198"},{"score":0.501366670201481,"id":"1960633268184688237","handle":"mockuser_b96a812b746a266d","text":"","images":[],"videos":[],"created":"","url":"https://x.com/mockuser_b96a812b746a266d/status/1960633268184688237"},{"score":0.4027397241713604,"id":"1907918347904407821","handle":"mockuser_f9e8fa53cf14d90d","text":"","images":[],"videos":[],"created":"","url":"https://x.com/mockuser_f9e8fa53cf14d90d/status/1907918347904407821"}]}}}
-{"type":"end"}
+{"event":"query_complete","psyop":"test-psyop","query":"logprobs duo swarm","count":3}
+{"event":"stage_begin","stage":0}
+{"event":"stage_end","stage":0}
+{"event":"target_delivered","body":{"kind":"psyop","name":"test-psyop","results":[{"score":0.514097721896729,"id":"1974882017977645198","handle":"mockuser_4934253f71a7388e","url":"https://x.com/mockuser_4934253f71a7388e/status/1974882017977645198"},{"score":0.4235888924237033,"id":"1960633268184688237","handle":"mockuser_b96a812b746a266d","url":"https://x.com/mockuser_b96a812b746a266d/status/1960633268184688237"},{"score":0.4221841686158049,"id":"1907918347904407821","handle":"mockuser_f9e8fa53cf14d90d","url":"https://x.com/mockuser_f9e8fa53cf14d90d/status/1907918347904407821"}]}}
+"ok"

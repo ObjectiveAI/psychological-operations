@@ -1,6 +1,4 @@
-{"type":"begin"}
-{"type":"notification","value":{"event":"stage_begin","stage":0}}
-{"type":"notification","value":{"log_stream_ready":"<id>"}}
-{"type":"notification","value":{"event":"stage_end","stage":0}}
-{"type":"notification","value":{"event":"target_delivered","body":{"kind":"psyop","name":"test-psyop","results":[{"score":0.5,"id":"1910000000000000001","handle":"alice","text":"","images":[],"videos":[],"created":"","url":"https://x.com/alice/status/1910000000000000001"},{"score":0.5,"id":"1910000000000000002","handle":"bob","text":"","images":[],"videos":[],"created":"","url":"https://x.com/bob/status/1910000000000000002"}]}}}
-{"type":"end"}
+{"event":"stage_begin","stage":0}
+{"event":"stage_end","stage":0}
+{"event":"target_delivered","body":{"kind":"psyop","name":"test-psyop","results":[{"score":0.5,"id":"1910000000000000001","handle":"alice","url":"https://x.com/alice/status/1910000000000000001"},{"score":0.5,"id":"1910000000000000002","handle":"bob","url":"https://x.com/bob/status/1910000000000000002"}]}}
+"ok"

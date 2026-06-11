@@ -57,6 +57,8 @@
 
 pub mod snapshot;
 
+use std::io::Read as _;
+use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
@@ -299,6 +301,189 @@ pub fn objectiveai_binary() -> &'static Path {
     }).as_path()
 }
 
+/// Release-asset filename for the `objectiveai-api` mock server on
+/// the current host. At v2.1.1 the API server is its own asset
+/// (`-api`), split out from the plain cli binary. It serves the
+/// `remote:mock` function / profile definitions and deterministic
+/// mock executions the psyop scoring path drives through the host's
+/// `functions get` / `executions create` — so without it, those
+/// nested commands hit the real `https://api.objectiveai.dev` and
+/// fail.
+fn objectiveai_api_asset_name() -> &'static str {
+    if      cfg!(all(target_os = "windows", target_arch = "x86_64"))  { "objectiveai-windows-x86_64-api.exe" }
+    else if cfg!(all(target_os = "macos",   target_arch = "aarch64")) { "objectiveai-macos-aarch64-api" }
+    else if cfg!(all(target_os = "macos",   target_arch = "x86_64"))  { "objectiveai-macos-x86_64-api" }
+    else if cfg!(all(target_os = "linux",   target_arch = "aarch64")) { "objectiveai-linux-aarch64-api" }
+    else if cfg!(all(target_os = "linux",   target_arch = "x86_64"))  { "objectiveai-linux-x86_64-api" }
+    else { panic!("unsupported host platform — extend objectiveai_api_asset_name()") }
+}
+
+/// Download (once) and cache the `objectiveai-api` server binary for
+/// `v<OBJECTIVEAI_VERSION>`, mirroring [`objectiveai_binary`].
+pub fn objectiveai_api_binary() -> &'static Path {
+    static BIN: OnceLock<PathBuf> = OnceLock::new();
+    BIN.get_or_init(|| {
+        let cache_dir = target_binaries_dir().join("objectiveai-release");
+        std::fs::create_dir_all(&cache_dir).expect("create objectiveai cache dir");
+        let asset = objectiveai_api_asset_name();
+        let cached = cache_dir.join(format!("objectiveai-v{OBJECTIVEAI_VERSION}-{asset}"));
+        if !cached.exists() {
+            let url = format!(
+                "https://github.com/ObjectiveAI/objectiveai/releases/download/v{OBJECTIVEAI_VERSION}/{asset}",
+            );
+            eprintln!("downloading objectiveai-api v{OBJECTIVEAI_VERSION}: {url}");
+            let client = reqwest::blocking::Client::builder()
+                .timeout(None)
+                .build()
+                .expect("build download client");
+            let bytes = client
+                .get(&url)
+                .send()
+                .and_then(|r| r.error_for_status())
+                .and_then(|r| r.bytes())
+                .unwrap_or_else(|e| panic!("download {url}: {e}"));
+            std::fs::write(&cached, &bytes)
+                .unwrap_or_else(|e| panic!("write {}: {e}", cached.display()));
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let mut perms = std::fs::metadata(&cached)
+                    .expect("downloaded binary perms").permissions();
+                perms.set_mode(0o755);
+                std::fs::set_permissions(&cached, perms)
+                    .expect("chmod downloaded binary");
+            }
+        }
+        cached
+    }).as_path()
+}
+
+/// Fixed loopback port for the SHARED mock API server. Cargo runs
+/// each integration-test FILE as its own process, so a per-process
+/// server would mean ~16 servers; instead every process targets one
+/// well-known port and the first to find it down spawns the server
+/// (the rest reuse it). High/obscure to avoid collisions.
+const API_SERVER_PORT: u16 = 17717;
+
+/// Base URL of the shared mock API server, spawning it on first need.
+///
+/// Cross-process-safe: a lock file under `tests/.target-binaries`
+/// serializes the spawn decision so two parallel test processes
+/// can't both bind [`API_SERVER_PORT`]. The server is left running
+/// for reuse across the whole `cargo test` invocation (like the
+/// embedded postmasters the host leaves behind) — it's an in-memory
+/// mock with no on-disk state. To stop it: kill the
+/// `objectiveai-*-api` process.
+fn api_server_url() -> &'static str {
+    static URL: OnceLock<String> = OnceLock::new();
+    URL.get_or_init(|| {
+        let url = format!("http://127.0.0.1:{API_SERVER_PORT}");
+        // Already up (this process spawned it earlier, or a parallel
+        // test process / prior run did)? Reuse.
+        if api_server_responsive() {
+            return url;
+        }
+        // Cross-process mutex via a short-lived lock FILE (held only
+        // for the spawn decision, then deleted — so it can't persist
+        // as a stale deadlock marker). Standard double-checked lock.
+        let lock = target_binaries_dir().join("api-server.lock");
+        loop {
+            match std::fs::OpenOptions::new().write(true).create_new(true).open(&lock) {
+                Ok(_) => {
+                    // We hold the lock. Re-check: a parallel process
+                    // may have spawned while we contended for it.
+                    if !api_server_responsive() {
+                        spawn_api_server();
+                        for _ in 0..600 {
+                            if api_server_responsive() { break; }
+                            std::thread::sleep(std::time::Duration::from_millis(100));
+                        }
+                    }
+                    let _ = std::fs::remove_file(&lock);
+                    break;
+                }
+                Err(_) => {
+                    // Someone else holds it. If the server comes up,
+                    // reuse. Break a stale lock (holder crashed) once
+                    // it's older than 90 s.
+                    if api_server_responsive() { break; }
+                    if let Ok(age) = std::fs::metadata(&lock)
+                        .and_then(|m| m.modified())
+                        .and_then(|t| t.elapsed().map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e)))
+                    {
+                        if age > std::time::Duration::from_secs(90) {
+                            let _ = std::fs::remove_file(&lock);
+                        }
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                }
+            }
+        }
+        if !api_server_responsive() {
+            panic!("mock API server never came up on {url}");
+        }
+        url
+    }).as_str()
+}
+
+/// TCP-probe the shared API port. A successful connect means an
+/// `objectiveai-api` (or a prior run's) is listening.
+fn api_server_responsive() -> bool {
+    TcpStream::connect(("127.0.0.1", API_SERVER_PORT)).is_ok()
+}
+
+/// Spawn the mock API server on [`API_SERVER_PORT`], detached, and
+/// block until it logs `listening on …`. Default features build an
+/// in-memory persistent cache (no SQLite file, no postgres) and the
+/// `remote:mock` path needs no upstream auth, so the only config is
+/// the bind address/port. The child is intentionally leaked (kept
+/// alive for the run); `kill_on_drop` is NOT set so it survives this
+/// thread.
+fn spawn_api_server() {
+    use std::process::Stdio;
+    let mut child = Command::new(objectiveai_api_binary())
+        .env("ADDRESS", "127.0.0.1")
+        .env("PORT", API_SERVER_PORT.to_string())
+        // Dedicated, throwaway base dir — the default-feature build
+        // keeps its cache in memory, but the binary still resolves a
+        // config dir for other reads.
+        .env("CONFIG_BASE_DIR", target_binaries_dir().join("api-base"))
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn objectiveai-api");
+
+    // Block until the public listener logs readiness (it prints
+    // "listening on <addr>" then "mcp listening on …"). Read stderr
+    // on this thread up to that marker; then leak the handle so the
+    // server keeps running.
+    if let Some(stderr) = child.stderr.take() {
+        use std::io::{BufRead, BufReader};
+        let mut reader = BufReader::new(stderr);
+        let mut line = String::new();
+        for _ in 0..200 {
+            line.clear();
+            match reader.read_line(&mut line) {
+                Ok(0) => break,            // server exited early
+                Ok(_) if line.contains("listening on") => break,
+                Ok(_) => continue,
+                Err(_) => break,
+            }
+        }
+        // Drain remaining stderr in the background so the pipe never
+        // fills and blocks the server.
+        std::thread::spawn(move || {
+            let mut sink = Vec::new();
+            let _ = reader.read_to_end(&mut sink);
+        });
+    }
+    // Leak the Child: dropping it would not kill the process (no
+    // kill_on_drop), but we keep it explicitly to make the intent
+    // clear and avoid any wait-on-drop.
+    std::mem::forget(child);
+}
+
 /// Shared embedded-postgres install (`db-bin/`) for every test base
 /// dir. Warmed up once per machine under
 /// `tests/.target-binaries/pg-warmup/` by running `objectiveai
@@ -377,7 +562,15 @@ fn kill_postmaster(base: &Path) {
 /// Link `link` → existing directory `target`: NTFS junction on
 /// Windows (works without admin or developer mode), symlink
 /// elsewhere. Used to share the postgres install across test bases.
+/// Idempotent: a stale link left behind by a previous run whose
+/// pre-wipe couldn't fully complete (e.g. a postmaster held the
+/// base open) is removed first. Removing the link never touches
+/// `target` — `remove_dir`/`remove_file` on a junction or symlink
+/// drops the link itself.
 fn link_dir(target: &Path, link: &Path) {
+    if link.exists() || link.symlink_metadata().is_ok() {
+        let _ = std::fs::remove_dir(link).or_else(|_| std::fs::remove_file(link));
+    }
     #[cfg(windows)]
     {
         let out = Command::new("cmd")
@@ -550,6 +743,11 @@ impl TestEnv {
     pub fn cmd(&self) -> Command {
         let mut cmd = Command::new(objectiveai_binary());
         cmd.env("CONFIG_BASE_DIR",                              &self.base);
+        // Point the host (and the nested `functions get` /
+        // `executions create` it runs on the plugin's behalf) at the
+        // local mock API server instead of the production endpoint.
+        // Spawns the shared server on first use.
+        cmd.env("OBJECTIVEAI_ADDRESS",                          api_server_url());
         // The host stamps OBJECTIVEAI_AGENT_INSTANCE_HIERARCHY on the
         // plugin subprocess from its own config (default "cli") —
         // pin it so anything that records the caller's hierarchy

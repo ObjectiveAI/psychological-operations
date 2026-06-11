@@ -1,6 +1,4 @@
-{"type":"begin"}
-{"type":"notification","value":{"event":"query_complete","psyop":"test-psyop","query":"x target test","count":4}}
-{"type":"notification","value":{"event":"stage_begin","stage":0}}
-{"type":"notification","value":{"log_stream_ready":"<id>"}}
-{"type":"notification","value":{"event":"stage_end","stage":0}}
-{"type":"end"}
+{"event":"query_complete","psyop":"test-psyop","query":"x target test","count":4}
+{"event":"stage_begin","stage":0}
+{"event":"stage_end","stage":0}
+"ok"
