@@ -21,8 +21,10 @@
 //! re-share but defer that for a separate clean-up. The
 //! on-disk `Tokens` blob itself lives in
 //! [`psychological_operations_sdk::browser::auth_json`], which
-//! owns the struct, the path math, the fs4 advisory-lock
-//! pattern, and the atomic temp+rename write.
+//! owns the struct, the path math, and the atomic temp+rename
+//! write. Cross-process serialization of auth writes is handled
+//! separately by the SDK's two-tier SQLite `Locker`
+//! (`Client::lock_auth`/`write_auth`), not by this module.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
