@@ -1,0 +1,27 @@
+[package]
+name = "psychological-operations-db"
+version = "0.1.0"
+edition = "2021"
+description = "The single persistence layer for psychological-operations: all state in postgres (sqlx), plus the read-only Chromium-cookie probe (sqlite). The only crate that depends on sqlx."
+
+[dependencies]
+# postgres = all of our own state; sqlite = ONLY the read-only
+# Chromium cookie-jar probe (cookies.rs). `json` gives jsonb <->
+# serde_json::Value. No compile-time macros (no live DB at build).
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres", "sqlite", "json"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = { version = "1.0.149", features = ["preserve_order"] }
+tokio = { version = "1.52.3", features = ["sync"] }
+dashmap = "6.2.1"
+thiserror = "2.0.18"
+# Chromium cookie decryption (moved here with cookies.rs).
+aes-gcm = "0.10.3"
+base64 = "0.22.1"
+
+# Chromium encrypts cookie values via AES-GCM with a key wrapped in
+# Windows DPAPI (CryptUnprotectData, Win32_Security_Cryptography).
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = [
+    "Win32_Security_Cryptography",
+    "Win32_Foundation",
+] }

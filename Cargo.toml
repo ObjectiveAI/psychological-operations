@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
     "psychological-operations-browser/src-tauri",
+    "psychological-operations-db",
     "psychological-operations-sdk",
     "psychological-operations-cli",
     "psychological-operations-x-api-mcp",
