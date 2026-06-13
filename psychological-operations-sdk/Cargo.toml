@@ -33,8 +33,7 @@ chrono = { version = "0.4.39", default-features = false, features = ["serde", "c
 # Already in-tree as a transitive of objectiveai-sdk; declared
 # directly because PsyOp::validate() calls it.
 humantime = "2"
-sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite"] }
-dashmap = "6.2.1"
+psychological-operations-db = { path = "../psychological-operations-db" }
 schemars = "1.2.1"
 # Pinned to 0.13.0 to match the CLI — `cargo add` resolves to
 # 0.14.0 which transitively requires libsqlite3-sys >=0.30

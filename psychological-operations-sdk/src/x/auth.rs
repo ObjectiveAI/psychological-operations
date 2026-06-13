@@ -11,9 +11,9 @@
 
 use sha2::{Digest, Sha256};
 
-use crate::browser::auth_json::PersonaKind;
+use psychological_operations_db::LockGuard;
 
-use super::locker::LockGuard;
+use crate::browser::auth_json::PersonaKind;
 
 /// Identifies one `auth.json` file: a specific persona
 /// (kind + name + persona twid) under a specific X-App account.

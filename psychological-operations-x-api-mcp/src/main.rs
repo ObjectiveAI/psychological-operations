@@ -16,11 +16,15 @@ use objectiveai_sdk::cli::command::binary::BinaryExecutor;
 #[derive(Parser)]
 #[command(name = "psychological-operations-x-api-mcp")]
 struct Args {
-    /// Root of all on-disk state — the x-api SQLite files, the
-    /// `browser/` subtree, and `x_app.json` live directly under it
-    /// (the `OBJECTIVEAI_STATE_DIR` value). Assumed to already exist.
+    /// Root of the remaining on-disk state — the CEF profile tree
+    /// (cookie probe) lives under it (the `OBJECTIVEAI_STATE_DIR`
+    /// value). Assumed to already exist.
     #[arg(long)]
     state_dir: PathBuf,
+    /// Postgres connection URL — the single persistence layer (the
+    /// `OBJECTIVEAI_POSTGRES_URL` value).
+    #[arg(long, env = "OBJECTIVEAI_POSTGRES_URL")]
+    postgres_url: String,
     /// Cache budget in bytes.
     #[arg(long)]
     cache_max_size: u64,
@@ -56,10 +60,14 @@ async fn main() -> std::io::Result<()> {
 
     let args = Args::parse();
     let executor = BinaryExecutor::new(Some(args.state_dir.clone()));
+    let db = psychological_operations_db::Db::connect(&args.postgres_url)
+        .await
+        .map_err(|e| std::io::Error::other(format!("db connect: {e}")))?;
     psychological_operations_x_api_mcp::run(
         &args.address,
         args.port,
         args.state_dir,
+        db,
         args.cache_max_size,
         Duration::from_secs(args.cache_ttl),
         args.quota_read,

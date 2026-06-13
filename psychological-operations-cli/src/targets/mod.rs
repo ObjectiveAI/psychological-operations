@@ -8,32 +8,31 @@ pub use psychological_operations_sdk::cli::destinations::DeliverySummary;
 /// calls it directly after a successful score+enqueue cycle.
 pub async fn drain_queue(
     db: &crate::db::Db,
-    psyop_filter:  Option<&str>,
-    commit_filter: Option<&str>,
+    psyop_filter: Option<&str>,
     ctx: &crate::context::Context,
 ) -> Result<DeliverySummary, crate::error::Error> {
     use crate::psyops::psyop;
     use destinations::{send_one, DeliveryItem, Subject};
 
-    let rows = db.list_pending_deliveries(psyop_filter, commit_filter).await?;
+    let rows = db.list_pending_deliveries(psyop_filter).await?;
     let mut delivered = 0usize;
     let mut failed = 0usize;
 
     for row in rows {
-        let dest: Destination = match serde_json::from_str(&row.target_json) {
+        let dest: Destination = match serde_json::from_value(row.target.clone()) {
             Ok(d) => d,
             Err(e) => {
-                let msg = format!("malformed target_json: {e}");
+                let msg = format!("malformed target: {e}");
                 crate::output::OutputResult::from(crate::events::Event::DeliveryFailed { delivery_id: row.id, reason: msg.clone() }).emit();
                 db.bump_delivery_attempt(row.id, &msg).await?;
                 failed += 1;
                 continue;
             }
         };
-        let post_ids: Vec<String> = match serde_json::from_str(&row.post_ids_json) {
+        let post_ids: Vec<String> = match serde_json::from_value(row.post_ids.clone()) {
             Ok(v) => v,
             Err(e) => {
-                let msg = format!("malformed post_ids_json: {e}");
+                let msg = format!("malformed post_ids: {e}");
                 crate::output::OutputResult::from(crate::events::Event::DeliveryFailed { delivery_id: row.id, reason: msg.clone() }).emit();
                 db.bump_delivery_attempt(row.id, &msg).await?;
                 failed += 1;
@@ -41,13 +40,13 @@ pub async fn drain_queue(
             }
         };
 
-        // Load the psyop as it existed at the queued commit_sha
-        // (git tree blob, not working tree). If the repo / commit /
-        // file is missing, bump-attempt with a clear message.
-        let psyop_obj = match psyop::load(&row.psyop, Some(&row.psyop_commit_sha), ctx) {
+        // Load the psyop's current definition by name. If it's been
+        // deleted since this row was queued, bump-attempt with a clear
+        // message.
+        let psyop_obj = match psyop::load(&row.psyop, ctx).await {
             Ok(p) => p,
             Err(e) => {
-                let msg = format!("psyop load at {} failed: {e}", row.psyop_commit_sha);
+                let msg = format!("psyop load failed: {e}");
                 crate::output::OutputResult::from(crate::events::Event::DeliveryFailed { delivery_id: row.id, reason: msg.clone() }).emit();
                 db.bump_delivery_attempt(row.id, &msg).await?;
                 failed += 1;

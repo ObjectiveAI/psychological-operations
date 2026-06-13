@@ -28,12 +28,9 @@ impl PsychologicalOperationsXApiMcp {
         let state = self.resolve_session(&extensions).await?;
         let http = self.build_client(&state);
 
-        let q = http
-            .queue()
-            .await
-            .map_err(|e| ErrorData::internal_error(format!("queue open: {e}"), None))?;
-        let entries = q
-            .list(&state.agent)
+        let entries = http
+            .db()
+            .queue_list(&state.agent)
             .await
             .map_err(|e| ErrorData::internal_error(format!("queue list: {e}"), None))?;
         serde_json::to_string(&entries)
@@ -52,12 +49,9 @@ impl PsychologicalOperationsXApiMcp {
         let state = self.resolve_session(&extensions).await?;
         let http = self.build_client(&state);
 
-        let q = http
-            .queue()
-            .await
-            .map_err(|e| ErrorData::internal_error(format!("queue open: {e}"), None))?;
-        let removed = q
-            .delete(&state.agent, &req.tweet_id)
+        let removed = http
+            .db()
+            .queue_delete(&state.agent, &req.tweet_id)
             .await
             .map_err(|e| ErrorData::internal_error(format!("queue delete: {e}"), None))?;
         Ok(serde_json::json!({ "removed": removed }).to_string())

@@ -1,6 +1,12 @@
 #[tokio::main]
 async fn main() {
-    let ctx = psychological_operations_cli::context::Context::new();
+    let ctx = match psychological_operations_cli::context::Context::new().await {
+        Ok(ctx) => ctx,
+        Err(e) => {
+            eprintln!("fatal: {e}");
+            std::process::exit(1);
+        }
+    };
     let args = std::env::args_os();
     let ok = psychological_operations_cli::commands::run(args, &ctx).await;
     // Hard exit on BOTH paths. The PluginExecutor's stdin listener

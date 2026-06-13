@@ -39,6 +39,11 @@ pub enum Error {
     #[error("deserialization error: {0}")]
     Deserialize(#[from] serde_path_to_error::Error<serde_json::Error>),
 
+    /// A persistence-layer failure (postgres, the advisory locker, or
+    /// the Chromium cookie probe) surfaced through the db crate.
+    #[error("db: {0}")]
+    Db(#[from] psychological_operations_db::Error),
+
     /// The caller's hourly read/write API quota is exhausted —
     /// the request was rejected before any HTTP fired. The message
     /// is agent-facing: it names which quota, the limit, and when

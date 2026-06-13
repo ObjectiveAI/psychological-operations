@@ -9,9 +9,9 @@
 //! `OBJECTIVEAI_AGENT_INSTANCE_HIERARCHY`, verbatim), no `psyop` /
 //! `score`.
 
+use psychological_operations_db::{AgentKind, QueueEntry, unix_now};
 use psychological_operations_sdk::cli::Output;
 use psychological_operations_sdk::x::client::{AuthMode, Client};
-use psychological_operations_sdk::x::queue::{self, AgentKind, QueueEntry};
 
 use crate::error::Error;
 
@@ -39,13 +39,10 @@ async fn run_inner(
         ctx.cache_ttl,
         ctx.config.state_dir(),
         AuthMode::XApp,
+        ctx.db.clone(),
     );
-    let q = client
-        .queue()
-        .await
-        .map_err(|e| Error::Other(format!("queue open: {e}")))?;
 
-    q.enqueue(&QueueEntry {
+    client.db().queue_enqueue(&QueueEntry {
         agent:      agent.to_string(),
         agent_kind,
         tweet_id:   tweet_id.to_string(),
@@ -55,7 +52,7 @@ async fn run_inner(
             ctx.config.objectiveai_agent_instance_hierarchy.clone(),
         ),
         message:    Some(message.to_string()),
-        queued_at:  queue::unix_now(),
+        queued_at:  unix_now(),
     })
     .await
     .map_err(|e| Error::Other(format!("queue enqueue: {e}")))?;

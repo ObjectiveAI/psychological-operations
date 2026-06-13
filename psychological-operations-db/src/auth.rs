@@ -68,4 +68,25 @@ impl Db {
         .await?;
         Ok(())
     }
+
+    /// Delete every token row for one persona (all persona_twid ×
+    /// x_app_twid leaves). Used by the `--dangerously-reset` login path.
+    pub async fn auth_delete_persona(&self, kind: &str, name: &str) -> Result<(), Error> {
+        sqlx::query("DELETE FROM auth_tokens WHERE kind = $1 AND name = $2")
+            .bind(kind)
+            .bind(name)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Delete every token row across all personas. Used by
+    /// `x_app setup --dangerously-reset` (a new X-App orphans every
+    /// persona's tokens).
+    pub async fn auth_delete_all(&self) -> Result<(), Error> {
+        sqlx::query("DELETE FROM auth_tokens")
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
 }

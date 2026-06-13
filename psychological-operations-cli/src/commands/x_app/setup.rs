@@ -21,9 +21,7 @@
 //! stdin + stdout, watches for `Output::XAppSetupSucceeded`,
 //! sends `Request::Shutdown`, then waits.
 
-use std::path::Path;
-
-use psychological_operations_sdk::browser::cookies;
+use psychological_operations_db::signed_in_x_user_id;
 use psychological_operations_sdk::browser::mode::Mode;
 use psychological_operations_sdk::browser::output::Output;
 use psychological_operations_sdk::browser::reset;
@@ -47,20 +45,22 @@ async fn run_inner(
     let state_dir = ctx.config.state_dir();
 
     // === Pre-flight ===
-    let already_set_up = is_fully_set_up(&state_dir).await?;
+    let already_set_up = is_fully_set_up(ctx).await?;
     if already_set_up && !dangerously_reset {
         return Err(Error::Other(
             "X-App is already signed in and fully set up — pass \
-             --dangerously-reset to wipe the X-App folder and every \
-             persona's auth.json and start over"
+             --dangerously-reset to wipe the X-App credentials and every \
+             persona's tokens and start over"
                 .into(),
         ));
     }
     if dangerously_reset {
-        reset::wipe_x_app(&state_dir)
-            .map_err(|e| Error::Other(format!("wipe x-app folder: {e}")))?;
-        reset::wipe_all_persona_auth_dirs(&state_dir)
-            .map_err(|e| Error::Other(format!("wipe persona auth dirs: {e}")))?;
+        reset::wipe_x_app(&ctx.db, &state_dir)
+            .await
+            .map_err(Error::Other)?;
+        reset::wipe_all_persona_auth(&ctx.db)
+            .await
+            .map_err(Error::Other)?;
     }
 
     // === Spawn browser in XApp mode ===
@@ -110,29 +110,20 @@ async fn run_inner(
         .map_err(Error::Other)
 }
 
-/// `true` iff the X-App is signed in (cookies) AND both HTML
-/// snapshots (`post_create_dialog.html` + `oauth_popup.html`)
-/// load to complete structs. Same condition the browser-side
+/// `true` iff the X-App is signed in (cookies) AND both captured HTML
+/// snapshots parse to complete structs. Same condition the browser-side
 /// panel uses to land on `PanelState::Hidden`.
-async fn is_fully_set_up(state_dir: &Path) -> Result<bool, Error> {
-    let Some(x_app_twid) = cookies::signed_in_x_user_id(state_dir, &Mode::XApp)
+async fn is_fully_set_up(ctx: &crate::context::Context) -> Result<bool, Error> {
+    let state_dir = ctx.config.state_dir();
+    let Some(x_app_twid) = signed_in_x_user_id(&state_dir, &Mode::XApp.cache_subdir())
         .await
         .map_err(|e| Error::Other(format!("x-app cookies probe: {e}")))?
     else {
         return Ok(false);
     };
 
-    let x_app_handle_dir = state_dir
-        .join("browser")
-        .join("x-app")
-        .join("handles")
-        .join(&x_app_twid);
-    let post = PostCreateDialog::load(&x_app_handle_dir.join("post_create_dialog.html"))
-        .await
-        .map_err(|e| Error::Other(format!("load post_create_dialog: {e}")))?;
-    let popup = OAuthPopup::load(&x_app_handle_dir.join("oauth_popup.html"))
-        .await
-        .map_err(|e| Error::Other(format!("load oauth_popup: {e}")))?;
+    let post = PostCreateDialog::from_db(&ctx.db, &x_app_twid).await?;
+    let popup = OAuthPopup::from_db(&ctx.db, &x_app_twid).await?;
     Ok(post.as_ref().is_some_and(|p| p.is_complete())
         && popup.as_ref().is_some_and(|p| p.is_complete()))
 }

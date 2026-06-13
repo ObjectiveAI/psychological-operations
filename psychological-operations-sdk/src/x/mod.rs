@@ -13,9 +13,6 @@
 pub mod auth;
 pub mod cache;
 pub mod client;
-pub mod locker;
-pub mod mcp;
-pub mod queue;
 pub mod serde_helpers;
 pub mod types;
 pub mod params;

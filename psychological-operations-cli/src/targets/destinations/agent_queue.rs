@@ -11,8 +11,8 @@
 
 pub use psychological_operations_sdk::cli::destinations::agent_queue::AgentQueue;
 
+use psychological_operations_db::{AgentKind, QueueEntry, unix_now};
 use psychological_operations_sdk::x::client::{AuthMode, Client};
-use psychological_operations_sdk::x::queue::{self, AgentKind, QueueEntry};
 
 use super::Subject;
 
@@ -37,12 +37,9 @@ pub async fn send(
         ctx.cache_ttl,
         ctx.config.state_dir(),
         AuthMode::XApp,
+        ctx.db.clone(),
     );
-    let q = client
-        .queue()
-        .await
-        .map_err(|e| crate::error::Error::Other(format!("queue open: {e}")))?;
-    let now = queue::unix_now();
+    let now = unix_now();
 
     for scored in *output {
         let entry = QueueEntry {
@@ -55,7 +52,7 @@ pub async fn send(
             message:    None,
             queued_at:  now,
         };
-        q.enqueue(&entry)
+        client.db().queue_enqueue(&entry)
             .await
             .map_err(|e| crate::error::Error::Other(format!("queue enqueue: {e}")))?;
     }

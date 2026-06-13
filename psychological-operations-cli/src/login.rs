@@ -24,10 +24,8 @@
 //! 4. Spawn the embedded browser in `PsyopAuthorize` /
 //!    `AgentAuthorize` mode and wait for it to exit.
 
-use std::path::Path;
-
-use psychological_operations_sdk::browser::auth_json::{self, PersonaKind};
-use psychological_operations_sdk::browser::cookies;
+use psychological_operations_db::signed_in_x_user_id;
+use psychological_operations_sdk::browser::auth_json::PersonaKind;
 use psychological_operations_sdk::browser::mode::Mode;
 use psychological_operations_sdk::browser::output::Output;
 use psychological_operations_sdk::browser::reset;
@@ -56,16 +54,18 @@ async fn run_inner(
     let state_dir = ctx.config.state_dir();
 
     // === Pre-flight: X-App ===
-    let x_app_twid = check_x_app(&state_dir).await?;
+    let x_app_twid = check_x_app(ctx).await?;
 
     // === Pre-flight: persona ===
-    let persona_twid = cookies::signed_in_x_user_id(&state_dir, &cookie_mode(kind, name))
+    let persona_twid = signed_in_x_user_id(&state_dir, &cookie_mode(kind, name).cache_subdir())
         .await
         .map_err(|e| Error::Other(format!("persona cookies probe: {e}")))?;
     let persona_has_auth = match persona_twid.as_deref() {
-        Some(twid) => {
-            auth_json::path_for(&state_dir, kind, name, twid, &x_app_twid).exists()
-        }
+        Some(twid) => ctx
+            .db
+            .auth_get(kind.db_kind(), name, twid, &x_app_twid)
+            .await?
+            .is_some(),
         None => false,
     };
     let persona_signed_in = persona_twid.is_some();
@@ -73,13 +73,14 @@ async fn run_inner(
     if persona_signed_in || persona_has_auth {
         if !dangerously_reset {
             return Err(Error::Other(format!(
-                "{kind_label} '{name}' is already signed in or already has an auth.json \
+                "{kind_label} '{name}' is already signed in or already has stored tokens \
                  for the current X-App — pass --dangerously-reset to wipe and re-login",
                 kind_label = kind_label(kind),
             )));
         }
-        reset::wipe_persona(&state_dir, kind, name)
-            .map_err(|e| Error::Other(format!("wipe persona folder: {e}")))?;
+        reset::wipe_persona(&ctx.db, &state_dir, kind, name)
+            .await
+            .map_err(Error::Other)?;
     }
 
     // === Spawn browser in <kind>Authorize mode ===
@@ -152,32 +153,24 @@ const X_APP_NOT_READY: &str =
     "X-App account is not signed in or not set up with an X OAuth app — \
      complete `psychological-operations x_app setup` first";
 
-/// Resolve the X-App's twid via cookies + verify all three
-/// snapshots (`x_app.json`, `post_create_dialog.html`,
-/// `oauth_popup.html`) are present + complete.
-async fn check_x_app(state_dir: &Path) -> Result<String, Error> {
-    let x_app_twid = cookies::signed_in_x_user_id(state_dir, &Mode::XApp)
+/// Resolve the X-App's twid via cookies + verify the credentials
+/// (x_app config + both captured HTML snapshots) are present + complete.
+async fn check_x_app(ctx: &crate::context::Context) -> Result<String, Error> {
+    let state_dir = ctx.config.state_dir();
+    let x_app_twid = signed_in_x_user_id(&state_dir, &Mode::XApp.cache_subdir())
         .await
         .map_err(|e| Error::Other(format!("x-app cookies probe: {e}")))?
         .ok_or_else(|| Error::Other(X_APP_NOT_READY.into()))?;
 
-    let xa = x_app::config::load(state_dir)
-        .map_err(|e| Error::Other(format!("load x_app.json: {e}")))?;
+    let xa = x_app::config::load(&ctx.db)
+        .await
+        .map_err(|e| Error::Other(format!("load x_app config: {e}")))?;
     if !xa.is_complete() {
         return Err(Error::Other(X_APP_NOT_READY.into()));
     }
 
-    let x_app_handle_dir = state_dir
-        .join("browser")
-        .join("x-app")
-        .join("handles")
-        .join(&x_app_twid);
-    let post = PostCreateDialog::load(&x_app_handle_dir.join("post_create_dialog.html"))
-        .await
-        .map_err(|e| Error::Other(format!("load post_create_dialog: {e}")))?;
-    let popup = OAuthPopup::load(&x_app_handle_dir.join("oauth_popup.html"))
-        .await
-        .map_err(|e| Error::Other(format!("load oauth_popup: {e}")))?;
+    let post = PostCreateDialog::from_db(&ctx.db, &x_app_twid).await?;
+    let popup = OAuthPopup::from_db(&ctx.db, &x_app_twid).await?;
     let post_ok = post.as_ref().is_some_and(|p| p.is_complete());
     let popup_ok = popup.as_ref().is_some_and(|p| p.is_complete());
     if !post_ok || !popup_ok {

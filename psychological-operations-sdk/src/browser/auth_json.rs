@@ -1,29 +1,20 @@
-//! Per-persona OAuth `auth.json` types + on-disk layout.
+//! Per-persona OAuth token types.
 //!
-//! The actual read / lock / write of the file lives on
+//! The actual read / lock / write of the tokens lives on
 //! [`crate::x::client::Client`] (`read_auth`, `lock_auth`,
-//! `write_auth`) — coordinated by the same two-tier
-//! (DashMap + SQLite `locks` table) lock the X-API response cache
-//! uses. This module owns only the shared types: the [`Tokens`]
-//! shape that's serialized into auth.json, the [`PersonaKind`]
-//! enum that splits psyops from agents on disk, the staleness
-//! buffer everyone agrees on, and the pure path helper.
+//! `write_auth`) — persisted in the db crate's `auth_tokens` table
+//! (keyed by `(kind, name, persona_twid, x_app_twid)`) and coordinated
+//! by the postgres advisory locker. This module owns only the shared
+//! types: the [`Tokens`] shape stored as the row's JSONB, the
+//! [`PersonaKind`] enum that splits psyops from agents, and the
+//! staleness buffer everyone agrees on.
 //!
-//! Layout (per persona twid × per X-App twid, per psyop/agent):
-//!
-//! ```text
-//! <state-dir>/browser/<kind>/<name>/handles/<persona_twid>/<x_app_twid>/
-//!   └── auth.json                  (serialized `Tokens` blob)
-//! ```
-//!
-//! The X-App twid leaf is the master X dev-account that minted the
-//! OAuth credentials used to drive this persona's authorization
-//! flow. Swapping the signed-in X-App on console.x.com routes
-//! Http's auth-file methods to a different leaf under the same
-//! persona-twid parent — each (persona, X-App) pair gets its own
-//! independent token store.
+//! The X-App twid is the master X dev-account that minted the OAuth
+//! credentials used to drive this persona's authorization flow.
+//! Swapping the signed-in X-App on console.x.com routes the auth
+//! methods to a different `auth_tokens` row under the same persona-twid
+//! — each (persona, X-App) pair gets its own independent token store.
 
-use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
@@ -42,7 +33,9 @@ pub enum PersonaKind {
 }
 
 impl PersonaKind {
-    fn dir_segment(self) -> &'static str {
+    /// The TEXT form persisted in the `auth_tokens.kind` column
+    /// (and the `psyop`/`agent` discriminant the db crate keys on).
+    pub fn db_kind(self) -> &'static str {
         match self {
             PersonaKind::Psyop => "psyop",
             PersonaKind::Agent => "agent",
@@ -85,32 +78,4 @@ pub struct Tokens {
     pub expires_at: DateTime<Utc>,
     pub scope: String,
     pub saved_at: DateTime<Utc>,
-}
-
-/// Pure path resolver — no I/O, no directory creation. Returns
-/// where `auth.json` lives for the given persona × X-App pair.
-pub fn path_for(
-    state_dir: &Path,
-    kind: PersonaKind,
-    name: &str,
-    persona_twid: &str,
-    x_app_twid: &str,
-) -> PathBuf {
-    persona_dir(state_dir, kind, name, persona_twid, x_app_twid).join("auth.json")
-}
-
-fn persona_dir(
-    state_dir: &Path,
-    kind: PersonaKind,
-    name: &str,
-    persona_twid: &str,
-    x_app_twid: &str,
-) -> PathBuf {
-    state_dir
-        .join("browser")
-        .join(kind.dir_segment())
-        .join(name)
-        .join("handles")
-        .join(persona_twid)
-        .join(x_app_twid)
 }

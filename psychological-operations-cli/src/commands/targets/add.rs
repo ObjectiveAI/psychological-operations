@@ -7,26 +7,23 @@ use crate::targets::destinations::Destination;
 
 use super::Selector;
 
-pub(super) fn run(
+pub(super) async fn run(
     sel: Selector,
     json: String,
     ctx: &crate::context::Context,
 ) -> Result<Output, Error> {
     let parsed: Destination = serde_json::from_str(&json)?;
-    let mut json_cfg = crate::config::load(&ctx.config);
     match sel {
-        Selector::Global => json_cfg.targets.push(parsed),
-        Selector::PsyopBase { psyop } => {
-            json_cfg.psyops.entry(psyop).or_default().base.targets.push(parsed);
+        Selector::Global => {
+            let mut list = crate::config::global_targets(ctx).await?;
+            list.push(parsed);
+            crate::config::set_global_targets(ctx, &list).await?;
         }
-        Selector::PsyopCommit { psyop, commit } => {
-            json_cfg.psyops
-                .entry(psyop).or_default()
-                .commits
-                .entry(commit).or_default()
-                .targets.push(parsed);
+        Selector::Psyop { psyop } => {
+            let mut list = crate::config::psyop_targets(ctx, &psyop).await?;
+            list.push(parsed);
+            crate::config::set_psyop_targets(ctx, &psyop, &list).await?;
         }
     }
-    crate::config::save(&json_cfg, &ctx.config)?;
     Ok(Output::Ok)
 }

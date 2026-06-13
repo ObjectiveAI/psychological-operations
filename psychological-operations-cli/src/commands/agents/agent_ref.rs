@@ -14,7 +14,7 @@
 //! parse time.
 
 use clap::{ArgGroup, Args};
-use psychological_operations_sdk::x::queue::AgentKind;
+use psychological_operations_db::AgentKind;
 
 #[derive(Debug, Args)]
 #[command(group = ArgGroup::new("agent_ref")

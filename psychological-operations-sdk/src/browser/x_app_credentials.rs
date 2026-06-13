@@ -12,19 +12,18 @@
 //! [`PostCreateDialog::is_complete`] / [`OAuthPopup::is_complete`]
 //! to ask "did every field land".
 //!
-//! Snapshot layout (browser-side decision; documented here so SDK
-//! consumers know what `load` expects):
-//!
-//! ```text
-//! <x-app-data-dir>/handles/<handle>/
-//!   ├── post_create_dialog.html
-//!   └── oauth_popup.html
-//! ```
+//! Snapshots are persisted in the db crate's `x_app_html` table, keyed
+//! by `(handle, kind)` where `kind` is one of [`POST_CREATE_DIALOG_KIND`]
+//! / [`OAUTH_POPUP_KIND`]. Consumers fetch + parse via the `from_db`
+//! constructors; the browser writes via `Db::x_app_html_set`.
 
-use std::path::Path;
-
+use psychological_operations_db::Db;
 use scraper::{ElementRef, Html, Node, Selector};
-use tokio::fs;
+
+/// `x_app_html.kind` value for the post-create dialog snapshot.
+pub const POST_CREATE_DIALOG_KIND: &str = "post_create_dialog";
+/// `x_app_html.kind` value for the OAuth 2.0 settings popup snapshot.
+pub const OAUTH_POPUP_KIND: &str = "oauth_popup";
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct PostCreateDialog {
@@ -67,11 +66,16 @@ impl PostCreateDialog {
         out
     }
 
-    /// Load the snapshot at `path` and parse it. `Ok(None)` if the
-    /// file doesn't exist yet (no snapshot captured); `Err` only on
-    /// real I/O failure.
-    pub async fn load(path: &Path) -> std::io::Result<Option<Self>> {
-        load_and_parse(path, Self::parse).await
+    /// Fetch + parse the stored snapshot for `handle`. `Ok(None)` when
+    /// no snapshot has been captured yet.
+    pub async fn from_db(
+        db: &Db,
+        handle: &str,
+    ) -> Result<Option<Self>, psychological_operations_db::Error> {
+        Ok(db
+            .x_app_html_get(handle, POST_CREATE_DIALOG_KIND)
+            .await?
+            .map(|html| Self::parse(&html)))
     }
 
     /// True iff all three fields parsed successfully.
@@ -114,8 +118,16 @@ impl OAuthPopup {
         out
     }
 
-    pub async fn load(path: &Path) -> std::io::Result<Option<Self>> {
-        load_and_parse(path, Self::parse).await
+    /// Fetch + parse the stored snapshot for `handle`. `Ok(None)` when
+    /// no snapshot has been captured yet.
+    pub async fn from_db(
+        db: &Db,
+        handle: &str,
+    ) -> Result<Option<Self>, psychological_operations_db::Error> {
+        Ok(db
+            .x_app_html_get(handle, OAUTH_POPUP_KIND)
+            .await?
+            .map(|html| Self::parse(&html)))
     }
 
     pub fn is_complete(&self) -> bool {
@@ -128,19 +140,6 @@ impl OAuthPopup {
 }
 
 // ----- internal parsing helpers ---------------------------------
-
-/// `read_to_string` + caller-supplied parser. Returns `Ok(None)` on
-/// `NotFound`; other I/O errors bubble up.
-async fn load_and_parse<T>(
-    path: &Path,
-    parse: fn(&str) -> T,
-) -> std::io::Result<Option<T>> {
-    match fs::read_to_string(path).await {
-        Ok(s) => Ok(Some(parse(&s))),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(e),
-    }
-}
 
 /// Pick the first `[role="dialog"]` whose visible text covers
 /// every expected label; falls back to the first `[role="dialog"]`

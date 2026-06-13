@@ -10,9 +10,9 @@
 use futures::StreamExt;
 use objectiveai_sdk::cli::command::agents::message as agents_message;
 use objectiveai_sdk::cli::command::plugin::PluginExecutor;
+use psychological_operations_db::AgentKind;
 use psychological_operations_sdk::cli::Output;
 use psychological_operations_sdk::x::client::{AuthMode, Client};
-use psychological_operations_sdk::x::queue::AgentKind;
 
 use crate::error::Error;
 
@@ -33,15 +33,13 @@ async fn run_inner(ctx: &crate::context::Context) -> Result<Output, Error> {
         ctx.cache_ttl,
         ctx.config.state_dir(),
         AuthMode::XApp,
+        ctx.db.clone(),
     );
-    let q = client
-        .queue()
-        .await
-        .map_err(|e| Error::Other(format!("queue open: {e}")))?;
 
     // Single DB read: per-(agent, kind) tweet counts.
-    let counts = q
-        .counts_by_agent_kind()
+    let counts = client
+        .db()
+        .queue_counts_by_agent_kind()
         .await
         .map_err(|e| Error::Other(format!("queue counts: {e}")))?;
 

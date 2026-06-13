@@ -18,6 +18,7 @@ pub async fn send(cfg: &X, subject: &Subject<'_>, ctx: &crate::context::Context)
         ctx.cache_ttl,
         ctx.config.state_dir(),
         AuthMode::Psyop(name.to_string()),
+        ctx.db.clone(),
     );
 
     // Resolve the acting user via /2/users/me so the like/retweet

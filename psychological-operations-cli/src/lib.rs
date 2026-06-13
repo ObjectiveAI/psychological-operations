@@ -11,7 +11,6 @@ pub mod score;
 pub mod targets;
 pub mod psyops;
 pub mod browser;
-pub mod publish;
 pub mod login;
 pub mod persona_browser;
 

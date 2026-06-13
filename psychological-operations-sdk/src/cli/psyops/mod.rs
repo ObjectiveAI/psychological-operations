@@ -22,20 +22,17 @@ pub use stage::{is_vector_function, parse_output_top, OutputTop, Stage, StageBas
 
 use serde::{Deserialize, Serialize};
 
-/// One row of `psyops list`. Resolved per name + HEAD commit +
-/// config overrides.
+/// One row of `psyops list`. Resolved per name + its `disabled` flag.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PsyopEntry {
     pub name: String,
     pub enabled: bool,
-    pub commit_sha: String,
 }
 
-/// Returned by `psyops publish` — captures both the just-
-/// committed sha and the resolved enabled state at that sha.
+/// Returned by `psyops publish` — the upserted name + its resolved
+/// enabled state.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PublishedPsyop {
     pub name: String,
-    pub commit_sha: String,
     pub enabled: bool,
 }

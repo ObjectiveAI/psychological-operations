@@ -1,20 +1,16 @@
 //! `targets` subcommand surface.
 //!
 //! Unified CRUD over destination lists + delivery-queue drain.
-//! Every arm takes a mutually-exclusive 3-way **selector**:
+//! Every arm takes a mutually-exclusive 2-way **selector**:
 //!
-//! - `--global` — top-level `Config::targets` (or, for `deliver`,
+//! - `--global` — the `global_targets` table (or, for `deliver`,
 //!   the whole queue).
-//! - `--psyop <name>` — `Config::psyops[name].base.targets` (or,
+//! - `--psyop <name>` — the `psyop_targets` rows for that psyop (or,
 //!   for `deliver`, every row for that psyop).
-//! - `--psyop <name> --commit <sha>` —
-//!   `Config::psyops[name].commits[sha].targets` (or, for
-//!   `deliver`, rows for that psyop at that commit).
 //!
-//! `--commit` only valid alongside `--psyop`; exactly one of the
-//! three forms is required. Per-arm bodies live in the sibling
-//! files (`get.rs`, `add.rs`, `del.rs`, `deliver.rs`); this file
-//! owns the clap surface, the selector type, and the dispatch.
+//! Exactly one of the two forms is required. Per-arm bodies live in
+//! the sibling files (`add.rs`, `del.rs`, `list.rs`, `deliver.rs`);
+//! this file owns the clap surface, the selector type, and dispatch.
 
 use clap::{Args, Subcommand};
 use psychological_operations_sdk::cli::Output;
@@ -30,37 +26,28 @@ mod schema;
 #[derive(Args)]
 #[group(id = "selector", required = true, multiple = false)]
 pub struct SelectorArgs {
-    /// Operate on the top-level global targets list (or, for
-    /// `deliver`, the entire delivery queue).
+    /// Operate on the global targets list (or, for `deliver`, the
+    /// entire delivery queue).
     #[arg(long, group = "selector")]
     global: bool,
-    /// Operate on a specific psyop. Without `--commit`, that's
-    /// the psyop's base layer (or, for `deliver`, every queued
-    /// row for the psyop).
+    /// Operate on a specific psyop's targets (or, for `deliver`,
+    /// every queued row for the psyop).
     #[arg(long, group = "selector", value_name = "NAME")]
     psyop: Option<String>,
-    /// When combined with `--psyop`, narrows to that psyop's
-    /// commit-specific overrides under `commits.<SHA>` (or, for
-    /// `deliver`, queued rows whose `psyop_commit_sha` matches).
-    /// Cannot be used with `--global` or on its own.
-    #[arg(long, requires = "psyop", conflicts_with = "global", value_name = "SHA")]
-    commit: Option<String>,
 }
 
 pub(super) enum Selector {
     Global,
-    PsyopBase   { psyop: String },
-    PsyopCommit { psyop: String, commit: String },
+    Psyop { psyop: String },
 }
 
 impl SelectorArgs {
     fn resolve(self) -> Result<Selector, Error> {
-        match (self.global, self.psyop, self.commit) {
-            (true,  None,    None)    => Ok(Selector::Global),
-            (false, Some(p), None)    => Ok(Selector::PsyopBase { psyop: p }),
-            (false, Some(p), Some(c)) => Ok(Selector::PsyopCommit { psyop: p, commit: c }),
+        match (self.global, self.psyop) {
+            (true, None) => Ok(Selector::Global),
+            (false, Some(p)) => Ok(Selector::Psyop { psyop: p }),
             _ => Err(Error::Other(
-                "exactly one of --global, --psyop, or --psyop+--commit is required".into(),
+                "exactly one of --global or --psyop is required".into(),
             )),
         }
     }
@@ -111,9 +98,9 @@ impl Commands {
         let result: Result<Output, Error> = async move {
             match self {
                 Commands::List { selector, count, offset } =>
-                    list::run(selector.resolve()?, count, offset, ctx),
-                Commands::Add { selector, json }   => add::run(selector.resolve()?, json, ctx),
-                Commands::Del { selector, index }  => del::run(selector.resolve()?, index, ctx),
+                    list::run(selector.resolve()?, count, offset, ctx).await,
+                Commands::Add { selector, json }   => add::run(selector.resolve()?, json, ctx).await,
+                Commands::Del { selector, index }  => del::run(selector.resolve()?, index, ctx).await,
                 Commands::Deliver { selector }     => deliver::run(selector.resolve()?, ctx).await,
                 Commands::Schema                   => schema::run(),
             }

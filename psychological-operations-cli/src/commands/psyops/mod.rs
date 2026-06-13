@@ -35,36 +35,23 @@ pub enum Commands {
     /// Emit the JSON Schema for a PsyOp definition — the shape
     /// `publish --psyop-inline '<json>'` accepts.
     Schema,
-    /// Mark a psyop as enabled. With `--commit <sha>` only affects that
-    /// commit; otherwise updates the base flag.
+    /// Mark a psyop as enabled.
     Enable {
         name: String,
-        #[arg(long)]
-        commit: Option<String>,
     },
-    /// Mark a psyop as disabled. With `--commit <sha>` only affects that
-    /// commit; otherwise updates the base flag.
+    /// Mark a psyop as disabled.
     Disable {
         name: String,
-        #[arg(long)]
-        commit: Option<String>,
     },
-    /// Publish a psyop definition (writes psyop.json + commits in its repo).
+    /// Publish a psyop definition (upserts it by name).
     Publish {
         #[command(flatten)]
         args: PublishArgs,
     },
-    /// Run enabled psyops in rounds: each round runs all psyops that have
-    /// enough data concurrently; later rounds pick up psyops whose inputs
-    /// depend on earlier rounds' scores. With no flags, runs the full set.
-    /// `--name X` narrows the run to one psyop; `--commit Y` additionally
-    /// requires the psyop's HEAD to match Y. `--commit` without `--name`
-    /// is rejected.
+    /// Run a psyop end-to-end. `--name X` selects the psyop.
     Run {
         #[arg(long)]
         name: Option<String>,
-        #[arg(long, requires = "name")]
-        commit: Option<String>,
         /// Pass-through to `objectiveai` for deterministic mock
         /// outputs. Used by integration tests; optional otherwise.
         #[arg(long)]
@@ -103,18 +90,18 @@ impl Commands {
     pub async fn handle(self, ctx: &crate::context::Context) -> bool {
         match self {
             Commands::List { enabled, disabled, count, offset } =>
-                psyops::list(enabled, disabled, count, offset, ctx),
-            Commands::Get { name } => psyops::get(&name, ctx),
+                psyops::list(enabled, disabled, count, offset, ctx).await,
+            Commands::Get { name } => psyops::get(&name, ctx).await,
             Commands::Schema => psyops::schema(),
-            Commands::Enable { name, commit } => {
-                psyops::set_disabled(&name, commit.as_deref(), false, ctx).await
+            Commands::Enable { name } => {
+                psyops::set_disabled(&name, false, ctx).await
             }
-            Commands::Disable { name, commit } => {
-                psyops::set_disabled(&name, commit.as_deref(), true, ctx).await
+            Commands::Disable { name } => {
+                psyops::set_disabled(&name, true, ctx).await
             }
             Commands::Publish { args } => psyops::publish(args, ctx).await,
-            Commands::Run { name, commit, seed } => {
-                psyops::run::run_all(name.as_deref(), commit.as_deref(), seed, ctx).await
+            Commands::Run { name, seed } => {
+                psyops::run::run_all(name.as_deref(), seed, ctx).await
             }
             Commands::Login { name, dangerously_reset } => {
                 crate::login::run(

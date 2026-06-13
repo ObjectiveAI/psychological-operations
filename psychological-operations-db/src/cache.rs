@@ -12,16 +12,22 @@ impl Db {
     /// `lock` → `peek` → on miss `fetch` → `store` → release. The
     /// per-key advisory lock collapses concurrent identical requests
     /// (thundering-herd guard); cache hits return before `fetch` runs.
-    pub async fn cache_get_or_fetch<F, Fut>(
+    ///
+    /// Generic over the caller's error `E` so the fetch closure can
+    /// surface its own error type (e.g. the SDK's transport/quota
+    /// errors); the locker/peek/store steps' [`Error`] converts into
+    /// `E` via `From`.
+    pub async fn cache_get_or_fetch<F, Fut, E>(
         &self,
         key: &[u8; 32],
         max_size: u64,
         ttl: Duration,
         fetch: F,
-    ) -> Result<Vec<u8>, Error>
+    ) -> Result<Vec<u8>, E>
     where
         F: FnOnce() -> Fut,
-        Fut: std::future::Future<Output = Result<Vec<u8>, Error>>,
+        Fut: std::future::Future<Output = Result<Vec<u8>, E>>,
+        E: From<Error>,
     {
         let guard = self.lock(key).await?;
         if let Some(body) = self.cache_peek(key, ttl).await? {

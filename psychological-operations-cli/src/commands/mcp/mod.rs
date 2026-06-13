@@ -55,6 +55,7 @@ impl Commands {
                         "127.0.0.1",
                         0,
                         state_dir,
+                        ctx.db.clone(),
                         cache_max_size,
                         Duration::from_secs(cache_ttl),
                         ctx.quota_read,

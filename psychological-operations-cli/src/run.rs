@@ -8,14 +8,14 @@ use envconfig::Envconfig;
 
 #[derive(Envconfig)]
 struct EnvConfigBuilder {
-    /// Root of ALL filesystem state — state files (data.db, psyops/,
-    /// config.json, x_app.json, browser/) live directly under it.
-    /// Required; unwrapped at `build()` (we panic if absent).
+    /// Root of the remaining filesystem state — the CEF/Chromium
+    /// profile tree + browser cache + host-protocol exec-tmp live under
+    /// it. Everything else is in postgres now. Required; unwrapped at
+    /// `build()` (we panic if absent).
     #[envconfig(from = "OBJECTIVEAI_STATE_DIR")]
     state_dir: Option<String>,
-    /// Postgres connection URL. Required; unwrapped at `build()`.
-    /// Plumbed for the upcoming postgres-backed state migration —
-    /// not consumed yet.
+    /// Postgres connection URL — the single persistence layer.
+    /// Required; unwrapped at `build()`.
     #[envconfig(from = "OBJECTIVEAI_POSTGRES_URL")]
     postgres_url: Option<String>,
     #[envconfig(from = "OBJECTIVEAI_AGENT_ID")]
@@ -26,12 +26,6 @@ struct EnvConfigBuilder {
     objectiveai_agent_remote: Option<String>,
     #[envconfig(from = "OBJECTIVEAI_AGENT_INSTANCE_HIERARCHY")]
     objectiveai_agent_instance_hierarchy: Option<String>,
-    #[envconfig(from = "PSYCHOLOGICAL_OPERATIONS_COMMIT_AUTHOR_NAME")]
-    commit_author_name: Option<String>,
-    #[envconfig(from = "PSYCHOLOGICAL_OPERATIONS_COMMIT_AUTHOR_EMAIL")]
-    commit_author_email: Option<String>,
-    #[envconfig(from = "PSYCHOLOGICAL_OPERATIONS_COMMIT_TIME")]
-    commit_time: Option<String>,
 }
 
 impl EnvConfigBuilder {
@@ -43,10 +37,6 @@ impl EnvConfigBuilder {
             objectiveai_agent_full_id: self.objectiveai_agent_full_id,
             objectiveai_agent_remote: self.objectiveai_agent_remote,
             objectiveai_agent_instance_hierarchy: self.objectiveai_agent_instance_hierarchy,
-            commit_author_name: self.commit_author_name,
-            commit_author_email: self.commit_author_email,
-            commit_time: self.commit_time
-                .and_then(|s| s.trim().parse::<i64>().ok()),
         }
     }
 }
@@ -59,9 +49,6 @@ pub struct ConfigBuilder {
     pub objectiveai_agent_full_id: Option<String>,
     pub objectiveai_agent_remote: Option<String>,
     pub objectiveai_agent_instance_hierarchy: Option<String>,
-    pub commit_author_name: Option<String>,
-    pub commit_author_email: Option<String>,
-    pub commit_time: Option<i64>,
 }
 
 impl Envconfig for ConfigBuilder {
@@ -98,23 +85,20 @@ impl ConfigBuilder {
             objectiveai_agent_instance_hierarchy: self
                 .objectiveai_agent_instance_hierarchy
                 .unwrap_or_else(|| "psychological-operations".to_string()),
-            commit_author_name: self.commit_author_name,
-            commit_author_email: self.commit_author_email,
-            commit_time: self.commit_time,
         }
     }
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct Config {
-    /// Root of ALL filesystem state (env `OBJECTIVEAI_STATE_DIR`).
-    /// State files live **directly** under it — `data.db`, `psyops/`,
-    /// `config.json`, `x_app.json`, `browser/`, the x-api SQLite
-    /// files. Assumed to already exist. Required (panics if unset).
+    /// Root of the remaining filesystem state (env
+    /// `OBJECTIVEAI_STATE_DIR`). Only the CEF/Chromium profile tree, the
+    /// extracted browser bundle cache, and the host-protocol `exec-tmp`
+    /// live under it now — all other state moved to postgres. Assumed to
+    /// already exist. Required (panics if unset).
     pub state_dir: PathBuf,
-    /// Postgres connection URL (env `OBJECTIVEAI_POSTGRES_URL`).
-    /// Required. Plumbed for the upcoming postgres state migration;
-    /// not consumed yet.
+    /// Postgres connection URL (env `OBJECTIVEAI_POSTGRES_URL`) — the
+    /// single persistence layer. Required.
     pub postgres_url: String,
     /// Default agent id (env `OBJECTIVEAI_AGENT_ID`). Currently unused —
     /// captured for parity with the objectiveai agent-environment
@@ -134,19 +118,6 @@ pub struct Config {
     /// `"psychological-operations"` when the env var is unset.
     /// Currently unused.
     pub objectiveai_agent_instance_hierarchy: String,
-    /// Commit author name baked into git commits produced by
-    /// `psyops publish`. Default `"psychological-operations"`.
-    /// Set via `PSYCHOLOGICAL_OPERATIONS_COMMIT_AUTHOR_NAME`.
-    pub commit_author_name:  Option<String>,
-    /// Commit author email. Default `"psyops@localhost"`.
-    /// Set via `PSYCHOLOGICAL_OPERATIONS_COMMIT_AUTHOR_EMAIL`.
-    pub commit_author_email: Option<String>,
-    /// Commit time (epoch seconds). When `Some`, all commits use
-    /// this fixed timestamp — yields reproducible commit SHAs
-    /// across machines (used by integration tests). When `None`,
-    /// each commit uses the current wall clock.
-    /// Set via `PSYCHOLOGICAL_OPERATIONS_COMMIT_TIME`.
-    pub commit_time:         Option<i64>,
 }
 
 impl Config {

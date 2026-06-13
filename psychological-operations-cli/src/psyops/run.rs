@@ -41,12 +41,10 @@ use psychological_operations_sdk::x::types::TweetId;
 use crate::psyops::SearchEndpoint;
 use super::{PsyOp, Query};
 
-/// CLI entrypoint kept for `psyops::Commands::Run` — name + optional
-/// explicit commit override. The `commit_filter` is honored as a
-/// hard override on the on-disk psyop's HEAD commit.
+/// CLI entrypoint kept for `psyops::Commands::Run` — runs the psyop
+/// named by `name_filter`.
 pub async fn run_all(
     name_filter: Option<&str>,
-    commit_filter: Option<&str>,
     seed: Option<i64>,
     ctx: &crate::context::Context,
 ) -> bool {
@@ -54,17 +52,16 @@ pub async fn run_all(
         let name = name_filter.ok_or_else(|| {
             Error::Other("psyops run requires --name <psyop>".into())
         })?;
-        run_psyop(name, commit_filter, seed, ctx).await
+        run_psyop(name, seed, ctx).await
     }.await)
 }
 
 pub async fn run_psyop(
     name: &str,
-    commit_override: Option<&str>,
     seed: Option<i64>,
     ctx: &crate::context::Context,
 ) -> Result<Output, Error> {
-    let psyop = super::psyop::load(name, None, ctx)?;
+    let psyop = super::psyop::load(name, ctx).await?;
     if let Err(reason) = psyop.validate() {
         // Invalid psyop at run-time → skip + emit a warning event
         // rather than failing the command. The operator sees the
@@ -81,16 +78,12 @@ pub async fn run_psyop(
     // mocked. Mocked psyops never touch the real X API, so requiring
     // `x_app setup` for them would be pointless friction.
     if !psyop.mock_enabled() {
-        psychological_operations_sdk::x::x_app::config::ensure_setup(&ctx.config.state_dir())
-            .map_err(|e| Error::Other(format!("x_app.json: {e}")))?;
+        psychological_operations_sdk::x::x_app::config::ensure_setup(&ctx.db)
+            .await
+            .map_err(|e| Error::Other(format!("x_app: {e}")))?;
     }
 
-    let commit = match commit_override {
-        Some(c) => c.to_string(),
-        None => derive_commit(name, ctx)?,
-    };
-
-    let db = Db::open(&ctx.config).await?;
+    let db = &ctx.db;
 
     // Interval gate: each psyop records its last successful run
     // (keyed by name, not commit — republishing doesn't reset the
@@ -125,7 +118,7 @@ pub async fn run_psyop(
     // preflight above). A mocked run operates purely on whatever is
     // already queued in `for_you_queue`.
     if psyop.for_you.is_some() && !psyop.mock_enabled() {
-        super::collect::collect_for_you(&db, name, &commit, ctx).await?;
+        super::collect::collect_for_you(db, name, ctx).await?;
     }
 
     // Capture whether the for_you_queue was non-empty at run start —
@@ -134,7 +127,7 @@ pub async fn run_psyop(
     // When `for_you` is unconfigured, there's no queue to check
     // and the policy becomes a no-op.
     let had_for_you_queued_at_start = match &psyop.for_you {
-        Some(_) => !db.for_you_queue(name, &commit).await?.is_empty(),
+        Some(_) => !db.for_you_queue(name).await?.is_empty(),
         None    => false,
     };
     let mut queries_already_ran = false;
@@ -143,12 +136,29 @@ pub async fn run_psyop(
         // 1. Hydrate the for-you queue (drains everything currently
         //    in it). Skipped entirely when `for_you` is unconfigured.
         if psyop.for_you.is_some() {
-            hydrate_for_you(&db, &http, name, &commit).await?;
+            hydrate_for_you(db, &http, name).await?;
         }
 
-        // 2. Read unscored tweets for this (psyop, commit).
+        // 2. Read unscored tweets for this psyop, mapping each row to
+        //    the runtime `Tweet` (computing `age` against `now`).
         let now = chrono::Utc::now();
-        let entries = db.list_unscored_with_origins(name, &commit, &now).await?;
+        let rows = db.list_unscored_with_origins(name).await?;
+        let entries: Vec<(Tweet, Vec<Origin>, i64)> = rows
+            .into_iter()
+            .map(|(row, origins)| {
+                let tweet = Tweet {
+                    id: row.id,
+                    handle: row.handle,
+                    age: crate::db::compute_age(&row.created, &now),
+                    created: row.created,
+                    likes: row.likes,
+                    retweets: row.retweets,
+                    replies: row.replies,
+                    impressions: row.impressions,
+                };
+                (tweet, origins, row.seq)
+            })
+            .collect();
 
         // 3. Filter with priority resolution.
         let accepted = filter_with_priority(&psyop, entries)?;
@@ -167,7 +177,7 @@ pub async fn run_psyop(
                     accepted.len(),
                 )));
             }
-            run_queries(&psyop, &db, &http, name, &commit).await?;
+            run_queries(&psyop, db, &http, name).await?;
             queries_already_ran = true;
             continue;
         }
@@ -183,7 +193,7 @@ pub async fn run_psyop(
 
         // 7. Hydrate Tweet -> Post by joining with the `contents`
         //    table, then run the multi-stage scoring pipeline.
-        let result = score_pipeline(&db, &psyop, name, trimmed, seed, ctx).await?;
+        let result = score_pipeline(db, &psyop, name, trimmed, seed, ctx).await?;
 
         // 8. Persist scores for every scored post.
         if !result.last_scores.is_empty() {
@@ -192,35 +202,27 @@ pub async fn run_psyop(
             db.set_scores(&ids, &scores).await?;
         }
 
-        // 9. Reap content for every post under (name, commit), scored
-        //    or not.
-        let _dropped = db.drop_psyop_contents(name, &commit).await?;
+        // 9. Reap content for every post under `name`, scored or not.
+        let _dropped = db.drop_psyop_contents(name).await?;
 
         // 10. Enqueue a delivery_queue row per (target, survivors).
+        //     Targets are stored as JSONB; pass them straight through.
         if !result.survivors.is_empty() {
-            let json_cfg = crate::config::load(&ctx.config);
             let post_ids: Vec<String> = result.survivors.iter()
                 .map(|s| s.post.id.clone())
                 .collect();
-            let post_ids_json = serde_json::to_string(&post_ids)?;
+            let post_ids_value = serde_json::to_value(&post_ids)?;
 
-            for dest in &json_cfg.targets {
-                let target_json = serde_json::to_string(dest)?;
-                db.enqueue_delivery(name, &commit, &target_json, &post_ids_json).await?;
-            }
-            let per_psyop: Vec<crate::targets::destinations::Destination> =
-                json_cfg.psyops.get(name)
-                    .map(|o| o.targets_for(&commit).to_vec())
-                    .unwrap_or_default();
-            for dest in &per_psyop {
-                let target_json = serde_json::to_string(dest)?;
-                db.enqueue_delivery(name, &commit, &target_json, &post_ids_json).await?;
+            let mut targets = db.global_targets().await?;
+            targets.extend(db.psyop_targets(name).await?);
+            for target in &targets {
+                db.enqueue_delivery(name, target, &post_ids_value).await?;
             }
         }
 
-        // 11. Drain the queue (narrowed to exactly this
-        //     (psyop, commit) — the rows we just enqueued).
-        let _summary = crate::targets::drain_queue(&db, Some(name), Some(&commit), ctx).await?;
+        // 11. Drain the queue (narrowed to exactly this psyop — the
+        //     rows we just enqueued).
+        let _summary = crate::targets::drain_queue(db, Some(name), ctx).await?;
 
         // Stamp the interval throttle only on success — a failed
         // run bails via `?` above and stays immediately retryable.
@@ -380,9 +382,8 @@ async fn hydrate_for_you(
     db: &Db,
     http: &Client,
     name: &str,
-    commit: &str,
 ) -> Result<(), Error> {
-    let queued = db.for_you_queue(name, commit).await?;
+    let queued = db.for_you_queue(name).await?;
     if queued.is_empty() {
         return Ok(());
     }
@@ -395,7 +396,7 @@ async fn hydrate_for_you(
     for id in queued {
         match fetch_tweet(http, &id).await {
             Ok(Some(post)) => {
-                db.insert_post(&post, name, commit, &Origin::ForYou).await?;
+                db.insert_post(&post, name, &Origin::ForYou).await?;
                 succeeded.push(id);
             }
             Ok(None) => {
@@ -417,7 +418,7 @@ async fn hydrate_for_you(
             }
         }
     }
-    db.dequeue_for_you(name, commit, &succeeded).await?;
+    db.dequeue_for_you(name, &succeeded).await?;
     Ok(())
 }
 
@@ -548,7 +549,6 @@ async fn run_queries(
     db: &Db,
     http: &Client,
     name: &str,
-    commit: &str,
 ) -> Result<(), Error> {
     let queries = match &psyop.queries {
         Some(qs) if !qs.is_empty() => qs,
@@ -575,7 +575,7 @@ async fn run_queries(
                 })
                 .emit();
                 for p in posts {
-                    db.insert_post(&p, name, commit, &Origin::Query(q.query.clone())).await?;
+                    db.insert_post(&p, name, &Origin::Query(q.query.clone())).await?;
                 }
             }
             Err(e) => {
@@ -601,6 +601,7 @@ fn make_http_client(mock: bool, ctx: &crate::context::Context) -> Client {
         ctx.cache_ttl,
         ctx.config.state_dir(),
         AuthMode::XApp,
+        ctx.db.clone(),
     )
 }
 
@@ -707,17 +708,6 @@ fn lookup_handle(
 }
 
 // -- glue ---------------------------------------------------------------------
-
-fn derive_commit(name: &str, ctx: &crate::context::Context) -> Result<String, Error> {
-    let dir = crate::config::psyops_dir(&ctx.config).join(name);
-    let repo = git2::Repository::open(&dir).map_err(|e| {
-        Error::Other(format!("git open failed at {}: {e}", dir.display()))
-    })?;
-    let head = repo.head().and_then(|h| h.peel_to_commit()).map_err(|e| {
-        Error::Other(format!("git HEAD lookup failed: {e}"))
-    })?;
-    Ok(head.id().to_string())
-}
 
 fn default_id_request() -> psychological_operations_sdk::x::tweets::id::get::Request {
     use psychological_operations_sdk::x::tweets::id::get::Request;

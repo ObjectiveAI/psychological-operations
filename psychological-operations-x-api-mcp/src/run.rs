@@ -20,6 +20,7 @@ use std::time::Duration;
 use objectiveai_sdk::cli::command::CommandExecutor;
 use objectiveai_sdk::cli::command::plugins::run::{Mcp, McpType};
 use objectiveai_sdk::cli::plugins::Output;
+use psychological_operations_db::Db;
 use rmcp::transport::streamable_http_server::{StreamableHttpServerConfig, StreamableHttpService};
 use tokio_util::sync::CancellationToken;
 
@@ -31,6 +32,7 @@ pub async fn setup<E>(
     address:         &str,
     port:            u16,
     state_dir:       PathBuf,
+    db:              Db,
     cache_max_size:  u64,
     cache_ttl:       Duration,
     quota_read:      u64,
@@ -54,6 +56,7 @@ where
         registry.clone(),
         reqwest::Client::new(),
         state_dir,
+        db,
         cache_max_size,
         cache_ttl,
         quota_read,
@@ -110,6 +113,7 @@ pub async fn run<E>(
     address:         &str,
     port:            u16,
     state_dir:       PathBuf,
+    db:              Db,
     cache_max_size:  u64,
     cache_ttl:       Duration,
     quota_read:      u64,
@@ -121,7 +125,7 @@ where
     E::Error: std::fmt::Display + Send + 'static,
 {
     let (listener, app) = setup(
-        address, port, state_dir, cache_max_size, cache_ttl,
+        address, port, state_dir, db, cache_max_size, cache_ttl,
         quota_read, quota_write, executor,
     ).await?;
     let addr = listener.local_addr()?;

@@ -5,9 +5,7 @@ pub enum Error {
     #[error("objectiveai cli error: {0}")]
     ObjectiveAiCli(String),
     #[error("database error: {0}")]
-    Database(#[from] sqlx::Error),
-    #[error("git error: {0}")]
-    Git(#[from] git2::Error),
+    Db(#[from] psychological_operations_db::Error),
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
     #[error("json error: {0}")]

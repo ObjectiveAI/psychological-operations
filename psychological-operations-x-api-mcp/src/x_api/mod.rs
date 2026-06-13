@@ -34,6 +34,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+use psychological_operations_db::Db;
 use psychological_operations_sdk::x::client::{AuthMode, Client, QuotaConfig};
 use rmcp::{
     ErrorData, RoleServer, ServerHandler,
@@ -77,8 +78,10 @@ pub struct PsychologicalOperationsXApiMcp {
     /// build reuses this pool.
     pub(super) reqwest: reqwest::Client,
     /// Root of all on-disk state (the `OBJECTIVEAI_STATE_DIR` value);
-    /// passed straight to each per-tool SDK `Client`.
+    /// passed straight to each per-tool SDK `Client` (CEF cookie probe).
     pub(super) state_dir: PathBuf,
+    /// The single persistence layer, cloned into each per-tool Client.
+    pub(super) db: Db,
     pub(super) cache_max_size: u64,
     pub(super) cache_ttl: Duration,
     /// Max GET X-API requests per caller (agent instance
@@ -102,6 +105,7 @@ impl PsychologicalOperationsXApiMcp {
         sessions: Arc<SessionRegistry>,
         reqwest: reqwest::Client,
         state_dir: PathBuf,
+        db: Db,
         cache_max_size: u64,
         cache_ttl: Duration,
         quota_read: u64,
@@ -112,6 +116,7 @@ impl PsychologicalOperationsXApiMcp {
             sessions,
             reqwest,
             state_dir,
+            db,
             cache_max_size,
             cache_ttl,
             quota_read,
@@ -168,6 +173,7 @@ impl PsychologicalOperationsXApiMcp {
             self.cache_ttl,
             self.state_dir.clone(),
             AuthMode::Agent(state.agent.clone()),
+            self.db.clone(),
         )
         .with_quota(QuotaConfig {
             read_per_hour:  self.quota_read,
@@ -187,11 +193,9 @@ impl PsychologicalOperationsXApiMcp {
         state: &SessionState,
         body: Content,
     ) -> Result<CallToolResult, ErrorData> {
-        let log = http.request_log().await.map_err(|e| {
-            ErrorData::internal_error(format!("request log open: {e}"), None)
-        })?;
-        let (reads, writes) = log
-            .usage(&state.agent_instance_hierarchy)
+        let (reads, writes) = http
+            .db()
+            .request_usage(&state.agent_instance_hierarchy)
             .await
             .map_err(|e| {
                 ErrorData::internal_error(format!("quota usage read: {e}"), None)
