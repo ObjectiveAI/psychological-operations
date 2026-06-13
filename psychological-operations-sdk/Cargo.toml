@@ -15,7 +15,6 @@ urlencoding = "2.1.3"
 rand = "0.8"
 sha2 = "0.10"
 base64 = "0.22.1"
-aes-gcm = "0.10.3"
 # `full` features brought along when x-api folded in — the OAuth
 # callback server (`x::oauth::server`) needs `net` + `io-util` +
 # `macros`, plus we keep the original `fs` + `rt` for the browser
@@ -46,14 +45,3 @@ starlark = "0.13.0"
 # features pull executor / http / env / viewer / mcp which the
 # SDK doesn't need (the CLI binary keeps the full set).
 objectiveai-sdk = { version = "2.1.1", default-features = false, features = ["cli"] }
-
-# Chromium encrypts cookie values via AES-GCM with a key wrapped
-# in Windows DPAPI. CryptUnprotectData lives in
-# Win32_Security_Cryptography. Cross-platform decrypt support
-# (macOS Keychain, Linux libsecret) will land under their own
-# cfg branches when needed.
-[target.'cfg(windows)'.dependencies]
-windows = { version = "0.62", features = [
-    "Win32_Security_Cryptography",
-    "Win32_Foundation",
-] }

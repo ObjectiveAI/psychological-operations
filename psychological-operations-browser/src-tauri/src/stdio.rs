@@ -225,16 +225,12 @@ pub async fn process_post_create_html_inner(
         return Err("no user_id yet — cookies watcher hasn't observed twid".into());
     };
 
-    let path = credentials::save_post_create_dialog(app, &user_id, &html).await?;
-    let parsed = PostCreateDialog::load(&path)
-        .await
-        .map_err(|e| format!("re-parse snapshot: {e}"))?
-        .unwrap_or_default();
+    credentials::save_post_create_dialog(app, &user_id, &html).await?;
+    let parsed = PostCreateDialog::parse(&html);
 
     let _ = Output::Log {
         message: format!(
-            "credentials: wrote {} ({} / 3 fields parsed)",
-            path.display(),
+            "credentials: stored post_create_dialog for {user_id} ({} / 3 fields parsed)",
             parsed.parsed_count(),
         ),
     }
@@ -261,16 +257,12 @@ pub async fn process_oauth_popup_html_inner(
         return Err("no user_id yet — cookies watcher hasn't observed twid".into());
     };
 
-    let path = credentials::save_oauth_popup(app, &user_id, &html).await?;
-    let parsed = OAuthPopup::load(&path)
-        .await
-        .map_err(|e| format!("re-parse snapshot: {e}"))?
-        .unwrap_or_default();
+    credentials::save_oauth_popup(app, &user_id, &html).await?;
+    let parsed = OAuthPopup::parse(&html);
 
     let _ = Output::Log {
         message: format!(
-            "credentials: wrote {} ({} / 2 fields parsed)",
-            path.display(),
+            "credentials: stored oauth_popup for {user_id} ({} / 2 fields parsed)",
             parsed.parsed_count(),
         ),
     }

@@ -31,6 +31,7 @@ helper_name = "psychological_operations_browser_helper"
 tauri-build = { version = "2.6.2", features = [] }
 
 [dependencies]
+psychological-operations-db = { path = "../../psychological-operations-db" }
 psychological-operations-sdk = { path = "../../psychological-operations-sdk", version = "0.1.0" }
 # OAuth dance pieces for the psyop authorize flow. The SDK's
 # `x::oauth` module has equivalents but was inlined here when
@@ -42,7 +43,7 @@ reqwest = { version = "0.13.4", features = ["json", "rustls", "form"], default-f
 sha2 = "0.11.0"
 rand = "0.10.1"
 chrono = { version = "0.4.39", features = ["serde"] }
-clap = { version = "4.6.1", features = ["derive"] }
+clap = { version = "4.6.1", features = ["derive", "env"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 tauri = { version = "2.11.2", features = ["unstable"] }

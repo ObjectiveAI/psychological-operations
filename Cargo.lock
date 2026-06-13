@@ -4467,6 +4467,7 @@ dependencies = [
  "objc2",
  "objc2-app-kit",
  "objc2-foundation",
+ "psychological-operations-db",
  "psychological-operations-sdk",
  "rand 0.10.1",
  "raw-window-handle",
@@ -4534,7 +4535,6 @@ dependencies = [
 name = "psychological-operations-sdk"
 version = "0.1.0"
 dependencies = [
- "aes-gcm",
  "base64 0.22.1",
  "chrono",
  "clap",
@@ -4555,7 +4555,6 @@ dependencies = [
  "tokio",
  "url",
  "urlencoding",
- "windows 0.62.2",
 ]
 
 [[package]]

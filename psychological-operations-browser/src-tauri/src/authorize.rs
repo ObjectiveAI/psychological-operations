@@ -27,15 +27,14 @@
 //! (`Client::lock_auth`/`write_auth`), not by this module.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::Utc;
-use psychological_operations_sdk::browser::auth_json::{self, PersonaKind, Tokens};
-use psychological_operations_sdk::browser::cookies::signed_in_x_user_id;
+use psychological_operations_db::{Db, signed_in_x_user_id};
+use psychological_operations_sdk::browser::auth_json::{PersonaKind, Tokens};
 use psychological_operations_sdk::browser::mode::Mode;
 use psychological_operations_sdk::browser::output::Output;
 use rand::Rng;
@@ -49,7 +48,6 @@ use urlencoding::encode as urlenc;
 use crate::args::Args;
 use crate::cef;
 use crate::state;
-use crate::webview;
 
 const SCOPES: &str = concat!(
     "tweet.read tweet.write users.read ",
@@ -99,7 +97,7 @@ pub async fn maybe_start_flow(handle: &AppHandle<Wry>) {
     // under the same persona. If nobody is signed into the X-App
     // profile yet, the flow can't sensibly mint creds, so log and
     // bail.
-    let x_app_twid = match signed_in_x_user_id(&state_dir, &Mode::XApp).await {
+    let x_app_twid = match signed_in_x_user_id(&state_dir, &Mode::XApp.cache_subdir()).await {
         Ok(Some(t)) => t,
         Ok(None) => {
             let msg = "no X-App account signed in".to_string();
@@ -121,37 +119,30 @@ pub async fn maybe_start_flow(handle: &AppHandle<Wry>) {
         }
     };
 
-    let auth_path = auth_json::path_for(
-        &state_dir,
-        kind,
-        &persona_name,
-        &persona_twid,
-        &x_app_twid,
-    );
+    let db = handle.state::<Db>();
 
-    // Concurrent: check whether we already have auth.json AND
-    // (for psyops only) probe the cross-psyop conflict. Both
-    // disk-bound + independent — `tokio::join!` halves the
-    // latency on every cookies kick where either probe is
-    // non-trivial. Agents skip the conflict scan because the
-    // same X account can be signed into multiple agents (and
-    // psyops too) without complaint.
-    let conflict_fut = async {
-        match kind {
-            PersonaKind::Psyop => {
-                find_other_psyop_owning_twid(handle, &persona_name, &persona_twid)
-                    .await
-            }
-            PersonaKind::Agent => None,
-        }
-    };
-    let (auth_exists, conflict) = tokio::join!(
-        async { tokio::fs::try_exists(&auth_path).await.unwrap_or(false) },
-        conflict_fut,
-    );
+    // Already have tokens for this (persona, X-App) pair? Then there's
+    // nothing to do.
+    let auth_exists = db
+        .auth_get(kind.db_kind(), &persona_name, &persona_twid, &x_app_twid)
+        .await
+        .map(|t| t.is_some())
+        .unwrap_or(false);
     if auth_exists {
         return;
     }
+
+    // For psyops only, probe the cross-psyop conflict (the same twid
+    // already owned by a different psyop). Agents skip it — the same X
+    // account can authorize multiple agents (and psyops too).
+    let conflict = match kind {
+        PersonaKind::Psyop => db
+            .auth_find_other_owner("psyop", &persona_twid, &persona_name)
+            .await
+            .ok()
+            .flatten(),
+        PersonaKind::Agent => None,
+    };
     if let Some(other) = conflict {
         let msg = format!(
             "twid {persona_twid} belongs to PsyOp {other}; not starting flow"
@@ -249,13 +240,14 @@ async fn run_flow(
     let state_dir = args.state_dir.clone();
     let cache_max_size = args.cache_max_size;
     let cache_ttl = std::time::Duration::from_secs(args.cache_ttl);
+    let db = handle.state::<Db>().inner().clone();
     // Use a persona-mode SDK Client (matching the kind being
-    // authorized) to write auth.json under the two-tier lock —
+    // authorized) to write the tokens under the advisory lock —
     // single seam for cross-process write coordination.
     let auth_mode = match kind {
-        psychological_operations_sdk::browser::auth_json::PersonaKind::Psyop =>
+        PersonaKind::Psyop =>
             psychological_operations_sdk::x::client::AuthMode::Psyop(persona_name.clone()),
-        psychological_operations_sdk::browser::auth_json::PersonaKind::Agent =>
+        PersonaKind::Agent =>
             psychological_operations_sdk::x::client::AuthMode::Agent(persona_name.clone()),
     };
     let client = psychological_operations_sdk::x::client::Client::new(
@@ -265,10 +257,11 @@ async fn run_flow(
         cache_ttl,
         state_dir,
         auth_mode,
+        db,
     );
-    // The Client derives its persona (and the on-disk auth.json
-    // path) from `auth_mode` + the CEF cookies it consults under
-    // the hood — no `PersonaKey` argument needed.
+    // The Client derives its persona (and the `auth_tokens` row) from
+    // `auth_mode` + the CEF cookies it consults under the hood — no
+    // `PersonaKey` argument needed.
     let lock = client
         .lock_auth()
         .await
@@ -482,176 +475,37 @@ async fn exchange_code_for_tokens(
 }
 
 // =================================================================
-// Disk helpers
+// X-App credential lookup (from the db)
 // =================================================================
 async fn read_x_app_creds(
     handle: &AppHandle<Wry>,
 ) -> Result<(String, String), String> {
     use psychological_operations_sdk::browser::x_app_credentials::OAuthPopup;
 
-    let handles_dir = webview::mode_data_dir(handle, &Mode::XApp).join("handles");
+    let state_dir = handle.state::<Args>().state_dir.clone();
+    let db = handle.state::<Db>();
 
-    // Async directory walk: gather every subdir under handles/.
-    let mut rd = tokio::fs::read_dir(&handles_dir)
+    // The OAuth popup snapshot is keyed by the X-App's signed-in twid.
+    let x_app_twid = signed_in_x_user_id(&state_dir, &Mode::XApp.cache_subdir())
         .await
-        .map_err(|e| format!("read {}: {e}", handles_dir.display()))?;
-    let mut dirs: Vec<PathBuf> = Vec::new();
-    while let Ok(Some(ent)) = rd.next_entry().await {
-        let path = ent.path();
-        if tokio::fs::metadata(&path).await.is_ok_and(|m| m.is_dir()) {
-            dirs.push(path);
-        }
-    }
-    if dirs.is_empty() {
-        return Err(format!("no X-App handles under {}", handles_dir.display()));
-    }
+        .map_err(|e| format!("x-app cookies probe: {e}"))?
+        .ok_or_else(|| "no X-App account signed in".to_string())?;
 
-    // Fan out per-dir mtime fetches concurrently — each
-    // `metadata().modified()` is an independent stat.
-    let mtimes = futures::future::join_all(dirs.iter().map(|dir| {
-        let snap = dir.join(crate::credentials::OAUTH_POPUP_FILE);
-        async move {
-            tokio::fs::metadata(&snap)
-                .await
-                .ok()
-                .and_then(|m| m.modified().ok())
-        }
-    }))
-    .await;
-
-    let mut owner: Vec<_> = dirs
-        .into_iter()
-        .zip(mtimes)
-        .filter_map(|(dir, mt)| mt.map(|t| (t, dir)))
-        .collect();
-    owner.sort_by_key(|(t, _)| *t);
-    let (_, dir) = owner.pop().ok_or_else(|| {
-        format!(
-            "no {} under any X-App handle dir in {}",
-            crate::credentials::OAUTH_POPUP_FILE,
-            handles_dir.display()
-        )
-    })?;
-    let popup_path = dir.join(crate::credentials::OAUTH_POPUP_FILE);
-    let popup = OAuthPopup::load(&popup_path)
+    let popup = OAuthPopup::from_db(db.inner(), &x_app_twid)
         .await
-        .map_err(|e| format!("read {}: {e}", popup_path.display()))?
-        .ok_or_else(|| {
-            format!("{} disappeared mid-read", popup_path.display())
-        })?;
+        .map_err(|e| format!("read oauth popup snapshot: {e}"))?
+        .ok_or_else(|| "no oauth_popup snapshot captured for the X-App".to_string())?;
     let client_id = popup
         .client_id
-        .ok_or_else(|| format!("{} missing client_id", popup_path.display()))?;
-    let client_secret = popup.client_secret.ok_or_else(|| {
-        format!("{} missing client_secret", popup_path.display())
-    })?;
+        .ok_or_else(|| "oauth_popup snapshot missing client_id".to_string())?;
+    let client_secret = popup
+        .client_secret
+        .ok_or_else(|| "oauth_popup snapshot missing client_secret".to_string())?;
     if client_id.is_empty() || client_secret.is_empty() {
         return Err("client_id or client_secret is empty".into());
     }
     Ok((client_id, client_secret))
 }
 
-/// Scan every sibling psyop's data dir and return the name of
-/// the first one (other than `current`) that holds ANY
-/// `handles/<twid>/<x_app_twid>/auth.json` (for any X-App twid
-/// leaf). Sorting psyop entries alphabetically gives
-/// deterministic conflict reporting if multiple owners exist;
-/// per-sibling and per-x_app_twid presence checks fan out
-/// concurrently via [`futures::future::join_all`].
-///
-/// Returns `None` when no conflict, `twid` is empty, or the
-/// `psyop/` root doesn't exist yet (first-ever run).
-pub async fn find_other_psyop_owning_twid(
-    handle: &AppHandle<Wry>,
-    current: &str,
-    twid: &str,
-) -> Option<String> {
-    if twid.is_empty() {
-        return None;
-    }
-    // Walk up one level from this psyop's own data dir to reach
-    // the `psyop/` root. Both Read and Authorize resolve to
-    // the same dir, so either works here.
-    let current_mode = Mode::PsyopAuthorize {
-        name: current.to_string(),
-    };
-    let psyop_root = webview::mode_data_dir(handle, &current_mode)
-        .parent()?
-        .to_path_buf();
-    let state_dir = handle.state::<Args>().state_dir.clone();
-
-    let mut rd = tokio::fs::read_dir(&psyop_root).await.ok()?;
-    let mut entries: Vec<PathBuf> = Vec::new();
-    while let Ok(Some(ent)) = rd.next_entry().await {
-        let path = ent.path();
-        if tokio::fs::metadata(&path).await.is_ok_and(|m| m.is_dir()) {
-            entries.push(path);
-        }
-    }
-    entries.sort();
-
-    let checks = entries.iter().map(|path| {
-        let sibling_name = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .map(str::to_string);
-        let state_dir = state_dir.clone();
-        let twid = twid.to_string();
-        async move {
-            let Some(name) = sibling_name else { return false };
-            // <sibling>/handles/<twid>/ — list each x_app_twid leaf
-            // dir and check it for auth.json.
-            let persona_dir = state_dir
-                .join("browser")
-                .join("psyop")
-                .join(&name)
-                .join("handles")
-                .join(&twid);
-            let mut rd = match tokio::fs::read_dir(&persona_dir).await {
-                Ok(r) => r,
-                Err(_) => return false,
-            };
-            let mut candidates: Vec<String> = Vec::new();
-            while let Ok(Some(ent)) = rd.next_entry().await {
-                if tokio::fs::metadata(&ent.path())
-                    .await
-                    .is_ok_and(|m| m.is_dir())
-                {
-                    if let Some(s) = ent.file_name().to_str() {
-                        candidates.push(s.to_string());
-                    }
-                }
-            }
-            let presence = futures::future::join_all(candidates.iter().map(|x_app_twid| {
-                let p = auth_json::path_for(
-                    &state_dir,
-                    PersonaKind::Psyop,
-                    &name,
-                    &twid,
-                    x_app_twid,
-                );
-                async move { tokio::fs::try_exists(&p).await.unwrap_or(false) }
-            }))
-            .await;
-            presence.into_iter().any(|x| x)
-        }
-    });
-    let existence = futures::future::join_all(checks).await;
-
-    for (path, exists) in entries.iter().zip(existence) {
-        if !exists {
-            continue;
-        }
-        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
-            continue;
-        };
-        if name == current {
-            continue;
-        }
-        return Some(name.to_string());
-    }
-    None
-}
-
-// auth.json is written via `Client::write_auth` from the SDK; the
-// browser owns no on-disk `Tokens` writer of its own.
+// Tokens are written via `Client::write_auth` from the SDK (into the
+// `auth_tokens` table); the browser owns no token writer of its own.

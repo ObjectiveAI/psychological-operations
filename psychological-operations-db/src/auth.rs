@@ -69,6 +69,29 @@ impl Db {
         Ok(())
     }
 
+    /// First other persona (alphabetical, `name <> exclude_name`) of
+    /// the same `kind` that holds tokens for `persona_twid`. Powers the
+    /// browser's cross-psyop twid-ownership guard. `None` when no other
+    /// owner exists.
+    pub async fn auth_find_other_owner(
+        &self,
+        kind: &str,
+        persona_twid: &str,
+        exclude_name: &str,
+    ) -> Result<Option<String>, Error> {
+        let name: Option<String> = sqlx::query_scalar(
+            "SELECT name FROM auth_tokens \
+             WHERE kind = $1 AND persona_twid = $2 AND name <> $3 \
+             ORDER BY name ASC LIMIT 1",
+        )
+        .bind(kind)
+        .bind(persona_twid)
+        .bind(exclude_name)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(name)
+    }
+
     /// Delete every token row for one persona (all persona_twid ×
     /// x_app_twid leaves). Used by the `--dangerously-reset` login path.
     pub async fn auth_delete_persona(&self, kind: &str, name: &str) -> Result<(), Error> {

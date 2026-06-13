@@ -22,13 +22,18 @@ use psychological_operations_sdk::browser::mode::Mode;
 #[command(about = "Tauri+CEF webview shell for psychological-operations sessions.")]
 #[command(group = ArgGroup::new("mode").required(true).multiple(false).args(["x_app", "psyop_read", "psyop_authorize", "agent_authorize", "psyop_browser", "agent_browser"]))]
 pub struct Args {
-    /// Base directory for psych-ops state. Mode-specific session
+    /// Base directory for psych-ops state. Mode-specific CEF session
     /// data (cookies, IndexedDB, cache, ...) lives under
-    /// `<state-dir>/browser/cef-root/<mode-subdir>/`.
-    /// Credentials live alongside at
-    /// `<state-dir>/browser/<mode-subdir>/`.
+    /// `<state-dir>/browser/cef-root/<mode-subdir>/`. Credentials and
+    /// tokens now live in postgres, not on disk.
     #[arg(long)]
     pub state_dir: PathBuf,
+
+    /// Postgres connection URL — the single persistence layer (the
+    /// `OBJECTIVEAI_POSTGRES_URL` value, inherited from the launching
+    /// CLI process). Used for credential-HTML + token storage.
+    #[arg(long, env = "OBJECTIVEAI_POSTGRES_URL")]
+    pub postgres_url: String,
 
     /// Launch in X-App mode. The CEF browser loads
     /// `https://console.x.com/` with a `RequestContext` whose

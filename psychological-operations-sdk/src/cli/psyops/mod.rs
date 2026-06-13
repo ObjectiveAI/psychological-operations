@@ -2,9 +2,9 @@
 //! body shape for `psychological-operations psyops publish
 //! --psyop-inline '<json>'`.
 //!
-//! Pure data + `validate()` methods. Runtime concerns (git2 disk
-//! I/O for load/save, Starlark evaluation against live `Tweet`
-//! rows) live in the CLI alongside the scoring pipeline.
+//! Pure data + `validate()` methods. Runtime concerns (db-backed
+//! load/save, Starlark evaluation against live `Tweet` rows) live in
+//! the CLI alongside the scoring pipeline.
 
 pub mod filter;
 pub mod for_you;

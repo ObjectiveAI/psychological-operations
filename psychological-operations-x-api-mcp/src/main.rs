@@ -5,8 +5,8 @@ use clap::Parser;
 use objectiveai_sdk::cli::command::binary::BinaryExecutor;
 
 /// X-API MCP server. Drives a streamable-HTTP MCP that proxies the X
-/// v2 API, intermediated by a sqlx-backed response cache and a
-/// two-tier (in-process + cross-process) lock.
+/// v2 API, intermediated by the postgres-backed response cache and the
+/// two-tier (in-process + advisory) lock in the db crate.
 ///
 /// `agent` and `mode` are NOT flags — clients supply them per
 /// session via the `X-OBJECTIVEAI-ARGUMENTS` JSON-object header

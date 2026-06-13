@@ -28,10 +28,11 @@ use std::sync::{Mutex, OnceLock};
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use psychological_operations_db::Db;
 use psychological_operations_sdk::browser::mode::{self, Mode};
 use psychological_operations_sdk::browser::output::{Output, SignedInInfo};
 use psychological_operations_sdk::browser::panel::{PanelCondition, PanelState};
-use tauri::{AppHandle, Emitter, Url, Wry};
+use tauri::{AppHandle, Emitter, Manager, Url, Wry};
 
 use crate::webview;
 
@@ -286,12 +287,12 @@ pub async fn apply_cookie_facts(
             let oauth_fut = crate::credentials::oauth_popup_present(handle, uid);
             let conflict_fut = async {
                 match (auth_token.as_ref(), conflict_psyop.as_deref()) {
-                    (Some(_), Some(name)) => {
-                        crate::authorize::find_other_psyop_owning_twid(
-                            handle, name, uid,
-                        )
+                    (Some(_), Some(name)) => handle
+                        .state::<Db>()
+                        .auth_find_other_owner("psyop", uid, name)
                         .await
-                    }
+                        .ok()
+                        .flatten(),
                     _ => None,
                 }
             };

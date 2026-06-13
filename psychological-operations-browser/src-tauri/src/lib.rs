@@ -83,6 +83,19 @@ pub fn run() {
     let initial_mode = args.initial_mode();
     mode::set(initial_mode.clone());
 
+    // Connect the persistence layer up front (credential-HTML + token
+    // storage). Uses tauri's global async runtime since the builder
+    // hasn't started yet. Fatal on failure.
+    let db = match tauri::async_runtime::block_on(
+        psychological_operations_db::Db::connect(&args.postgres_url),
+    ) {
+        Ok(db) => db,
+        Err(e) => {
+            let _ = Output::Error { error: format!("db connect: {e}") }.emit();
+            std::process::exit(1);
+        }
+    };
+
     // Build the frontend-ready signal BEFORE the Tauri builder so
     // we can hand the receiver to the stdin reader (started inside
     // `setup`) while the sender lives in Tauri-managed state for
@@ -94,6 +107,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(args)
+        .manage(db)
         .manage(ReadyTx(Mutex::new(Some(ready_tx))))
         .manage(PendingAck(Mutex::new(None)))
         .manage(CookiesWatcherSlot(Mutex::new(None)))
