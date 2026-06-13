@@ -76,7 +76,9 @@ pub struct PsychologicalOperationsXApiMcp {
     /// cheap (Arc internally), so every per-tool SDK `Client` we
     /// build reuses this pool.
     pub(super) reqwest: reqwest::Client,
-    pub(super) config_base_dir: PathBuf,
+    /// Root of all on-disk state (the `OBJECTIVEAI_STATE_DIR` value);
+    /// passed straight to each per-tool SDK `Client`.
+    pub(super) state_dir: PathBuf,
     pub(super) cache_max_size: u64,
     pub(super) cache_ttl: Duration,
     /// Max GET X-API requests per caller (agent instance
@@ -99,7 +101,7 @@ impl PsychologicalOperationsXApiMcp {
     pub fn new(
         sessions: Arc<SessionRegistry>,
         reqwest: reqwest::Client,
-        config_base_dir: PathBuf,
+        state_dir: PathBuf,
         cache_max_size: u64,
         cache_ttl: Duration,
         quota_read: u64,
@@ -109,7 +111,7 @@ impl PsychologicalOperationsXApiMcp {
             tool_router: Self::read_tools() + Self::write_tools() + Self::queue_tools(),
             sessions,
             reqwest,
-            config_base_dir,
+            state_dir,
             cache_max_size,
             cache_ttl,
             quota_read,
@@ -164,7 +166,7 @@ impl PsychologicalOperationsXApiMcp {
             /* mock */ false,
             self.cache_max_size,
             self.cache_ttl,
-            self.config_base_dir.clone(),
+            self.state_dir.clone(),
             AuthMode::Agent(state.agent.clone()),
         )
         .with_quota(QuotaConfig {

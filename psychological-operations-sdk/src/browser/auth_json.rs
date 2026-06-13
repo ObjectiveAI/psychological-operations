@@ -12,7 +12,7 @@
 //! Layout (per persona twid × per X-App twid, per psyop/agent):
 //!
 //! ```text
-//! <config-base-dir>/plugins-state/psychological-operations/browser/<kind>/<name>/handles/<persona_twid>/<x_app_twid>/
+//! <state-dir>/browser/<kind>/<name>/handles/<persona_twid>/<x_app_twid>/
 //!   └── auth.json                  (serialized `Tokens` blob)
 //! ```
 //!
@@ -90,25 +90,23 @@ pub struct Tokens {
 /// Pure path resolver — no I/O, no directory creation. Returns
 /// where `auth.json` lives for the given persona × X-App pair.
 pub fn path_for(
-    config_base_dir: &Path,
+    state_dir: &Path,
     kind: PersonaKind,
     name: &str,
     persona_twid: &str,
     x_app_twid: &str,
 ) -> PathBuf {
-    persona_dir(config_base_dir, kind, name, persona_twid, x_app_twid).join("auth.json")
+    persona_dir(state_dir, kind, name, persona_twid, x_app_twid).join("auth.json")
 }
 
 fn persona_dir(
-    config_base_dir: &Path,
+    state_dir: &Path,
     kind: PersonaKind,
     name: &str,
     persona_twid: &str,
     x_app_twid: &str,
 ) -> PathBuf {
-    config_base_dir
-        .join("plugins-state")
-        .join("psychological-operations")
+    state_dir
         .join("browser")
         .join(kind.dir_segment())
         .join(name)

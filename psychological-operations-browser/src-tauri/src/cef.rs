@@ -91,7 +91,7 @@ pub fn is_initialized() -> bool {
 /// On Windows, Chromium's `chrome_browser_context.cc` rejects
 /// paths with forward slashes — "Cannot create profile at path
 /// ...". Rust's `PathBuf::join` preserves whatever separator was
-/// already there, so a `--config-base-dir $USERPROFILE/.psyops`
+/// already there, so a `--state-dir $USERPROFILE/.psyops`
 /// CLI input (shell-expanded with `/`) joined to
 /// `plugins/.../cef-root` (back-slashed) yields a mixed path
 /// that fails CEF's validation. Normalize to all backslashes
@@ -162,7 +162,7 @@ pub fn run_helper_and_exit() -> ! {
 /// `cache_root` is the SHARED parent directory under which every
 /// per-account `RequestContext` cache subdir lives. For this
 /// binary that's
-/// `<config-base-dir>/plugins-state/psychological-operations/browser/cef-root/`.
+/// `<state-dir>/browser/cef-root/`.
 /// Per-account isolation comes from [`create_browser`]'s
 /// `cache_subdir` argument — the cache root itself is process-
 /// global and CAN NOT be changed after init (CEF's

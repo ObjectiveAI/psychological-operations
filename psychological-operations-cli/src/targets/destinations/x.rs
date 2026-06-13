@@ -16,7 +16,7 @@ pub async fn send(cfg: &X, subject: &Subject<'_>, ctx: &crate::context::Context)
         psyop.mock_enabled(),
         ctx.cache_max_size,
         ctx.cache_ttl,
-        ctx.config.objectiveai_base_dir(),
+        ctx.config.state_dir(),
         AuthMode::Psyop(name.to_string()),
     );
 

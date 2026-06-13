@@ -30,7 +30,7 @@ use crate::x_api::session::SessionRegistry;
 pub async fn setup<E>(
     address:         &str,
     port:            u16,
-    config_base_dir: PathBuf,
+    state_dir:       PathBuf,
     cache_max_size:  u64,
     cache_ttl:       Duration,
     quota_read:      u64,
@@ -53,7 +53,7 @@ where
     let server = PsychologicalOperationsXApiMcp::new(
         registry.clone(),
         reqwest::Client::new(),
-        config_base_dir,
+        state_dir,
         cache_max_size,
         cache_ttl,
         quota_read,
@@ -109,7 +109,7 @@ pub async fn serve(listener: tokio::net::TcpListener, app: axum::Router) -> std:
 pub async fn run<E>(
     address:         &str,
     port:            u16,
-    config_base_dir: PathBuf,
+    state_dir:       PathBuf,
     cache_max_size:  u64,
     cache_ttl:       Duration,
     quota_read:      u64,
@@ -121,7 +121,7 @@ where
     E::Error: std::fmt::Display + Send + 'static,
 {
     let (listener, app) = setup(
-        address, port, config_base_dir, cache_max_size, cache_ttl,
+        address, port, state_dir, cache_max_size, cache_ttl,
         quota_read, quota_write, executor,
     ).await?;
     let addr = listener.local_addr()?;

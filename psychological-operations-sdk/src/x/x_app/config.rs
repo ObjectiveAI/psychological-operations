@@ -2,7 +2,7 @@
 //! captured by the chromium extension during `x_app setup` and
 //! consumed by the per-psyop OAuth flow.
 //!
-//! File path: `<config-base-dir>/x_app.json`.
+//! File path: `<state-dir>/x_app.json`.
 //!
 //! `merge` semantics on insert: every `Some(_)` in the incoming
 //! payload wins; `None`s preserve the existing value. This lets
@@ -50,8 +50,8 @@ impl XAppConfig {
 /// Load + assert that `x_app.json` is set up. Returns the loaded
 /// config on success, or a clear error pointing the operator at
 /// `psychological-operations x_app setup`.
-pub fn ensure_setup(config_base_dir: &Path) -> Result<XAppConfig, Error> {
-    let cfg = load(config_base_dir)?;
+pub fn ensure_setup(state_dir: &Path) -> Result<XAppConfig, Error> {
+    let cfg = load(state_dir)?;
     if !cfg.is_complete() {
         return Err(Error::Other(
             "X App not set up — run `psychological-operations x_app setup` \
@@ -61,21 +61,15 @@ pub fn ensure_setup(config_base_dir: &Path) -> Result<XAppConfig, Error> {
     Ok(cfg)
 }
 
-/// `<config-base-dir>/plugins-state/psychological-operations/x_app.json`.
-/// `config_base_dir` is the outer root (objectiveai's base — same
-/// convention as `psychological_operations_sdk::browser::auth_json`'s
-/// paths). The `plugins-state/psychological-operations/` suffix is added
-/// here so callers can pass the same path argument they pass to the
-/// SDK.
-pub fn path(config_base_dir: &Path) -> PathBuf {
-    config_base_dir
-        .join("plugins-state")
-        .join("psychological-operations")
-        .join("x_app.json")
+/// `<state_dir>/x_app.json`. `state_dir` is the state root (same
+/// value every other store + the `browser/` subtree are rooted at);
+/// `x_app.json` lives directly in it.
+pub fn path(state_dir: &Path) -> PathBuf {
+    state_dir.join("x_app.json")
 }
 
-pub fn load(config_base_dir: &Path) -> Result<XAppConfig, Error> {
-    let p = path(config_base_dir);
+pub fn load(state_dir: &Path) -> Result<XAppConfig, Error> {
+    let p = path(state_dir);
     if !p.exists() {
         return Ok(XAppConfig::default());
     }
@@ -83,8 +77,8 @@ pub fn load(config_base_dir: &Path) -> Result<XAppConfig, Error> {
     serde_json::from_str(&data).map_err(json_err)
 }
 
-pub fn save(cfg: &XAppConfig, config_base_dir: &Path) -> Result<(), Error> {
-    let p = path(config_base_dir);
+pub fn save(cfg: &XAppConfig, state_dir: &Path) -> Result<(), Error> {
+    let p = path(state_dir);
     if let Some(parent) = p.parent() {
         std::fs::create_dir_all(parent).map_err(io_err)?;
     }

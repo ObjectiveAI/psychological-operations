@@ -205,7 +205,7 @@ async fn run_function_execution(
 
 /// Throwaway directory holding one function-execution's file-passed
 /// args (function / profile / input JSON). Lives under
-/// `<base>/plugins-state/psychological-operations/exec-tmp/<pid>-<seq>/`
+/// `<state_dir>/exec-tmp/<pid>-<seq>/`
 /// — a path with no spaces, so the nested `functions execute` command
 /// the host reconstructs by `split_whitespace` can carry it intact.
 /// Removed on drop, which the caller holds until after the execution
@@ -222,9 +222,7 @@ impl ExecTempDir {
         let seq = SEQ.fetch_add(1, Ordering::Relaxed);
         let dir = ctx
             .config
-            .objectiveai_base_dir()
-            .join("plugins-state")
-            .join("psychological-operations")
+            .state_dir()
             .join("exec-tmp")
             .join(format!("{}-{seq}", std::process::id()));
         std::fs::create_dir_all(&dir)?;

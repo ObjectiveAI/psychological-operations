@@ -16,10 +16,11 @@ use objectiveai_sdk::cli::command::binary::BinaryExecutor;
 #[derive(Parser)]
 #[command(name = "psychological-operations-x-api-mcp")]
 struct Args {
-    /// Outer root for the x-api cache + `x_app.json`. Same shape the
-    /// SDK's `auth_json` / `Client::new` expect.
+    /// Root of all on-disk state — the x-api SQLite files, the
+    /// `browser/` subtree, and `x_app.json` live directly under it
+    /// (the `OBJECTIVEAI_STATE_DIR` value). Assumed to already exist.
     #[arg(long)]
-    config_base_dir: PathBuf,
+    state_dir: PathBuf,
     /// Cache budget in bytes.
     #[arg(long)]
     cache_max_size: u64,
@@ -54,11 +55,11 @@ async fn main() -> std::io::Result<()> {
         .init();
 
     let args = Args::parse();
-    let executor = BinaryExecutor::new(Some(args.config_base_dir.clone()));
+    let executor = BinaryExecutor::new(Some(args.state_dir.clone()));
     psychological_operations_x_api_mcp::run(
         &args.address,
         args.port,
-        args.config_base_dir,
+        args.state_dir,
         args.cache_max_size,
         Duration::from_secs(args.cache_ttl),
         args.quota_read,

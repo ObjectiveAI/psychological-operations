@@ -46,7 +46,7 @@ const DEFAULT_WIDTH: u32 = 1200;
 const DEFAULT_HEIGHT: u32 = 800;
 
 /// Returns the data-directory for the given mode rooted at
-/// `--config-base-dir`. Mirrors the structure of CEF's per-mode
+/// `--state-dir`. Mirrors the structure of CEF's per-mode
 /// cache subdir so credentials live alongside the browser profile.
 ///
 ///   - X-App: `<config>/.../browser/x-app/`
@@ -54,9 +54,7 @@ const DEFAULT_HEIGHT: u32 = 800;
 pub fn mode_data_dir(handle: &AppHandle<Wry>, mode: &Mode) -> std::path::PathBuf {
     let base = handle
         .state::<Args>()
-        .config_base_dir
-        .join("plugins-state")
-        .join("psychological-operations")
+        .state_dir
         .join("browser");
     match mode {
         Mode::XApp => base.join("x-app"),
@@ -75,9 +73,7 @@ pub fn mode_data_dir(handle: &AppHandle<Wry>, mode: &Mode) -> std::path::PathBuf
 pub fn cef_root_cache_dir(handle: &AppHandle<Wry>) -> std::path::PathBuf {
     handle
         .state::<Args>()
-        .config_base_dir
-        .join("plugins-state")
-        .join("psychological-operations")
+        .state_dir
         .join("browser")
         .join("cef-root")
 }

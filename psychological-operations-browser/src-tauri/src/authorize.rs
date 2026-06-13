@@ -89,7 +89,7 @@ pub async fn maybe_start_flow(handle: &AppHandle<Wry>) {
         return;
     };
 
-    let config_base_dir = handle.state::<Args>().config_base_dir.clone();
+    let state_dir = handle.state::<Args>().state_dir.clone();
 
     // The X-App master account's twid (read from the X-App CEF
     // profile's cookie jar) is part of the auth.json path —
@@ -97,7 +97,7 @@ pub async fn maybe_start_flow(handle: &AppHandle<Wry>) {
     // under the same persona. If nobody is signed into the X-App
     // profile yet, the flow can't sensibly mint creds, so log and
     // bail.
-    let x_app_twid = match signed_in_x_user_id(&config_base_dir, &Mode::XApp).await {
+    let x_app_twid = match signed_in_x_user_id(&state_dir, &Mode::XApp).await {
         Ok(Some(t)) => t,
         Ok(None) => {
             let msg = "no X-App account signed in".to_string();
@@ -120,7 +120,7 @@ pub async fn maybe_start_flow(handle: &AppHandle<Wry>) {
     };
 
     let auth_path = auth_json::path_for(
-        &config_base_dir,
+        &state_dir,
         kind,
         &persona_name,
         &persona_twid,
@@ -244,7 +244,7 @@ async fn run_flow(
     .map_err(|e| format!("token exchange: {e}"))?;
 
     let args = handle.state::<Args>();
-    let config_base_dir = args.config_base_dir.clone();
+    let state_dir = args.state_dir.clone();
     let cache_max_size = args.cache_max_size;
     let cache_ttl = std::time::Duration::from_secs(args.cache_ttl);
     // Use a persona-mode SDK Client (matching the kind being
@@ -261,7 +261,7 @@ async fn run_flow(
         false,
         cache_max_size,
         cache_ttl,
-        config_base_dir,
+        state_dir,
         auth_mode,
     );
     // The Client derives its persona (and the on-disk auth.json
@@ -576,7 +576,7 @@ pub async fn find_other_psyop_owning_twid(
     let psyop_root = webview::mode_data_dir(handle, &current_mode)
         .parent()?
         .to_path_buf();
-    let config_base_dir = handle.state::<Args>().config_base_dir.clone();
+    let state_dir = handle.state::<Args>().state_dir.clone();
 
     let mut rd = tokio::fs::read_dir(&psyop_root).await.ok()?;
     let mut entries: Vec<PathBuf> = Vec::new();
@@ -593,15 +593,13 @@ pub async fn find_other_psyop_owning_twid(
             .file_name()
             .and_then(|n| n.to_str())
             .map(str::to_string);
-        let config_base_dir = config_base_dir.clone();
+        let state_dir = state_dir.clone();
         let twid = twid.to_string();
         async move {
             let Some(name) = sibling_name else { return false };
             // <sibling>/handles/<twid>/ — list each x_app_twid leaf
             // dir and check it for auth.json.
-            let persona_dir = config_base_dir
-                .join("plugins-state")
-                .join("psychological-operations")
+            let persona_dir = state_dir
                 .join("browser")
                 .join("psyop")
                 .join(&name)
@@ -624,7 +622,7 @@ pub async fn find_other_psyop_owning_twid(
             }
             let presence = futures::future::join_all(candidates.iter().map(|x_app_twid| {
                 let p = auth_json::path_for(
-                    &config_base_dir,
+                    &state_dir,
                     PersonaKind::Psyop,
                     &name,
                     &twid,

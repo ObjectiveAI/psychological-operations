@@ -13,7 +13,7 @@
 //! doesn't make sense to bundle into the same struct). Each
 //! `mark_*` is an `INSERT OR IGNORE` into its own table.
 //!
-//! Storage: `<config_base_dir>/plugins-state/psychological-operations/x-api-mcp.sqlite`,
+//! Storage: `<state_dir>/x-api-mcp.sqlite`,
 //! sibling to `x-api-cache.sqlite` and `queue.sqlite`. WAL + 5 s
 //! busy timeout, schema versioned via the same `schema_version`
 //! pattern queue.rs uses.
@@ -94,12 +94,12 @@ impl std::fmt::Debug for EngagementStore {
 }
 
 impl EngagementStore {
-    /// Open (creating if missing) the engagement file under
-    /// `<config_base_dir>/plugins-state/psychological-operations/x-api-mcp.sqlite`.
+    /// Open (creating if missing) the engagement file at
+    /// `<state_dir>/x-api-mcp.sqlite`.
     /// Enables WAL + a 5 s busy timeout. Creates / upgrades all
     /// four tables on first open.
-    pub async fn open(config_base_dir: &Path) -> Result<Self, Error> {
-        let pool = open_pool(config_base_dir).await?;
+    pub async fn open(state_dir: &Path) -> Result<Self, Error> {
+        let pool = open_pool(state_dir).await?;
         Self::ensure_schema(&pool).await?;
         Ok(Self { pool })
     }
@@ -257,16 +257,11 @@ async fn ensure_table(
     Ok(())
 }
 
-/// Open the engagement's SQLite file (a sibling of
-/// `x-api-cache.sqlite` and `queue.sqlite` under
-/// `<config>/plugins-state/psychological-operations/`).
-async fn open_pool(config_base_dir: &Path) -> Result<SqlitePool, Error> {
-    let dir = config_base_dir
-        .join("plugins-state")
-        .join("psychological-operations");
-    std::fs::create_dir_all(&dir)
-        .map_err(|e| Error::Other(format!("engagement mkdir: {e}")))?;
-    let path = dir.join("x-api-mcp.sqlite");
+/// Open the engagement's SQLite file (`<state_dir>/x-api-mcp.sqlite`,
+/// a sibling of `x-api-cache.sqlite` and `queue.sqlite`). `state_dir`
+/// is the state root and is assumed to already exist.
+async fn open_pool(state_dir: &Path) -> Result<SqlitePool, Error> {
+    let path = state_dir.join("x-api-mcp.sqlite");
 
     let opts = SqliteConnectOptions::new()
         .filename(&path)

@@ -15,21 +15,19 @@ use super::auth_json::PersonaKind;
 
 /// Recursively delete both subdirs that hold a persona's state:
 ///
-/// * `<config>/plugins-state/psychological-operations/browser/<kind>/<name>/`
+/// * `<state_dir>/browser/<kind>/<name>/`
 ///   — the OAuth tokens / `auth.json` tree.
-/// * `<config>/plugins-state/psychological-operations/browser/cef-root/<kind>-<name>/`
+/// * `<state_dir>/browser/cef-root/<kind>-<name>/`
 ///   — the CEF profile, including the cookies SQLite store. The
 ///   `<kind>-<name>` naming mirrors `cookies::cache_subdir_for`
 ///   for `Mode::{PsyopRead, PsyopAuthorize, AgentAuthorize}` —
 ///   the two ends MUST stay in sync.
 pub fn wipe_persona(
-    config_base_dir: &Path,
+    state_dir: &Path,
     kind: PersonaKind,
     name: &str,
 ) -> std::io::Result<()> {
-    let browser_root = config_base_dir
-        .join("plugins-state")
-        .join("psychological-operations")
+    let browser_root = state_dir
         .join("browser");
     let kind_seg = match kind {
         PersonaKind::Psyop => "psyop",
@@ -51,18 +49,16 @@ fn rm_rf_optional(path: &Path) -> std::io::Result<()> {
 
 /// Recursively delete both X-App subdirs:
 ///
-/// * `<config>/plugins-state/psychological-operations/browser/x-app/`
+/// * `<state_dir>/browser/x-app/`
 ///   — the HTML snapshots dir.
-/// * `<config>/plugins-state/psychological-operations/browser/cef-root/x-app/`
+/// * `<state_dir>/browser/cef-root/x-app/`
 ///   — the CEF profile (cookies, IndexedDB, etc.).
 ///
 /// `NotFound` on either side is swallowed (clean state already).
 /// Used by `x_app setup --dangerously-reset` before relaunching
 /// the browser into a fresh state.
-pub fn wipe_x_app(config_base_dir: &Path) -> std::io::Result<()> {
-    let browser_root = config_base_dir
-        .join("plugins-state")
-        .join("psychological-operations")
+pub fn wipe_x_app(state_dir: &Path) -> std::io::Result<()> {
+    let browser_root = state_dir
         .join("browser");
     rm_rf_optional(&browser_root.join("x-app"))?;
     rm_rf_optional(&browser_root.join("cef-root").join("x-app"))?;
@@ -80,10 +76,8 @@ pub fn wipe_x_app(config_base_dir: &Path) -> std::io::Result<()> {
 ///
 /// `NotFound` on the parent dirs (psyop/, agent/) is fine — those
 /// directories may not exist yet on a fresh install.
-pub fn wipe_all_persona_auth_dirs(config_base_dir: &Path) -> std::io::Result<()> {
-    let browser_root = config_base_dir
-        .join("plugins-state")
-        .join("psychological-operations")
+pub fn wipe_all_persona_auth_dirs(state_dir: &Path) -> std::io::Result<()> {
+    let browser_root = state_dir
         .join("browser");
     for kind_seg in ["psyop", "agent"] {
         let kind_dir = browser_root.join(kind_seg);

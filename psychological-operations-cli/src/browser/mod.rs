@@ -7,7 +7,7 @@
 //!   1. The browser zip is content-hash-extracted into
 //!      `<base>/browser-cache/<hash>/` on first run.
 //!   2. The extracted exe is spawned with the right mode flag
-//!      plus `--config-base-dir <objectiveai_base_dir>`.
+//!      plus `--state-dir <state_dir>`.
 //!   3. Caller blocks on `child.wait()` for spawn-and-wait flows;
 //!      `psyops browse` additionally streams stdout for `tweet_id`
 //!      events and writes them to the DB.

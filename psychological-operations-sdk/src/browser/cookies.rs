@@ -113,15 +113,13 @@ impl From<base64::DecodeError> for CookiesError {
 /// from `Client::current_bearer_token` (which resolves both twids
 /// from cookies on every persona-bound API call).
 pub async fn signed_in_x_user_id(
-    config_base_dir: &Path,
+    state_dir: &Path,
     mode: &Mode,
 ) -> Result<Option<String>, CookiesError> {
     use sqlx::ConnectOptions;
     use sqlx::sqlite::SqliteConnectOptions;
 
-    let cef_root = config_base_dir
-        .join("plugins-state")
-        .join("psychological-operations")
+    let cef_root = state_dir
         .join("browser")
         .join("cef-root");
     let cookies_db = cef_root.join(cache_subdir_for(mode)).join("Network").join("Cookies");

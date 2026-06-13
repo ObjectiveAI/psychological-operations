@@ -44,10 +44,10 @@ async fn run_inner(
     dangerously_reset: bool,
     ctx: &crate::context::Context,
 ) -> Result<CliOutput, Error> {
-    let config_base_dir = ctx.config.objectiveai_base_dir();
+    let state_dir = ctx.config.state_dir();
 
     // === Pre-flight ===
-    let already_set_up = is_fully_set_up(&config_base_dir).await?;
+    let already_set_up = is_fully_set_up(&state_dir).await?;
     if already_set_up && !dangerously_reset {
         return Err(Error::Other(
             "X-App is already signed in and fully set up — pass \
@@ -57,9 +57,9 @@ async fn run_inner(
         ));
     }
     if dangerously_reset {
-        reset::wipe_x_app(&config_base_dir)
+        reset::wipe_x_app(&state_dir)
             .map_err(|e| Error::Other(format!("wipe x-app folder: {e}")))?;
-        reset::wipe_all_persona_auth_dirs(&config_base_dir)
+        reset::wipe_all_persona_auth_dirs(&state_dir)
             .map_err(|e| Error::Other(format!("wipe persona auth dirs: {e}")))?;
     }
 
@@ -67,7 +67,7 @@ async fn run_inner(
     let materialized = ensure_extracted(&ctx.config)?;
     let mut child = launch::spawn(
         &materialized.binary,
-        &config_base_dir,
+        &state_dir,
         launch::Mode::XApp,
         /* pipe_stdin  = */ true,
         /* pipe_stdout = */ true,
@@ -114,17 +114,15 @@ async fn run_inner(
 /// snapshots (`post_create_dialog.html` + `oauth_popup.html`)
 /// load to complete structs. Same condition the browser-side
 /// panel uses to land on `PanelState::Hidden`.
-async fn is_fully_set_up(config_base_dir: &Path) -> Result<bool, Error> {
-    let Some(x_app_twid) = cookies::signed_in_x_user_id(config_base_dir, &Mode::XApp)
+async fn is_fully_set_up(state_dir: &Path) -> Result<bool, Error> {
+    let Some(x_app_twid) = cookies::signed_in_x_user_id(state_dir, &Mode::XApp)
         .await
         .map_err(|e| Error::Other(format!("x-app cookies probe: {e}")))?
     else {
         return Ok(false);
     };
 
-    let x_app_handle_dir = config_base_dir
-        .join("plugins-state")
-        .join("psychological-operations")
+    let x_app_handle_dir = state_dir
         .join("browser")
         .join("x-app")
         .join("handles")

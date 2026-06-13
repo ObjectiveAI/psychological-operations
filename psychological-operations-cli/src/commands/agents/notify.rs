@@ -31,7 +31,7 @@ async fn run_inner(ctx: &crate::context::Context) -> Result<Output, Error> {
         /* mock */ false,
         ctx.cache_max_size,
         ctx.cache_ttl,
-        ctx.config.objectiveai_base_dir(),
+        ctx.config.state_dir(),
         AuthMode::XApp,
     );
     let q = client

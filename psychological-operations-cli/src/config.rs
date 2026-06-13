@@ -7,20 +7,20 @@ use crate::run::Config as RuntimeConfig;
 use crate::targets::destinations::{stdout, x, Destination};
 
 // ---------------------------------------------------------------------------
-// Paths — all rooted at `cfg.base_dir()` so an env-var override
+// Paths — all rooted at `cfg.state_dir()` so an env-var override
 // (PSYCHOLOGICAL_OPERATIONS_BASE_DIR) re-homes everything.
 // ---------------------------------------------------------------------------
 
 pub fn config_path(cfg: &RuntimeConfig) -> PathBuf {
-    cfg.base_dir().join("config.json")
+    cfg.state_dir().join("config.json")
 }
 
 pub fn psyops_dir(cfg: &RuntimeConfig) -> PathBuf {
-    cfg.base_dir().join("psyops")
+    cfg.state_dir().join("psyops")
 }
 
 pub fn db_path(cfg: &RuntimeConfig) -> PathBuf {
-    cfg.base_dir().join("data.db")
+    cfg.state_dir().join("data.db")
 }
 
 // ---------------------------------------------------------------------------

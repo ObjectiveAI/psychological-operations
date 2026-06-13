@@ -57,7 +57,7 @@ pub fn ensure_extracted(cfg: &crate::run::Config) -> Result<Extracted, Error> {
 /// Cache root for the extracted browser bundle. Each unique embedded
 /// payload (content-hashed) gets its own subdirectory.
 pub fn browser_cache_root(cfg: &crate::run::Config) -> PathBuf {
-    cfg.base_dir().join("browser-cache")
+    cfg.state_dir().join("browser-cache")
 }
 
 fn content_hash() -> u64 {

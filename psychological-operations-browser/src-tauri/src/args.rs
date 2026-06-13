@@ -24,11 +24,11 @@ use psychological_operations_sdk::browser::mode::Mode;
 pub struct Args {
     /// Base directory for psych-ops state. Mode-specific session
     /// data (cookies, IndexedDB, cache, ...) lives under
-    /// `<config-base-dir>/plugins-state/psychological-operations/browser/cef-root/<mode-subdir>/`.
+    /// `<state-dir>/browser/cef-root/<mode-subdir>/`.
     /// Credentials live alongside at
-    /// `<config-base-dir>/plugins-state/psychological-operations/browser/<mode-subdir>/`.
+    /// `<state-dir>/browser/<mode-subdir>/`.
     #[arg(long)]
-    pub config_base_dir: PathBuf,
+    pub state_dir: PathBuf,
 
     /// Launch in X-App mode. The CEF browser loads
     /// `https://console.x.com/` with a `RequestContext` whose

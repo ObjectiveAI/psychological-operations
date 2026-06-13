@@ -35,10 +35,10 @@ impl Mode {
     }
 }
 
-/// Spawn the browser. `config_base_dir` is the objectiveai base dir
-/// (mirrors what the SDK's `auth_json` / `x_app_credentials` modules
-/// expect) — the browser builds `<base>/plugins-state/psychological-operations/browser/...`
-/// underneath it.
+/// Spawn the browser. `state_dir` is the state root (the same
+/// `OBJECTIVEAI_STATE_DIR` value the SDK's `auth_json` /
+/// `x_app_credentials` modules root at) — the browser builds
+/// `<state_dir>/browser/...` underneath it.
 ///
 /// * `pipe_stdin` — pipe the child's stdin so the caller can send
 ///   [`psychological_operations_sdk::browser::request::Request`]s
@@ -52,13 +52,13 @@ impl Mode {
 ///   `AuthorizeFailed`).
 pub fn spawn(
     binary: &Path,
-    config_base_dir: &Path,
+    state_dir: &Path,
     mode: Mode,
     pipe_stdin: bool,
     pipe_stdout: bool,
 ) -> Result<Child, Error> {
     let mut cmd = Command::new(binary);
-    cmd.arg("--config-base-dir").arg(config_base_dir);
+    cmd.arg("--state-dir").arg(state_dir);
     cmd.args(mode.args());
     if pipe_stdin {
         cmd.stdin(Stdio::piped());

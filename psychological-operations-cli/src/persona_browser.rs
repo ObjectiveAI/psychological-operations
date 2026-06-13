@@ -32,7 +32,7 @@ async fn run_inner(
     ctx: &crate::context::Context,
 ) -> Result<Output, Error> {
     let materialized = ensure_extracted(&ctx.config)?;
-    let config_base_dir = ctx.config.objectiveai_base_dir();
+    let state_dir = ctx.config.state_dir();
     let launch_mode = match kind {
         PersonaKind::Psyop => launch::Mode::PsyopBrowser { name: name.to_string() },
         PersonaKind::Agent => launch::Mode::AgentBrowser { name: name.to_string() },
@@ -46,7 +46,7 @@ async fn run_inner(
     // request, the operator closes the window when done.
     let mut child = launch::spawn(
         &materialized.binary,
-        &config_base_dir,
+        &state_dir,
         launch_mode,
         /* pipe_stdin  = */ false,
         /* pipe_stdout = */ false,

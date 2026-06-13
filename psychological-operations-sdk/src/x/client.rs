@@ -103,7 +103,10 @@ pub struct Client {
     pub(crate) cache_max_size: u64,
     /// Plumbed but unused today — see [`Cache.cache_ttl`].
     pub(crate) cache_ttl: Duration,
-    pub(crate) config_base_dir: Arc<PathBuf>,
+    /// Root of ALL on-disk state (the value of `OBJECTIVEAI_STATE_DIR`
+    /// upstream). SQLite files + the `browser/` subtree + `x_app.json`
+    /// live directly under it; assumed to already exist.
+    pub(crate) state_dir: Arc<PathBuf>,
     pub(crate) auth_mode: AuthMode,
     /// `Some` ⇒ every real X-API HTTP request is gated + logged
     /// per [`QuotaConfig`]. `None` ⇒ unmetered (CLI / psyop
@@ -127,7 +130,7 @@ impl Client {
         mock: bool,
         cache_max_size: u64,
         cache_ttl: Duration,
-        config_base_dir: PathBuf,
+        state_dir: PathBuf,
         auth_mode: AuthMode,
     ) -> Self {
         Self {
@@ -135,7 +138,7 @@ impl Client {
             mock,
             cache_max_size,
             cache_ttl,
-            config_base_dir: Arc::new(config_base_dir),
+            state_dir: Arc::new(state_dir),
             auth_mode,
             quota: None,
             cache: OnceCell::new(),
@@ -164,7 +167,7 @@ impl Client {
         self.cache
             .get_or_try_init(|| async {
                 let c = Cache::open(
-                    &self.config_base_dir,
+                    &self.state_dir,
                     self.cache_max_size,
                     self.cache_ttl,
                 )
@@ -192,7 +195,7 @@ impl Client {
     pub async fn queue(&self) -> Result<&Arc<Queue>, Error> {
         self.queue
             .get_or_try_init(|| async {
-                let q = Queue::open(&self.config_base_dir).await?;
+                let q = Queue::open(&self.state_dir).await?;
                 Ok::<_, Error>(Arc::new(q))
             })
             .await
@@ -206,7 +209,7 @@ impl Client {
     pub async fn engagement(&self) -> Result<&Arc<EngagementStore>, Error> {
         self.engagement
             .get_or_try_init(|| async {
-                let e = EngagementStore::open(&self.config_base_dir).await?;
+                let e = EngagementStore::open(&self.state_dir).await?;
                 Ok::<_, Error>(Arc::new(e))
             })
             .await
@@ -219,7 +222,7 @@ impl Client {
     pub async fn request_log(&self) -> Result<&Arc<RequestLogStore>, Error> {
         self.request_log
             .get_or_try_init(|| async {
-                let r = RequestLogStore::open(&self.config_base_dir).await?;
+                let r = RequestLogStore::open(&self.state_dir).await?;
                 Ok::<_, Error>(Arc::new(r))
             })
             .await
@@ -322,7 +325,7 @@ impl Client {
     /// Compute the auth.json path for `persona`.
     fn auth_path(&self, persona: &PersonaKey) -> PathBuf {
         auth_json::path_for(
-            self.config_base_dir.as_path(),
+            self.state_dir.as_path(),
             persona.kind,
             &persona.name,
             &persona.persona_twid,
@@ -341,7 +344,7 @@ impl Client {
     async fn current_bearer_token(&self) -> Result<String, Error> {
         match &self.auth_mode {
             AuthMode::XApp => {
-                let x_app = super::x_app::config::load(&self.config_base_dir)?;
+                let x_app = super::x_app::config::load(&self.state_dir)?;
                 x_app.bearer_token.ok_or_else(|| {
                     Error::Other(
                         "x_app.json has no bearer_token — re-run \
@@ -363,7 +366,7 @@ impl Client {
     pub(crate) async fn current_twid(&self) -> Result<String, Error> {
         match &self.auth_mode {
             AuthMode::XApp => cookies::signed_in_x_user_id(
-                self.config_base_dir.as_ref(),
+                self.state_dir.as_ref(),
                 &Mode::XApp,
             )
             .await
@@ -395,7 +398,7 @@ impl Client {
             PersonaKind::Agent => Mode::AgentAuthorize { name: name.clone() },
         };
         let persona_twid = cookies::signed_in_x_user_id(
-            &self.config_base_dir,
+            &self.state_dir,
             &cookie_mode,
         )
         .await
@@ -404,7 +407,7 @@ impl Client {
             Error::Other(format!("no persona signed in for {kind:?} '{name}'"))
         })?;
         let x_app_twid = cookies::signed_in_x_user_id(
-            &self.config_base_dir,
+            &self.state_dir,
             &Mode::XApp,
         )
         .await
@@ -446,7 +449,7 @@ impl Client {
             Error::Other("auth.json has no refresh_token to refresh against".into())
         })?;
         // 4. Refresh via X's OAuth token endpoint.
-        let x_app = super::x_app::config::ensure_setup(&self.config_base_dir)?;
+        let x_app = super::x_app::config::ensure_setup(&self.state_dir)?;
         let client_id = x_app.client_id.expect("ensure_setup guarantees client_id");
         let client_secret = x_app
             .client_secret

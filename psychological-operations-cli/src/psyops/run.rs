@@ -81,7 +81,7 @@ pub async fn run_psyop(
     // mocked. Mocked psyops never touch the real X API, so requiring
     // `x_app setup` for them would be pointless friction.
     if !psyop.mock_enabled() {
-        psychological_operations_sdk::x::x_app::config::ensure_setup(&ctx.config.objectiveai_base_dir())
+        psychological_operations_sdk::x::x_app::config::ensure_setup(&ctx.config.state_dir())
             .map_err(|e| Error::Other(format!("x_app.json: {e}")))?;
     }
 
@@ -599,7 +599,7 @@ fn make_http_client(mock: bool, ctx: &crate::context::Context) -> Client {
         mock,
         ctx.cache_max_size,
         ctx.cache_ttl,
-        ctx.config.objectiveai_base_dir(),
+        ctx.config.state_dir(),
         AuthMode::XApp,
     )
 }

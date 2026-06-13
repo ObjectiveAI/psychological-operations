@@ -43,7 +43,7 @@ impl Commands {
         let result: Result<Output, Error> = async move {
             match self {
                 Commands::Begin { cache_max_size, cache_ttl } => {
-                    let config_base_dir = ctx.config.objectiveai_base_dir();
+                    let state_dir = ctx.config.state_dir();
                     // Share the CLI's existing PluginExecutor. Every
                     // field is `Arc`-backed (including the id counter),
                     // so the clone is a logical handle to the same
@@ -54,7 +54,7 @@ impl Commands {
                     psychological_operations_x_api_mcp::run(
                         "127.0.0.1",
                         0,
-                        config_base_dir,
+                        state_dir,
                         cache_max_size,
                         Duration::from_secs(cache_ttl),
                         ctx.quota_read,

@@ -8,7 +8,7 @@
 //!
 //! Only the values the client supplies belong here: `agent`,
 //! `mode`, and the agent instance hierarchy (the quota-ledger
-//! key). Everything else (`config_base_dir`, `cache_max_size`,
+//! key). Everything else (`state_dir`, `cache_max_size`,
 //! `cache_ttl`, the quota limits) is process-wide and lives on
 //! the server struct.
 //!

@@ -54,17 +54,17 @@ impl std::fmt::Debug for Cache {
 }
 
 impl Cache {
-    /// Open (creating if missing) the cache file under
-    /// `<config_base_dir>/plugins-state/psychological-operations/x-api-cache.sqlite`.
+    /// Open (creating if missing) the cache file at
+    /// `<state_dir>/x-api-cache.sqlite`.
     /// Enables WAL + a 5 s busy timeout so concurrent processes
     /// don't fail with `SQLITE_BUSY` on contention. Creates both
     /// the `cache` and `locks` tables.
     pub async fn open(
-        config_base_dir: &Path,
+        state_dir: &Path,
         max_size: u64,
         cache_ttl: Duration,
     ) -> Result<Self, Error> {
-        let pool = open_pool(config_base_dir).await?;
+        let pool = open_pool(state_dir).await?;
         locker::Locker::ensure_schema(&pool).await?;
         Self::ensure_schema(&pool).await?;
         Ok(Self {
@@ -231,15 +231,11 @@ pub fn request_key_auth_scoped(
     h.finalize().into()
 }
 
-/// Open the SDK's SQLite file (`<config>/plugins-state/psychological-operations/x-api-cache.sqlite`).
+/// Open the SDK's SQLite file (`<state_dir>/x-api-cache.sqlite`).
 /// Both the cache and the auth locker share this one file/pool.
-pub(crate) async fn open_pool(config_base_dir: &Path) -> Result<SqlitePool, Error> {
-    let dir = config_base_dir
-        .join("plugins-state")
-        .join("psychological-operations");
-    std::fs::create_dir_all(&dir)
-        .map_err(|e| Error::Other(format!("cache mkdir: {e}")))?;
-    let path = dir.join("x-api-cache.sqlite");
+/// `state_dir` is the state root and is assumed to already exist.
+pub(crate) async fn open_pool(state_dir: &Path) -> Result<SqlitePool, Error> {
+    let path = state_dir.join("x-api-cache.sqlite");
 
     let opts = SqliteConnectOptions::new()
         .filename(&path)

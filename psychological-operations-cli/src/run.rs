@@ -8,12 +8,16 @@ use envconfig::Envconfig;
 
 #[derive(Envconfig)]
 struct EnvConfigBuilder {
-    /// objectiveai's base directory. We share the same env name so a
-    /// single setting controls both objectiveai-cli and this plugin.
-    /// Default `~/.objectiveai`. Our state goes in
-    /// `<base>/plugins-state/.psychological-operations/`.
-    #[envconfig(from = "CONFIG_BASE_DIR")]
-    objectiveai_base_dir: Option<String>,
+    /// Root of ALL filesystem state — state files (data.db, psyops/,
+    /// config.json, x_app.json, browser/) live directly under it.
+    /// Required; unwrapped at `build()` (we panic if absent).
+    #[envconfig(from = "OBJECTIVEAI_STATE_DIR")]
+    state_dir: Option<String>,
+    /// Postgres connection URL. Required; unwrapped at `build()`.
+    /// Plumbed for the upcoming postgres-backed state migration —
+    /// not consumed yet.
+    #[envconfig(from = "OBJECTIVEAI_POSTGRES_URL")]
+    postgres_url: Option<String>,
     #[envconfig(from = "OBJECTIVEAI_AGENT_ID")]
     objectiveai_agent_id: Option<String>,
     #[envconfig(from = "OBJECTIVEAI_AGENT_FULL_ID")]
@@ -33,7 +37,8 @@ struct EnvConfigBuilder {
 impl EnvConfigBuilder {
     pub fn build(self) -> ConfigBuilder {
         ConfigBuilder {
-            objectiveai_base_dir: self.objectiveai_base_dir,
+            state_dir: self.state_dir,
+            postgres_url: self.postgres_url,
             objectiveai_agent_id: self.objectiveai_agent_id,
             objectiveai_agent_full_id: self.objectiveai_agent_full_id,
             objectiveai_agent_remote: self.objectiveai_agent_remote,
@@ -48,7 +53,8 @@ impl EnvConfigBuilder {
 
 #[derive(Default)]
 pub struct ConfigBuilder {
-    pub objectiveai_base_dir: Option<String>,
+    pub state_dir: Option<String>,
+    pub postgres_url: Option<String>,
     pub objectiveai_agent_id: Option<String>,
     pub objectiveai_agent_full_id: Option<String>,
     pub objectiveai_agent_remote: Option<String>,
@@ -78,7 +84,14 @@ impl Envconfig for ConfigBuilder {
 impl ConfigBuilder {
     pub fn build(self) -> Config {
         Config {
-            objectiveai_base_dir: self.objectiveai_base_dir,
+            // Required — unwrapped here, after env init. Absence is a
+            // hard misconfiguration: panic with a clear message.
+            state_dir: PathBuf::from(self.state_dir.expect(
+                "OBJECTIVEAI_STATE_DIR must be set (the state root)",
+            )),
+            postgres_url: self.postgres_url.expect(
+                "OBJECTIVEAI_POSTGRES_URL must be set",
+            ),
             objectiveai_agent_id: self.objectiveai_agent_id,
             objectiveai_agent_full_id: self.objectiveai_agent_full_id,
             objectiveai_agent_remote: self.objectiveai_agent_remote,
@@ -94,10 +107,15 @@ impl ConfigBuilder {
 
 #[derive(Debug, Clone, Default)]
 pub struct Config {
-    /// objectiveai-cli's base directory (shared env: `CONFIG_BASE_DIR`).
-    /// When `None`, defaults to `~/.objectiveai`. Our state goes in
-    /// `<this>/plugins-state/.psychological-operations/`.
-    pub objectiveai_base_dir: Option<String>,
+    /// Root of ALL filesystem state (env `OBJECTIVEAI_STATE_DIR`).
+    /// State files live **directly** under it — `data.db`, `psyops/`,
+    /// `config.json`, `x_app.json`, `browser/`, the x-api SQLite
+    /// files. Assumed to already exist. Required (panics if unset).
+    pub state_dir: PathBuf,
+    /// Postgres connection URL (env `OBJECTIVEAI_POSTGRES_URL`).
+    /// Required. Plumbed for the upcoming postgres state migration;
+    /// not consumed yet.
+    pub postgres_url: String,
     /// Default agent id (env `OBJECTIVEAI_AGENT_ID`). Currently unused —
     /// captured for parity with the objectiveai agent-environment
     /// contract (alongside `objectiveai_agent_full_id` / `_remote` /
@@ -132,28 +150,10 @@ pub struct Config {
 }
 
 impl Config {
-    /// objectiveai-cli's base directory. Honors `CONFIG_BASE_DIR`,
-    /// falls back to `~/.objectiveai`.
-    pub fn objectiveai_base_dir(&self) -> PathBuf {
-        if let Some(d) = &self.objectiveai_base_dir {
-            return PathBuf::from(d);
-        }
-        dirs::home_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join(".objectiveai")
-    }
-
-    /// Our state directory:
-    /// `<objectiveai_base>/plugins-state/psychological-operations`.
-    ///
-    /// Matches objectiveai-cli's per-plugin subdir install layout
-    /// (`<plugins_dir>/<repository>/`). State files (data.db, psyops/,
-    /// config.json, x_app.json, tokens/, chromium profiles) live in
-    /// this dir alongside the installed binary.
-    pub fn base_dir(&self) -> PathBuf {
-        self.objectiveai_base_dir()
-            .join("plugins-state")
-            .join("psychological-operations")
+    /// The state root (env `OBJECTIVEAI_STATE_DIR`). All state files
+    /// live directly under it; assumed to already exist.
+    pub fn state_dir(&self) -> PathBuf {
+        self.state_dir.clone()
     }
 }
 

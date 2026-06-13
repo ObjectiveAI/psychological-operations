@@ -30,7 +30,7 @@ pub(crate) async fn collect_for_you(
     ctx: &crate::context::Context,
 ) -> Result<(), Error> {
     let materialized = ensure_extracted(&ctx.config)?;
-    let config_base_dir = ctx.config.objectiveai_base_dir();
+    let state_dir = ctx.config.state_dir();
 
     crate::output::OutputResult::from(crate::events::Event::BrowseBrowserMaterialized {
         path: materialized.root.display().to_string(),
@@ -39,7 +39,7 @@ pub(crate) async fn collect_for_you(
 
     let mut child = launch::spawn(
         &materialized.binary,
-        &config_base_dir,
+        &state_dir,
         launch::Mode::PsyopRead { name: name.to_string() },
         /* pipe_stdin  = */ false,
         /* pipe_stdout = */ true,

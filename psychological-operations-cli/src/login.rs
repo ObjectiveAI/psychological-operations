@@ -53,18 +53,18 @@ async fn run_inner(
     dangerously_reset: bool,
     ctx: &crate::context::Context,
 ) -> Result<CliOutput, Error> {
-    let config_base_dir = ctx.config.objectiveai_base_dir();
+    let state_dir = ctx.config.state_dir();
 
     // === Pre-flight: X-App ===
-    let x_app_twid = check_x_app(&config_base_dir).await?;
+    let x_app_twid = check_x_app(&state_dir).await?;
 
     // === Pre-flight: persona ===
-    let persona_twid = cookies::signed_in_x_user_id(&config_base_dir, &cookie_mode(kind, name))
+    let persona_twid = cookies::signed_in_x_user_id(&state_dir, &cookie_mode(kind, name))
         .await
         .map_err(|e| Error::Other(format!("persona cookies probe: {e}")))?;
     let persona_has_auth = match persona_twid.as_deref() {
         Some(twid) => {
-            auth_json::path_for(&config_base_dir, kind, name, twid, &x_app_twid).exists()
+            auth_json::path_for(&state_dir, kind, name, twid, &x_app_twid).exists()
         }
         None => false,
     };
@@ -78,7 +78,7 @@ async fn run_inner(
                 kind_label = kind_label(kind),
             )));
         }
-        reset::wipe_persona(&config_base_dir, kind, name)
+        reset::wipe_persona(&state_dir, kind, name)
             .map_err(|e| Error::Other(format!("wipe persona folder: {e}")))?;
     }
 
@@ -98,7 +98,7 @@ async fn run_inner(
     // `AuthorizeSucceeded` / `AuthorizeFailed`.
     let mut child = launch::spawn(
         &materialized.binary,
-        &config_base_dir,
+        &state_dir,
         launch_mode,
         /* pipe_stdin  = */ true,
         /* pipe_stdout = */ true,
@@ -155,21 +155,19 @@ const X_APP_NOT_READY: &str =
 /// Resolve the X-App's twid via cookies + verify all three
 /// snapshots (`x_app.json`, `post_create_dialog.html`,
 /// `oauth_popup.html`) are present + complete.
-async fn check_x_app(config_base_dir: &Path) -> Result<String, Error> {
-    let x_app_twid = cookies::signed_in_x_user_id(config_base_dir, &Mode::XApp)
+async fn check_x_app(state_dir: &Path) -> Result<String, Error> {
+    let x_app_twid = cookies::signed_in_x_user_id(state_dir, &Mode::XApp)
         .await
         .map_err(|e| Error::Other(format!("x-app cookies probe: {e}")))?
         .ok_or_else(|| Error::Other(X_APP_NOT_READY.into()))?;
 
-    let xa = x_app::config::load(config_base_dir)
+    let xa = x_app::config::load(state_dir)
         .map_err(|e| Error::Other(format!("load x_app.json: {e}")))?;
     if !xa.is_complete() {
         return Err(Error::Other(X_APP_NOT_READY.into()));
     }
 
-    let x_app_handle_dir = config_base_dir
-        .join("plugins-state")
-        .join("psychological-operations")
+    let x_app_handle_dir = state_dir
         .join("browser")
         .join("x-app")
         .join("handles")
