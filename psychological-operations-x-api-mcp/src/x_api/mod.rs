@@ -44,7 +44,7 @@ use rmcp::{
     handler::server::router::tool::ToolRouter,
     handler::server::tool::ToolCallContext,
     model::{
-        CallToolRequestParams, CallToolResult, Implementation,
+        CallToolRequestParams, CallToolResult, Content, Implementation,
         ListToolsResult, PaginatedRequestParams, ProtocolVersion,
         ServerCapabilities, ServerInfo, Tool,
     },
@@ -187,10 +187,7 @@ impl PsychologicalOperationsXApiMcp {
     /// nothing is recorded.
     async fn enforce_quota(&self, account: &str, tool: ToolName) -> Result<(), ErrorData> {
         let dir = tool.direction();
-        let qdir = match dir {
-            Direction::Read => QuotaDirection::Read,
-            Direction::Write => QuotaDirection::Write,
-        };
+        let qdir = direction_to_quota(dir);
         let cfg = self.db.quota_config(account).await.map_err(quota_db_err)?;
         let (limit, interval) = cfg.for_direction(qdir);
         let cost = self
@@ -198,24 +195,7 @@ impl PsychologicalOperationsXApiMcp {
             .quota_tool_cost(account, tool.as_name())
             .await
             .map_err(quota_db_err)?;
-        let cutoff = unix_now() - interval as i64;
-        let counts = self
-            .db
-            .tool_invocation_counts_since(account, cutoff)
-            .await
-            .map_err(quota_db_err)?;
-        let costs = self.db.quota_tool_costs(account).await.map_err(quota_db_err)?;
-        // Sum the cost of every same-direction invocation in the window.
-        // Unknown tool names (drift / renamed tools) are ignored.
-        let mut usage: u64 = 0;
-        for (t, n) in counts {
-            let Some(tn) = ToolName::from_name(&t) else { continue };
-            if tn.direction() != dir {
-                continue;
-            }
-            let c = costs.get(&t).copied().unwrap_or(DEFAULT_TOOL_COST);
-            usage = usage.saturating_add(n.saturating_mul(c));
-        }
+        let usage = self.quota_used(account, dir, interval).await?;
         if usage + cost > limit {
             return Err(ErrorData::invalid_params(
                 format!(
@@ -231,6 +211,65 @@ impl PsychologicalOperationsXApiMcp {
             .await
             .map_err(quota_db_err)?;
         Ok(())
+    }
+
+    /// Windowed usage for one direction: Σ (count × per-tool cost) over
+    /// the account's same-direction invocations newer than
+    /// `now - interval_secs`. Unknown tool names (drift / renamed tools)
+    /// are ignored.
+    async fn quota_used(
+        &self,
+        account: &str,
+        dir: Direction,
+        interval_secs: u64,
+    ) -> Result<u64, ErrorData> {
+        let cutoff = unix_now() - interval_secs as i64;
+        let counts = self
+            .db
+            .tool_invocation_counts_since(account, cutoff)
+            .await
+            .map_err(quota_db_err)?;
+        let costs = self.db.quota_tool_costs(account).await.map_err(quota_db_err)?;
+        let mut usage: u64 = 0;
+        for (t, n) in counts {
+            let Some(tn) = ToolName::from_name(&t) else { continue };
+            if tn.direction() != dir {
+                continue;
+            }
+            let c = costs.get(&t).copied().unwrap_or(DEFAULT_TOOL_COST);
+            usage = usage.saturating_add(n.saturating_mul(c));
+        }
+        Ok(usage)
+    }
+
+    /// One-line quota summary for `account`, prepended to a metered
+    /// tool's result so the caller can pace itself. Reflects usage AFTER
+    /// this call's own deduction (it's read post-record). Best-effort: a
+    /// db hiccup yields `None` and the response simply omits the header
+    /// rather than failing an otherwise-successful tool call.
+    async fn quota_header(&self, account: &str) -> Option<Content> {
+        let cfg = self.db.quota_config(account).await.ok()?;
+        let read_used = self
+            .quota_used(account, Direction::Read, cfg.read_interval_secs)
+            .await
+            .ok()?;
+        let write_used = self
+            .quota_used(account, Direction::Write, cfg.write_interval_secs)
+            .await
+            .ok()?;
+        Some(Content::text(format!(
+            "[Quota — account '{account}'] reads: {read_used}/{} (per {}s), \
+             writes: {write_used}/{} (per {}s)\n\n",
+            cfg.read_limit, cfg.read_interval_secs, cfg.write_limit, cfg.write_interval_secs,
+        )))
+    }
+}
+
+/// Map a tool's intrinsic direction to the db's quota-direction selector.
+fn direction_to_quota(dir: Direction) -> QuotaDirection {
+    match dir {
+        Direction::Read => QuotaDirection::Read,
+        Direction::Write => QuotaDirection::Write,
     }
 }
 
@@ -296,28 +335,41 @@ impl ServerHandler for PsychologicalOperationsXApiMcp {
         }
         // Every metered tool carries a required `account` and is charged
         // against that account's read/write budget before it runs.
-        // `list_accounts` (the only unmetered tool) is absent from
-        // `ToolName`, so it skips this gate.
-        if let Some(tool) = ToolName::from_name(&request.name) {
-            let account = request
-                .arguments
-                .as_ref()
-                .and_then(|a| a.get("account"))
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| {
-                    ErrorData::invalid_params(
-                        format!(
-                            "tool '{}' requires an 'account' argument",
-                            request.name
-                        ),
-                        None,
-                    )
-                })?
-                .to_owned();
-            self.enforce_quota(&account, tool).await?;
-        }
+        // `read_queue`, `mark_handled`, and `list_accounts` are quota-free
+        // — absent from `ToolName`, so they skip this gate (and the
+        // usage header).
+        let metered_account = match ToolName::from_name(&request.name) {
+            Some(tool) => {
+                let account = request
+                    .arguments
+                    .as_ref()
+                    .and_then(|a| a.get("account"))
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| {
+                        ErrorData::invalid_params(
+                            format!(
+                                "tool '{}' requires an 'account' argument",
+                                request.name
+                            ),
+                            None,
+                        )
+                    })?
+                    .to_owned();
+                self.enforce_quota(&account, tool).await?;
+                Some(account)
+            }
+            None => None,
+        };
         let tcc = ToolCallContext::new(self, request, context);
-        self.tool_router.call(tcc).await
+        let mut result = self.tool_router.call(tcc).await?;
+        // Prepend the account's post-call quota usage so the caller can
+        // pace itself across tool calls.
+        if let Some(account) = metered_account {
+            if let Some(header) = self.quota_header(&account).await {
+                result.content.insert(0, header);
+            }
+        }
+        Ok(result)
     }
 
     fn get_tool(&self, name: &str) -> Option<Tool> {
