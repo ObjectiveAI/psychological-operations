@@ -185,7 +185,17 @@ impl PsychologicalOperationsXApiMcp {
     /// per-direction window. On success the invocation is appended to the
     /// bare ledger; on overflow an `invalid_params` error is returned and
     /// nothing is recorded.
-    async fn enforce_quota(&self, account: &str, tool: ToolName) -> Result<(), ErrorData> {
+    /// Returns `Ok(None)` to proceed, or `Ok(Some(result))` carrying a
+    /// quota-denial [`CallToolResult`] (`is_error`) to surface back to the
+    /// agent as ordinary tool output rather than a JSON-RPC protocol
+    /// error — so the model reads "you're out of quota" and can react,
+    /// instead of the call hard-failing at the transport. `Err` is
+    /// reserved for genuine db failures.
+    async fn enforce_quota(
+        &self,
+        account: &str,
+        tool: ToolName,
+    ) -> Result<Option<CallToolResult>, ErrorData> {
         let dir = tool.direction();
         let qdir = direction_to_quota(dir);
         let cfg = self.db.quota_config(account).await.map_err(quota_db_err)?;
@@ -197,19 +207,20 @@ impl PsychologicalOperationsXApiMcp {
         // headroom left.
         let usage = self.quota_used(account, dir, interval).await?;
         if usage >= limit {
-            return Err(ErrorData::invalid_params(
-                format!(
-                    "{dir:?} quota exceeded for account '{account}': {usage}/{limit} used over \
-                     the trailing {interval}s",
-                ),
-                None,
-            ));
+            let label = match dir {
+                Direction::Read => "Read Quota",
+                Direction::Write => "Write Quota",
+            };
+            return Ok(Some(CallToolResult::error(vec![Content::text(format!(
+                "[{label}] exceeded for account '{account}': {usage}/{limit} used over the \
+                 trailing {interval}s. Wait for the window to roll off or raise the limit.",
+            ))])));
         }
         self.db
             .record_tool_invocation(account, tool.as_name())
             .await
             .map_err(quota_db_err)?;
-        Ok(())
+        Ok(None)
     }
 
     /// Windowed usage for one direction: Σ (count × per-tool cost) over
@@ -350,7 +361,11 @@ impl ServerHandler for PsychologicalOperationsXApiMcp {
                         )
                     })?
                     .to_owned();
-                self.enforce_quota(&account, tool).await?;
+                // Quota denial comes back as an `is_error` tool result we
+                // hand straight to the agent — not a protocol error.
+                if let Some(denied) = self.enforce_quota(&account, tool).await? {
+                    return Ok(denied);
+                }
                 Some((account, tool.direction()))
             }
             None => None,
