@@ -3,7 +3,7 @@
 
 //! HTTP call helpers for /2/media/upload/initialize.
 #[allow(unused_imports)]
-use crate::x::client::Client;
+use crate::x::client::{AuthMode, Client};
 #[allow(unused_imports)]
 use crate::x::Error;
 #[allow(unused_imports)]
@@ -12,9 +12,10 @@ use reqwest::Method;
 /// POST /2/media/upload/initialize
 pub async fn post(
     client: &Client,
+    auth: &AuthMode,
     req: &super::post::Request,
 ) -> Result<super::post::Response, Error> {
     let path = "media/upload/initialize";
-    client.send(Method::POST, path, req.body.as_ref(), false, false).await
+    client.send(auth, Method::POST, path, req.body.as_ref(), false, false).await
 }
 

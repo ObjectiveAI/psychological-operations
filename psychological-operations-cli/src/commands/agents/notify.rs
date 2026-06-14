@@ -12,7 +12,7 @@ use objectiveai_sdk::cli::command::agents::message as agents_message;
 use objectiveai_sdk::cli::command::plugin::PluginExecutor;
 use psychological_operations_db::AgentKind;
 use psychological_operations_sdk::cli::Output;
-use psychological_operations_sdk::x::client::{AuthMode, Client};
+use psychological_operations_sdk::x::client::Client;
 
 use crate::error::Error;
 
@@ -32,7 +32,6 @@ async fn run_inner(ctx: &crate::context::Context) -> Result<Output, Error> {
         ctx.cache_max_size,
         ctx.cache_ttl,
         ctx.config.state_dir(),
-        AuthMode::XApp,
         ctx.db.clone(),
     );
 

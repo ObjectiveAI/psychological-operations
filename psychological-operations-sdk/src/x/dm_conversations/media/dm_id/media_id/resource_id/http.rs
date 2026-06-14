@@ -3,7 +3,7 @@
 
 //! HTTP call helpers for /2/dm_conversations/media/{dm_id}/{media_id}/{resource_id}.
 #[allow(unused_imports)]
-use crate::x::client::Client;
+use crate::x::client::{AuthMode, Client};
 #[allow(unused_imports)]
 use crate::x::Error;
 #[allow(unused_imports)]
@@ -12,10 +12,11 @@ use reqwest::Method;
 /// GET /2/dm_conversations/media/{dm_id}/{media_id}/{resource_id}
 pub async fn get(
     client: &Client,
+    auth: &AuthMode,
     req: &super::get::Request,
 ) -> Result<super::get::Response, Error> {
     let path = format!("dm_conversations/media/{}/{}/{}", urlencoding::encode(&req.dm_id.to_string()), urlencoding::encode(&req.media_id.to_string()), urlencoding::encode(&req.resource_id.to_string()));
-    client.send_no_response::<()>(Method::GET, &path, None, true, false).await?;
+    client.send_no_response::<()>(auth, Method::GET, &path, None, true, false).await?;
     Ok(super::get::Response)
 }
 

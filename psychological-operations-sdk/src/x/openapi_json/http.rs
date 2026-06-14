@@ -3,7 +3,7 @@
 
 //! HTTP call helpers for /2/openapi.json.
 #[allow(unused_imports)]
-use crate::x::client::Client;
+use crate::x::client::{AuthMode, Client};
 #[allow(unused_imports)]
 use crate::x::Error;
 #[allow(unused_imports)]
@@ -12,9 +12,10 @@ use reqwest::Method;
 /// GET /2/openapi.json
 pub async fn get(
     client: &Client,
+    auth: &AuthMode,
     _req: &super::get::Request,
 ) -> Result<super::get::Response, Error> {
     let path = "openapi.json";
-    client.send::<_, ()>(Method::GET, path, None, true, false).await
+    client.send::<_, ()>(auth, Method::GET, path, None, true, false).await
 }
 

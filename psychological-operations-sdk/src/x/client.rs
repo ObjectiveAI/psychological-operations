@@ -104,7 +104,6 @@ pub struct Client {
     /// lives here; everything else moved to postgres. Assumed to
     /// already exist.
     pub(crate) state_dir: Arc<PathBuf>,
-    pub(crate) auth_mode: AuthMode,
     /// `Some` ⇒ every real X-API HTTP request is gated + logged
     /// per [`QuotaConfig`]. `None` ⇒ unmetered (CLI / psyop
     /// construction sites).
@@ -117,17 +116,15 @@ pub struct Client {
 
 impl Client {
     /// Build an X v2 API client. **Infallible** and
-    /// **synchronous** — no I/O happens here. The SQLite
-    /// cache + auth locker open lazily on first use; the bearer
-    /// is resolved per request from the auth files referenced
-    /// by `auth_mode`.
+    /// **synchronous** — no I/O happens here. The Client carries no
+    /// identity; every request takes an `auth: &AuthMode` argument and
+    /// resolves the bearer for that persona on the fly.
     pub fn new(
         client: ReqwestClient,
         mock: bool,
         cache_max_size: u64,
         cache_ttl: Duration,
         state_dir: PathBuf,
-        auth_mode: AuthMode,
         db: Db,
     ) -> Self {
         Self {
@@ -136,7 +133,6 @@ impl Client {
             cache_max_size,
             cache_ttl,
             state_dir: Arc::new(state_dir),
-            auth_mode,
             quota: None,
             db,
         }
@@ -159,32 +155,32 @@ impl Client {
     // ===================================================================
     // Auth-file surface (read / lock / write).
     //
-    // The persona is derived from [`self.auth_mode`] + CEF cookies
-    // on every call — no method takes a `PersonaKey` argument.
-    // `AuthMode::XApp` clients can't use these methods (no
-    // persona to bind); they return an error.
+    // The persona is derived from the `auth` argument + CEF cookies on
+    // every call — no method takes a `PersonaKey` argument.
+    // `AuthMode::XApp` can't use these methods (no persona to bind);
+    // they return an error.
     // ===================================================================
 
-    /// Read the stored tokens for the persona this Client is bound to.
-    /// No locking. Returns `Ok(None)` if none exist. Errors for
-    /// `AuthMode::XApp` clients (no persona).
-    pub async fn read_auth(&self) -> Result<Option<Tokens>, Error> {
-        let persona = self.resolve_persona().await?;
+    /// Read the stored tokens for the persona `auth` resolves to. No
+    /// locking. Returns `Ok(None)` if none exist. Errors for
+    /// `AuthMode::XApp` (no persona).
+    pub async fn read_auth(&self, auth: &AuthMode) -> Result<Option<Tokens>, Error> {
+        let persona = self.resolve_persona(auth).await?;
         self.read_auth_at(&persona).await
     }
 
-    /// Acquire the two-tier auth lock for this Client's persona.
-    /// Returned `AuthLock` is consumed by [`Self::write_auth`] (or
+    /// Acquire the two-tier auth lock for the persona `auth` resolves
+    /// to. Returned `AuthLock` is consumed by [`Self::write_auth`] (or
     /// dropped for best-effort release without writing). The lock
     /// cannot be constructed externally — `lock_auth` is the only
-    /// producer. Errors for `AuthMode::XApp` clients.
-    pub async fn lock_auth(&self) -> Result<AuthLock, Error> {
+    /// producer. Errors for `AuthMode::XApp`.
+    pub async fn lock_auth(&self, auth: &AuthMode) -> Result<AuthLock, Error> {
         if self.mock {
             return Err(Error::Other(
                 "lock_auth not supported in mock mode".into(),
             ));
         }
-        let persona = self.resolve_persona().await?;
+        let persona = self.resolve_persona(auth).await?;
         self.lock_auth_at(&persona).await
     }
 
@@ -250,12 +246,11 @@ impl Client {
     // Per-call auth resolution.
     // ===================================================================
 
-    /// Resolve the current Bearer based on [`self.auth_mode`] —
-    /// reads `x_app.json` for `XApp`, runs the read/lock/double-
-    /// check/refresh dance for `Psyop`/`Agent`. All I/O happens
-    /// here on every call.
-    async fn current_bearer_token(&self) -> Result<String, Error> {
-        match &self.auth_mode {
+    /// Resolve the current Bearer for `auth` — reads the X-App config
+    /// for `XApp`, runs the read/lock/double-check/refresh dance for
+    /// `Psyop`/`Agent`. All I/O happens here on every call.
+    async fn current_bearer_token(&self, auth: &AuthMode) -> Result<String, Error> {
+        match auth {
             AuthMode::XApp => {
                 let x_app = super::x_app::config::load(&self.db).await?;
                 x_app.bearer_token.ok_or_else(|| {
@@ -266,18 +261,17 @@ impl Client {
                     )
                 })
             }
-            AuthMode::Psyop(_) | AuthMode::Agent(_) => self.persona_bearer().await,
+            AuthMode::Psyop(_) | AuthMode::Agent(_) => self.persona_bearer(auth).await,
         }
     }
 
-    /// The authenticated Twitter user-id (twid) for this Client's
-    /// auth mode. For `XApp` it's the X-App account's twid;
-    /// for `Psyop` / `Agent` it's the persona's twid resolved via
-    /// [`resolve_persona`]. Used to fold an auth identity into the
-    /// cache key for endpoints whose response varies by authed user
-    /// (today: `/2/users/me`).
-    pub(crate) async fn current_twid(&self) -> Result<String, Error> {
-        match &self.auth_mode {
+    /// The authenticated Twitter user-id (twid) for `auth`. For `XApp`
+    /// it's the X-App account's twid; for `Psyop` / `Agent` it's the
+    /// persona's twid resolved via [`resolve_persona`]. Used to fold an
+    /// auth identity into the cache key for endpoints whose response
+    /// varies by authed user (today: `/2/users/me`).
+    pub(crate) async fn current_twid(&self, auth: &AuthMode) -> Result<String, Error> {
+        match auth {
             AuthMode::XApp => signed_in_x_user_id(
                 self.state_dir.as_ref(),
                 &Mode::XApp.cache_subdir(),
@@ -286,17 +280,17 @@ impl Client {
             .map_err(|e| Error::Other(format!("x-app twid cookies: {e}")))?
             .ok_or_else(|| Error::Other("no X-App account signed in".into())),
             AuthMode::Psyop(_) | AuthMode::Agent(_) => {
-                Ok(self.resolve_persona().await?.persona_twid)
+                Ok(self.resolve_persona(auth).await?.persona_twid)
             }
         }
     }
 
-    /// Resolve the persona from `self.auth_mode` + cookies. Errors
-    /// for `AuthMode::XApp` and when no persona / X-App is signed
-    /// in to the matching CEF profile. Reused by `read_auth`,
-    /// `lock_auth`, and `persona_bearer`.
-    async fn resolve_persona(&self) -> Result<PersonaKey, Error> {
-        let (kind, name) = match &self.auth_mode {
+    /// Resolve the persona from `auth` + cookies. Errors for
+    /// `AuthMode::XApp` and when no persona / X-App is signed in to the
+    /// matching CEF profile. Reused by `read_auth`, `lock_auth`, and
+    /// `persona_bearer`.
+    async fn resolve_persona(&self, auth: &AuthMode) -> Result<PersonaKey, Error> {
+        let (kind, name) = match auth {
             AuthMode::XApp => {
                 return Err(Error::Other(
                     "auth file methods are not available for AuthMode::XApp — \
@@ -332,8 +326,8 @@ impl Client {
     /// Resolve persona, read auth.json, refresh through the two-
     /// tier lock if stale. Shared by `Psyop` / `Agent` variants
     /// of [`current_bearer_token`].
-    async fn persona_bearer(&self) -> Result<String, Error> {
-        let persona = self.resolve_persona().await?;
+    async fn persona_bearer(&self, auth: &AuthMode) -> Result<String, Error> {
+        let persona = self.resolve_persona(auth).await?;
 
         // 1. Cheap, lockless read.
         if let Some(t) = self.read_auth_at(&persona).await? {
@@ -387,10 +381,11 @@ impl Client {
     /// should construct requests.
     pub(crate) async fn request(
         &self,
+        auth: &AuthMode,
         method: Method,
         path: &str,
     ) -> Result<reqwest::RequestBuilder, Error> {
-        let token = self.current_bearer_token().await?;
+        let token = self.current_bearer_token(auth).await?;
         let url = format!(
             "{}/{}",
             DEFAULT_BASE_URL.trim_end_matches('/'),
@@ -406,6 +401,7 @@ impl Client {
     /// GET `path` with `query` URL-encoded.
     pub(crate) async fn send_with_query<T, Q>(
         &self,
+        auth: &AuthMode,
         method: Method,
         path: &str,
         query: &Q,
@@ -419,14 +415,15 @@ impl Client {
         if self.mock {
             return crate::x::mock::send_with_query(method, path, query);
         }
-        let rb = self.request(method, path).await?.query(query);
-        let raw = self.execute_cached(rb, cache, auth_scoped, /* quota */ true).await?;
+        let rb = self.request(auth, method, path).await?.query(query);
+        let raw = self.execute_cached(Some(auth), rb, cache, auth_scoped, /* quota */ true).await?;
         decode_body(&raw)
     }
 
     /// Send `method` to `path` with an optional JSON body.
     pub(crate) async fn send<T, B>(
         &self,
+        auth: &AuthMode,
         method: Method,
         path: &str,
         body: Option<&B>,
@@ -440,17 +437,18 @@ impl Client {
         if self.mock {
             return crate::x::mock::send(method, path, body);
         }
-        let mut rb = self.request(method, path).await?;
+        let mut rb = self.request(auth, method, path).await?;
         if let Some(b) = body {
             rb = rb.json(b);
         }
-        let raw = self.execute_cached(rb, cache, auth_scoped, /* quota */ true).await?;
+        let raw = self.execute_cached(Some(auth), rb, cache, auth_scoped, /* quota */ true).await?;
         decode_body(&raw)
     }
 
     /// Like `send_with_query` but discards the response body.
     pub(crate) async fn send_with_query_no_response<Q>(
         &self,
+        auth: &AuthMode,
         method: Method,
         path: &str,
         query: &Q,
@@ -467,7 +465,7 @@ impl Client {
         // Build before sending (rather than `.send()`) so the
         // quota gate sees the full URL including the query.
         let req = self
-            .request(method, path)
+            .request(auth, method, path)
             .await?
             .query(query)
             .build()
@@ -484,6 +482,7 @@ impl Client {
     /// POST/PUT/PATCH that needs both a query string and a JSON body.
     pub(crate) async fn send_with_query_and_body<T, Q, B>(
         &self,
+        auth: &AuthMode,
         method: Method,
         path: &str,
         query: &Q,
@@ -499,14 +498,15 @@ impl Client {
         if self.mock {
             return crate::x::mock::send_with_query_and_body(method, path, query, body);
         }
-        let rb = self.request(method, path).await?.query(query).json(body);
-        let raw = self.execute_cached(rb, cache, auth_scoped, /* quota */ true).await?;
+        let rb = self.request(auth, method, path).await?.query(query).json(body);
+        let raw = self.execute_cached(Some(auth), rb, cache, auth_scoped, /* quota */ true).await?;
         decode_body(&raw)
     }
 
     /// Like `send` but discards a 2xx body.
     pub(crate) async fn send_no_response<B>(
         &self,
+        auth: &AuthMode,
         method: Method,
         path: &str,
         body: Option<&B>,
@@ -520,7 +520,7 @@ impl Client {
         if self.mock {
             return crate::x::mock::send_no_response(method, path, body);
         }
-        let mut rb = self.request(method, path).await?;
+        let mut rb = self.request(auth, method, path).await?;
         if let Some(b) = body {
             rb = rb.json(b);
         }
@@ -545,8 +545,9 @@ impl Client {
         }
         let rb = self.client.get(url);
         // quota = false: twimg media isn't the X API — excluded
-        // from the read quota and the request log.
-        self.execute_cached(rb, /* cache */ true, /* auth_scoped */ false, /* quota */ false).await
+        // from the read quota and the request log. No auth: media is
+        // persona-independent and never auth-scoped.
+        self.execute_cached(None, rb, /* cache */ true, /* auth_scoped */ false, /* quota */ false).await
     }
 
     /// Read/write quota gate — runs immediately before a real
@@ -588,6 +589,7 @@ impl Client {
     /// check, log, or deduct.
     async fn execute_cached(
         &self,
+        auth: Option<&AuthMode>,
         rb: reqwest::RequestBuilder,
         cache: bool,
         auth_scoped: bool,
@@ -596,7 +598,8 @@ impl Client {
         let req = rb.build().map_err(Error::RequestBuild)?;
         if cache {
             let key = if auth_scoped {
-                let twid = self.current_twid().await?;
+                let auth = auth.expect("auth_scoped requests must pass an AuthMode");
+                let twid = self.current_twid(auth).await?;
                 auth_scoped_key_from_request(&twid, &req)
             } else {
                 key_from_request(&req)

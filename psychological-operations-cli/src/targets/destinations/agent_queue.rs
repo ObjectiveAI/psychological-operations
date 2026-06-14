@@ -12,7 +12,7 @@
 pub use psychological_operations_sdk::cli::destinations::agent_queue::AgentQueue;
 
 use psychological_operations_db::{AgentKind, QueueEntry, unix_now};
-use psychological_operations_sdk::x::client::{AuthMode, Client};
+use psychological_operations_sdk::x::client::Client;
 
 use super::Subject;
 
@@ -36,7 +36,6 @@ pub async fn send(
         ctx.cache_max_size,
         ctx.cache_ttl,
         ctx.config.state_dir(),
-        AuthMode::XApp,
         ctx.db.clone(),
     );
     let now = unix_now();

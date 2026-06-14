@@ -156,30 +156,29 @@ impl PsychologicalOperationsXApiMcp {
             })
     }
 
-    /// Build a fresh SDK [`Client`] bound to the session's agent,
-    /// reusing the process-wide reqwest pool and the current
-    /// process-wide cache config, with the read/write quota
-    /// attached (keyed by the session's agent instance
-    /// hierarchy). Called once per tool invocation —
-    /// `Client::new` is infallible + synchronous and the SQLite
-    /// `OnceCell`s lazy-init on first use. A tool call that fires
-    /// N X-API requests gates + deducts each one individually at
-    /// the SDK's send choke points.
-    pub(super) fn build_client(&self, state: &SessionState) -> Client {
-        Client::new(
+    /// Build a fresh SDK [`Client`] + the session's [`AuthMode`],
+    /// reusing the process-wide reqwest pool, cache config, and `db`
+    /// handle, with the read/write quota attached (keyed by the
+    /// session's agent instance hierarchy). Called once per tool
+    /// invocation — `Client::new` is infallible + synchronous. The
+    /// returned `auth` (an `Agent` persona) is passed to each generated
+    /// X-API call; a tool that fires N requests gates + deducts each
+    /// individually at the SDK's send choke points.
+    pub(super) fn build_client(&self, state: &SessionState) -> (Client, AuthMode) {
+        let client = Client::new(
             self.reqwest.clone(),
             /* mock */ false,
             self.cache_max_size,
             self.cache_ttl,
             self.state_dir.clone(),
-            AuthMode::Agent(state.agent.clone()),
             self.db.clone(),
         )
         .with_quota(QuotaConfig {
             read_per_hour:  self.quota_read,
             write_per_hour: self.quota_write,
             agent_instance_hierarchy: state.agent_instance_hierarchy.clone(),
-        })
+        });
+        (client, AuthMode::Agent(state.agent.clone()))
     }
 
     /// Wrap a tool's result `body` with the caller's current quota

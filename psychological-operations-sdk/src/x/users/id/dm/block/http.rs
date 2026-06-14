@@ -3,7 +3,7 @@
 
 //! HTTP call helpers for /2/users/{id}/dm/block.
 #[allow(unused_imports)]
-use crate::x::client::Client;
+use crate::x::client::{AuthMode, Client};
 #[allow(unused_imports)]
 use crate::x::Error;
 #[allow(unused_imports)]
@@ -12,9 +12,10 @@ use reqwest::Method;
 /// POST /2/users/{id}/dm/block
 pub async fn post(
     client: &Client,
+    auth: &AuthMode,
     req: &super::post::Request,
 ) -> Result<super::post::Response, Error> {
     let path = format!("users/{}/dm/block", urlencoding::encode(&req.id.to_string()));
-    client.send::<_, ()>(Method::POST, &path, None, false, false).await
+    client.send::<_, ()>(auth, Method::POST, &path, None, false, false).await
 }
 

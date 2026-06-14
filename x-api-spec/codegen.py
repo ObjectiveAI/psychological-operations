@@ -877,7 +877,7 @@ class Codegen:
             f.write(self._header())
             url_paths = ", ".join(sorted({m["url_path"] for m in methods}))
             f.write(f"//! HTTP call helpers for {url_paths}.\n")
-            f.write("#[allow(unused_imports)]\nuse crate::x::client::Client;\n")
+            f.write("#[allow(unused_imports)]\nuse crate::x::client::{AuthMode, Client};\n")
             f.write("#[allow(unused_imports)]\nuse crate::x::Error;\n")
             f.write("#[allow(unused_imports)]\nuse reqwest::Method;\n\n")
             for meta in methods:
@@ -914,6 +914,7 @@ class Codegen:
         f.write(f"/// {method.upper()} {meta['url_path']}\n")
         f.write(f"pub async fn {method}(\n")
         f.write("    client: &Client,\n")
+        f.write("    auth: &AuthMode,\n")
         f.write(f"    {req_ident}: &super::{method}::Request,\n")
         f.write(f") -> Result<super::{method}::Response, Error> {{\n")
 
@@ -937,7 +938,7 @@ class Codegen:
             # Rare: POST + query + body. body_required is true for the
             # only known case (POST /2/tweets/search/stream/rules).
             f.write(
-                f"    client.send_with_query_and_body({method_const}, "
+                f"    client.send_with_query_and_body(auth, {method_const}, "
                 f"{path_expr}, req, &req.body, {cache_lit}, {auth_scoped_lit}).await\n"
             )
         elif has_query:
@@ -945,11 +946,11 @@ class Codegen:
             # plus the rare non-GET with query but no body.
             if has_response:
                 f.write(
-                    f"    client.send_with_query({method_const}, {path_expr}, req, {cache_lit}, {auth_scoped_lit}).await\n"
+                    f"    client.send_with_query(auth, {method_const}, {path_expr}, req, {cache_lit}, {auth_scoped_lit}).await\n"
                 )
             else:
                 f.write(
-                    f"    client.send_with_query_no_response({method_const}, "
+                    f"    client.send_with_query_no_response(auth, {method_const}, "
                     f"{path_expr}, req, {cache_lit}, {auth_scoped_lit}).await?;\n"
                 )
                 f.write(f"    Ok(super::{method}::Response)\n")
@@ -957,22 +958,22 @@ class Codegen:
             body_arg = self._body_arg_expr(body_required)
             if has_response:
                 f.write(
-                    f"    client.send({method_const}, {path_expr}, {body_arg}, {cache_lit}, {auth_scoped_lit}).await\n"
+                    f"    client.send(auth, {method_const}, {path_expr}, {body_arg}, {cache_lit}, {auth_scoped_lit}).await\n"
                 )
             else:
                 f.write(
-                    f"    client.send_no_response({method_const}, {path_expr}, {body_arg}, {cache_lit}, {auth_scoped_lit}).await?;\n"
+                    f"    client.send_no_response(auth, {method_const}, {path_expr}, {body_arg}, {cache_lit}, {auth_scoped_lit}).await?;\n"
                 )
                 f.write(f"    Ok(super::{method}::Response)\n")
         else:
             # No body, no query — typical DELETE.
             if has_response:
                 f.write(
-                    f"    client.send::<_, ()>({method_const}, {path_expr}, None, {cache_lit}, {auth_scoped_lit}).await\n"
+                    f"    client.send::<_, ()>(auth, {method_const}, {path_expr}, None, {cache_lit}, {auth_scoped_lit}).await\n"
                 )
             else:
                 f.write(
-                    f"    client.send_no_response::<()>({method_const}, {path_expr}, None, {cache_lit}, {auth_scoped_lit}).await?;\n"
+                    f"    client.send_no_response::<()>(auth, {method_const}, {path_expr}, None, {cache_lit}, {auth_scoped_lit}).await?;\n"
                 )
                 f.write(f"    Ok(super::{method}::Response)\n")
 

@@ -3,7 +3,7 @@
 
 //! HTTP call helpers for /2/chat/conversations/{id}/members.
 #[allow(unused_imports)]
-use crate::x::client::Client;
+use crate::x::client::{AuthMode, Client};
 #[allow(unused_imports)]
 use crate::x::Error;
 #[allow(unused_imports)]
@@ -12,9 +12,10 @@ use reqwest::Method;
 /// POST /2/chat/conversations/{id}/members
 pub async fn post(
     client: &Client,
+    auth: &AuthMode,
     req: &super::post::Request,
 ) -> Result<super::post::Response, Error> {
     let path = format!("chat/conversations/{}/members", urlencoding::encode(&req.id.to_string()));
-    client.send(Method::POST, &path, Some(&req.body), false, false).await
+    client.send(auth, Method::POST, &path, Some(&req.body), false, false).await
 }
 

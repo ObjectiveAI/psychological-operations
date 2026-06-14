@@ -105,6 +105,8 @@ pub async fn run_psyop(
     }
 
     let http = make_http_client(psyop.mock_enabled(), ctx);
+    // Every X API call in this pipeline acts as the master X-App.
+    let auth = AuthMode::XApp;
 
     // Collect step: open the browser as this psyop and stream the
     // operator's tweet_id selections into for_you_queue. Skipped
@@ -136,7 +138,7 @@ pub async fn run_psyop(
         // 1. Hydrate the for-you queue (drains everything currently
         //    in it). Skipped entirely when `for_you` is unconfigured.
         if psyop.for_you.is_some() {
-            hydrate_for_you(db, &http, name).await?;
+            hydrate_for_you(db, &http, &auth, name).await?;
         }
 
         // 2. Read unscored tweets for this psyop, mapping each row to
@@ -177,7 +179,7 @@ pub async fn run_psyop(
                     accepted.len(),
                 )));
             }
-            run_queries(&psyop, db, &http, name).await?;
+            run_queries(&psyop, db, &http, &auth, name).await?;
             queries_already_ran = true;
             continue;
         }
@@ -381,6 +383,7 @@ async fn score_pipeline(
 async fn hydrate_for_you(
     db: &Db,
     http: &Client,
+    auth: &AuthMode,
     name: &str,
 ) -> Result<(), Error> {
     let queued = db.for_you_queue(name).await?;
@@ -394,7 +397,7 @@ async fn hydrate_for_you(
     .emit();
     let mut succeeded: Vec<String> = Vec::new();
     for id in queued {
-        match fetch_tweet(http, &id).await {
+        match fetch_tweet(http, auth, &id).await {
             Ok(Some(post)) => {
                 db.insert_post(&post, name, &Origin::ForYou).await?;
                 succeeded.push(id);
@@ -548,6 +551,7 @@ async fn run_queries(
     psyop: &PsyOp,
     db: &Db,
     http: &Client,
+    auth: &AuthMode,
     name: &str,
 ) -> Result<(), Error> {
     let queries = match &psyop.queries {
@@ -566,7 +570,7 @@ async fn run_queries(
             .emit();
             continue;
         }
-        match search_recent(http, &q.query).await {
+        match search_recent(http, auth, &q.query).await {
             Ok(posts) => {
                 crate::output::OutputResult::from(crate::events::Event::QueryComplete {
                     psyop: name.to_string(),
@@ -600,7 +604,6 @@ fn make_http_client(mock: bool, ctx: &crate::context::Context) -> Client {
         ctx.cache_max_size,
         ctx.cache_ttl,
         ctx.config.state_dir(),
-        AuthMode::XApp,
         ctx.db.clone(),
     )
 }
@@ -613,7 +616,7 @@ fn standard_tweet_fields() -> Vec<TweetFields> {
     ]
 }
 
-async fn fetch_tweet(http: &Client, id: &str) -> Result<Option<Post>, Error> {
+async fn fetch_tweet(http: &Client, auth: &AuthMode, id: &str) -> Result<Option<Post>, Error> {
     use psychological_operations_sdk::x::tweets::id::get;
     use psychological_operations_sdk::x::tweets::id::http::get as call;
     let req = get::Request {
@@ -623,7 +626,7 @@ async fn fetch_tweet(http: &Client, id: &str) -> Result<Option<Post>, Error> {
         user_fields: Some(vec![UserFields::Username]),
         ..default_id_request()
     };
-    let resp = call(http, &req).await.map_err(|e| {
+    let resp = call(http, auth, &req).await.map_err(|e| {
         Error::Other(format!("X /2/tweets/{id} failed: {e}"))
     })?;
     let tweet = match resp.data {
@@ -633,7 +636,7 @@ async fn fetch_tweet(http: &Client, id: &str) -> Result<Option<Post>, Error> {
     Ok(Some(tweet_to_post(&tweet, resp.includes.as_ref())))
 }
 
-async fn search_recent(http: &Client, query: &str) -> Result<Vec<Post>, Error> {
+async fn search_recent(http: &Client, auth: &AuthMode, query: &str) -> Result<Vec<Post>, Error> {
     use psychological_operations_sdk::x::tweets::search::recent::get;
     use psychological_operations_sdk::x::tweets::search::recent::http::get as call;
     let req = get::Request {
@@ -644,7 +647,7 @@ async fn search_recent(http: &Client, query: &str) -> Result<Vec<Post>, Error> {
         max_results: Some(100),
         ..default_recent_request()
     };
-    let resp = call(http, &req).await.map_err(|e| {
+    let resp = call(http, auth, &req).await.map_err(|e| {
         Error::Other(format!("X /2/tweets/search/recent failed: {e}"))
     })?;
     let tweets = resp.data.unwrap_or_default();

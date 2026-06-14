@@ -3,7 +3,7 @@
 
 //! HTTP call helpers for /2/account_activity/webhooks/{webhook_id}/subscriptions/{user_id}/all.
 #[allow(unused_imports)]
-use crate::x::client::Client;
+use crate::x::client::{AuthMode, Client};
 #[allow(unused_imports)]
 use crate::x::Error;
 #[allow(unused_imports)]
@@ -12,9 +12,10 @@ use reqwest::Method;
 /// DELETE /2/account_activity/webhooks/{webhook_id}/subscriptions/{user_id}/all
 pub async fn delete(
     client: &Client,
+    auth: &AuthMode,
     req: &super::delete::Request,
 ) -> Result<super::delete::Response, Error> {
     let path = format!("account_activity/webhooks/{}/subscriptions/{}/all", urlencoding::encode(&req.webhook_id.to_string()), urlencoding::encode(&req.user_id.to_string()));
-    client.send::<_, ()>(Method::DELETE, &path, None, false, false).await
+    client.send::<_, ()>(auth, Method::DELETE, &path, None, false, false).await
 }
 

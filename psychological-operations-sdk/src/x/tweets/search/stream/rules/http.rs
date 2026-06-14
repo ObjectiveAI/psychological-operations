@@ -3,7 +3,7 @@
 
 //! HTTP call helpers for /2/tweets/search/stream/rules.
 #[allow(unused_imports)]
-use crate::x::client::Client;
+use crate::x::client::{AuthMode, Client};
 #[allow(unused_imports)]
 use crate::x::Error;
 #[allow(unused_imports)]
@@ -12,18 +12,20 @@ use reqwest::Method;
 /// GET /2/tweets/search/stream/rules
 pub async fn get(
     client: &Client,
+    auth: &AuthMode,
     req: &super::get::Request,
 ) -> Result<super::get::Response, Error> {
     let path = "tweets/search/stream/rules";
-    client.send_with_query(Method::GET, path, req, true, false).await
+    client.send_with_query(auth, Method::GET, path, req, true, false).await
 }
 
 /// POST /2/tweets/search/stream/rules
 pub async fn post(
     client: &Client,
+    auth: &AuthMode,
     req: &super::post::Request,
 ) -> Result<super::post::Response, Error> {
     let path = "tweets/search/stream/rules";
-    client.send_with_query_and_body(Method::POST, path, req, &req.body, false, false).await
+    client.send_with_query_and_body(auth, Method::POST, path, req, &req.body, false, false).await
 }
 

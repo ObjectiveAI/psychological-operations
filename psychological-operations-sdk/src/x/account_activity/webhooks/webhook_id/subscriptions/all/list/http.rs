@@ -3,7 +3,7 @@
 
 //! HTTP call helpers for /2/account_activity/webhooks/{webhook_id}/subscriptions/all/list.
 #[allow(unused_imports)]
-use crate::x::client::Client;
+use crate::x::client::{AuthMode, Client};
 #[allow(unused_imports)]
 use crate::x::Error;
 #[allow(unused_imports)]
@@ -12,9 +12,10 @@ use reqwest::Method;
 /// GET /2/account_activity/webhooks/{webhook_id}/subscriptions/all/list
 pub async fn get(
     client: &Client,
+    auth: &AuthMode,
     req: &super::get::Request,
 ) -> Result<super::get::Response, Error> {
     let path = format!("account_activity/webhooks/{}/subscriptions/all/list", urlencoding::encode(&req.webhook_id.to_string()));
-    client.send::<_, ()>(Method::GET, &path, None, true, false).await
+    client.send::<_, ()>(auth, Method::GET, &path, None, true, false).await
 }
 

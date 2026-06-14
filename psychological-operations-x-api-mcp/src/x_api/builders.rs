@@ -4,7 +4,7 @@
 //! `send_create_tweet` helper centralizes the
 //! `tweets POST` plumbing the post / reply / quote tools share.
 
-use psychological_operations_sdk::x::client::Client;
+use psychological_operations_sdk::x::client::{AuthMode, Client};
 use psychological_operations_sdk::x::params;
 use psychological_operations_sdk::x::tweets as tweets_root;
 use psychological_operations_sdk::x::tweets::id as tweets_id;
@@ -102,10 +102,11 @@ pub(super) fn empty_tweet_create_request() -> TweetCreateRequest {
 /// the new tweet id + text back).
 pub(super) async fn send_create_tweet(
     http: &Client,
+    auth: &AuthMode,
     body: TweetCreateRequest,
 ) -> Result<String, ErrorData> {
     let req = tweets_root::post::Request { body };
-    let resp = tweets_root::http::post(http, &req)
+    let resp = tweets_root::http::post(http, auth, &req)
         .await
         .map_err(|e| ErrorData::internal_error(format!("tweets: {e}"), None))?;
     serde_json::to_string(&resp.data)
@@ -115,13 +116,16 @@ pub(super) async fn send_create_tweet(
 /// Resolve the authenticated user's numeric id via `/users/me`.
 /// Used by the engagement tools (like / retweet / bookmark /
 /// get_bookmarks) that need the acting user id in the URL path.
-pub(super) async fn resolve_self_user_id(http: &Client) -> Result<String, ErrorData> {
+pub(super) async fn resolve_self_user_id(
+    http: &Client,
+    auth: &AuthMode,
+) -> Result<String, ErrorData> {
     let req = users_me::get::Request {
         user_fields: None,
         expansions: None,
         tweet_fields: None,
     };
-    let resp = users_me::http::get(http, &req)
+    let resp = users_me::http::get(http, auth, &req)
         .await
         .map_err(|e| ErrorData::internal_error(format!("users/me: {e}"), None))?;
     let user = resp.data.ok_or_else(|| {

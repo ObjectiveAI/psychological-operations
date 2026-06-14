@@ -26,7 +26,9 @@ impl PsychologicalOperationsXApiMcp {
         extensions: Extensions,
     ) -> Result<String, ErrorData> {
         let state = self.resolve_session(&extensions).await?;
-        let http = self.build_client(&state);
+        // Queue tools are DB-only — no X API call, so the persona auth
+        // is unused here.
+        let (http, _auth) = self.build_client(&state);
 
         let entries = http
             .db()
@@ -47,7 +49,9 @@ impl PsychologicalOperationsXApiMcp {
         extensions: Extensions,
     ) -> Result<String, ErrorData> {
         let state = self.resolve_session(&extensions).await?;
-        let http = self.build_client(&state);
+        // Queue tools are DB-only — no X API call, so the persona auth
+        // is unused here.
+        let (http, _auth) = self.build_client(&state);
 
         let removed = http
             .db()

@@ -65,13 +65,13 @@ impl PsychologicalOperationsXApiMcp {
         extensions: Extensions,
     ) -> Result<CallToolResult, ErrorData> {
         let state = self.resolve_session(&extensions).await?;
-        let http = self.build_client(&state);
+        let (http, auth) = self.build_client(&state);
 
         let body = TweetCreateRequest {
             text: Some(TweetText(req.text)),
             ..empty_tweet_create_request()
         };
-        let result = send_create_tweet(&http, body).await?;
+        let result = send_create_tweet(&http, &auth, body).await?;
         self.respond_with_quota(&http, &state, Content::text(result)).await
     }
 
@@ -85,7 +85,7 @@ impl PsychologicalOperationsXApiMcp {
         extensions: Extensions,
     ) -> Result<CallToolResult, ErrorData> {
         let state = self.resolve_session(&extensions).await?;
-        let http = self.build_client(&state);
+        let (http, auth) = self.build_client(&state);
 
         let body = TweetCreateRequest {
             text: Some(TweetText(req.text)),
@@ -96,7 +96,7 @@ impl PsychologicalOperationsXApiMcp {
             }),
             ..empty_tweet_create_request()
         };
-        let result = send_create_tweet(&http, body).await?;
+        let result = send_create_tweet(&http, &auth, body).await?;
         self.respond_with_quota(&http, &state, Content::text(result)).await
     }
 
@@ -110,14 +110,14 @@ impl PsychologicalOperationsXApiMcp {
         extensions: Extensions,
     ) -> Result<CallToolResult, ErrorData> {
         let state = self.resolve_session(&extensions).await?;
-        let http = self.build_client(&state);
+        let (http, auth) = self.build_client(&state);
 
         let body = TweetCreateRequest {
             text: Some(TweetText(req.text)),
             quote_tweet_id: Some(TweetId(req.quote_tweet_id)),
             ..empty_tweet_create_request()
         };
-        let result = send_create_tweet(&http, body).await?;
+        let result = send_create_tweet(&http, &auth, body).await?;
         self.respond_with_quota(&http, &state, Content::text(result)).await
     }
 
@@ -131,16 +131,16 @@ impl PsychologicalOperationsXApiMcp {
         extensions: Extensions,
     ) -> Result<CallToolResult, ErrorData> {
         let state = self.resolve_session(&extensions).await?;
-        let http = self.build_client(&state);
+        let (http, auth) = self.build_client(&state);
 
-        let user_id = resolve_self_user_id(&http).await?;
+        let user_id = resolve_self_user_id(&http, &auth).await?;
         let creq = users_id_likes::post::Request {
             id: UserIdMatchesAuthenticatedUser(user_id),
             body: Some(UsersLikesCreateRequest {
                 tweet_id: TweetId(req.tweet_id),
             }),
         };
-        let resp = users_id_likes::http::post(&http, &creq)
+        let resp = users_id_likes::http::post(&http, &auth, &creq)
             .await
             .map_err(|e| ErrorData::internal_error(format!("likes: {e}"), None))?;
         let body = serde_json::to_string(&resp.data)
@@ -158,16 +158,16 @@ impl PsychologicalOperationsXApiMcp {
         extensions: Extensions,
     ) -> Result<CallToolResult, ErrorData> {
         let state = self.resolve_session(&extensions).await?;
-        let http = self.build_client(&state);
+        let (http, auth) = self.build_client(&state);
 
-        let user_id = resolve_self_user_id(&http).await?;
+        let user_id = resolve_self_user_id(&http, &auth).await?;
         let creq = users_id_retweets::post::Request {
             id: UserIdMatchesAuthenticatedUser(user_id),
             body: Some(UsersRetweetsCreateRequest {
                 tweet_id: TweetId(req.tweet_id),
             }),
         };
-        let resp = users_id_retweets::http::post(&http, &creq)
+        let resp = users_id_retweets::http::post(&http, &auth, &creq)
             .await
             .map_err(|e| ErrorData::internal_error(format!("retweets: {e}"), None))?;
         let body = serde_json::to_string(&resp.data)
@@ -185,16 +185,16 @@ impl PsychologicalOperationsXApiMcp {
         extensions: Extensions,
     ) -> Result<CallToolResult, ErrorData> {
         let state = self.resolve_session(&extensions).await?;
-        let http = self.build_client(&state);
+        let (http, auth) = self.build_client(&state);
 
-        let user_id = resolve_self_user_id(&http).await?;
+        let user_id = resolve_self_user_id(&http, &auth).await?;
         let creq = users_id_bookmarks::post::Request {
             id: UserIdMatchesAuthenticatedUser(user_id),
             body: BookmarkAddRequest {
                 tweet_id: TweetId(req.tweet_id),
             },
         };
-        let resp = users_id_bookmarks::http::post(&http, &creq)
+        let resp = users_id_bookmarks::http::post(&http, &auth, &creq)
             .await
             .map_err(|e| ErrorData::internal_error(format!("bookmarks: {e}"), None))?;
         let body = serde_json::to_string(&resp.data)

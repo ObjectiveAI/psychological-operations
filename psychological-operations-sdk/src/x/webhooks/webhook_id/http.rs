@@ -3,7 +3,7 @@
 
 //! HTTP call helpers for /2/webhooks/{webhook_id}.
 #[allow(unused_imports)]
-use crate::x::client::Client;
+use crate::x::client::{AuthMode, Client};
 #[allow(unused_imports)]
 use crate::x::Error;
 #[allow(unused_imports)]
@@ -12,18 +12,20 @@ use reqwest::Method;
 /// PUT /2/webhooks/{webhook_id}
 pub async fn put(
     client: &Client,
+    auth: &AuthMode,
     req: &super::put::Request,
 ) -> Result<super::put::Response, Error> {
     let path = format!("webhooks/{}", urlencoding::encode(&req.webhook_id.to_string()));
-    client.send::<_, ()>(Method::PUT, &path, None, false, false).await
+    client.send::<_, ()>(auth, Method::PUT, &path, None, false, false).await
 }
 
 /// DELETE /2/webhooks/{webhook_id}
 pub async fn delete(
     client: &Client,
+    auth: &AuthMode,
     req: &super::delete::Request,
 ) -> Result<super::delete::Response, Error> {
     let path = format!("webhooks/{}", urlencoding::encode(&req.webhook_id.to_string()));
-    client.send::<_, ()>(Method::DELETE, &path, None, false, false).await
+    client.send::<_, ()>(auth, Method::DELETE, &path, None, false, false).await
 }
 

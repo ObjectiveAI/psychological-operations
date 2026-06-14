@@ -3,7 +3,7 @@
 
 //! HTTP call helpers for /2/lists/{id}.
 #[allow(unused_imports)]
-use crate::x::client::Client;
+use crate::x::client::{AuthMode, Client};
 #[allow(unused_imports)]
 use crate::x::Error;
 #[allow(unused_imports)]
@@ -12,27 +12,30 @@ use reqwest::Method;
 /// GET /2/lists/{id}
 pub async fn get(
     client: &Client,
+    auth: &AuthMode,
     req: &super::get::Request,
 ) -> Result<super::get::Response, Error> {
     let path = format!("lists/{}", urlencoding::encode(&req.id.to_string()));
-    client.send_with_query(Method::GET, &path, req, true, false).await
+    client.send_with_query(auth, Method::GET, &path, req, true, false).await
 }
 
 /// PUT /2/lists/{id}
 pub async fn put(
     client: &Client,
+    auth: &AuthMode,
     req: &super::put::Request,
 ) -> Result<super::put::Response, Error> {
     let path = format!("lists/{}", urlencoding::encode(&req.id.to_string()));
-    client.send(Method::PUT, &path, req.body.as_ref(), false, false).await
+    client.send(auth, Method::PUT, &path, req.body.as_ref(), false, false).await
 }
 
 /// DELETE /2/lists/{id}
 pub async fn delete(
     client: &Client,
+    auth: &AuthMode,
     req: &super::delete::Request,
 ) -> Result<super::delete::Response, Error> {
     let path = format!("lists/{}", urlencoding::encode(&req.id.to_string()));
-    client.send::<_, ()>(Method::DELETE, &path, None, false, false).await
+    client.send::<_, ()>(auth, Method::DELETE, &path, None, false, false).await
 }
 

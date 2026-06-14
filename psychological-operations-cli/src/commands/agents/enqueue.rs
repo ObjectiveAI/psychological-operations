@@ -11,7 +11,7 @@
 
 use psychological_operations_db::{AgentKind, QueueEntry, unix_now};
 use psychological_operations_sdk::cli::Output;
-use psychological_operations_sdk::x::client::{AuthMode, Client};
+use psychological_operations_sdk::x::client::Client;
 
 use crate::error::Error;
 
@@ -38,7 +38,6 @@ async fn run_inner(
         ctx.cache_max_size,
         ctx.cache_ttl,
         ctx.config.state_dir(),
-        AuthMode::XApp,
         ctx.db.clone(),
     );
 

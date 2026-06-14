@@ -76,7 +76,7 @@ impl PsychologicalOperationsXApiMcp {
         extensions: Extensions,
     ) -> Result<CallToolResult, ErrorData> {
         let state = self.resolve_session(&extensions).await?;
-        let http = self.build_client(&state);
+        let (http, auth) = self.build_client(&state);
 
         let creq = tweets_search_recent::get::Request {
             query: format!("conversation_id:{}", req.tweet_id),
@@ -95,7 +95,7 @@ impl PsychologicalOperationsXApiMcp {
             user_fields: None,
             place_fields: None,
         };
-        let resp = tweets_search_recent::http::get(&http, &creq)
+        let resp = tweets_search_recent::http::get(&http, &auth, &creq)
             .await
             .map_err(|e| ErrorData::internal_error(format!("search: {e}"), None))?;
         let target = req.tweet_id;
@@ -127,7 +127,7 @@ impl PsychologicalOperationsXApiMcp {
         extensions: Extensions,
     ) -> Result<CallToolResult, ErrorData> {
         let state = self.resolve_session(&extensions).await?;
-        let http = self.build_client(&state);
+        let (http, auth) = self.build_client(&state);
 
         let creq = users_by_username::get::Request {
             username: req.handle,
@@ -135,7 +135,7 @@ impl PsychologicalOperationsXApiMcp {
             expansions: None,
             tweet_fields: None,
         };
-        let resp = users_by_username::http::get(&http, &creq)
+        let resp = users_by_username::http::get(&http, &auth, &creq)
             .await
             .map_err(|e| ErrorData::internal_error(format!("users/by/username: {e}"), None))?;
         let body = resp.data.and_then(|u| u.description).unwrap_or_default();
@@ -152,7 +152,7 @@ impl PsychologicalOperationsXApiMcp {
         extensions: Extensions,
     ) -> Result<CallToolResult, ErrorData> {
         let state = self.resolve_session(&extensions).await?;
-        let http = self.build_client(&state);
+        let (http, auth) = self.build_client(&state);
 
         let creq = users_by_username::get::Request {
             username: req.handle,
@@ -160,7 +160,7 @@ impl PsychologicalOperationsXApiMcp {
             expansions: None,
             tweet_fields: None,
         };
-        let resp = users_by_username::http::get(&http, &creq)
+        let resp = users_by_username::http::get(&http, &auth, &creq)
             .await
             .map_err(|e| ErrorData::internal_error(format!("users/by/username: {e}"), None))?;
         let body = resp
@@ -180,10 +180,10 @@ impl PsychologicalOperationsXApiMcp {
         extensions: Extensions,
     ) -> Result<CallToolResult, ErrorData> {
         let state = self.resolve_session(&extensions).await?;
-        let http = self.build_client(&state);
+        let (http, auth) = self.build_client(&state);
 
         let creq = standard_tweet_request(&req.tweet_id);
-        let resp = tweets_id::http::get(&http, &creq)
+        let resp = tweets_id::http::get(&http, &auth, &creq)
             .await
             .map_err(|e| ErrorData::internal_error(format!("tweets/{{id}}: {e}"), None))?;
         let t = resp.data.ok_or_else(|| {
@@ -208,10 +208,10 @@ impl PsychologicalOperationsXApiMcp {
         extensions: Extensions,
     ) -> Result<CallToolResult, ErrorData> {
         let state = self.resolve_session(&extensions).await?;
-        let http = self.build_client(&state);
+        let (http, auth) = self.build_client(&state);
 
         let creq = standard_tweet_request(&req.tweet_id);
-        let resp = tweets_id::http::get(&http, &creq)
+        let resp = tweets_id::http::get(&http, &auth, &creq)
             .await
             .map_err(|e| ErrorData::internal_error(format!("tweets/{{id}}: {e}"), None))?;
         let (kind, mime) = lookup_attachment(resp.includes.as_ref(), &req.url)
@@ -249,10 +249,10 @@ impl PsychologicalOperationsXApiMcp {
         extensions: Extensions,
     ) -> Result<CallToolResult, ErrorData> {
         let state = self.resolve_session(&extensions).await?;
-        let http = self.build_client(&state);
+        let (http, auth) = self.build_client(&state);
 
         let creq = standard_search_request(req.query);
-        let resp = tweets_search_recent::http::get(&http, &creq)
+        let resp = tweets_search_recent::http::get(&http, &auth, &creq)
             .await
             .map_err(|e| ErrorData::internal_error(format!("search: {e}"), None))?;
         let includes = resp.includes.as_ref();
@@ -277,14 +277,14 @@ impl PsychologicalOperationsXApiMcp {
         extensions: Extensions,
     ) -> Result<CallToolResult, ErrorData> {
         let state = self.resolve_session(&extensions).await?;
-        let http = self.build_client(&state);
+        let (http, auth) = self.build_client(&state);
 
         let req = users_me::get::Request {
             user_fields: Some(vec![params::UserFields::Username]),
             expansions: None,
             tweet_fields: None,
         };
-        let resp = users_me::http::get(&http, &req)
+        let resp = users_me::http::get(&http, &auth, &req)
             .await
             .map_err(|e| ErrorData::internal_error(format!("users/me: {e}"), None))?;
         let body = resp.data.map(|u| u.username.0).unwrap_or_default();
@@ -301,9 +301,9 @@ impl PsychologicalOperationsXApiMcp {
         extensions: Extensions,
     ) -> Result<CallToolResult, ErrorData> {
         let state = self.resolve_session(&extensions).await?;
-        let http = self.build_client(&state);
+        let (http, auth) = self.build_client(&state);
 
-        let user_id = resolve_self_user_id(&http).await?;
+        let user_id = resolve_self_user_id(&http, &auth).await?;
         let creq = users_id_bookmarks::get::Request {
             id: UserIdMatchesAuthenticatedUser(user_id),
             max_results: Some(100),
@@ -329,7 +329,7 @@ impl PsychologicalOperationsXApiMcp {
             user_fields: Some(vec![params::UserFields::Username]),
             place_fields: None,
         };
-        let resp = users_id_bookmarks::http::get(&http, &creq)
+        let resp = users_id_bookmarks::http::get(&http, &auth, &creq)
             .await
             .map_err(|e| ErrorData::internal_error(format!("bookmarks: {e}"), None))?;
         let includes = resp.includes.as_ref();

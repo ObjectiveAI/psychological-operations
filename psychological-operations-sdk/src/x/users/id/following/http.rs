@@ -3,7 +3,7 @@
 
 //! HTTP call helpers for /2/users/{id}/following.
 #[allow(unused_imports)]
-use crate::x::client::Client;
+use crate::x::client::{AuthMode, Client};
 #[allow(unused_imports)]
 use crate::x::Error;
 #[allow(unused_imports)]
@@ -12,18 +12,20 @@ use reqwest::Method;
 /// GET /2/users/{id}/following
 pub async fn get(
     client: &Client,
+    auth: &AuthMode,
     req: &super::get::Request,
 ) -> Result<super::get::Response, Error> {
     let path = format!("users/{}/following", urlencoding::encode(&req.id.to_string()));
-    client.send_with_query(Method::GET, &path, req, true, false).await
+    client.send_with_query(auth, Method::GET, &path, req, true, false).await
 }
 
 /// POST /2/users/{id}/following
 pub async fn post(
     client: &Client,
+    auth: &AuthMode,
     req: &super::post::Request,
 ) -> Result<super::post::Response, Error> {
     let path = format!("users/{}/following", urlencoding::encode(&req.id.to_string()));
-    client.send(Method::POST, &path, req.body.as_ref(), false, false).await
+    client.send(auth, Method::POST, &path, req.body.as_ref(), false, false).await
 }
 

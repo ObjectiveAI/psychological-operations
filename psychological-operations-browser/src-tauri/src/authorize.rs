@@ -241,10 +241,9 @@ async fn run_flow(
     let cache_max_size = args.cache_max_size;
     let cache_ttl = std::time::Duration::from_secs(args.cache_ttl);
     let db = handle.state::<Db>().inner().clone();
-    // Use a persona-mode SDK Client (matching the kind being
-    // authorized) to write the tokens under the advisory lock —
-    // single seam for cross-process write coordination.
-    let auth_mode = match kind {
+    // Persona to act as when writing the tokens, under the advisory
+    // lock — single seam for cross-process write coordination.
+    let auth = match kind {
         PersonaKind::Psyop =>
             psychological_operations_sdk::x::client::AuthMode::Psyop(persona_name.clone()),
         PersonaKind::Agent =>
@@ -256,14 +255,13 @@ async fn run_flow(
         cache_max_size,
         cache_ttl,
         state_dir,
-        auth_mode,
         db,
     );
-    // The Client derives its persona (and the `auth_tokens` row) from
-    // `auth_mode` + the CEF cookies it consults under the hood — no
+    // The Client resolves the persona (and the `auth_tokens` row) from
+    // `auth` + the CEF cookies it consults under the hood — no
     // `PersonaKey` argument needed.
     let lock = client
-        .lock_auth()
+        .lock_auth(&auth)
         .await
         .map_err(|e| format!("lock auth.json: {e}"))?;
     client

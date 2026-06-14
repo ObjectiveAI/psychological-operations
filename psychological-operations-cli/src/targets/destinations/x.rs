@@ -17,16 +17,16 @@ pub async fn send(cfg: &X, subject: &Subject<'_>, ctx: &crate::context::Context)
         ctx.cache_max_size,
         ctx.cache_ttl,
         ctx.config.state_dir(),
-        AuthMode::Psyop(name.to_string()),
         ctx.db.clone(),
     );
+    let auth = AuthMode::Psyop(name.to_string());
 
     // Resolve the acting user via /2/users/me so the like/retweet
     // URLs can fill the {id} path segment.
     let me_req = psychological_operations_sdk::x::users::me::get::Request {
         user_fields: None, expansions: None, tweet_fields: None,
     };
-    let me = psychological_operations_sdk::x::users::me::http::get(&client, &me_req).await
+    let me = psychological_operations_sdk::x::users::me::http::get(&client, &auth, &me_req).await
         .map_err(|e| crate::error::Error::Other(format!("/2/users/me failed: {e}")))?;
     let me_user = me.data.ok_or_else(|| crate::error::Error::Other(
         "/2/users/me returned no `data`".into(),
@@ -41,7 +41,7 @@ pub async fn send(cfg: &X, subject: &Subject<'_>, ctx: &crate::context::Context)
                     id: acting_id.clone(),
                     body: Some(UsersLikesCreateRequest { tweet_id }),
                 };
-                psychological_operations_sdk::x::users::id::likes::http::post(&client, &req).await
+                psychological_operations_sdk::x::users::id::likes::http::post(&client, &auth, &req).await
                     .map_err(|e| crate::error::Error::Other(format!(
                         "x like failed for tweet {}: {e}", scored.id,
                     )))?;
@@ -51,7 +51,7 @@ pub async fn send(cfg: &X, subject: &Subject<'_>, ctx: &crate::context::Context)
                     id: acting_id.clone(),
                     body: Some(UsersRetweetsCreateRequest { tweet_id }),
                 };
-                psychological_operations_sdk::x::users::id::retweets::http::post(&client, &req).await
+                psychological_operations_sdk::x::users::id::retweets::http::post(&client, &auth, &req).await
                     .map_err(|e| crate::error::Error::Other(format!(
                         "x retweet failed for tweet {}: {e}", scored.id,
                     )))?;

@@ -3,7 +3,7 @@
 
 //! HTTP call helpers for /2/media/subtitles.
 #[allow(unused_imports)]
-use crate::x::client::Client;
+use crate::x::client::{AuthMode, Client};
 #[allow(unused_imports)]
 use crate::x::Error;
 #[allow(unused_imports)]
@@ -12,18 +12,20 @@ use reqwest::Method;
 /// POST /2/media/subtitles
 pub async fn post(
     client: &Client,
+    auth: &AuthMode,
     req: &super::post::Request,
 ) -> Result<super::post::Response, Error> {
     let path = "media/subtitles";
-    client.send(Method::POST, path, req.body.as_ref(), false, false).await
+    client.send(auth, Method::POST, path, req.body.as_ref(), false, false).await
 }
 
 /// DELETE /2/media/subtitles
 pub async fn delete(
     client: &Client,
+    auth: &AuthMode,
     req: &super::delete::Request,
 ) -> Result<super::delete::Response, Error> {
     let path = "media/subtitles";
-    client.send(Method::DELETE, path, req.body.as_ref(), false, false).await
+    client.send(auth, Method::DELETE, path, req.body.as_ref(), false, false).await
 }
 

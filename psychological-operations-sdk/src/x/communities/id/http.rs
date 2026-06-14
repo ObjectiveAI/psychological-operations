@@ -3,7 +3,7 @@
 
 //! HTTP call helpers for /2/communities/{id}.
 #[allow(unused_imports)]
-use crate::x::client::Client;
+use crate::x::client::{AuthMode, Client};
 #[allow(unused_imports)]
 use crate::x::Error;
 #[allow(unused_imports)]
@@ -12,9 +12,10 @@ use reqwest::Method;
 /// GET /2/communities/{id}
 pub async fn get(
     client: &Client,
+    auth: &AuthMode,
     req: &super::get::Request,
 ) -> Result<super::get::Response, Error> {
     let path = format!("communities/{}", urlencoding::encode(&req.id.to_string()));
-    client.send_with_query(Method::GET, &path, req, true, false).await
+    client.send_with_query(auth, Method::GET, &path, req, true, false).await
 }
 

@@ -3,7 +3,7 @@
 
 //! HTTP call helpers for /2/compliance/jobs.
 #[allow(unused_imports)]
-use crate::x::client::Client;
+use crate::x::client::{AuthMode, Client};
 #[allow(unused_imports)]
 use crate::x::Error;
 #[allow(unused_imports)]
@@ -12,18 +12,20 @@ use reqwest::Method;
 /// GET /2/compliance/jobs
 pub async fn get(
     client: &Client,
+    auth: &AuthMode,
     req: &super::get::Request,
 ) -> Result<super::get::Response, Error> {
     let path = "compliance/jobs";
-    client.send_with_query(Method::GET, path, req, true, false).await
+    client.send_with_query(auth, Method::GET, path, req, true, false).await
 }
 
 /// POST /2/compliance/jobs
 pub async fn post(
     client: &Client,
+    auth: &AuthMode,
     req: &super::post::Request,
 ) -> Result<super::post::Response, Error> {
     let path = "compliance/jobs";
-    client.send(Method::POST, path, Some(&req.body), false, false).await
+    client.send(auth, Method::POST, path, Some(&req.body), false, false).await
 }
 

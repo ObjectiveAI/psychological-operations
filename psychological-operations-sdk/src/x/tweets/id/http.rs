@@ -3,7 +3,7 @@
 
 //! HTTP call helpers for /2/tweets/{id}.
 #[allow(unused_imports)]
-use crate::x::client::Client;
+use crate::x::client::{AuthMode, Client};
 #[allow(unused_imports)]
 use crate::x::Error;
 #[allow(unused_imports)]
@@ -12,18 +12,20 @@ use reqwest::Method;
 /// GET /2/tweets/{id}
 pub async fn get(
     client: &Client,
+    auth: &AuthMode,
     req: &super::get::Request,
 ) -> Result<super::get::Response, Error> {
     let path = format!("tweets/{}", urlencoding::encode(&req.id.to_string()));
-    client.send_with_query(Method::GET, &path, req, true, false).await
+    client.send_with_query(auth, Method::GET, &path, req, true, false).await
 }
 
 /// DELETE /2/tweets/{id}
 pub async fn delete(
     client: &Client,
+    auth: &AuthMode,
     req: &super::delete::Request,
 ) -> Result<super::delete::Response, Error> {
     let path = format!("tweets/{}", urlencoding::encode(&req.id.to_string()));
-    client.send::<_, ()>(Method::DELETE, &path, None, false, false).await
+    client.send::<_, ()>(auth, Method::DELETE, &path, None, false, false).await
 }
 

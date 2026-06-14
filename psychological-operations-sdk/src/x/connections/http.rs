@@ -3,7 +3,7 @@
 
 //! HTTP call helpers for /2/connections.
 #[allow(unused_imports)]
-use crate::x::client::Client;
+use crate::x::client::{AuthMode, Client};
 #[allow(unused_imports)]
 use crate::x::Error;
 #[allow(unused_imports)]
@@ -12,18 +12,20 @@ use reqwest::Method;
 /// GET /2/connections
 pub async fn get(
     client: &Client,
+    auth: &AuthMode,
     req: &super::get::Request,
 ) -> Result<super::get::Response, Error> {
     let path = "connections";
-    client.send_with_query(Method::GET, path, req, true, false).await
+    client.send_with_query(auth, Method::GET, path, req, true, false).await
 }
 
 /// DELETE /2/connections
 pub async fn delete(
     client: &Client,
+    auth: &AuthMode,
     req: &super::delete::Request,
 ) -> Result<super::delete::Response, Error> {
     let path = "connections";
-    client.send(Method::DELETE, path, Some(&req.body), false, false).await
+    client.send(auth, Method::DELETE, path, Some(&req.body), false, false).await
 }
 
