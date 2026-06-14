@@ -2,16 +2,11 @@
 //!
 //! Exactly one of `--agent-tag` / `--me` / `--agent-instance` is
 //! required; `--parent-agent-instance-hierarchy` is only valid alongside
-//! `--agent-instance`. Two resolutions, intentionally different:
-//!
-//! - [`AgentRef::resolve_name`] — for `agents login` / `agents browser`:
-//!   collapses '/' to '_' so the result is a single filesystem path
-//!   segment (`…/browser/agent/<name>/`, flat CEF profile `agent-<name>`).
-//! - [`AgentRef::resolve_raw`] — for `agents enqueue`: verbatim, '/'
-//!   preserved (the queue stores the agent and deliverer raw).
-//!
-//! In both, the tag is used verbatim; a tag containing '/' is rejected at
-//! parse time.
+//! `--agent-instance`. The selector resolves to a single agent string
+//! via [`AgentRef::resolve_raw`], used **verbatim** everywhere — the
+//! queue stores it raw, and the browser uses it as its CEF profile path
+//! (an agent-instance-hierarchy with '/' nests into directories). No
+//! name modification: '/' is never collapsed and is allowed in tags.
 
 use clap::{ArgGroup, Args};
 use psychological_operations_db::AgentKind;
@@ -22,9 +17,8 @@ use psychological_operations_db::AgentKind;
     .multiple(false)
     .args(["agent_tag", "me", "agent_instance"]))]
 pub struct AgentRef {
-    /// Select the agent by tag, used verbatim as the name. Rejected if
-    /// it contains '/' (the name becomes a filesystem path segment).
-    #[arg(long, group = "agent_ref", value_name = "TAG", value_parser = tag_without_slash)]
+    /// Select the agent by tag, used verbatim as the name.
+    #[arg(long, group = "agent_ref", value_name = "TAG")]
     pub agent_tag: Option<String>,
 
     /// Select the configured agent instance hierarchy itself
@@ -44,12 +38,12 @@ pub struct AgentRef {
 }
 
 impl AgentRef {
-    /// The resolved agent string **without** path-safety collapsing —
-    /// the tag verbatim; `--me` / `--agent-instance` keep their '/'
-    /// separators. Used by `agents enqueue`, where the queue stores the
-    /// agent (and the deliverer) verbatim. The clap `agent_ref` group
-    /// guarantees exactly one selector is set; the final `unreachable!`
-    /// mirrors `browser::args::Args::initial_mode`.
+    /// The resolved agent string, used **verbatim** by every `agents`
+    /// subcommand — the tag as-is; `--me` / `--agent-instance` keep their
+    /// '/' separators. The queue stores it raw; `agents login` / `browser`
+    /// use it as the persona name (and hence the nested CEF profile path).
+    /// The clap `agent_ref` group guarantees exactly one selector is set;
+    /// the final `unreachable!` mirrors `browser::args::Args::initial_mode`.
     pub fn resolve_raw(&self, cfg: &crate::run::Config) -> String {
         if let Some(tag) = self.agent_tag.as_deref() {
             tag.to_string()
@@ -65,15 +59,6 @@ impl AgentRef {
         }
     }
 
-    /// The resolved persona **name** for `agents login` / `agents
-    /// browser`: [`resolve_raw`](Self::resolve_raw) with '/' collapsed to
-    /// '_' so it is a single filesystem path segment (it becomes
-    /// `…/browser/agent/<name>/` and the flat CEF profile `agent-<name>`).
-    /// The tag is already verbatim and slash-free (rejected at parse).
-    pub fn resolve_name(&self, cfg: &crate::run::Config) -> String {
-        self.resolve_raw(cfg).replace('/', "_")
-    }
-
     /// Which `agent_kind` this selector resolves to: `--agent-tag`
     /// yields [`AgentKind::AgentTag`]; `--me` / `--agent-instance`
     /// yield [`AgentKind::AgentInstanceHierarchy`].
@@ -83,17 +68,6 @@ impl AgentRef {
         } else {
             AgentKind::AgentInstanceHierarchy
         }
-    }
-}
-
-/// clap value-parser for `--agent-tag`. The tag is used verbatim as the
-/// agent `name`, which becomes a filesystem path segment / CEF profile
-/// dir, so a '/' must be rejected rather than silently mangled.
-fn tag_without_slash(s: &str) -> Result<String, String> {
-    if s.contains('/') {
-        Err(format!("agent tag must not contain '/': {s:?}"))
-    } else {
-        Ok(s.to_string())
     }
 }
 
@@ -124,44 +98,34 @@ mod tests {
     }
 
     #[test]
-    fn tag_verbatim_both_resolutions() {
-        let s = sel(Some("my-tag"), false, None, None);
-        assert_eq!(s.resolve_name(&cfg("h")), "my-tag");
-        assert_eq!(s.resolve_raw(&cfg("h")), "my-tag");
+    fn tag_verbatim() {
+        // Tags are used as-is, including any '/'.
+        assert_eq!(sel(Some("my-tag"), false, None, None).resolve_raw(&cfg("h")), "my-tag");
+        assert_eq!(sel(Some("a/b"), false, None, None).resolve_raw(&cfg("h")), "a/b");
     }
 
     #[test]
-    fn me_name_collapses_raw_keeps_slashes() {
+    fn me_keeps_slashes() {
         let s = sel(None, true, None, None);
-        assert_eq!(s.resolve_name(&cfg("a/b/c")), "a_b_c");
         assert_eq!(s.resolve_raw(&cfg("a/b/c")), "a/b/c");
     }
 
     #[test]
     fn me_default_hierarchy() {
         let s = sel(None, true, None, None);
-        assert_eq!(s.resolve_name(&cfg("psychological-operations")), "psychological-operations");
         assert_eq!(s.resolve_raw(&cfg("psychological-operations")), "psychological-operations");
     }
 
     #[test]
-    fn instance_no_parent_name_vs_raw() {
+    fn instance_no_parent_keeps_slashes() {
         let s = sel(None, false, Some("inst"), None);
-        assert_eq!(s.resolve_name(&cfg("a/b")), "a_b_inst");
         assert_eq!(s.resolve_raw(&cfg("a/b")), "a/b/inst");
     }
 
     #[test]
-    fn instance_with_parent_name_vs_raw() {
+    fn instance_with_parent_keeps_slashes() {
         let s = sel(None, false, Some("inst"), Some("p/q"));
-        assert_eq!(s.resolve_name(&cfg("ignored")), "p_q_inst");
         assert_eq!(s.resolve_raw(&cfg("ignored")), "p/q/inst");
-    }
-
-    #[test]
-    fn tag_parser_rejects_slash() {
-        assert!(tag_without_slash("a/b").is_err());
-        assert_eq!(tag_without_slash("a-b").unwrap(), "a-b");
     }
 
     #[test]

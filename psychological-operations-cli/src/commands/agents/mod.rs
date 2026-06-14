@@ -77,7 +77,7 @@ impl Commands {
     pub async fn handle(self, ctx: &crate::context::Context) -> bool {
         match self {
             Commands::Login { agent, dangerously_reset } => {
-                let name = agent.resolve_name(&ctx.config);
+                let name = agent.resolve_raw(&ctx.config);
                 crate::login::run(
                     psychological_operations_sdk::browser::auth_json::PersonaKind::Agent,
                     &name,
@@ -87,7 +87,7 @@ impl Commands {
                 .await
             }
             Commands::Browser { agent } => {
-                let name = agent.resolve_name(&ctx.config);
+                let name = agent.resolve_raw(&ctx.config);
                 crate::persona_browser::run(
                     psychological_operations_sdk::browser::auth_json::PersonaKind::Agent,
                     &name,

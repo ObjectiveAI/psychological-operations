@@ -18,10 +18,11 @@ use super::auth_json::PersonaKind;
 ///
 /// * delete its `auth_tokens` rows (every persona_twid × x_app_twid),
 /// * recursively delete its CEF profile at
-///   `<state_dir>/browser/cef-root/<kind>-<name>/` (cookies, cache).
+///   `<state_dir>/browser/cef-root/<kind>/<name>/` (cookies, cache).
 ///
-/// The `<kind>-<name>` CEF subdir mirrors `Mode::cache_subdir` for the
-/// persona's authorize/browse modes — the two ends MUST stay in sync.
+/// The CEF subdir comes from [`Mode::cache_subdir`] (via
+/// [`PersonaKind::to_mode`]) so it matches exactly what the browser
+/// wrote — including the nested directories of a slash-bearing AIH.
 pub async fn wipe_persona(
     db: &Db,
     state_dir: &Path,
@@ -31,8 +32,7 @@ pub async fn wipe_persona(
     db.auth_delete_persona(kind.db_kind(), name)
         .await
         .map_err(|e| format!("delete persona tokens: {e}"))?;
-    let kind_seg = kind.db_kind();
-    let cef_subdir = format!("{kind_seg}-{name}");
+    let cef_subdir = kind.to_mode(name).cache_subdir();
     rm_rf_optional(&state_dir.join("browser").join("cef-root").join(&cef_subdir))
         .map_err(|e| format!("wipe persona CEF profile: {e}"))?;
     Ok(())

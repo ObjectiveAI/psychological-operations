@@ -8,14 +8,13 @@
 //!
 //! Pre-flight: if the X-App is **already** fully set up
 //! (signed in + both HTML snapshots complete), the flow refuses
-//! unless `--dangerously-reset` is passed. The reset wipes the
-//! X-App folder (browser data + CEF profile) AND every named
-//! psyop/agent persona dir under `browser/{psyop,agent}/*/` —
-//! their auth.jsons are orphaned by the new X-App's twid.
-//! CEF cookies for personas (under `cef-root/<kind>-<name>/`)
-//! are intentionally preserved so personas don't have to
-//! re-sign-in to X.com; they just re-run `psyops login` /
-//! `agents login` against the new X-App.
+//! unless `--dangerously-reset` is passed. The reset clears the
+//! X-App's captured HTML + CEF profile AND every persona's stored
+//! OAuth tokens (`auth_tokens` rows) — orphaned by the new X-App's
+//! twid. CEF cookies for personas (under `cef-root/<kind>/<name>/`,
+//! nested when the AIH contains '/') are intentionally preserved so
+//! personas don't have to re-sign-in to X.com; they just re-run
+//! `psyops login` / `agents login` against the new X-App.
 //!
 //! Same stream-and-shutdown shape as `login`: the CLI pipes
 //! stdin + stdout, watches for `Output::XAppSetupSucceeded`,

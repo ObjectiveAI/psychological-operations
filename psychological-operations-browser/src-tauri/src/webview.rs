@@ -78,25 +78,13 @@ pub fn cef_root_cache_dir(handle: &AppHandle<Wry>) -> std::path::PathBuf {
         .join("cef-root")
 }
 
-/// Per-mode CEF cache subdirectory (relative to the cache root).
-/// Returned as a string because CEF's `RequestContextSettings.cache_path`
-/// takes a string path.
+/// Per-mode CEF cache subdirectory (relative to the cache root). Single
+/// source of truth is [`Mode::cache_subdir`] — the db crate's cookie
+/// probe keys off the same mapping, so they must not drift. A persona
+/// name containing `/` nests into real directories under `cef-root`
+/// (alloy persists any descendant of `root_cache_path` on disk).
 fn cache_subdir_for(mode: &Mode) -> String {
-    match mode {
-        Mode::XApp => "x-app".to_string(),
-        // Flat single-segment subdir — CEF's Chrome runtime rejects
-        // nested profile paths (`psyop/<name>`) with "Cannot create
-        // profile at path …" and silently falls back to an in-memory
-        // profile, breaking cookie persistence. `psyop-<name>` /
-        // `agent-<name>` keep them under a flat namespace just like
-        // `x-app`.
-        Mode::PsyopRead { name }
-        | Mode::PsyopAuthorize { name }
-        | Mode::PsyopBrowser { name } => format!("psyop-{name}"),
-        Mode::AgentAuthorize { name } | Mode::AgentBrowser { name } => {
-            format!("agent-{name}")
-        }
-    }
+    mode.cache_subdir()
 }
 
 /// Initial URL each mode lands on.

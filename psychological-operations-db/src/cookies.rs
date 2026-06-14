@@ -9,8 +9,9 @@
 //! and decrypt the values the same way Chromium does.
 //!
 //! Storage-only: the caller passes the resolved CEF cache subdirectory
-//! (e.g. `"x-app"`, `"psyop-<name>"`) as a string — the `Mode`→subdir
-//! mapping stays in the SDK so this crate needn't depend on it.
+//! (e.g. `"x-app"`, `"psyop/<name>"`, possibly nested when the AIH
+//! contains '/') as a string — the `Mode`→subdir mapping stays in the
+//! SDK so this crate needn't depend on it.
 
 use std::path::Path;
 

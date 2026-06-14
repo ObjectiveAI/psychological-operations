@@ -59,20 +59,25 @@ pub enum Mode {
 }
 
 impl Mode {
-    /// The flat CEF per-context cache subdirectory this mode uses under
+    /// The CEF per-context cache subdirectory this mode uses under
     /// `browser/cef-root/`. Single source of truth for the mapping —
     /// the browser's webview profile setup and the db crate's cookie
-    /// probe both key off this. Must stay flat (no nested slashes): the
-    /// CEF Chrome runtime silently falls back to an in-memory profile if
-    /// `cache_path` contains path separators.
+    /// probe both key off this.
+    ///
+    /// The persona name is used **as-is**, so an agent-instance-hierarchy
+    /// containing `/` nests into real directories (e.g.
+    /// `agent/parent/child`). CEF (alloy runtime) accepts any descendant
+    /// of `root_cache_path` as a persistent on-disk profile — depth
+    /// doesn't matter — and the consumers normalize `/`→`\` on Windows
+    /// before handing the path to CEF (`cef::path_to_cef_string`).
     pub fn cache_subdir(&self) -> String {
         match self {
             Mode::XApp => "x-app".to_string(),
             Mode::PsyopRead { name }
             | Mode::PsyopAuthorize { name }
-            | Mode::PsyopBrowser { name } => format!("psyop-{name}"),
+            | Mode::PsyopBrowser { name } => format!("psyop/{name}"),
             Mode::AgentAuthorize { name } | Mode::AgentBrowser { name } => {
-                format!("agent-{name}")
+                format!("agent/{name}")
             }
         }
     }
