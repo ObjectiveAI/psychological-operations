@@ -127,9 +127,8 @@ pub fn run() {
 
             // 2. Start the cookies watcher for the locked mode.
             let watcher_slot: tauri::State<CookiesWatcherSlot> = handle.state();
-            let data_dir = webview::mode_data_dir(handle, &initial_mode);
             *watcher_slot.0.lock().expect("watcher slot poisoned") =
-                cookies_watcher::start(handle.clone(), &initial_mode, &data_dir);
+                cookies_watcher::start(handle.clone(), &initial_mode);
 
             // 3. Start the stdin reader. It blocks on
             //    `ready_rx.recv()` before reading, so anything the

@@ -45,28 +45,6 @@ const PANEL_HEIGHT: u32 = 48;
 const DEFAULT_WIDTH: u32 = 1200;
 const DEFAULT_HEIGHT: u32 = 800;
 
-/// Returns the data-directory for the given mode rooted at
-/// `--state-dir`. Mirrors the structure of CEF's per-mode
-/// cache subdir so credentials live alongside the browser profile.
-///
-///   - X-App: `<config>/.../browser/x-app/`
-///   - Psyop "foo": `<config>/.../browser/psyop/foo/`
-pub fn mode_data_dir(handle: &AppHandle<Wry>, mode: &Mode) -> std::path::PathBuf {
-    let base = handle
-        .state::<Args>()
-        .state_dir
-        .join("browser");
-    match mode {
-        Mode::XApp => base.join("x-app"),
-        Mode::PsyopRead { name }
-        | Mode::PsyopAuthorize { name }
-        | Mode::PsyopBrowser { name } => base.join("psyop").join(name),
-        Mode::AgentAuthorize { name } | Mode::AgentBrowser { name } => {
-            base.join("agent").join(name)
-        }
-    }
-}
-
 /// The shared `root_cache_path` passed to `cef::initialize`.
 /// Per-mode caches live in subdirectories — see
 /// [`cache_subdir_for`].
@@ -107,9 +85,6 @@ pub fn create_x_app(handle: &AppHandle<Wry>, mode: &Mode) -> tauri::Result<()> {
     if handle.get_window(X_APP_WINDOW).is_some() {
         return Ok(());
     }
-
-    let data_dir = mode_data_dir(handle, mode);
-    std::fs::create_dir_all(&data_dir)?;
 
     // 1. Bare window — no auto-attached webview (we add the panel
     //    + CEF surface ourselves below).

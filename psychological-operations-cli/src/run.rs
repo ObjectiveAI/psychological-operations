@@ -114,9 +114,10 @@ pub struct Config {
     /// agent-environment contract.
     pub objectiveai_agent_remote: Option<String>,
     /// Agent instance hierarchy (env
-    /// `OBJECTIVEAI_AGENT_INSTANCE_HIERARCHY`). Required; defaults to
-    /// `"psychological-operations"` when the env var is unset.
-    /// Currently unused.
+    /// `OBJECTIVEAI_AGENT_INSTANCE_HIERARCHY`). Defaults to
+    /// `"psychological-operations"` when the env var is unset. Used as
+    /// the `--me` selector's identity and the deliverer hierarchy
+    /// stamped on `agents enqueue` rows.
     pub objectiveai_agent_instance_hierarchy: String,
 }
 

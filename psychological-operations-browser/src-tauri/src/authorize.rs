@@ -422,9 +422,6 @@ struct TokenResponse {
     refresh_token: Option<String>,
     expires_in: i64,
     scope: String,
-    #[serde(default)]
-    #[allow(dead_code)]
-    token_type: Option<String>,
 }
 
 async fn exchange_code_for_tokens(

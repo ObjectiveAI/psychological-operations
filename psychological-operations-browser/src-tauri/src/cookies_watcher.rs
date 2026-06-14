@@ -31,7 +31,6 @@
 //! in [`apply_snapshot`]. The state module + panel derivation pick
 //! it up.
 
-use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -77,15 +76,9 @@ impl Drop for Handle {
 /// `RequestContext`, not from watching different URLs. Performs
 /// an initial synchronous read + dispatch before spawning the
 /// kick loop.
-///
-/// `_data_dir` is unused — CEF's cookie store is read via the
-/// global `CookieManager` rather than by direct file access. The
-/// parameter is kept so per-mode (X-App vs psyop) scoping stays
-/// available to future signatures.
 pub fn start(
     handle: AppHandle<Wry>,
     _mode: &Mode,
-    _data_dir: &Path,
 ) -> Option<Handle> {
     let auth_url: Url = Url::parse("https://x.com/").ok()?;
 
