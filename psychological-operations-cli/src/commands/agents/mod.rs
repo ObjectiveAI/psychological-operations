@@ -6,17 +6,19 @@
 //! logged-in user (the twid-conflict guard does not fire) and have
 //! no scrape mode.
 //!
-//! All three subcommands (`login`, `browser`, `enqueue`) select their
-//! agent via the shared [`agent_ref::AgentRef`] argument group, which
-//! resolves to a single agent `name`. `login` / `browser` are thin
-//! dispatches into `crate::login::run` / `crate::persona_browser::run`
-//! with `PersonaKind::Agent`; `enqueue` lives in the `enqueue` module.
+//! Most subcommands (`login`, `browser`, `enqueue`, and the `quota`
+//! leaves) select their agent via the shared [`agent_ref::AgentRef`]
+//! argument group, which resolves to a single agent `name`. `login` /
+//! `browser` are thin dispatches into `crate::login::run` /
+//! `crate::persona_browser::run` with `PersonaKind::Agent`; `enqueue`,
+//! `notify`, and `quota` live in their own modules.
 
 use clap::Subcommand;
 
 mod agent_ref;
 pub mod enqueue;
 pub mod notify;
+pub mod quota;
 
 use agent_ref::AgentRef;
 
@@ -71,6 +73,13 @@ pub enum Commands {
     /// waiting. All sends run concurrently.
     #[command(name = "notify")]
     Notify,
+    /// Inspect/configure the per-account, per-tool-call MCP quota
+    /// (read/write limits, intervals, and per-tool costs).
+    #[command(name = "quota")]
+    Quota {
+        #[command(subcommand)]
+        command: quota::Commands,
+    },
 }
 
 impl Commands {
@@ -101,6 +110,7 @@ impl Commands {
                 enqueue::run(&name, kind, &tweet_id, &message, ctx).await
             }
             Commands::Notify => notify::run(ctx).await,
+            Commands::Quota { command } => command.handle(ctx).await,
         }
     }
 }

@@ -26,6 +26,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::PsychologicalOperationsXApiMcp;
 use crate::header_session_manager::HeaderSessionManager;
+use crate::x_api::accounts::AgentTagLister;
 use crate::x_api::session::SessionRegistry;
 
 pub async fn setup<E>(
@@ -35,20 +36,18 @@ pub async fn setup<E>(
     db:              Db,
     cache_max_size:  u64,
     cache_ttl:       Duration,
-    quota_read:      u64,
-    quota_write:     u64,
     executor:        E,
 ) -> std::io::Result<(tokio::net::TcpListener, axum::Router)>
 where
     E: CommandExecutor + Send + Sync + 'static,
     E::Error: std::fmt::Display + Send + 'static,
 {
-    // Held for API uniformity with `objectiveai-mcp`. The X-API
-    // server doesn't call back into the CLI today, so the executor
-    // is never invoked — the slot exists so embedders / supervisors
-    // treat both MCP servers identically. Wrapping in `Arc` mirrors
-    // `objectiveai-mcp/src/run.rs::setup`.
-    let _executor = Arc::new(executor);
+    // The executor backs `list_accounts` (it runs `agents instances get`
+    // on the session's AIH to discover bound tags). The generic executor
+    // isn't object-safe, so box it behind the object-safe `AgentTagLister`
+    // shim (blanket-impl'd for every executor) before handing it to the
+    // concrete server type.
+    let accounts: Arc<dyn AgentTagLister> = Arc::new(executor);
 
     let registry = Arc::new(SessionRegistry::new());
 
@@ -59,8 +58,7 @@ where
         db,
         cache_max_size,
         cache_ttl,
-        quota_read,
-        quota_write,
+        accounts,
     );
 
     let session_manager = Arc::new(HeaderSessionManager::new(registry.clone(), server.clone()));
@@ -116,8 +114,6 @@ pub async fn run<E>(
     db:              Db,
     cache_max_size:  u64,
     cache_ttl:       Duration,
-    quota_read:      u64,
-    quota_write:     u64,
     executor:        E,
 ) -> std::io::Result<()>
 where
@@ -125,8 +121,7 @@ where
     E::Error: std::fmt::Display + Send + 'static,
 {
     let (listener, app) = setup(
-        address, port, state_dir, db, cache_max_size, cache_ttl,
-        quota_read, quota_write, executor,
+        address, port, state_dir, db, cache_max_size, cache_ttl, executor,
     ).await?;
     let addr = listener.local_addr()?;
     let announcement = Output::Mcp(Mcp {

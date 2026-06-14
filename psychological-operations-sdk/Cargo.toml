@@ -44,4 +44,4 @@ starlark = "0.13.0"
 # `Stage` (FullInlineFunction*, Strategy). The default
 # features pull executor / http / env / viewer / mcp which the
 # SDK doesn't need (the CLI binary keeps the full set).
-objectiveai-sdk = { version = "2.1.1", default-features = false, features = ["cli"] }
+objectiveai-sdk = { version = "2.2.0", default-features = false, features = ["cli"] }

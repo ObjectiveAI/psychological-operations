@@ -44,13 +44,6 @@ pub enum Error {
     #[error("db: {0}")]
     Db(#[from] psychological_operations_db::Error),
 
-    /// The caller's hourly read/write API quota is exhausted —
-    /// the request was rejected before any HTTP fired. The message
-    /// is agent-facing: it names which quota, the limit, and when
-    /// to retry.
-    #[error("{0}")]
-    QuotaExceeded(String),
-
     /// Catch-all for non-categorized errors (mock-x-api dispatch
     /// failures, etc.). Prefer the typed variants above when one
     /// fits.

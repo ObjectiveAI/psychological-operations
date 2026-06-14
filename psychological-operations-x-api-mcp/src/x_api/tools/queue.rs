@@ -1,15 +1,24 @@
-//! Queue tools — read + dequeue the per-agent ingest queue.
+//! Queue tools — read + dequeue the per-account ingest queue.
+//!
+//! These are DB-only (no X API call) and quota-free, but still take a
+//! required `account` — the queue is keyed by account, so the tool reads
+//! and dequeues the entries belonging to the identity named in the arg
+//! (one of the names `list_accounts` returns).
 
-use rmcp::model::Extensions;
 use rmcp::{ErrorData, handler::server::wrapper::Parameters, schemars, tool, tool_router};
 
 use super::super::PsychologicalOperationsXApiMcp;
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
-pub struct ReadQueueRequest {}
+pub struct ReadQueueRequest {
+    #[schemars(description = "Account whose queue to read — one of the names from list_accounts.")]
+    pub account: String,
+}
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct MarkHandledRequest {
+    #[schemars(description = "Account whose queue to dequeue from — one of the names from list_accounts.")]
+    pub account: String,
     #[schemars(description = "Numeric ID of the tweet to remove from the queue.")]
     pub tweet_id: String,
 }
@@ -22,17 +31,11 @@ impl PsychologicalOperationsXApiMcp {
     )]
     async fn read_queue(
         &self,
-        Parameters(_req): Parameters<ReadQueueRequest>,
-        extensions: Extensions,
+        Parameters(req): Parameters<ReadQueueRequest>,
     ) -> Result<String, ErrorData> {
-        let state = self.resolve_session(&extensions).await?;
-        // Queue tools are DB-only — no X API call, so the persona auth
-        // is unused here.
-        let (http, _auth) = self.build_client(&state);
-
-        let entries = http
-            .db()
-            .queue_list(&state.agent)
+        let entries = self
+            .db
+            .queue_list(&req.account)
             .await
             .map_err(|e| ErrorData::internal_error(format!("queue list: {e}"), None))?;
         serde_json::to_string(&entries)
@@ -46,16 +49,10 @@ impl PsychologicalOperationsXApiMcp {
     async fn mark_handled(
         &self,
         Parameters(req): Parameters<MarkHandledRequest>,
-        extensions: Extensions,
     ) -> Result<String, ErrorData> {
-        let state = self.resolve_session(&extensions).await?;
-        // Queue tools are DB-only — no X API call, so the persona auth
-        // is unused here.
-        let (http, _auth) = self.build_client(&state);
-
-        let removed = http
-            .db()
-            .queue_delete(&state.agent, &req.tweet_id)
+        let removed = self
+            .db
+            .queue_delete(&req.account, &req.tweet_id)
             .await
             .map_err(|e| ErrorData::internal_error(format!("queue delete: {e}"), None))?;
         Ok(serde_json::json!({ "removed": removed }).to_string())

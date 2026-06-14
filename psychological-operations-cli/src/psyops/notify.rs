@@ -30,7 +30,7 @@ pub async fn notify(sub_type: &str, body: &Value, ctx: &crate::context::Context)
         path_type: viewer_send::Path::ViewerSend,
         path: path.to_string(),
         body: body.clone(),
-        jq: None,
+        base: Default::default(),
     };
     let _ = viewer_send::execute(&*ctx.executor, req, None).await;
 }

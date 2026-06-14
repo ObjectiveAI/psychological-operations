@@ -9,7 +9,6 @@ use objectiveai_sdk::cli::command::functions::{
     },
     get as functions_get,
 };
-use objectiveai_sdk::cli::command::RemotePathCommitOptionalOrFavorite;
 use objectiveai_sdk::functions::{
     FullInlineFunctionOrRemoteCommitOptional,
     FullInlineFunction,
@@ -43,8 +42,8 @@ async fn fetch_function(
     let executor = ctx.executor.clone();
     let req = functions_get::Request {
         path_type: functions_get::Path::FunctionsGet,
-        path: RemotePathCommitOptionalOrFavorite::Resolved(path.clone()),
-        jq: None,
+        path: path.clone(),
+        base: Default::default(),
     };
     let resp = functions_get::execute(&*executor, req, None)
         .await
@@ -119,11 +118,10 @@ async fn run_function_execution(
                 profile: profile_spec,
                 input: standard::RequestInput::File(input_path),
                 continuation: None,
-                retry_token: None,
                 split,
                 invert,
                 dangerous_advanced: Some(advanced),
-                jq: None,
+                base: Default::default(),
             })
         }
         Strategy::SwissSystem { pool, rounds } => {
@@ -137,13 +135,12 @@ async fn run_function_execution(
                 profile: profile_spec,
                 input: swiss_system::RequestInput::File(input_path),
                 continuation: None,
-                retry_token: None,
                 split,
                 invert,
                 pool: *pool,
                 rounds: *rounds,
                 dangerous_advanced: Some(advanced),
-                jq: None,
+                base: Default::default(),
             })
         }
     };

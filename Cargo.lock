@@ -3973,9 +3973,9 @@ dependencies = [
 
 [[package]]
 name = "objectiveai-sdk"
-version = "2.1.1"
+version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "453402b1fc6433ecd8241ef880c79e724363fcaf73a52420fe9f8c5192db63e7"
+checksum = "20d6475a219a1c2710998208e256e1fdac7ff78bca2e09cd3c4f97a33feb0605"
 dependencies = [
  "anyhow",
  "arbitrary",
@@ -4016,9 +4016,9 @@ dependencies = [
 
 [[package]]
 name = "objectiveai-sdk-macros"
-version = "2.1.1"
+version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ea4a8b06ef8f346c881a29b6616929464bb729b93d4053db27f353d1ef913cce"
+checksum = "d9cc5690b46e5671c150b657aa1cfbc067b97086104e02fbafb351589e21aa15"
 
 [[package]]
 name = "once_cell"
@@ -4495,6 +4495,7 @@ dependencies = [
  "dirs",
  "envconfig",
  "futures",
+ "humantime",
  "indexmap 2.14.0",
  "objectiveai-sdk",
  "psychological-operations-db",

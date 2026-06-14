@@ -26,15 +26,6 @@ const DEFAULT_CACHE_MAX_SIZE: u64 = 2 * 1024 * 1024 * 1024;
 /// Plumbed today, consumed by future time-based eviction.
 const DEFAULT_CACHE_TTL: Duration = Duration::from_secs(15 * 60);
 
-/// Default read quota for the X-API MCP server: max GET X-API
-/// requests per caller (agent instance hierarchy) per trailing
-/// hour.
-const DEFAULT_QUOTA_READ_PER_HOUR: u64 = 50;
-
-/// Default write quota: max non-GET (POST/PUT/DELETE/PATCH)
-/// X-API requests per caller per trailing hour.
-const DEFAULT_QUOTA_WRITE_PER_HOUR: u64 = 10;
-
 pub struct Context {
     pub config:         crate::run::Config,
     pub executor:       Arc<PluginExecutor>,
@@ -49,14 +40,6 @@ pub struct Context {
     /// Per-entry TTL passed to `x::client::Client::new`. Same
     /// rationale as `cache_max_size` — single source of truth.
     pub cache_ttl:      Duration,
-    /// Max GET (read) X-API requests per caller per trailing
-    /// hour. Passed by `mcp begin` into `x_api_mcp::run` —
-    /// single source of truth, same rationale as
-    /// `cache_max_size`.
-    pub quota_read:     u64,
-    /// Max non-GET (write) X-API requests per caller per
-    /// trailing hour. Same rationale as `quota_read`.
-    pub quota_write:    u64,
 }
 
 impl Context {
@@ -78,8 +61,6 @@ impl Context {
             db,
             cache_max_size: DEFAULT_CACHE_MAX_SIZE,
             cache_ttl: DEFAULT_CACHE_TTL,
-            quota_read: DEFAULT_QUOTA_READ_PER_HOUR,
-            quota_write: DEFAULT_QUOTA_WRITE_PER_HOUR,
         };
         // First-run seeding of the default global targets (idempotent).
         crate::config::seed_defaults(&ctx).await?;
