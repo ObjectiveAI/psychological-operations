@@ -190,18 +190,17 @@ impl PsychologicalOperationsXApiMcp {
         let qdir = direction_to_quota(dir);
         let cfg = self.db.quota_config(account).await.map_err(quota_db_err)?;
         let (limit, interval) = cfg.for_direction(qdir);
-        let cost = self
-            .db
-            .quota_tool_cost(account, tool.as_name())
-            .await
-            .map_err(quota_db_err)?;
+        // Deny only when usage is already at/above the limit. The call's
+        // own cost doesn't gate it — a single call may push usage past
+        // the limit (which then blocks the *next* same-direction call),
+        // so an expensive tool stays usable as long as there's any
+        // headroom left.
         let usage = self.quota_used(account, dir, interval).await?;
-        if usage + cost > limit {
+        if usage >= limit {
             return Err(ErrorData::invalid_params(
                 format!(
                     "{dir:?} quota exceeded for account '{account}': {usage}/{limit} used over \
-                     the trailing {interval}s; this '{}' call costs {cost}",
-                    tool.as_name(),
+                     the trailing {interval}s",
                 ),
                 None,
             ));
