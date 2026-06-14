@@ -242,26 +242,22 @@ impl PsychologicalOperationsXApiMcp {
         Ok(usage)
     }
 
-    /// One-line quota summary for `account`, prepended to a metered
-    /// tool's result so the caller can pace itself. Reflects usage AFTER
-    /// this call's own deduction (it's read post-record). Best-effort: a
-    /// db hiccup yields `None` and the response simply omits the header
-    /// rather than failing an otherwise-successful tool call.
-    async fn quota_header(&self, account: &str) -> Option<Content> {
+    /// One-line quota summary for the direction the just-run tool charged
+    /// against, prepended to its result so the caller can pace itself.
+    /// Reflects usage AFTER this call's own deduction (it's read
+    /// post-record). Best-effort: a db hiccup yields `None` and the
+    /// response simply omits the header rather than failing an
+    /// otherwise-successful tool call.
+    async fn quota_header(&self, account: &str, dir: Direction) -> Option<Content> {
         let cfg = self.db.quota_config(account).await.ok()?;
-        let read_used = self
-            .quota_used(account, Direction::Read, cfg.read_interval_secs)
-            .await
-            .ok()?;
-        let write_used = self
-            .quota_used(account, Direction::Write, cfg.write_interval_secs)
-            .await
-            .ok()?;
-        Some(Content::text(format!(
-            "[Quota — account '{account}'] reads: {read_used}/{} (per {}s), \
-             writes: {write_used}/{} (per {}s)\n\n",
-            cfg.read_limit, cfg.read_interval_secs, cfg.write_limit, cfg.write_interval_secs,
-        )))
+        let (limit, interval) = cfg.for_direction(direction_to_quota(dir));
+        let used = self.quota_used(account, dir, interval).await.ok()?;
+        let available = limit.saturating_sub(used);
+        let label = match dir {
+            Direction::Read => "Read Quota",
+            Direction::Write => "Write Quota",
+        };
+        Some(Content::text(format!("[{label}] {used} used, {available} available\n\n")))
     }
 }
 
@@ -338,7 +334,7 @@ impl ServerHandler for PsychologicalOperationsXApiMcp {
         // `read_queue`, `mark_handled`, and `list_accounts` are quota-free
         // — absent from `ToolName`, so they skip this gate (and the
         // usage header).
-        let metered_account = match ToolName::from_name(&request.name) {
+        let metered = match ToolName::from_name(&request.name) {
             Some(tool) => {
                 let account = request
                     .arguments
@@ -356,16 +352,16 @@ impl ServerHandler for PsychologicalOperationsXApiMcp {
                     })?
                     .to_owned();
                 self.enforce_quota(&account, tool).await?;
-                Some(account)
+                Some((account, tool.direction()))
             }
             None => None,
         };
         let tcc = ToolCallContext::new(self, request, context);
         let mut result = self.tool_router.call(tcc).await?;
-        // Prepend the account's post-call quota usage so the caller can
-        // pace itself across tool calls.
-        if let Some(account) = metered_account {
-            if let Some(header) = self.quota_header(&account).await {
+        // Prepend the account's post-call quota usage for the direction
+        // this tool charged against, so the caller can pace itself.
+        if let Some((account, dir)) = metered {
+            if let Some(header) = self.quota_header(&account, dir).await {
                 result.content.insert(0, header);
             }
         }
