@@ -208,12 +208,12 @@ impl PsychologicalOperationsXApiMcp {
         let usage = self.quota_used(account, dir, interval).await?;
         if usage >= limit {
             let label = match dir {
-                Direction::Read => "Read Quota",
-                Direction::Write => "Write Quota",
+                Direction::Read => "Read Quota Denial",
+                Direction::Write => "Write Quota Denial",
             };
+            let available = limit.saturating_sub(usage);
             return Ok(Some(CallToolResult::error(vec![Content::text(format!(
-                "[{label}] exceeded for account '{account}': {usage}/{limit} used over the \
-                 trailing {interval}s. Wait for the window to roll off or raise the limit.",
+                "[{label}] {usage} used, {available} available"
             ))])));
         }
         self.db
