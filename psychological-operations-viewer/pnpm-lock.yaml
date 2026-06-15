@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@objectiveai/sdk':
-        specifier: ^2.0.8
-        version: 2.0.8
+        specifier: ^2.0.10
+        version: 2.2.0
       classnames:
         specifier: ^2.5.1
         version: 2.5.1
@@ -82,8 +82,8 @@ packages:
       '@emnapi/core': ^1.7.1
       '@emnapi/runtime': ^1.7.1
 
-  '@objectiveai/sdk@2.0.8':
-    resolution: {integrity: sha512-6CHNbY8EIMNwIDElfyjoBuWLskD72z9A/ctJUjk3CyrpeXKDCxdHpDc84lJ86UZwDzIJHg9HqT40qhU/F/9IBA==}
+  '@objectiveai/sdk@2.2.0':
+    resolution: {integrity: sha512-BMfMecgV6tWyu2Ykj4iDTBphU0ZgjZTVjwuMzp/szNw/xidHmQMT6TWFPjJbuqARn2XdCIaM9PnXh+9/VndsAw==}
 
   '@oxc-project/types@0.130.0':
     resolution: {integrity: sha512-ibD2usx9JRu7f5pu2tMKMI4cpA4NgXJQoYRP4pQ7Pxmn1l6k/53qWtQWZayhYy3X4QZkt90Ot+mJEaeXouio6Q==}
@@ -742,7 +742,7 @@ snapshots:
       '@tybys/wasm-util': 0.10.2
     optional: true
 
-  '@objectiveai/sdk@2.0.8':
+  '@objectiveai/sdk@2.2.0':
     dependencies:
       zod: 4.4.3
 

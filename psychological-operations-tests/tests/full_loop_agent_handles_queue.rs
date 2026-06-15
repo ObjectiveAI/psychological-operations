@@ -71,10 +71,11 @@ async fn full_loop_agent_handles_queue() {
     );
 
     // 4b. Same notification assertion as the agent-queue test: the delivered
-    //     ClientNotification reads back as the exact `agents notify` text.
-    let pending = p.agents_logs_read_pending(vec![Target::Me]).await;
-    pending.assert_no_errors();
-    let id = pending
+    //     ClientNotification (in the agent's own logs, read by tag) reads
+    //     back as the exact `agents notify` text.
+    let logs = p.agents_logs_read_all(vec![Target::Tag { agent_tag: tag.to_string() }]).await;
+    logs.assert_no_errors();
+    let id = logs
         .items
         .iter()
         .find_map(|item| match item {
@@ -84,7 +85,7 @@ async fn full_loop_agent_handles_queue() {
                 .map(|part| part.id),
             _ => None,
         })
-        .expect("a ClientNotification text part among the pending logs");
+        .expect("a ClientNotification text part among the agent's logs");
     let by_id = p.agents_logs_read_id(id).await;
     by_id.assert_no_errors();
     let text = by_id

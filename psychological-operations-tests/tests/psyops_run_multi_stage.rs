@@ -6,11 +6,8 @@ use psychological_operations_tests::{Plugin, mock_function_stage, query_psyop};
 #[tokio::test]
 async fn psyops_run_multi_stage() {
     let p = Plugin::new("psyops_run_multi_stage");
-    let stages = vec![
-        mock_function_stage("tweet-scorer", "solo-instruction"),
-        mock_function_stage("tweet-scorer", "solo-instruction"),
-    ];
-    p.psyops_publish("test-psyop", &query_psyop("mock multi-stage", stages))
+    let stages = vec![mock_function_stage(None), mock_function_stage(None)];
+    p.psyops_publish("test-psyop", &query_psyop("mock fallback search", stages))
         .await
         .assert_no_errors();
 

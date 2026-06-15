@@ -17,7 +17,6 @@
 use std::path::PathBuf;
 
 use futures::StreamExt;
-use objectiveai_sdk::RemotePathCommitOptional;
 use indexmap::IndexMap;
 use objectiveai_sdk::agent::{
     ClientObjectiveaiMcp, ClientObjectiveaiMcpPluginEntry, ClientObjectiveaiMcpPluginMcpServer,
@@ -384,6 +383,24 @@ impl Plugin {
         self.host(req).await
     }
 
+    /// `agents logs read all` (HOST) — every log row under `targets`
+    /// (delivered or not). Target a spawned tag agent with
+    /// `Target::Tag { agent_tag }` (the agent's own logs live under its
+    /// instance, not the caller's `me`).
+    pub async fn agents_logs_read_all(
+        &self,
+        targets: Vec<Target>,
+    ) -> HostResult<logs_read_all::ResponseItem> {
+        let req = logs_read_all::Request {
+            path_type: logs_read_all::Path::AgentsLogsReadAll,
+            targets,
+            after_id: None,
+            limit: None,
+            base: Default::default(),
+        };
+        self.host(req).await
+    }
+
     /// `agents logs read id <id>` (HOST) — the single log row at
     /// `logs.messages."index" == id`.
     pub async fn agents_logs_read_id(&self, id: i64) -> HostResult<logs_read_id::Response> {
@@ -589,11 +606,14 @@ pub fn mark_handled_mock_agent(account: &str, tweet_ids: &[&str]) -> InlineAgent
             mcp_servers: Some(vec![ClientObjectiveaiMcpPluginMcpServer {
                 name: "x-api".to_string(),
                 // Forwarded as the per-request `X-OBJECTIVEAI-ARGUMENTS`
-                // header the x-api session reads `mode` from → FULL mode.
-                arguments: Some(IndexMap::from([(
-                    "mode".to_string(),
-                    Some("full".to_string()),
-                )])),
+                // header. The x-api session reads `mode` (→ FULL, so
+                // mark_handled is visible) and `agent` (the account it
+                // operates as — required; otherwise the session errors
+                // with "missing agent").
+                arguments: Some(IndexMap::from([
+                    ("mode".to_string(), Some("full".to_string())),
+                    ("agent".to_string(), Some(account.to_string())),
+                ])),
             }]),
         }],
         tools: Vec::new(),
@@ -601,18 +621,47 @@ pub fn mark_handled_mock_agent(account: &str, tweet_ids: &[&str]) -> InlineAgent
     InlineAgentBase::Mock(base)
 }
 
-/// A `function` scoring stage pointing at a `remote:mock` `function` +
-/// `profile` — the host serves these deterministically in mock mode, so
-/// no external API is involved.
-pub fn mock_function_stage(function: &str, profile: &str) -> Stage {
+/// A `function` scoring stage backed by an INLINE `vector.function` + an
+/// INLINE profile with a deterministic **mock** agent — no fixtures, no
+/// remote. (`remote:mock` named functions don't exist in the clean-slate
+/// model and aren't supported by the host's `functions get`.) The function
+/// ranks the ingested posts in one `vector.completion` task whose
+/// `responses` are built per-item via Starlark (so the vote vector length
+/// matches the post count) and whose `task_output_l1_normalized` output
+/// yields the per-post score array the psyop pipeline extracts. Pass
+/// `top_logprobs` to exercise a logprobs swarm.
+pub fn mock_function_stage(top_logprobs: Option<u64>) -> Stage {
+    let function: FullInlineFunctionOrRemoteCommitOptional = serde_json::from_value(
+        serde_json::json!({
+            "type": "vector.function",
+            "tasks": [{
+                "type": "vector.completion",
+                "messages": [{ "role": "user", "content": "Rank these posts by quality." }],
+                "responses": {
+                    "$starlark": "[[{'type': 'text', 'text': item['text']}] for item in input['items']]"
+                },
+                "output": { "$special": "task_output_l1_normalized" }
+            }]
+        }),
+    )
+    .expect("inline vector.function deserializes");
+
+    let agent = match top_logprobs {
+        Some(n) => serde_json::json!({
+            "upstream": "mock", "output_mode": "instruction", "top_logprobs": n
+        }),
+        None => serde_json::json!({ "upstream": "mock", "output_mode": "instruction" }),
+    };
+    let profile: InlineProfileOrRemoteCommitOptional = serde_json::from_value(serde_json::json!({
+        "agents": [agent],
+        "weights": [1.0]
+    }))
+    .expect("inline profile deserializes");
+
     Stage::Function {
         base: StageBase { output_top: None },
-        function: FullInlineFunctionOrRemoteCommitOptional::Remote(
-            RemotePathCommitOptional::Mock { name: function.to_string() },
-        ),
-        profile: InlineProfileOrRemoteCommitOptional::Remote(
-            RemotePathCommitOptional::Mock { name: profile.to_string() },
-        ),
+        function,
+        profile,
         strategy: Strategy::Default,
         invert: false,
         images: false,

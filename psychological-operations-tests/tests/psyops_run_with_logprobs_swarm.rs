@@ -6,8 +6,8 @@ use psychological_operations_tests::{Plugin, mock_function_stage, query_psyop};
 #[tokio::test]
 async fn psyops_run_with_logprobs_swarm() {
     let p = Plugin::new("psyops_run_with_logprobs_swarm");
-    let stages = vec![mock_function_stage("tweet-scorer", "high-logprobs-duo")];
-    p.psyops_publish("test-psyop", &query_psyop("logprobs duo swarm", stages))
+    let stages = vec![mock_function_stage(Some(15))];
+    p.psyops_publish("test-psyop", &query_psyop("mock fallback search", stages))
         .await
         .assert_no_errors();
 

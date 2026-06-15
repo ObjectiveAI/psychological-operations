@@ -85,11 +85,13 @@ async fn full_loop_agent_queue() {
         instances.items.len(),
     );
 
-    // 8. Pending logs hold the delivered ClientNotification — take its text
-    //    part's id (`logs.messages."index"`).
-    let pending = p.agents_logs_read_pending(vec![Target::Me]).await;
-    pending.assert_no_errors();
-    let id = pending
+    // 8. The spawned agent's logs hold the delivered ClientNotification —
+    //    read them by tag (the agent's logs live under its own instance,
+    //    not the caller's `me`) and take its text part's id
+    //    (`logs.messages."index"`).
+    let logs = p.agents_logs_read_all(vec![Target::Tag { agent_tag: tag.to_string() }]).await;
+    logs.assert_no_errors();
+    let id = logs
         .items
         .iter()
         .find_map(|item| match item {
@@ -99,7 +101,7 @@ async fn full_loop_agent_queue() {
                 .map(|part| part.id),
             _ => None,
         })
-        .expect("a ClientNotification text part among the pending logs");
+        .expect("a ClientNotification text part among the agent's logs");
 
     // 9. Read that row by id and assert the text is exactly the notification
     //    `agents notify` enqueued.
