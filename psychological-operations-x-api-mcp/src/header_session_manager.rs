@@ -270,16 +270,15 @@ fn extract_session_state(message: &ClientJsonRpcMessage) -> Result<SessionState,
              and {HEADER_AGENT_INSTANCE_HIERARCHY} header also absent or empty"
         ))?;
 
-    // `mode`: JSON args only; no header fallback. Optional —
-    // missing defaults to `Mode::Readonly`. Only a malformed
-    // value (something other than 'readonly' / 'full') is an
-    // error.
-    let mode = match lookup_string_ci(&args, "mode") {
-        Some(s) => parse_mode(&s).ok_or_else(|| {
-            format!("mode: expected 'readonly' or 'full', got {s:?}")
-        })?,
-        None => Mode::Readonly,
-    };
+    // `mode`: JSON args only; no header fallback. REQUIRED — no
+    // default. Absent/empty is an error, and so is a malformed value
+    // (anything other than 'readonly' / 'full').
+    let mode_str = lookup_string_ci(&args, "mode").ok_or_else(|| {
+        format!("missing mode: {HEADER_ARGUMENTS}[\"mode\"] absent or empty")
+    })?;
+    let mode = parse_mode(&mode_str).ok_or_else(|| {
+        format!("mode: expected 'readonly' or 'full', got {mode_str:?}")
+    })?;
 
     // Header absent ⇒ the resolved agent (which, in that case,
     // necessarily came from the args map) stands in as the

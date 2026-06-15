@@ -46,14 +46,15 @@ pub enum XApiCommands {
     /// below). Quota is per-account, per-tool-call, configured via
     /// `agents quota`.
     Begin {
-        /// Accepted for launch-command compatibility, then DISCARDED.
+        /// REQUIRED for launch-command compatibility, then DISCARDED.
         /// objectiveai appends `--mode <mode>` when it launches a plugin
         /// MCP server, but this server reads the session's mode (and
         /// agent) per-request from the `X-OBJECTIVEAI-ARGUMENTS` header,
-        /// not from this flag. Validated strictly: only the real `Mode`
-        /// values (`readonly` / `full`) parse.
+        /// not from this flag. Required (no default) and validated
+        /// strictly: only the real `Mode` values (`readonly` / `full`)
+        /// parse.
         #[arg(long, value_enum)]
-        mode: Option<Mode>,
+        mode: Mode,
     },
 }
 

@@ -28,7 +28,8 @@
 //!     header.
 //!
 //! `agent` is required; missing from both sources is a hard error.
-//! `mode` is optional; missing defaults to [`Mode::Readonly`].
+//! `mode` is required too; missing or malformed is a hard error (no
+//! [`Mode::Readonly`] default).
 //!
 //! ## In-memory only
 //!
