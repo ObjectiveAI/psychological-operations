@@ -9,11 +9,11 @@ pub async fn send(cfg: &X, subject: &Subject<'_>, ctx: &crate::context::Context)
         UsersLikesCreateRequest, UsersRetweetsCreateRequest,
     };
 
-    let Subject::Psyop { name, psyop, output } = subject;
+    let Subject::Psyop { name, output, .. } = subject;
 
     let client = Client::new(
         reqwest::Client::new(),
-        psyop.mock_enabled(),
+        /* mock */ false,
         ctx.cache_max_size,
         ctx.cache_ttl,
         ctx.config.state_dir(),

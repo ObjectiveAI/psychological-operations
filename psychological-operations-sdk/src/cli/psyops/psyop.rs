@@ -55,16 +55,6 @@ pub struct PsyOp {
     #[serde(default = "default_true")]
     pub query_when_for_you_queued: bool,
 
-    /// When `Some(true)`, every X v2 HTTP call this psyop's run
-    /// would otherwise make short-circuits to the in-process
-    /// deterministic mock at `psychological_operations_sdk::x::mock` — zero outbound
-    /// network traffic to X. objectiveai function / profile calls
-    /// are unaffected (they still hit the real network). Absent /
-    /// `Some(false)` → real X. Replaces the older
-    /// `PSYCHOLOGICAL_OPERATIONS_MOCK_X_API` process-wide env var.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub mock: Option<bool>,
-
     /// Multi-stage scoring pipeline. Posts are scored by `stages[0]`,
     /// optionally narrowed via the stage's `output_threshold` /
     /// `output_top`, then fed to `stages[1]`, and so on. `None` or
@@ -100,12 +90,6 @@ fn skip_stages(s: &Option<Vec<Stage>>) -> bool {
 }
 
 impl PsyOp {
-    /// Whether this psyop runs against the in-process X mock instead
-    /// of the real X API. Absent / `Some(false)` → real X.
-    pub fn mock_enabled(&self) -> bool {
-        self.mock.unwrap_or(false)
-    }
-
     /// Publish-time consistency check. Returns a free-form error
     /// string; CLI callers wrap with their own `Error::InvalidPsyop`
     /// variant.

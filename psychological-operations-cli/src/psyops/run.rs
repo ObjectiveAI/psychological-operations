@@ -130,15 +130,12 @@ async fn run_all_inner(
             .emit();
             continue;
         }
-        // X-app preflight is pointless for mocked psyops — they never hit
-        // the real API.
-        if !psyop.mock_enabled() {
-            if let Err(e) =
-                psychological_operations_sdk::x::x_app::config::ensure_setup(db).await
-            {
-                emit_run_failed(&name, &format!("x_app: {e}"));
-                continue;
-            }
+        // X-app preflight — every psyop hits the real X API.
+        if let Err(e) =
+            psychological_operations_sdk::x::x_app::config::ensure_setup(db).await
+        {
+            emit_run_failed(&name, &format!("x_app: {e}"));
+            continue;
         }
         // Interval gate — applies to explicitly-named psyops too: naming
         // a psyop never bypasses its throttle. validate() guarantees the
@@ -166,10 +163,10 @@ async fn run_all_inner(
     // Phase A — `for_you` collection, strictly SEQUENTIAL: it drives the
     // single CEF browser and blocks on the operator closing each window.
     // A collect failure drops that psyop from the run set (per-psyop,
-    // non-fatal). Mocked runs skip it (no browser).
+    // non-fatal).
     let mut ready: Vec<(String, PsyOp)> = Vec::with_capacity(runnable.len());
     for (name, psyop) in runnable {
-        if psyop.for_you.is_some() && !psyop.mock_enabled() {
+        if psyop.for_you.is_some() {
             if let Err(e) = super::collect::collect_for_you(db, &name, ctx).await {
                 emit_run_failed(&name, &e.to_string());
                 continue;
@@ -216,7 +213,7 @@ async fn run_scored(
     ctx: &crate::context::Context,
 ) -> Result<Output, Error> {
     let db = &ctx.db;
-    let http = make_http_client(psyop.mock_enabled(), ctx);
+    let http = make_http_client(ctx);
     // Every X API call in this pipeline acts as the master X-App.
     let auth = AuthMode::XApp;
 
@@ -694,10 +691,10 @@ async fn run_queries(
 
 // -- X API --------------------------------------------------------------------
 
-fn make_http_client(mock: bool, ctx: &crate::context::Context) -> Client {
+fn make_http_client(ctx: &crate::context::Context) -> Client {
     Client::new(
         reqwest::Client::new(),
-        mock,
+        /* mock */ false,
         ctx.cache_max_size,
         ctx.cache_ttl,
         ctx.config.state_dir(),

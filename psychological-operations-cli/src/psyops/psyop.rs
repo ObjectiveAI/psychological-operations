@@ -1,5 +1,5 @@
 //! Persistence for psyop definitions. The `PsyOp` struct + its
-//! `validate` / `mock_enabled` methods live in
+//! `validate` method live in
 //! `psychological_operations_sdk::cli::psyops::psyop`; this file is the
 //! load/save layer over the db crate's `psyops` table (name → JSONB
 //! definition). Git/commit versioning was dropped — a psyop is keyed by
