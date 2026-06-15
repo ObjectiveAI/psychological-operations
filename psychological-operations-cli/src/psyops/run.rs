@@ -130,12 +130,17 @@ async fn run_all_inner(
             .emit();
             continue;
         }
-        // X-app preflight — every psyop hits the real X API.
-        if let Err(e) =
-            psychological_operations_sdk::x::x_app::config::ensure_setup(db).await
-        {
-            emit_run_failed(&name, &format!("x_app: {e}"));
-            continue;
+        // X-app preflight — a non-mock psyop hits the real X API, so the
+        // X-App must be signed in + set up. Mock mode short-circuits every
+        // X call to the in-process deterministic mock, so it needs no
+        // X-App (and the browser-based setup can't run headlessly anyway).
+        if !ctx.config.mock {
+            if let Err(e) =
+                psychological_operations_sdk::x::x_app::config::ensure_setup(db).await
+            {
+                emit_run_failed(&name, &format!("x_app: {e}"));
+                continue;
+            }
         }
         // Interval gate — applies to explicitly-named psyops too: naming
         // a psyop never bypasses its throttle. validate() guarantees the

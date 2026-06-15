@@ -17,12 +17,19 @@
 use std::path::PathBuf;
 
 use futures::StreamExt;
+use objectiveai_sdk::RemotePathCommitOptional;
 use objectiveai_sdk::cli::command::CommandExecutor;
 use objectiveai_sdk::cli::command::binary::{BinaryExecutor, Error as ExecError};
 use objectiveai_sdk::cli::command::plugins::run as plugins_run;
+use objectiveai_sdk::functions::executions::request::Strategy;
+use objectiveai_sdk::functions::{
+    FullInlineFunctionOrRemoteCommitOptional, InlineProfileOrRemoteCommitOptional,
+};
 use psychological_operations_sdk::cli::Output;
 use psychological_operations_sdk::cli::destinations::{DeliverySummary, Destination};
-use psychological_operations_sdk::cli::psyops::{PsyOp, PsyopEntry, PublishedPsyop};
+use psychological_operations_sdk::cli::psyops::{
+    PsyOp, PsyopEntry, PublishedPsyop, Query, SearchEndpoint, SortBy, Stage, StageBase,
+};
 use serde_json::Value;
 
 /// The plugin coordinate installed under `.objectiveai/bin/plugins/`.
@@ -146,6 +153,16 @@ impl Plugin {
     pub async fn targets_deliver(&self, sel: Selector<'_>) -> RunResult {
         let mut v = vec!["targets".into(), "deliver".into()];
         sel.append(&mut v);
+        self.dispatch(v).await
+    }
+
+    /// `targets add (--global | --psyop <name>) <json>` — the destination
+    /// is a TYPED [`Destination`], serialized to the JSON the CLI expects.
+    pub async fn targets_add(&self, sel: Selector<'_>, dest: &Destination) -> RunResult {
+        let json = serde_json::to_string(dest).expect("destination serializes");
+        let mut v = vec!["targets".into(), "add".into()];
+        sel.append(&mut v);
+        v.push(json);
         self.dispatch(v).await
     }
 
@@ -313,6 +330,48 @@ impl Dir {
     }
 }
 
+/// Build a minimal valid [`PsyOp`] that ingests via one deterministic
+/// mock-X search `query` (no `for_you` — tests must never configure it,
+/// since for-you collection drives the real CEF browser), with the given
+/// scoring `stages` (empty = no scoring → max-score survivors).
+pub fn query_psyop(query: &str, stages: Vec<Stage>) -> PsyOp {
+    PsyOp {
+        queries: Some(vec![Query {
+            query: query.to_string(),
+            endpoint: SearchEndpoint::Recent,
+            priority: None,
+            filter: None,
+        }]),
+        for_you: None,
+        interval: "1h".to_string(),
+        min_posts: 2,
+        max_posts: 10,
+        sort: SortBy::Newest,
+        query_when_for_you_queued: true,
+        stages: if stages.is_empty() { None } else { Some(stages) },
+    }
+}
+
+/// A `function` scoring stage pointing at a `remote:mock` `function` +
+/// `profile` — the host serves these deterministically in mock mode, so
+/// no external API is involved.
+pub fn mock_function_stage(function: &str, profile: &str) -> Stage {
+    Stage::Function {
+        base: StageBase { output_top: None },
+        function: FullInlineFunctionOrRemoteCommitOptional::Remote(
+            RemotePathCommitOptional::Mock { name: function.to_string() },
+        ),
+        profile: InlineProfileOrRemoteCommitOptional::Remote(
+            RemotePathCommitOptional::Mock { name: profile.to_string() },
+        ),
+        strategy: Strategy::Default,
+        invert: false,
+        images: false,
+        videos: false,
+        output_threshold: None,
+    }
+}
+
 impl Drop for Plugin {
     fn drop(&mut self) {
         // Best-effort teardown: kill this state's embedded postgres so
@@ -369,6 +428,20 @@ impl RunResult {
             self.outputs,
         );
         self
+    }
+
+    /// How many mid-stream events have `event == name` (e.g.
+    /// `"stage_begin"`, `"query_complete"`, `"target_delivered"`).
+    pub fn event_count(&self, name: &str) -> usize {
+        self.events
+            .iter()
+            .filter(|e| e.get("event").and_then(|v| v.as_str()) == Some(name))
+            .count()
+    }
+
+    /// True iff at least one mid-stream event has `event == name`.
+    pub fn has_event(&self, name: &str) -> bool {
+        self.event_count(name) > 0
     }
 
     /// The first `psyops list` result.
