@@ -2,6 +2,16 @@
 name = "psychological-operations-tests"
 version = "0.1.0"
 edition = "2024"
-description = "Cross-crate integration tests for psychological-operations. Tests live under tests/; the lib is intentionally minimal. Hello-world scaffold for now."
+description = "Cross-crate integration tests for psychological-operations. Every test drives the prebuilt objectiveai binary under .objectiveai/ via the SDK BinaryExecutor, in its own isolated OBJECTIVEAI_STATE; setup + actions + assertions all go through the executor (no filesystem reads)."
 
 [dependencies]
+# Drive the objectiveai host: BinaryExecutor (cli-executor) + the
+# `plugins run` command types and cli::Error (cli).
+objectiveai-sdk = { version = "2.2.0", default-features = false, features = ["cli", "cli-executor"] }
+# Deserialize the nested inner plugin output (cli::Output + the psyops /
+# targets DTOs) and build inline psyop definitions as typed structs.
+psychological-operations-sdk = { path = "../psychological-operations-sdk" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "io-util"] }
+futures = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

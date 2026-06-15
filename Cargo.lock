@@ -4561,6 +4561,14 @@ dependencies = [
 [[package]]
 name = "psychological-operations-tests"
 version = "0.1.0"
+dependencies = [
+ "futures",
+ "objectiveai-sdk",
+ "psychological-operations-sdk",
+ "serde",
+ "serde_json",
+ "tokio",
+]
 
 [[package]]
 name = "psychological-operations-x-api-mcp"

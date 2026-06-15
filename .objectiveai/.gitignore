@@ -1,0 +1,8 @@
+# Everything under .objectiveai/ is runtime state — the per-test
+# OBJECTIVEAI_STATE dirs (state/<name>/, each with its own postgres
+# cluster), logs, and the extracted postgres binaries — EXCEPT this file
+# and the committed bin/ scaffold (which has its own .gitignore keeping
+# only itself + the plugins/ tree).
+/*
+!/.gitignore
+!/bin/
