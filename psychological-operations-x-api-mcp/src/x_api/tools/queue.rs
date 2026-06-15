@@ -5,9 +5,11 @@
 //! and dequeues the entries belonging to the identity named in the arg
 //! (one of the names `list_accounts` returns).
 
+use rmcp::model::{CallToolResult, Content};
 use rmcp::{ErrorData, handler::server::wrapper::Parameters, schemars, tool, tool_router};
 
 use super::super::PsychologicalOperationsXApiMcp;
+use super::super::tool_error::{ToolError, finish};
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct ReadQueueRequest {
@@ -19,8 +21,10 @@ pub struct ReadQueueRequest {
 pub struct MarkHandledRequest {
     #[schemars(description = "Account whose queue to dequeue from — one of the names from list_accounts.")]
     pub account: String,
-    #[schemars(description = "Numeric ID of the tweet to remove from the queue.")]
-    pub tweet_id: String,
+    #[schemars(
+        description = "Numeric IDs of the tweets to remove from the queue."
+    )]
+    pub tweet_ids: Vec<String>,
 }
 
 #[tool_router(router = queue_tools, vis = "pub")]
@@ -44,17 +48,26 @@ impl PsychologicalOperationsXApiMcp {
 
     #[tool(
         name = "mark_handled",
-        description = "Remove a tweet from the queue."
+        description = "Remove one or more tweets from the queue."
     )]
     async fn mark_handled(
         &self,
         Parameters(req): Parameters<MarkHandledRequest>,
-    ) -> Result<String, ErrorData> {
-        let removed = self
-            .db
-            .queue_delete(&req.account, &req.tweet_id)
-            .await
-            .map_err(|e| ErrorData::internal_error(format!("queue delete: {e}"), None))?;
-        Ok(serde_json::json!({ "removed": removed }).to_string())
+    ) -> Result<CallToolResult, ErrorData> {
+        finish(async move {
+            let missing = self.db.queue_delete_many(&req.account, &req.tweet_ids).await?;
+            // Some id wasn't queued → the batch was rolled back (nothing
+            // removed). That's the agent referencing items it can't
+            // resolve → agent-facing.
+            if !missing.is_empty() {
+                return Err(ToolError::agent(format!(
+                    "not in the queue for account '{}': {}. Nothing was removed (all-or-nothing).",
+                    req.account,
+                    missing.join(", "),
+                )));
+            }
+            let body = serde_json::json!({ "removed": req.tweet_ids.len() }).to_string();
+            Ok(CallToolResult::success(vec![Content::text(body)]))
+        }.await)
     }
 }

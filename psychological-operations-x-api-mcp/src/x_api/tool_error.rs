@@ -69,6 +69,14 @@ impl From<serde_json::Error> for ToolError {
     }
 }
 
+impl From<psychological_operations_db::Error> for ToolError {
+    /// A persistence-layer failure (postgres) — infra, not the agent's
+    /// doing → system.
+    fn from(e: psychological_operations_db::Error) -> Self {
+        ToolError::System(ErrorData::internal_error(format!("db: {e}"), None))
+    }
+}
+
 /// Collapse a tool body's `Result<_, ToolError>` into the rmcp contract:
 /// a system fault becomes the `Err(ErrorData)` protocol error; an agent
 /// fault becomes an `is_error` `CallToolResult` the model can read.

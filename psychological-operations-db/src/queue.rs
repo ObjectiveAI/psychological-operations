@@ -13,7 +13,8 @@
 //!
 //! Every row records `agent_kind` — whether `agent` is an `agent_tag`
 //! or an `agent_instance_hierarchy`. Agent-side, the `read_queue` MCP
-//! tool lists pending entries and `mark_handled` removes one.
+//! tool lists pending entries and `mark_handled` removes one or more
+//! (atomically, all-or-nothing).
 
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
@@ -144,15 +145,38 @@ impl Db {
             .collect())
     }
 
-    /// Delete `(agent, tweet_id)` if present. Returns `true` if a row
-    /// was removed.
-    pub async fn queue_delete(&self, agent: &str, tweet_id: &str) -> Result<bool, Error> {
-        let result = sqlx::query("DELETE FROM queue WHERE agent = $1 AND tweet_id = $2")
-            .bind(agent)
-            .bind(tweet_id)
-            .execute(&self.pool)
-            .await?;
-        Ok(result.rows_affected() > 0)
+    /// Delete every `(agent, tweet_id)` in `tweet_ids` **atomically and
+    /// all-or-nothing**: the deletes run in one transaction, and unless
+    /// *every* requested id matched a row the transaction is rolled back —
+    /// so the queue is left untouched whenever any id is absent.
+    ///
+    /// Returns the ids that were **not** present. An empty vec means all
+    /// were deleted and the transaction committed; a non-empty vec means
+    /// nothing was deleted (rolled back) and names the offending ids.
+    pub async fn queue_delete_many(
+        &self,
+        agent: &str,
+        tweet_ids: &[String],
+    ) -> Result<Vec<String>, Error> {
+        let mut tx = self.pool.begin().await?;
+        let mut missing = Vec::new();
+        for tweet_id in tweet_ids {
+            let result = sqlx::query("DELETE FROM queue WHERE agent = $1 AND tweet_id = $2")
+                .bind(agent)
+                .bind(tweet_id)
+                .execute(&mut *tx)
+                .await?;
+            if result.rows_affected() == 0 {
+                missing.push(tweet_id.clone());
+            }
+        }
+        if missing.is_empty() {
+            tx.commit().await?;
+        } else {
+            // All-or-nothing: a single absent id voids the whole batch.
+            tx.rollback().await?;
+        }
+        Ok(missing)
     }
 }
 
