@@ -48,10 +48,13 @@ pub enum Commands {
         #[command(flatten)]
         args: PublishArgs,
     },
-    /// Run a psyop end-to-end. `--name X` selects the psyop.
+    /// Run psyops end-to-end. Repeat `--name X --name Y` to run exactly
+    /// those psyops; omit `--name` entirely to run every psyop that can
+    /// run right now. In both cases a psyop is skipped unless its
+    /// `interval` has elapsed since its last successful run.
     Run {
         #[arg(long)]
-        name: Option<String>,
+        name: Vec<String>,
         /// Pass-through to `objectiveai` for deterministic mock
         /// outputs. Used by integration tests; optional otherwise.
         #[arg(long)]
@@ -101,7 +104,7 @@ impl Commands {
             }
             Commands::Publish { args } => psyops::publish(args, ctx).await,
             Commands::Run { name, seed } => {
-                psyops::run::run_all(name.as_deref(), seed, ctx).await
+                psyops::run::run_all(name, seed, ctx).await
             }
             Commands::Login { name, dangerously_reset } => {
                 crate::login::run(

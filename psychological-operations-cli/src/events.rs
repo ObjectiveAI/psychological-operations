@@ -88,6 +88,12 @@ pub enum Event {
     /// (exit code stays 0); `remaining_secs` is how much longer
     /// the operator has to wait.
     PsyopSkippedInterval  { psyop: String, interval: String, remaining_secs: u64 },
+    /// One psyop in a `psyops run` batch hit a hard error (failed to
+    /// load, X-App not set up, `for_you` collection failed, or the run
+    /// itself errored). Emitted per-psyop so it doesn't abort the other
+    /// psyops; the command exit code stays 0 (only db/infra errors are
+    /// fatal).
+    PsyopRunFailed        { psyop: String, error: String },
 }
 
 impl Event {
@@ -104,7 +110,8 @@ impl Event {
             | Event::DeliveryFailed { .. }
             | Event::BrowserError { .. }
             | Event::PsyopInvalidAtRun { .. }
-            | Event::PsyopSkippedInterval { .. } => Some(Level::Warn),
+            | Event::PsyopSkippedInterval { .. }
+            | Event::PsyopRunFailed { .. } => Some(Level::Warn),
             _ => None,
         }
     }

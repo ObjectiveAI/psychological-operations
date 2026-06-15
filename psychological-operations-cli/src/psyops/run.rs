@@ -1,6 +1,11 @@
-//! `psyops run` — execute a single psyop end-to-end.
+//! `psyops run` — execute one or more psyops end-to-end.
 //!
-//! Per-psyop flow:
+//! `run_all` resolves which psyops to run (an explicit `--name` list, or
+//! every enabled psyop), drops any whose `interval` hasn't elapsed, runs
+//! the interactive `for_you` browser collection **sequentially**, then
+//! runs each psyop's scoring/delivery (`run_scored`) **in parallel**.
+//!
+//! Per-psyop flow (`run_scored`):
 //! 1. Drain the for_you_queue, hydrating each id via X v2 `/2/tweets/{id}`
 //!    and persisting via `Db::insert_post(_, _, _, Origin::ForYou)`.
 //! 2. Read every unscored tweet for `(psyop, commit)` with its origins.
@@ -27,6 +32,9 @@
 
 use std::collections::{BTreeMap, HashMap};
 
+use futures::StreamExt;
+use futures::stream::FuturesUnordered;
+
 use crate::db::{Db, Origin, Post};
 use crate::error::Error;
 use crate::score::{self, ScoredPost};
@@ -41,87 +49,176 @@ use psychological_operations_sdk::x::types::TweetId;
 use crate::psyops::SearchEndpoint;
 use super::{PsyOp, Query};
 
-/// CLI entrypoint kept for `psyops::Commands::Run` — runs the psyop
-/// named by `name_filter`.
+/// CLI entrypoint for `psyops::Commands::Run`.
+///
+/// `names` selects which psyops to run: a non-empty list runs exactly
+/// those; an empty list runs every enabled psyop. Either way a psyop only
+/// runs if its `interval` has elapsed since its last successful run.
+///
+/// Two phases: the interactive `for_you` browser collection runs
+/// **sequentially** (one CEF browser at a time), then — once every
+/// selected psyop has collected — the scoring/delivery runs **in
+/// parallel**.
 pub async fn run_all(
-    name_filter: Option<&str>,
+    names: Vec<String>,
     seed: Option<i64>,
     ctx: &crate::context::Context,
 ) -> bool {
-    crate::output::emit_result(async {
-        let name = name_filter.ok_or_else(|| {
-            Error::Other("psyops run requires --name <psyop>".into())
-        })?;
-        run_psyop(name, seed, ctx).await
-    }.await)
+    crate::output::emit_result(run_all_inner(names, seed, ctx).await)
 }
 
-pub async fn run_psyop(
+async fn run_all_inner(
+    names: Vec<String>,
+    seed: Option<i64>,
+    ctx: &crate::context::Context,
+) -> Result<Output, Error> {
+    let db = &ctx.db;
+
+    // Load the (name, PsyOp) pairs, and decide whether an interval skip
+    // is announced:
+    //
+    // * Names given → load each named psyop DIRECTLY and in parallel —
+    //   exact name matches only. An interval-blocked named psyop still
+    //   emits `PsyopSkippedInterval`: you asked for it by name, so you
+    //   hear that it isn't due yet.
+    // * No names → fetch every enabled psyop in one shot. Psyops outside
+    //   their interval are skipped SILENTLY — "run whatever can run".
+    let (loaded, announce_interval): (Vec<(String, PsyOp)>, bool) = if names.is_empty() {
+        let mut loaded = Vec::new();
+        for (name, def, _disabled) in db
+            .psyop_list()
+            .await?
+            .into_iter()
+            .filter(|(_, _, disabled)| !disabled)
+        {
+            match serde_json::from_value::<PsyOp>(def) {
+                Ok(psyop) => loaded.push((name, psyop)),
+                Err(e) => emit_run_failed(&name, &e.to_string()),
+            }
+        }
+        (loaded, false)
+    } else {
+        let mut loads: FuturesUnordered<_> = names
+            .into_iter()
+            .map(|name| async move {
+                let result = super::psyop::load(&name, ctx).await;
+                (name, result)
+            })
+            .collect();
+        let mut loaded = Vec::new();
+        while let Some((name, result)) = loads.next().await {
+            match result {
+                Ok(psyop) => loaded.push((name, psyop)),
+                Err(e) => emit_run_failed(&name, &e.to_string()),
+            }
+        }
+        (loaded, true)
+    };
+
+    // Resolve the runnable set: validate + X-app preflight + interval
+    // gate. Each non-runnable psyop emits its own event (except a silent
+    // interval skip in the no-names case) and is dropped; only db errors
+    // abort the batch.
+    let mut runnable: Vec<(String, PsyOp)> = Vec::new();
+    for (name, psyop) in loaded {
+        if let Err(reason) = psyop.validate() {
+            // Invalid psyop at run-time → skip + warn, not a failure.
+            crate::output::OutputResult::from(crate::events::Event::PsyopInvalidAtRun {
+                psyop: name.clone(),
+                reason,
+            })
+            .emit();
+            continue;
+        }
+        // X-app preflight is pointless for mocked psyops — they never hit
+        // the real API.
+        if !psyop.mock_enabled() {
+            if let Err(e) =
+                psychological_operations_sdk::x::x_app::config::ensure_setup(db).await
+            {
+                emit_run_failed(&name, &format!("x_app: {e}"));
+                continue;
+            }
+        }
+        // Interval gate — applies to explicitly-named psyops too: naming
+        // a psyop never bypasses its throttle. validate() guarantees the
+        // parse. The skip is announced only when names were given.
+        let interval = psyop.interval_duration().expect("validated interval");
+        if let Some(last_run) = db.get_last_run(&name).await? {
+            let elapsed = (chrono::Utc::now().timestamp() - last_run).max(0) as u64;
+            if elapsed < interval.as_secs() {
+                if announce_interval {
+                    crate::output::OutputResult::from(
+                        crate::events::Event::PsyopSkippedInterval {
+                            psyop: name.clone(),
+                            interval: psyop.interval.clone(),
+                            remaining_secs: interval.as_secs() - elapsed,
+                        },
+                    )
+                    .emit();
+                }
+                continue;
+            }
+        }
+        runnable.push((name, psyop));
+    }
+
+    // Phase A — `for_you` collection, strictly SEQUENTIAL: it drives the
+    // single CEF browser and blocks on the operator closing each window.
+    // A collect failure drops that psyop from the run set (per-psyop,
+    // non-fatal). Mocked runs skip it (no browser).
+    let mut ready: Vec<(String, PsyOp)> = Vec::with_capacity(runnable.len());
+    for (name, psyop) in runnable {
+        if psyop.for_you.is_some() && !psyop.mock_enabled() {
+            if let Err(e) = super::collect::collect_for_you(db, &name, ctx).await {
+                emit_run_failed(&name, &e.to_string());
+                continue;
+            }
+        }
+        ready.push((name, psyop));
+    }
+
+    // Phase B — every collected psyop scores + delivers CONCURRENTLY;
+    // surface each hard failure as it completes without aborting the
+    // others.
+    let mut inflight: FuturesUnordered<_> = ready
+        .iter()
+        .map(|(name, psyop)| async move {
+            (name.as_str(), run_scored(psyop, name, seed, ctx).await)
+        })
+        .collect();
+    while let Some((name, result)) = inflight.next().await {
+        if let Err(e) = result {
+            emit_run_failed(name, &e.to_string());
+        }
+    }
+
+    Ok(Output::Ok)
+}
+
+/// Emit a non-fatal per-psyop failure event (the batch keeps running).
+fn emit_run_failed(psyop: &str, error: &str) {
+    crate::output::OutputResult::from(crate::events::Event::PsyopRunFailed {
+        psyop: psyop.to_string(),
+        error: error.to_string(),
+    })
+    .emit();
+}
+
+/// Run one already-collected, interval-cleared psyop: hydrate → filter →
+/// (queries if short) → sort → score → persist → enqueue → deliver, then
+/// stamp the interval throttle on success. This is the parallel unit of
+/// `psyops run` (Phase B).
+async fn run_scored(
+    psyop: &PsyOp,
     name: &str,
     seed: Option<i64>,
     ctx: &crate::context::Context,
 ) -> Result<Output, Error> {
-    let psyop = super::psyop::load(name, ctx).await?;
-    if let Err(reason) = psyop.validate() {
-        // Invalid psyop at run-time → skip + emit a warning event
-        // rather than failing the command. The operator sees the
-        // reason in the JSONL stream; exit code stays 0.
-        crate::output::OutputResult::from(crate::events::Event::PsyopInvalidAtRun {
-            psyop: name.to_string(),
-            reason,
-        })
-        .emit();
-        return Ok(Output::Ok);
-    }
-
-    // Gate the X-app credential preflight on whether this psyop is
-    // mocked. Mocked psyops never touch the real X API, so requiring
-    // `x_app setup` for them would be pointless friction.
-    if !psyop.mock_enabled() {
-        psychological_operations_sdk::x::x_app::config::ensure_setup(&ctx.db)
-            .await
-            .map_err(|e| Error::Other(format!("x_app: {e}")))?;
-    }
-
     let db = &ctx.db;
-
-    // Interval gate: each psyop records its last successful run
-    // (keyed by name, not commit — republishing doesn't reset the
-    // throttle). If `interval` hasn't elapsed yet, skip with a
-    // warning event, same non-fatal shape as PsyopInvalidAtRun.
-    // validate() above guarantees the parse.
-    let interval = psyop.interval_duration().expect("validated interval");
-    if let Some(last_run) = db.get_last_run(name).await? {
-        let elapsed = (chrono::Utc::now().timestamp() - last_run).max(0) as u64;
-        if elapsed < interval.as_secs() {
-            crate::output::OutputResult::from(crate::events::Event::PsyopSkippedInterval {
-                psyop: name.to_string(),
-                interval: psyop.interval.clone(),
-                remaining_secs: interval.as_secs() - elapsed,
-            })
-            .emit();
-            return Ok(Output::Ok);
-        }
-    }
-
     let http = make_http_client(psyop.mock_enabled(), ctx);
     // Every X API call in this pipeline acts as the master X-App.
     let auth = AuthMode::XApp;
-
-    // Collect step: open the browser as this psyop and stream the
-    // operator's tweet_id selections into for_you_queue. Skipped
-    // entirely when for_you is unconfigured. Blocks until the
-    // operator closes the browser window — that's the signal to
-    // proceed.
-    //
-    // Mocked runs skip it: collection is an interactive CEF browser
-    // session against the real X site, which a mock psyop has no
-    // business opening (same rationale as the mock-gated `x_app`
-    // preflight above). A mocked run operates purely on whatever is
-    // already queued in `for_you_queue`.
-    if psyop.for_you.is_some() && !psyop.mock_enabled() {
-        super::collect::collect_for_you(db, name, ctx).await?;
-    }
 
     // Capture whether the for_you_queue was non-empty at run start —
     // the `query_when_for_you_queued` policy reads this on the
@@ -163,7 +260,7 @@ pub async fn run_psyop(
             .collect();
 
         // 3. Filter with priority resolution.
-        let accepted = filter_with_priority(&psyop, entries)?;
+        let accepted = filter_with_priority(psyop, entries)?;
 
         // 4. Eligibility — run queries if we're short.
         if (accepted.len() as u64) < psyop.min_posts {
@@ -179,13 +276,13 @@ pub async fn run_psyop(
                     accepted.len(),
                 )));
             }
-            run_queries(&psyop, db, &http, &auth, name).await?;
+            run_queries(psyop, db, &http, &auth, name).await?;
             queries_already_ran = true;
             continue;
         }
 
         // 5. Priority-bucket sort.
-        let final_list = bucket_sort(&psyop, accepted)?;
+        let final_list = bucket_sort(psyop, accepted)?;
 
         // 6. Trim to max_posts.
         let trimmed: Vec<Tweet> = final_list
@@ -195,7 +292,7 @@ pub async fn run_psyop(
 
         // 7. Hydrate Tweet -> Post by joining with the `contents`
         //    table, then run the multi-stage scoring pipeline.
-        let result = score_pipeline(db, &psyop, name, trimmed, seed, ctx).await?;
+        let result = score_pipeline(db, psyop, name, trimmed, seed, ctx).await?;
 
         // 8. Persist scores for every scored post.
         if !result.last_scores.is_empty() {
