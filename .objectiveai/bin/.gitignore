@@ -1,0 +1,12 @@
+# Everything directly in .objectiveai/bin/ is a downloaded artifact — the
+# objectiveai release binaries (objectiveai, objectiveai-api, …) and the
+# version.txt install marker written by test-prepare-objectiveai.sh —
+# EXCEPT this file and the committed plugins/ tree.
+#
+# `/*` is anchored + non-recursive: it only ignores bin/'s direct
+# children, so it leaves the plugins/ subtree alone (governed by the
+# nested plugins/.../{cli,viewer}/.gitignore files). version.txt is a
+# direct child, so it's ignored here too.
+/*
+!/.gitignore
+!/plugins/

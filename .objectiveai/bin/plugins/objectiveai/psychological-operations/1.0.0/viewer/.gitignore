@@ -1,0 +1,5 @@
+# The viewer web bundle (index.html + assets) is built into this dir by
+# test-prepare-build.sh and stays out of git. Keep only this file so the
+# dir is tracked.
+*
+!.gitignore
