@@ -303,9 +303,11 @@ fn lookup_string_ci(
         .filter(|s| !s.is_empty())
 }
 
+/// Exact match only — the canonical `Mode` strings (`readonly` / `full`,
+/// matching the `--mode` clap value-enum). No case-folding, no aliases.
 fn parse_mode(s: &str) -> Option<Mode> {
-    match s.to_ascii_lowercase().as_str() {
-        "readonly" | "read_only" | "read-only" => Some(Mode::Readonly),
+    match s {
+        "readonly" => Some(Mode::Readonly),
         "full" => Some(Mode::Full),
         _ => None,
     }
