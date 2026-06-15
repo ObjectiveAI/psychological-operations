@@ -13,6 +13,8 @@ use psychological_operations_sdk::x::types::{TweetCreateRequest, TweetId};
 use psychological_operations_sdk::x::users::me as users_me;
 use rmcp::ErrorData;
 
+use super::tool_error::ToolError;
+
 pub(super) fn standard_tweet_request(tweet_id: &str) -> tweets_id::get::Request {
     tweets_id::get::Request {
         id: TweetId(tweet_id.to_string()),
@@ -104,13 +106,10 @@ pub(super) async fn send_create_tweet(
     http: &Client,
     auth: &AuthMode,
     body: TweetCreateRequest,
-) -> Result<String, ErrorData> {
+) -> Result<String, ToolError> {
     let req = tweets_root::post::Request { body };
-    let resp = tweets_root::http::post(http, auth, &req)
-        .await
-        .map_err(|e| ErrorData::internal_error(format!("tweets: {e}"), None))?;
-    serde_json::to_string(&resp.data)
-        .map_err(|e| ErrorData::internal_error(format!("serialize: {e}"), None))
+    let resp = tweets_root::http::post(http, auth, &req).await?;
+    Ok(serde_json::to_string(&resp.data)?)
 }
 
 /// Resolve the authenticated user's numeric id via `/users/me`.
@@ -119,17 +118,20 @@ pub(super) async fn send_create_tweet(
 pub(super) async fn resolve_self_user_id(
     http: &Client,
     auth: &AuthMode,
-) -> Result<String, ErrorData> {
+) -> Result<String, ToolError> {
     let req = users_me::get::Request {
         user_fields: None,
         expansions: None,
         tweet_fields: None,
     };
-    let resp = users_me::http::get(http, auth, &req)
-        .await
-        .map_err(|e| ErrorData::internal_error(format!("users/me: {e}"), None))?;
+    let resp = users_me::http::get(http, auth, &req).await?;
+    // A 200 with no `data` block is an unexpected X response, not an agent
+    // input fault → system.
     let user = resp.data.ok_or_else(|| {
-        ErrorData::internal_error("users/me had no data".to_string(), None)
+        ToolError::System(ErrorData::internal_error(
+            "users/me had no data".to_string(),
+            None,
+        ))
     })?;
     Ok(user.id.0)
 }

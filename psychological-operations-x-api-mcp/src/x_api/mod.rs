@@ -29,6 +29,7 @@ mod builders;
 mod model;
 mod projection;
 pub mod session;
+mod tool_error;
 pub mod tool_name;
 mod tools;
 
@@ -331,7 +332,10 @@ impl ServerHandler for PsychologicalOperationsXApiMcp {
     ) -> Result<CallToolResult, ErrorData> {
         let state = self.resolve_session(&context.extensions).await?;
         if is_hidden_for(state.mode, &request.name) {
-            return Err(ErrorData::invalid_params(
+            // Write tools aren't even listed in readonly mode, so reaching
+            // one is a "should never happen" — a system fault, not an agent
+            // mistake.
+            return Err(ErrorData::internal_error(
                 format!(
                     "tool '{}' is not available in readonly mode",
                     request.name
@@ -346,21 +350,22 @@ impl ServerHandler for PsychologicalOperationsXApiMcp {
         // usage header).
         let metered = match ToolName::from_name(&request.name) {
             Some(tool) => {
-                let account = request
+                // A missing `account` is the agent's mistake → hand it back
+                // as an `is_error` tool result, not a protocol error.
+                let account = match request
                     .arguments
                     .as_ref()
                     .and_then(|a| a.get("account"))
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| {
-                        ErrorData::invalid_params(
-                            format!(
-                                "tool '{}' requires an 'account' argument",
-                                request.name
-                            ),
-                            None,
-                        )
-                    })?
-                    .to_owned();
+                {
+                    Some(a) => a.to_owned(),
+                    None => {
+                        return Ok(CallToolResult::error(vec![Content::text(format!(
+                            "tool '{}' requires an 'account' argument",
+                            request.name,
+                        ))]));
+                    }
+                };
                 // Quota denial comes back as an `is_error` tool result we
                 // hand straight to the agent — not a protocol error.
                 if let Some(denied) = self.enforce_quota(&account, tool).await? {

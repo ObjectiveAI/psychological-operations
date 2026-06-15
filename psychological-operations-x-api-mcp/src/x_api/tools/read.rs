@@ -6,6 +6,11 @@
 //! one of the names `list_accounts` returns. The client is built bare
 //! and the persona is `AuthMode::Agent(account)`; mode-gating and the
 //! per-account quota gate run centrally in `call_tool` before dispatch.
+//!
+//! Each body runs inside [`finish`] so failures classify (see
+//! [`super::super::tool_error`]): authorization-resolution and infra
+//! errors surface as protocol errors; the authorized request's own
+//! failures and bad agent inputs surface as `is_error` tool results.
 
 use base64::Engine;
 use psychological_operations_sdk::x::client::AuthMode;
@@ -25,6 +30,7 @@ use super::super::PsychologicalOperationsXApiMcp;
 use super::super::builders::{resolve_self_user_id, standard_search_request, standard_tweet_request};
 use super::super::model::{AttachmentKind, FetchedAttachment, Tweet};
 use super::super::projection::{lookup_attachment, project_tweet};
+use super::super::tool_error::{ToolError, finish};
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct GetRepliesRequest {
@@ -98,46 +104,45 @@ impl PsychologicalOperationsXApiMcp {
         &self,
         Parameters(req): Parameters<GetRepliesRequest>,
     ) -> Result<CallToolResult, ErrorData> {
-        let http = self.build_client();
-        let auth = AuthMode::Agent(req.account.clone());
+        finish(async move {
+            let http = self.build_client();
+            let auth = AuthMode::Agent(req.account.clone());
 
-        let creq = tweets_search_recent::get::Request {
-            query: format!("conversation_id:{}", req.tweet_id),
-            start_time: None,
-            end_time: None,
-            since_id: None,
-            until_id: None,
-            max_results: Some(100),
-            next_token: None,
-            pagination_token: None,
-            sort_order: None,
-            tweet_fields: Some(vec![params::TweetFields::ReferencedTweets]),
-            expansions: None,
-            media_fields: None,
-            poll_fields: None,
-            user_fields: None,
-            place_fields: None,
-        };
-        let resp = tweets_search_recent::http::get(&http, &auth, &creq)
-            .await
-            .map_err(|e| ErrorData::internal_error(format!("search: {e}"), None))?;
-        let target = req.tweet_id;
-        let ids: Vec<String> = resp
-            .data
-            .unwrap_or_default()
-            .into_iter()
-            .filter_map(|t| {
-                let id = t.id.as_ref()?.0.clone();
-                let refs = t.referenced_tweets.as_ref()?;
-                refs.iter().any(|r| {
-                    matches!(r.type_, TweetReferencedTweetsItemType::RepliedTo)
-                        && r.id.0 == target
-                }).then_some(id)
-            })
-            .collect();
-        let body = serde_json::to_string(&ids)
-            .map_err(|e| ErrorData::internal_error(format!("serialize ids: {e}"), None))?;
-        Ok(CallToolResult::success(vec![Content::text(body)]))
+            let creq = tweets_search_recent::get::Request {
+                query: format!("conversation_id:{}", req.tweet_id),
+                start_time: None,
+                end_time: None,
+                since_id: None,
+                until_id: None,
+                max_results: Some(100),
+                next_token: None,
+                pagination_token: None,
+                sort_order: None,
+                tweet_fields: Some(vec![params::TweetFields::ReferencedTweets]),
+                expansions: None,
+                media_fields: None,
+                poll_fields: None,
+                user_fields: None,
+                place_fields: None,
+            };
+            let resp = tweets_search_recent::http::get(&http, &auth, &creq).await?;
+            let target = req.tweet_id;
+            let ids: Vec<String> = resp
+                .data
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|t| {
+                    let id = t.id.as_ref()?.0.clone();
+                    let refs = t.referenced_tweets.as_ref()?;
+                    refs.iter().any(|r| {
+                        matches!(r.type_, TweetReferencedTweetsItemType::RepliedTo)
+                            && r.id.0 == target
+                    }).then_some(id)
+                })
+                .collect();
+            let body = serde_json::to_string(&ids)?;
+            Ok(CallToolResult::success(vec![Content::text(body)]))
+        }.await)
     }
 
     #[tool(
@@ -148,20 +153,20 @@ impl PsychologicalOperationsXApiMcp {
         &self,
         Parameters(req): Parameters<GetBioRequest>,
     ) -> Result<CallToolResult, ErrorData> {
-        let http = self.build_client();
-        let auth = AuthMode::Agent(req.account.clone());
+        finish(async move {
+            let http = self.build_client();
+            let auth = AuthMode::Agent(req.account.clone());
 
-        let creq = users_by_username::get::Request {
-            username: req.handle,
-            user_fields: Some(vec![params::UserFields::Description]),
-            expansions: None,
-            tweet_fields: None,
-        };
-        let resp = users_by_username::http::get(&http, &auth, &creq)
-            .await
-            .map_err(|e| ErrorData::internal_error(format!("users/by/username: {e}"), None))?;
-        let body = resp.data.and_then(|u| u.description).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(body)]))
+            let creq = users_by_username::get::Request {
+                username: req.handle,
+                user_fields: Some(vec![params::UserFields::Description]),
+                expansions: None,
+                tweet_fields: None,
+            };
+            let resp = users_by_username::http::get(&http, &auth, &creq).await?;
+            let body = resp.data.and_then(|u| u.description).unwrap_or_default();
+            Ok(CallToolResult::success(vec![Content::text(body)]))
+        }.await)
     }
 
     #[tool(
@@ -172,23 +177,23 @@ impl PsychologicalOperationsXApiMcp {
         &self,
         Parameters(req): Parameters<GetProfilePictureRequest>,
     ) -> Result<CallToolResult, ErrorData> {
-        let http = self.build_client();
-        let auth = AuthMode::Agent(req.account.clone());
+        finish(async move {
+            let http = self.build_client();
+            let auth = AuthMode::Agent(req.account.clone());
 
-        let creq = users_by_username::get::Request {
-            username: req.handle,
-            user_fields: Some(vec![params::UserFields::ProfileImageUrl]),
-            expansions: None,
-            tweet_fields: None,
-        };
-        let resp = users_by_username::http::get(&http, &auth, &creq)
-            .await
-            .map_err(|e| ErrorData::internal_error(format!("users/by/username: {e}"), None))?;
-        let body = resp
-            .data
-            .and_then(|u| u.profile_image_url.map(|url| url.to_string()))
-            .unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(body)]))
+            let creq = users_by_username::get::Request {
+                username: req.handle,
+                user_fields: Some(vec![params::UserFields::ProfileImageUrl]),
+                expansions: None,
+                tweet_fields: None,
+            };
+            let resp = users_by_username::http::get(&http, &auth, &creq).await?;
+            let body = resp
+                .data
+                .and_then(|u| u.profile_image_url.map(|url| url.to_string()))
+                .unwrap_or_default();
+            Ok(CallToolResult::success(vec![Content::text(body)]))
+        }.await)
     }
 
     #[tool(
@@ -199,23 +204,24 @@ impl PsychologicalOperationsXApiMcp {
         &self,
         Parameters(req): Parameters<GetTweetRequest>,
     ) -> Result<CallToolResult, ErrorData> {
-        let http = self.build_client();
-        let auth = AuthMode::Agent(req.account.clone());
+        finish(async move {
+            let http = self.build_client();
+            let auth = AuthMode::Agent(req.account.clone());
 
-        let creq = standard_tweet_request(&req.tweet_id);
-        let resp = tweets_id::http::get(&http, &auth, &creq)
-            .await
-            .map_err(|e| ErrorData::internal_error(format!("tweets/{{id}}: {e}"), None))?;
-        let t = resp.data.ok_or_else(|| {
-            ErrorData::internal_error(
-                format!("tweet {} response had no data", req.tweet_id),
-                None,
-            )
-        })?;
-        let projected = project_tweet(&t, resp.includes.as_ref());
-        let body = serde_json::to_string(&projected)
-            .map_err(|e| ErrorData::internal_error(format!("serialize tweet: {e}"), None))?;
-        Ok(CallToolResult::success(vec![Content::text(body)]))
+            let creq = standard_tweet_request(&req.tweet_id);
+            let resp = tweets_id::http::get(&http, &auth, &creq).await?;
+            // No data block ⇒ the agent named a tweet that doesn't exist or
+            // isn't visible to this account → agent-facing.
+            let t = resp.data.ok_or_else(|| {
+                ToolError::agent(format!(
+                    "tweet {} not found or not visible to this account",
+                    req.tweet_id,
+                ))
+            })?;
+            let projected = project_tweet(&t, resp.includes.as_ref());
+            let body = serde_json::to_string(&projected)?;
+            Ok(CallToolResult::success(vec![Content::text(body)]))
+        }.await)
     }
 
     #[tool(
@@ -226,36 +232,30 @@ impl PsychologicalOperationsXApiMcp {
         &self,
         Parameters(req): Parameters<OpenAttachmentRequest>,
     ) -> Result<CallToolResult, ErrorData> {
-        let http = self.build_client();
-        let auth = AuthMode::Agent(req.account.clone());
+        finish(async move {
+            let http = self.build_client();
+            let auth = AuthMode::Agent(req.account.clone());
 
-        let creq = standard_tweet_request(&req.tweet_id);
-        let resp = tweets_id::http::get(&http, &auth, &creq)
-            .await
-            .map_err(|e| ErrorData::internal_error(format!("tweets/{{id}}: {e}"), None))?;
-        let (kind, mime) = lookup_attachment(resp.includes.as_ref(), &req.url)
-            .ok_or_else(|| {
-                ErrorData::invalid_params(
-                    format!(
+            let creq = standard_tweet_request(&req.tweet_id);
+            let resp = tweets_id::http::get(&http, &auth, &creq).await?;
+            let (kind, mime) = lookup_attachment(resp.includes.as_ref(), &req.url)
+                .ok_or_else(|| {
+                    ToolError::agent(format!(
                         "attachment URL not on tweet {}: {}",
                         req.tweet_id, req.url,
-                    ),
-                    None,
-                )
-            })?;
-        let bytes = http
-            .fetch_url(&req.url)
-            .await
-            .map_err(|e| ErrorData::internal_error(format!("fetch_url: {e}"), None))?;
-        let fetched = FetchedAttachment { kind, mime, bytes };
-        let b64 = base64::engine::general_purpose::STANDARD.encode(&fetched.bytes);
-        let body = match fetched.kind {
-            AttachmentKind::Photo => Content::image(b64, fetched.mime),
-            AttachmentKind::Video | AttachmentKind::AnimatedGif => {
-                Content::text(format!("data:{};base64,{}", fetched.mime, b64))
-            }
-        };
-        Ok(CallToolResult::success(vec![body]))
+                    ))
+                })?;
+            let bytes = http.fetch_url(&req.url).await?;
+            let fetched = FetchedAttachment { kind, mime, bytes };
+            let b64 = base64::engine::general_purpose::STANDARD.encode(&fetched.bytes);
+            let body = match fetched.kind {
+                AttachmentKind::Photo => Content::image(b64, fetched.mime),
+                AttachmentKind::Video | AttachmentKind::AnimatedGif => {
+                    Content::text(format!("data:{};base64,{}", fetched.mime, b64))
+                }
+            };
+            Ok(CallToolResult::success(vec![body]))
+        }.await)
     }
 
     #[tool(
@@ -266,23 +266,22 @@ impl PsychologicalOperationsXApiMcp {
         &self,
         Parameters(req): Parameters<RunQueryRequest>,
     ) -> Result<CallToolResult, ErrorData> {
-        let http = self.build_client();
-        let auth = AuthMode::Agent(req.account.clone());
+        finish(async move {
+            let http = self.build_client();
+            let auth = AuthMode::Agent(req.account.clone());
 
-        let creq = standard_search_request(req.query);
-        let resp = tweets_search_recent::http::get(&http, &auth, &creq)
-            .await
-            .map_err(|e| ErrorData::internal_error(format!("search: {e}"), None))?;
-        let includes = resp.includes.as_ref();
-        let projected: Vec<Tweet> = resp
-            .data
-            .unwrap_or_default()
-            .iter()
-            .map(|t| project_tweet(t, includes))
-            .collect();
-        let body = serde_json::to_string(&projected)
-            .map_err(|e| ErrorData::internal_error(format!("serialize tweets: {e}"), None))?;
-        Ok(CallToolResult::success(vec![Content::text(body)]))
+            let creq = standard_search_request(req.query);
+            let resp = tweets_search_recent::http::get(&http, &auth, &creq).await?;
+            let includes = resp.includes.as_ref();
+            let projected: Vec<Tweet> = resp
+                .data
+                .unwrap_or_default()
+                .iter()
+                .map(|t| project_tweet(t, includes))
+                .collect();
+            let body = serde_json::to_string(&projected)?;
+            Ok(CallToolResult::success(vec![Content::text(body)]))
+        }.await)
     }
 
     #[tool(
@@ -293,19 +292,19 @@ impl PsychologicalOperationsXApiMcp {
         &self,
         Parameters(req): Parameters<WhoamiRequest>,
     ) -> Result<CallToolResult, ErrorData> {
-        let http = self.build_client();
-        let auth = AuthMode::Agent(req.account.clone());
+        finish(async move {
+            let http = self.build_client();
+            let auth = AuthMode::Agent(req.account.clone());
 
-        let creq = users_me::get::Request {
-            user_fields: Some(vec![params::UserFields::Username]),
-            expansions: None,
-            tweet_fields: None,
-        };
-        let resp = users_me::http::get(&http, &auth, &creq)
-            .await
-            .map_err(|e| ErrorData::internal_error(format!("users/me: {e}"), None))?;
-        let body = resp.data.map(|u| u.username.0).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(body)]))
+            let creq = users_me::get::Request {
+                user_fields: Some(vec![params::UserFields::Username]),
+                expansions: None,
+                tweet_fields: None,
+            };
+            let resp = users_me::http::get(&http, &auth, &creq).await?;
+            let body = resp.data.map(|u| u.username.0).unwrap_or_default();
+            Ok(CallToolResult::success(vec![Content::text(body)]))
+        }.await)
     }
 
     #[tool(
@@ -316,47 +315,46 @@ impl PsychologicalOperationsXApiMcp {
         &self,
         Parameters(req): Parameters<GetBookmarksRequest>,
     ) -> Result<CallToolResult, ErrorData> {
-        let http = self.build_client();
-        let auth = AuthMode::Agent(req.account.clone());
+        finish(async move {
+            let http = self.build_client();
+            let auth = AuthMode::Agent(req.account.clone());
 
-        let user_id = resolve_self_user_id(&http, &auth).await?;
-        let creq = users_id_bookmarks::get::Request {
-            id: UserIdMatchesAuthenticatedUser(user_id),
-            max_results: Some(100),
-            pagination_token: None,
-            tweet_fields: Some(vec![
-                params::TweetFields::Attachments,
-                params::TweetFields::AuthorId,
-                params::TweetFields::PublicMetrics,
-                params::TweetFields::ReferencedTweets,
-                params::TweetFields::Text,
-            ]),
-            expansions: Some(vec![
-                params::TweetExpansions::AttachmentsMediaKeys,
-                params::TweetExpansions::AuthorId,
-            ]),
-            media_fields: Some(vec![
-                params::MediaFields::Url,
-                params::MediaFields::Variants,
-                params::MediaFields::PreviewImageUrl,
-                params::MediaFields::Type,
-            ]),
-            poll_fields: None,
-            user_fields: Some(vec![params::UserFields::Username]),
-            place_fields: None,
-        };
-        let resp = users_id_bookmarks::http::get(&http, &auth, &creq)
-            .await
-            .map_err(|e| ErrorData::internal_error(format!("bookmarks: {e}"), None))?;
-        let includes = resp.includes.as_ref();
-        let projected: Vec<Tweet> = resp
-            .data
-            .unwrap_or_default()
-            .iter()
-            .map(|t| project_tweet(t, includes))
-            .collect();
-        let body = serde_json::to_string(&projected)
-            .map_err(|e| ErrorData::internal_error(format!("serialize tweets: {e}"), None))?;
-        Ok(CallToolResult::success(vec![Content::text(body)]))
+            let user_id = resolve_self_user_id(&http, &auth).await?;
+            let creq = users_id_bookmarks::get::Request {
+                id: UserIdMatchesAuthenticatedUser(user_id),
+                max_results: Some(100),
+                pagination_token: None,
+                tweet_fields: Some(vec![
+                    params::TweetFields::Attachments,
+                    params::TweetFields::AuthorId,
+                    params::TweetFields::PublicMetrics,
+                    params::TweetFields::ReferencedTweets,
+                    params::TweetFields::Text,
+                ]),
+                expansions: Some(vec![
+                    params::TweetExpansions::AttachmentsMediaKeys,
+                    params::TweetExpansions::AuthorId,
+                ]),
+                media_fields: Some(vec![
+                    params::MediaFields::Url,
+                    params::MediaFields::Variants,
+                    params::MediaFields::PreviewImageUrl,
+                    params::MediaFields::Type,
+                ]),
+                poll_fields: None,
+                user_fields: Some(vec![params::UserFields::Username]),
+                place_fields: None,
+            };
+            let resp = users_id_bookmarks::http::get(&http, &auth, &creq).await?;
+            let includes = resp.includes.as_ref();
+            let projected: Vec<Tweet> = resp
+                .data
+                .unwrap_or_default()
+                .iter()
+                .map(|t| project_tweet(t, includes))
+                .collect();
+            let body = serde_json::to_string(&projected)?;
+            Ok(CallToolResult::success(vec![Content::text(body)]))
+        }.await)
     }
 }

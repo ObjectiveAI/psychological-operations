@@ -4,6 +4,12 @@
 //! of the names `list_accounts` returns. The client is built bare and
 //! the persona is `AuthMode::Agent(account)`; mode-gating and the
 //! per-account quota gate run centrally in `call_tool` before dispatch.
+//!
+//! Each body runs inside [`finish`] so failures classify (see
+//! [`super::super::tool_error`]): authorization-resolution and infra
+//! errors surface as protocol errors; the authorized request's own
+//! rejections (e.g. a 403 for replying to a replies-disabled tweet)
+//! surface as `is_error` tool results the agent can act on.
 
 use psychological_operations_sdk::x::client::AuthMode;
 use psychological_operations_sdk::x::types::{
@@ -18,6 +24,7 @@ use rmcp::{ErrorData, handler::server::wrapper::Parameters, schemars, tool, tool
 
 use super::super::PsychologicalOperationsXApiMcp;
 use super::super::builders::{empty_tweet_create_request, resolve_self_user_id, send_create_tweet};
+use super::super::tool_error::finish;
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct PostRequest {
@@ -81,15 +88,17 @@ impl PsychologicalOperationsXApiMcp {
         &self,
         Parameters(req): Parameters<PostRequest>,
     ) -> Result<CallToolResult, ErrorData> {
-        let http = self.build_client();
-        let auth = AuthMode::Agent(req.account.clone());
+        finish(async move {
+            let http = self.build_client();
+            let auth = AuthMode::Agent(req.account.clone());
 
-        let body = TweetCreateRequest {
-            text: Some(TweetText(req.text)),
-            ..empty_tweet_create_request()
-        };
-        let result = send_create_tweet(&http, &auth, body).await?;
-        Ok(CallToolResult::success(vec![Content::text(result)]))
+            let body = TweetCreateRequest {
+                text: Some(TweetText(req.text)),
+                ..empty_tweet_create_request()
+            };
+            let result = send_create_tweet(&http, &auth, body).await?;
+            Ok(CallToolResult::success(vec![Content::text(result)]))
+        }.await)
     }
 
     #[tool(
@@ -100,20 +109,22 @@ impl PsychologicalOperationsXApiMcp {
         &self,
         Parameters(req): Parameters<ReplyRequest>,
     ) -> Result<CallToolResult, ErrorData> {
-        let http = self.build_client();
-        let auth = AuthMode::Agent(req.account.clone());
+        finish(async move {
+            let http = self.build_client();
+            let auth = AuthMode::Agent(req.account.clone());
 
-        let body = TweetCreateRequest {
-            text: Some(TweetText(req.text)),
-            reply: Some(TweetCreateRequestReply {
-                in_reply_to_tweet_id: TweetId(req.in_reply_to_tweet_id),
-                auto_populate_reply_metadata: None,
-                exclude_reply_user_ids: None,
-            }),
-            ..empty_tweet_create_request()
-        };
-        let result = send_create_tweet(&http, &auth, body).await?;
-        Ok(CallToolResult::success(vec![Content::text(result)]))
+            let body = TweetCreateRequest {
+                text: Some(TweetText(req.text)),
+                reply: Some(TweetCreateRequestReply {
+                    in_reply_to_tweet_id: TweetId(req.in_reply_to_tweet_id),
+                    auto_populate_reply_metadata: None,
+                    exclude_reply_user_ids: None,
+                }),
+                ..empty_tweet_create_request()
+            };
+            let result = send_create_tweet(&http, &auth, body).await?;
+            Ok(CallToolResult::success(vec![Content::text(result)]))
+        }.await)
     }
 
     #[tool(
@@ -124,16 +135,18 @@ impl PsychologicalOperationsXApiMcp {
         &self,
         Parameters(req): Parameters<QuoteRequest>,
     ) -> Result<CallToolResult, ErrorData> {
-        let http = self.build_client();
-        let auth = AuthMode::Agent(req.account.clone());
+        finish(async move {
+            let http = self.build_client();
+            let auth = AuthMode::Agent(req.account.clone());
 
-        let body = TweetCreateRequest {
-            text: Some(TweetText(req.text)),
-            quote_tweet_id: Some(TweetId(req.quote_tweet_id)),
-            ..empty_tweet_create_request()
-        };
-        let result = send_create_tweet(&http, &auth, body).await?;
-        Ok(CallToolResult::success(vec![Content::text(result)]))
+            let body = TweetCreateRequest {
+                text: Some(TweetText(req.text)),
+                quote_tweet_id: Some(TweetId(req.quote_tweet_id)),
+                ..empty_tweet_create_request()
+            };
+            let result = send_create_tweet(&http, &auth, body).await?;
+            Ok(CallToolResult::success(vec![Content::text(result)]))
+        }.await)
     }
 
     #[tool(
@@ -144,22 +157,21 @@ impl PsychologicalOperationsXApiMcp {
         &self,
         Parameters(req): Parameters<LikeRequest>,
     ) -> Result<CallToolResult, ErrorData> {
-        let http = self.build_client();
-        let auth = AuthMode::Agent(req.account.clone());
+        finish(async move {
+            let http = self.build_client();
+            let auth = AuthMode::Agent(req.account.clone());
 
-        let user_id = resolve_self_user_id(&http, &auth).await?;
-        let creq = users_id_likes::post::Request {
-            id: UserIdMatchesAuthenticatedUser(user_id),
-            body: Some(UsersLikesCreateRequest {
-                tweet_id: TweetId(req.tweet_id),
-            }),
-        };
-        let resp = users_id_likes::http::post(&http, &auth, &creq)
-            .await
-            .map_err(|e| ErrorData::internal_error(format!("likes: {e}"), None))?;
-        let body = serde_json::to_string(&resp.data)
-            .map_err(|e| ErrorData::internal_error(format!("serialize: {e}"), None))?;
-        Ok(CallToolResult::success(vec![Content::text(body)]))
+            let user_id = resolve_self_user_id(&http, &auth).await?;
+            let creq = users_id_likes::post::Request {
+                id: UserIdMatchesAuthenticatedUser(user_id),
+                body: Some(UsersLikesCreateRequest {
+                    tweet_id: TweetId(req.tweet_id),
+                }),
+            };
+            let resp = users_id_likes::http::post(&http, &auth, &creq).await?;
+            let body = serde_json::to_string(&resp.data)?;
+            Ok(CallToolResult::success(vec![Content::text(body)]))
+        }.await)
     }
 
     #[tool(
@@ -170,22 +182,21 @@ impl PsychologicalOperationsXApiMcp {
         &self,
         Parameters(req): Parameters<RetweetRequest>,
     ) -> Result<CallToolResult, ErrorData> {
-        let http = self.build_client();
-        let auth = AuthMode::Agent(req.account.clone());
+        finish(async move {
+            let http = self.build_client();
+            let auth = AuthMode::Agent(req.account.clone());
 
-        let user_id = resolve_self_user_id(&http, &auth).await?;
-        let creq = users_id_retweets::post::Request {
-            id: UserIdMatchesAuthenticatedUser(user_id),
-            body: Some(UsersRetweetsCreateRequest {
-                tweet_id: TweetId(req.tweet_id),
-            }),
-        };
-        let resp = users_id_retweets::http::post(&http, &auth, &creq)
-            .await
-            .map_err(|e| ErrorData::internal_error(format!("retweets: {e}"), None))?;
-        let body = serde_json::to_string(&resp.data)
-            .map_err(|e| ErrorData::internal_error(format!("serialize: {e}"), None))?;
-        Ok(CallToolResult::success(vec![Content::text(body)]))
+            let user_id = resolve_self_user_id(&http, &auth).await?;
+            let creq = users_id_retweets::post::Request {
+                id: UserIdMatchesAuthenticatedUser(user_id),
+                body: Some(UsersRetweetsCreateRequest {
+                    tweet_id: TweetId(req.tweet_id),
+                }),
+            };
+            let resp = users_id_retweets::http::post(&http, &auth, &creq).await?;
+            let body = serde_json::to_string(&resp.data)?;
+            Ok(CallToolResult::success(vec![Content::text(body)]))
+        }.await)
     }
 
     #[tool(
@@ -196,21 +207,20 @@ impl PsychologicalOperationsXApiMcp {
         &self,
         Parameters(req): Parameters<BookmarkRequest>,
     ) -> Result<CallToolResult, ErrorData> {
-        let http = self.build_client();
-        let auth = AuthMode::Agent(req.account.clone());
+        finish(async move {
+            let http = self.build_client();
+            let auth = AuthMode::Agent(req.account.clone());
 
-        let user_id = resolve_self_user_id(&http, &auth).await?;
-        let creq = users_id_bookmarks::post::Request {
-            id: UserIdMatchesAuthenticatedUser(user_id),
-            body: BookmarkAddRequest {
-                tweet_id: TweetId(req.tweet_id),
-            },
-        };
-        let resp = users_id_bookmarks::http::post(&http, &auth, &creq)
-            .await
-            .map_err(|e| ErrorData::internal_error(format!("bookmarks: {e}"), None))?;
-        let body = serde_json::to_string(&resp.data)
-            .map_err(|e| ErrorData::internal_error(format!("serialize: {e}"), None))?;
-        Ok(CallToolResult::success(vec![Content::text(body)]))
+            let user_id = resolve_self_user_id(&http, &auth).await?;
+            let creq = users_id_bookmarks::post::Request {
+                id: UserIdMatchesAuthenticatedUser(user_id),
+                body: BookmarkAddRequest {
+                    tweet_id: TweetId(req.tweet_id),
+                },
+            };
+            let resp = users_id_bookmarks::http::post(&http, &auth, &creq).await?;
+            let body = serde_json::to_string(&resp.data)?;
+            Ok(CallToolResult::success(vec![Content::text(body)]))
+        }.await)
     }
 }

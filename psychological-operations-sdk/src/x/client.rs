@@ -32,7 +32,7 @@ use serde::de::DeserializeOwned;
 
 use psychological_operations_db::{Db, signed_in_x_user_id};
 
-use super::Error;
+use super::{AuthError, Error};
 use super::auth::{self, AuthLock, PersonaKey};
 use super::cache::{request_key, request_key_auth_scoped};
 use crate::browser::auth_json::{self, PersonaKind, Tokens};
@@ -131,8 +131,8 @@ impl Client {
     /// locking. Returns `Ok(None)` if none exist. Errors for
     /// `AuthMode::XApp` (no persona).
     pub async fn read_auth(&self, auth: &AuthMode) -> Result<Option<Tokens>, Error> {
-        let persona = self.resolve_persona(auth).await?;
-        self.read_auth_at(&persona).await
+        let persona = self.resolve_persona(auth).await.map_err(Error::Authorization)?;
+        self.read_auth_at(&persona).await.map_err(Error::Authorization)
     }
 
     /// Acquire the two-tier auth lock for the persona `auth` resolves
@@ -146,15 +146,15 @@ impl Client {
                 "lock_auth not supported in mock mode".into(),
             ));
         }
-        let persona = self.resolve_persona(auth).await?;
-        self.lock_auth_at(&persona).await
+        let persona = self.resolve_persona(auth).await.map_err(Error::Authorization)?;
+        self.lock_auth_at(&persona).await.map_err(Error::Authorization)
     }
 
     /// Crate-internal — explicit persona for code paths that
     /// already resolved one (e.g. `persona_bearer` reusing the
     /// persona it just resolved instead of re-running the cookies
     /// dance).
-    async fn read_auth_at(&self, persona: &PersonaKey) -> Result<Option<Tokens>, Error> {
+    async fn read_auth_at(&self, persona: &PersonaKey) -> Result<Option<Tokens>, AuthError> {
         let value = self
             .db
             .auth_get(
@@ -163,20 +163,21 @@ impl Client {
                 &persona.persona_twid,
                 &persona.x_app_twid,
             )
-            .await?;
+            .await
+            .map_err(AuthError::Store)?;
         match value {
             Some(v) => {
                 let tokens: Tokens = serde_json::from_value(v)
-                    .map_err(|e| Error::Other(format!("auth tokens parse: {e}")))?;
+                    .map_err(|e| AuthError::TokenSerde(e.to_string()))?;
                 Ok(Some(tokens))
             }
             None => Ok(None),
         }
     }
 
-    async fn lock_auth_at(&self, persona: &PersonaKey) -> Result<AuthLock, Error> {
+    async fn lock_auth_at(&self, persona: &PersonaKey) -> Result<AuthLock, AuthError> {
         let key = auth::auth_lock_key(persona);
-        let guard = self.db.lock(&key).await?;
+        let guard = self.db.lock(&key).await.map_err(AuthError::Store)?;
         Ok(AuthLock::new(guard, persona.clone()))
     }
 
@@ -192,9 +193,20 @@ impl Client {
                 "write_auth not supported in mock mode".into(),
             ));
         }
+        self.write_auth_inner(lock, new_data).await.map_err(Error::Authorization)
+    }
+
+    /// Low-level token write (no mock guard) returning the typed
+    /// [`AuthError`]. Shared by the public [`Self::write_auth`] and the
+    /// in-line refresh in [`Self::persona_bearer`].
+    async fn write_auth_inner(
+        &self,
+        lock: AuthLock,
+        new_data: &Tokens,
+    ) -> Result<(), AuthError> {
         let persona = lock.persona();
         let value = serde_json::to_value(new_data)
-            .map_err(|e| Error::Other(format!("auth tokens encode: {e}")))?;
+            .map_err(|e| AuthError::TokenSerde(e.to_string()))?;
         self.db
             .auth_set(
                 persona.kind.db_kind(),
@@ -203,7 +215,8 @@ impl Client {
                 &persona.x_app_twid,
                 &value,
             )
-            .await?;
+            .await
+            .map_err(AuthError::Store)?;
         lock.guard.release().await;
         Ok(())
     }
@@ -215,15 +228,15 @@ impl Client {
     /// Resolve the current Bearer for `auth` — reads the X-App config
     /// for `XApp`, runs the read/lock/double-check/refresh dance for
     /// `Psyop`/`Agent`. All I/O happens here on every call.
-    async fn current_bearer_token(&self, auth: &AuthMode) -> Result<String, Error> {
+    async fn current_bearer_token(&self, auth: &AuthMode) -> Result<String, AuthError> {
         match auth {
             AuthMode::XApp => {
-                let x_app = super::x_app::config::load(&self.db).await?;
+                let x_app = super::x_app::config::load(&self.db)
+                    .await
+                    .map_err(|e| AuthError::XAppNotConfigured(e.to_string()))?;
                 x_app.bearer_token.ok_or_else(|| {
-                    Error::Other(
-                        "X-App config has no bearer_token — re-run \
-                         `psychological-operations x_app setup` and capture it"
-                            .into(),
+                    AuthError::XAppNotConfigured(
+                        "no bearer_token — re-run `psychological-operations x_app setup`".into(),
                     )
                 })
             }
@@ -236,15 +249,15 @@ impl Client {
     /// persona's twid resolved via [`resolve_persona`]. Used to fold an
     /// auth identity into the cache key for endpoints whose response
     /// varies by authed user (today: `/2/users/me`).
-    pub(crate) async fn current_twid(&self, auth: &AuthMode) -> Result<String, Error> {
+    pub(crate) async fn current_twid(&self, auth: &AuthMode) -> Result<String, AuthError> {
         match auth {
             AuthMode::XApp => signed_in_x_user_id(
                 self.state_dir.as_ref(),
                 &Mode::XApp.cache_subdir(),
             )
             .await
-            .map_err(|e| Error::Other(format!("x-app twid cookies: {e}")))?
-            .ok_or_else(|| Error::Other("no X-App account signed in".into())),
+            .map_err(|e| AuthError::Cookie(format!("x-app twid: {e}")))?
+            .ok_or_else(|| AuthError::NotSignedIn("X-App account".into())),
             AuthMode::Psyop(_) | AuthMode::Agent(_) => {
                 Ok(self.resolve_persona(auth).await?.persona_twid)
             }
@@ -255,10 +268,10 @@ impl Client {
     /// `AuthMode::XApp` and when no persona / X-App is signed in to the
     /// matching CEF profile. Reused by `read_auth`, `lock_auth`, and
     /// `persona_bearer`.
-    async fn resolve_persona(&self, auth: &AuthMode) -> Result<PersonaKey, Error> {
+    async fn resolve_persona(&self, auth: &AuthMode) -> Result<PersonaKey, AuthError> {
         let (kind, name) = match auth {
             AuthMode::XApp => {
-                return Err(Error::Other(
+                return Err(AuthError::Unsupported(
                     "auth file methods are not available for AuthMode::XApp — \
                      XApp credentials live in x_app.json, not auth.json".into(),
                 ));
@@ -275,24 +288,22 @@ impl Client {
             &cookie_mode.cache_subdir(),
         )
         .await
-        .map_err(|e| Error::Other(format!("persona cookies: {e}")))?
-        .ok_or_else(|| {
-            Error::Other(format!("no persona signed in for {kind:?} '{name}'"))
-        })?;
+        .map_err(|e| AuthError::Cookie(format!("persona: {e}")))?
+        .ok_or_else(|| AuthError::NotSignedIn(format!("{kind:?} '{name}'")))?;
         let x_app_twid = signed_in_x_user_id(
             &self.state_dir,
             &Mode::XApp.cache_subdir(),
         )
         .await
-        .map_err(|e| Error::Other(format!("x-app cookies: {e}")))?
-        .ok_or_else(|| Error::Other("no X-App account signed in".into()))?;
+        .map_err(|e| AuthError::Cookie(format!("x-app: {e}")))?
+        .ok_or_else(|| AuthError::NotSignedIn("X-App account".into()))?;
         Ok(PersonaKey { kind, name, persona_twid, x_app_twid })
     }
 
     /// Resolve persona, read auth.json, refresh through the two-
     /// tier lock if stale. Shared by `Psyop` / `Agent` variants
     /// of [`current_bearer_token`].
-    async fn persona_bearer(&self, auth: &AuthMode) -> Result<String, Error> {
+    async fn persona_bearer(&self, auth: &AuthMode) -> Result<String, AuthError> {
         let persona = self.resolve_persona(auth).await?;
 
         // 1. Cheap, lockless read.
@@ -312,29 +323,35 @@ impl Client {
             Some(t) => t,
             None => {
                 drop(lock);
-                return Err(Error::Other(format!(
-                    "no auth.json for persona '{}' — run the OAuth flow first",
-                    persona.name,
-                )));
+                return Err(AuthError::NoTokens(persona.name.clone()));
             }
         };
-        let refresh_token = stale.refresh_token.as_deref().ok_or_else(|| {
-            Error::Other("auth.json has no refresh_token to refresh against".into())
-        })?;
+        let refresh_token = stale
+            .refresh_token
+            .as_deref()
+            .ok_or(AuthError::NoRefreshToken)?;
         // 4. Refresh via X's OAuth token endpoint.
-        let x_app = super::x_app::config::ensure_setup(&self.db).await?;
-        let client_id = x_app.client_id.expect("ensure_setup guarantees client_id");
+        let x_app = super::x_app::config::load(&self.db)
+            .await
+            .map_err(|e| AuthError::XAppNotConfigured(e.to_string()))?;
+        if !x_app.is_complete() {
+            return Err(AuthError::XAppNotConfigured(
+                "client_id/client_secret missing — run `x_app setup`".into(),
+            ));
+        }
+        let client_id = x_app.client_id.expect("is_complete guarantees client_id");
         let client_secret = x_app
             .client_secret
-            .expect("ensure_setup guarantees client_secret");
+            .expect("is_complete guarantees client_secret");
         let new_tokens = super::oauth::tokens::refresh(
             &client_id,
             &client_secret,
             refresh_token,
         )
-        .await?;
+        .await
+        .map_err(|e| AuthError::Refresh(e.to_string()))?;
         let access = new_tokens.access_token.clone();
-        self.write_auth(lock, &new_tokens).await?;
+        self.write_auth_inner(lock, &new_tokens).await?;
         Ok(access)
     }
 
@@ -351,7 +368,7 @@ impl Client {
         method: Method,
         path: &str,
     ) -> Result<reqwest::RequestBuilder, Error> {
-        let token = self.current_bearer_token(auth).await?;
+        let token = self.current_bearer_token(auth).await.map_err(Error::Authorization)?;
         let url = format!(
             "{}/{}",
             DEFAULT_BASE_URL.trim_end_matches('/'),
@@ -527,7 +544,7 @@ impl Client {
         if cache {
             let key = if auth_scoped {
                 let auth = auth.expect("auth_scoped requests must pass an AuthMode");
-                let twid = self.current_twid(auth).await?;
+                let twid = self.current_twid(auth).await.map_err(Error::Authorization)?;
                 auth_scoped_key_from_request(&twid, &req)
             } else {
                 key_from_request(&req)
