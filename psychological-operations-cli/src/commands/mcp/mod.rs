@@ -15,10 +15,9 @@
 //! (see `objectiveai-cli` conduit). The `<name>` matches the plugin
 //! manifest's `mcp_servers[].name` (`x-api`).
 
-use std::time::Duration;
-
 use clap::Subcommand;
 use psychological_operations_sdk::cli::Output;
+use psychological_operations_x_api_mcp::Mode;
 
 use crate::error::Error;
 
@@ -36,22 +35,25 @@ pub enum Commands {
 
 #[derive(Subcommand)]
 pub enum XApiCommands {
-    /// Run the X-API MCP server in-process. Binds a random
-    /// localhost port, emits one JSONL line with the URL, then
-    /// serves until the process is killed. Per-session
-    /// `(agent, mode)` are supplied by the client on connect via
-    /// the `X-OBJECTIVEAI-ARGUMENTS` JSON-object header (with
-    /// `X-OBJECTIVEAI-AGENT-INSTANCE-HIERARCHY` as the agent
-    /// fallback) — this command takes neither. Quota is now
-    /// per-account, per-tool-call, configured via `agents quota`
-    /// and stored in the db — no quota knobs here.
+    /// Run the X-API MCP server in-process. Binds a random localhost
+    /// port, emits one JSONL line with the URL, then serves until the
+    /// process is killed. Cache config (size + TTL) comes from the
+    /// env-derived process `Context`, not flags. Per-session
+    /// `(agent, mode)` are supplied by the client on connect via the
+    /// `X-OBJECTIVEAI-ARGUMENTS` header (with
+    /// `X-OBJECTIVEAI-AGENT-INSTANCE-HIERARCHY` as the agent fallback),
+    /// so the only flag is `--mode` — and that's discarded too (see
+    /// below). Quota is per-account, per-tool-call, configured via
+    /// `agents quota`.
     Begin {
-        /// Cache budget in bytes (default 256 MiB).
-        #[arg(long, default_value_t = 256 * 1024 * 1024)]
-        cache_max_size: u64,
-        /// Per-entry cache TTL in seconds (default 3600).
-        #[arg(long, default_value_t = 3600)]
-        cache_ttl: u64,
+        /// Accepted for launch-command compatibility, then DISCARDED.
+        /// objectiveai appends `--mode <mode>` when it launches a plugin
+        /// MCP server, but this server reads the session's mode (and
+        /// agent) per-request from the `X-OBJECTIVEAI-ARGUMENTS` header,
+        /// not from this flag. Validated strictly: only the real `Mode`
+        /// values (`readonly` / `full`) parse.
+        #[arg(long, value_enum)]
+        mode: Option<Mode>,
     },
 }
 
@@ -67,7 +69,10 @@ impl XApiCommands {
     pub async fn handle(self, ctx: &crate::context::Context) -> bool {
         let result: Result<Output, Error> = async move {
             match self {
-                XApiCommands::Begin { cache_max_size, cache_ttl } => {
+                // `mode` is accepted (and validated) only for launch-
+                // command compatibility — the server uses the per-session
+                // header value, so we discard it here.
+                XApiCommands::Begin { mode: _ } => {
                     let state_dir = ctx.config.state_dir();
                     // Share the CLI's existing PluginExecutor. Every
                     // field is `Arc`-backed (including the id counter),
@@ -81,8 +86,8 @@ impl XApiCommands {
                         0,
                         state_dir,
                         ctx.db.clone(),
-                        cache_max_size,
-                        Duration::from_secs(cache_ttl),
+                        ctx.cache_max_size,
+                        ctx.cache_ttl,
                         ctx.config.mock,
                         (*ctx.executor).clone(),
                     )
