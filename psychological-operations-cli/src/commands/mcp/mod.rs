@@ -54,15 +54,6 @@ pub enum XApiCommands {
         /// values (`readonly` / `full`) parse.
         #[arg(long, value_enum)]
         mode: Option<Mode>,
-        /// Accepted for launch-command compatibility, then DISCARDED.
-        /// objectiveai forwards every `client_objectiveai_mcp` argument
-        /// (e.g. `agent`) as a `--<key> <value>` flag when it launches
-        /// the server; the same map also rides the per-request
-        /// `X-OBJECTIVEAI-ARGUMENTS` header, which is where the session
-        /// actually reads `agent` from. We must accept the flag here or
-        /// clap rejects the launch command and the server never starts.
-        #[arg(long)]
-        agent: Option<String>,
     },
 }
 
@@ -78,12 +69,10 @@ impl XApiCommands {
     pub async fn handle(self, ctx: &crate::context::Context) -> bool {
         let result: Result<Output, Error> = async move {
             match self {
-                // `mode` and `agent` are the launch-flag fallbacks: the
-                // session prefers the per-request `X-OBJECTIVEAI-ARGUMENTS`
-                // header, but when the host's conduit passes these as
-                // launch flags WITHOUT also forwarding them per-request,
-                // the server uses them so its session still resolves.
-                XApiCommands::Begin { mode, agent } => {
+                // `mode` is accepted (and validated) only for launch-
+                // command compatibility — the server uses the per-session
+                // header value, so we discard it here.
+                XApiCommands::Begin { mode: _ } => {
                     let state_dir = ctx.config.state_dir();
                     // Share the CLI's existing PluginExecutor. Every
                     // field is `Arc`-backed (including the id counter),
@@ -101,8 +90,6 @@ impl XApiCommands {
                         ctx.cache_ttl,
                         ctx.config.mock,
                         (*ctx.executor).clone(),
-                        agent,
-                        mode,
                     )
                     .await
                     .map_err(|e| Error::Other(format!("mcp run: {e}")))?;
