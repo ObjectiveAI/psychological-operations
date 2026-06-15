@@ -1,17 +1,22 @@
-//! `agents notify` — for every agent with queued tweets, send it an
-//! `agents message` telling it how many tweets are waiting.
+//! `agents notify` — for every agent with queued tweets, park it an
+//! `agents enqueue` message telling it how many tweets are waiting.
 //!
 //! The queue is read once for the per-`(agent, agent_kind)` counts;
-//! every objectiveai `agents message` execution runs concurrently (all
-//! futures pushed into a Vec and awaited together). Each message
+//! every objectiveai `agents enqueue` execution runs concurrently (all
+//! futures pushed into a Vec and awaited together). Each enqueue
 //! response or error is emitted as-is.
 //!
-//! Note: objectiveai 2.2.0's `agents message` is a direct send/spawn —
-//! it no longer supports the keyed-enqueue (idempotent-replace) mode the
-//! pre-2.2.0 version did, so re-running `agents notify` sends a fresh
-//! message rather than replacing a prior keyed one.
+//! We use `agents enqueue` (not `agents message`) deliberately: enqueue
+//! "persists one message into `message_queue` … no lock race, no spawn
+//! child, no delivery wait" — it parks the notification without spawning
+//! the agent, leaving the actual delivery to a later `agents queue
+//! deliver`. It also restores keyed idempotent-replace (dropped by
+//! `agents message` in 2.2.0): we key every row `"psychological-operations"`,
+//! so re-running `agents notify` replaces each agent's prior notification
+//! rather than stacking duplicates.
 
-use objectiveai_sdk::cli::command::agents::message as agents_message;
+use objectiveai_sdk::cli::command::agents::enqueue as agents_enqueue;
+use objectiveai_sdk::cli::command::agents::message::RequestMessage;
 use objectiveai_sdk::cli::command::agents::selector::AgentSelector;
 use objectiveai_sdk::cli::command::plugin::PluginExecutor;
 use psychological_operations_db::AgentKind;
@@ -52,24 +57,27 @@ async fn run_inner(ctx: &crate::context::Context) -> Result<Output, Error> {
     Ok(Output::Ok)
 }
 
-/// Send one `agents message` to `agent`, emitting the response (or the
-/// error) as-is. `agents::message::execute` answers with a single
+/// Park one `agents enqueue` message for `agent`, emitting the response
+/// (or the error) as-is. `agents::enqueue::execute` answers with a single
 /// `Response` (it `execute_one`s under the hood) — no stream to drain.
 async fn notify_one(executor: &PluginExecutor, agent: String, kind: AgentKind, n: i64) {
-    let request = agents_message::Request {
-        path_type: agents_message::Path::AgentsMessage,
+    let request = agents_enqueue::Request {
+        path_type: agents_enqueue::Path::AgentsEnqueue,
         agent: selector_for(&agent, kind),
         // Whitespace is fine: 2.2.0's PluginExecutor carries the nested
         // command as a structured argv array (not `argv.join(" ")`), so
         // `--simple` and this string stay separate tokens and spaces /
         // quotes inside the message survive intact.
-        message: agents_message::RequestMessage::Simple(format!(
+        message: RequestMessage::Simple(format!(
             "The account \"{agent}\" has {n} tweets in the queue."
         )),
-        dangerous_advanced: None,
+        // Idempotency key scoped per (target, key): re-running `agents
+        // notify` replaces this agent's prior notification row rather
+        // than stacking a duplicate.
+        key: Some("psychological-operations".to_string()),
         base: Default::default(),
     };
-    match agents_message::execute(executor, request, None).await {
+    match agents_enqueue::execute(executor, request, None).await {
         Ok(response) => emit_response(&response),
         Err(e) => emit_error(&agent, &e.to_string()),
     }
@@ -98,9 +106,9 @@ fn selector_for(agent: &str, kind: AgentKind) -> AgentSelector {
     }
 }
 
-/// Emit one `agents message` response verbatim as a notification line.
-fn emit_response(response: &agents_message::Response) {
-    let value = serde_json::to_value(response).expect("message Response serializes");
+/// Emit one `agents enqueue` response verbatim as a notification line.
+fn emit_response(response: &agents_enqueue::Response) {
+    let value = serde_json::to_value(response).expect("enqueue Response serializes");
     crate::output::OutputResult::Notification(value).emit();
 }
 

@@ -18,9 +18,19 @@ use std::path::PathBuf;
 
 use futures::StreamExt;
 use objectiveai_sdk::RemotePathCommitOptional;
-use objectiveai_sdk::cli::command::CommandExecutor;
+use objectiveai_sdk::agent::{
+    InlineAgentBase, InlineAgentBaseWithFallbacks,
+    InlineAgentBaseWithFallbacksOrRemoteCommitOptional, mock,
+};
+use objectiveai_sdk::cli::command::agents::instances::list as instances_list;
+use objectiveai_sdk::cli::command::agents::logs::read::{
+    all as logs_read_all, id as logs_read_id, pending as logs_read_pending,
+};
+use objectiveai_sdk::cli::command::agents::queue::deliver as queue_deliver;
+use objectiveai_sdk::cli::command::agents::tags::apply as tags_apply;
 use objectiveai_sdk::cli::command::binary::{BinaryExecutor, Error as ExecError};
 use objectiveai_sdk::cli::command::plugins::run as plugins_run;
+use objectiveai_sdk::cli::command::{CommandExecutor, CommandRequest, CommandResponse};
 use objectiveai_sdk::functions::executions::request::Strategy;
 use objectiveai_sdk::functions::{
     FullInlineFunctionOrRemoteCommitOptional, InlineProfileOrRemoteCommitOptional,
@@ -30,7 +40,13 @@ use psychological_operations_sdk::cli::destinations::{DeliverySummary, Destinati
 use psychological_operations_sdk::cli::psyops::{
     PsyOp, PsyopEntry, PublishedPsyop, Query, SearchEndpoint, SortBy, Stage, StageBase,
 };
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 use serde_json::Value;
+
+/// The objectiveai `agents` `--target` selector (`me` / `tag=…` /
+/// `instance=…`), re-exported so host-command tests can name it.
+pub use objectiveai_sdk::cli::command::agents::logs::read::all::Target;
 
 /// The plugin coordinate installed under `.objectiveai/bin/plugins/`.
 const OWNER: &str = "objectiveai";
@@ -220,6 +236,125 @@ impl Plugin {
         self.dispatch(v).await
     }
 
+    // ── agents: notify (plugin) ─────────────────────────────────────
+
+    /// `agents notify` (PLUGIN, no args) — park an objectiveai
+    /// notification for every agent with queued tweets.
+    pub async fn agents_notify(&self) -> RunResult {
+        self.dispatch(vec!["agents".into(), "notify".into()]).await
+    }
+
+    // ── agents: objectiveai HOST root commands ──────────────────────
+    //
+    // These drive the objectiveai host directly (NOT the psychological-
+    // operations plugin): the same executor spawns `objectiveai agents
+    // …` via each typed Request's `into_command`. Distinct from the
+    // `agents_quota_*` / `agents_notify` plugin methods above.
+
+    /// `agents tags apply` (HOST) — register `tag` bound to a fresh
+    /// inline **mock** agent (deterministic, no upstream LLM).
+    pub async fn agents_tags_apply_mock(&self, tag: &str) -> HostResult<tags_apply::Response> {
+        let agent_spec = InlineAgentBaseWithFallbacksOrRemoteCommitOptional::AgentBase(
+            InlineAgentBaseWithFallbacks {
+                inner: InlineAgentBase::Mock(mock::AgentBase::default()),
+                fallbacks: None,
+            },
+        );
+        let req = tags_apply::Request {
+            path_type: tags_apply::Path::AgentsTagsApply,
+            name: tag.to_string(),
+            target: tags_apply::Target::Agent {
+                agent_spec,
+                parent_agent_instance_hierarchy: None,
+            },
+            base: Default::default(),
+        };
+        self.host(req).await
+    }
+
+    /// `agents queue deliver` (HOST) with stream mode on
+    /// (`stream_spawns: true`) — wins each pending agent's lock, spawns
+    /// + runs it in-process, and streams to `AllAgentsActive`. A
+    /// synchronous delivery barrier: when this returns, every spawn has
+    /// finished.
+    pub async fn agents_queue_deliver_stream(&self) -> HostResult<queue_deliver::ResponseItem> {
+        let req = queue_deliver::Request {
+            path_type: queue_deliver::Path::AgentsQueueDeliver,
+            dangerous_advanced: Some(queue_deliver::RequestDangerousAdvanced {
+                stream_spawns: Some(true),
+            }),
+            base: Default::default(),
+        };
+        self.host(req).await
+    }
+
+    /// `agents instances list` (HOST) — per-agent aggregates for each
+    /// instance under `targets`.
+    pub async fn agents_instances_list(
+        &self,
+        targets: Vec<Target>,
+    ) -> HostResult<instances_list::ResponseItem> {
+        let req = instances_list::Request {
+            path_type: instances_list::Path::AgentsInstancesList,
+            targets,
+            base: Default::default(),
+        };
+        self.host(req).await
+    }
+
+    /// `agents logs read pending` (HOST) — pending child log rows under
+    /// `targets`.
+    pub async fn agents_logs_read_pending(
+        &self,
+        targets: Vec<Target>,
+    ) -> HostResult<logs_read_all::ResponseItem> {
+        let req = logs_read_pending::Request {
+            path_type: logs_read_pending::Path::AgentsLogsReadPending,
+            targets,
+            after_id: None,
+            limit: None,
+            base: Default::default(),
+        };
+        self.host(req).await
+    }
+
+    /// `agents logs read id <id>` (HOST) — the single log row at
+    /// `logs.messages."index" == id`.
+    pub async fn agents_logs_read_id(&self, id: i64) -> HostResult<logs_read_id::Response> {
+        let req = logs_read_id::Request {
+            path_type: logs_read_id::Path::AgentsLogsReadId,
+            id,
+            base: Default::default(),
+        };
+        self.host(req).await
+    }
+
+    /// Core: run a typed objectiveai HOST `Request` through the executor,
+    /// collecting the typed stream into a [`HostResult`]. Panics on a
+    /// harness/infra failure (spawn, IO, undecodable line).
+    async fn host<R, T>(&self, req: R) -> HostResult<T>
+    where
+        R: CommandRequest + Send,
+        T: CommandResponse + Serialize + DeserializeOwned + Send + 'static,
+    {
+        let label = req.into_command().join(" ");
+        let mut stream = self
+            .executor
+            .execute::<_, T>(req, None)
+            .await
+            .unwrap_or_else(|e| panic!("[{}] execute `{label}`: {e}", self.state));
+        let mut items = Vec::new();
+        let mut errors = Vec::new();
+        while let Some(item) = stream.next().await {
+            match item {
+                Ok(t) => items.push(t),
+                Err(ExecError::Cli(e)) => errors.push(e),
+                Err(other) => panic!("[{}] `{label}` harness error: {other}", self.state),
+            }
+        }
+        HostResult { items, errors }
+    }
+
     // ── escape hatch + core ─────────────────────────────────────────
 
     /// Run an arbitrary plugin command (the plugin's own argv) for
@@ -388,6 +523,29 @@ impl Drop for Plugin {
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .status();
+    }
+}
+
+/// Classified output of one objectiveai HOST command — the typed items
+/// of its stream plus any error frames. (Host commands yield a single
+/// typed response stream, unlike plugin commands whose mixed stream is
+/// split across the fields of [`RunResult`].)
+pub struct HostResult<T> {
+    /// The decoded response items, in stream order.
+    pub items: Vec<T>,
+    /// Error frames surfaced by the host.
+    pub errors: Vec<objectiveai_sdk::cli::Error>,
+}
+
+impl<T> HostResult<T> {
+    /// Assert no error frame was emitted; returns `self` for chaining.
+    pub fn assert_no_errors(&self) -> &Self {
+        assert!(
+            self.errors.is_empty(),
+            "expected no host errors, got: {:?}",
+            self.errors,
+        );
+        self
     }
 }
 
