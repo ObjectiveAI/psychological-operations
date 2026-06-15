@@ -1,6 +1,6 @@
 //! `mcp` subcommand surface.
 //!
-//! `mcp begin` runs the X-API MCP server in-process: this CLI
+//! `mcp x-api begin` runs the X-API MCP server in-process: this CLI
 //! process becomes the MCP server. The server emits a single
 //! `{"type":"mcp","url":"http://…"}` JSONL line on stdout — the
 //! typed [`psychological_operations_sdk::cli::Output::Mcp`] (re-
@@ -9,6 +9,11 @@
 //! parses that as an MCP-URL announcement and dials the URL
 //! through the same path a manifest `mcp_servers` entry uses.
 //! No supervisor, no child stderr, no `state.json`.
+//!
+//! The server is nested under its name (`x-api`) because objectiveai
+//! launches a plugin's MCP server as `<plugin-exec> mcp <name> begin`
+//! (see `objectiveai-cli` conduit). The `<name>` matches the plugin
+//! manifest's `mcp_servers[].name` (`x-api`).
 
 use std::time::Duration;
 
@@ -19,6 +24,18 @@ use crate::error::Error;
 
 #[derive(Subcommand)]
 pub enum Commands {
+    /// X-API MCP server commands. Nested under the server's name so the
+    /// objectiveai host's `mcp <name> begin` plugin-launch convention
+    /// resolves here (`<name>` = `x-api`).
+    #[command(name = "x-api")]
+    XApi {
+        #[command(subcommand)]
+        command: XApiCommands,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum XApiCommands {
     /// Run the X-API MCP server in-process. Binds a random
     /// localhost port, emits one JSONL line with the URL, then
     /// serves until the process is killed. Per-session
@@ -40,9 +57,17 @@ pub enum Commands {
 
 impl Commands {
     pub async fn handle(self, ctx: &crate::context::Context) -> bool {
+        match self {
+            Commands::XApi { command } => command.handle(ctx).await,
+        }
+    }
+}
+
+impl XApiCommands {
+    pub async fn handle(self, ctx: &crate::context::Context) -> bool {
         let result: Result<Output, Error> = async move {
             match self {
-                Commands::Begin { cache_max_size, cache_ttl } => {
+                XApiCommands::Begin { cache_max_size, cache_ttl } => {
                     let state_dir = ctx.config.state_dir();
                     // Share the CLI's existing PluginExecutor. Every
                     // field is `Arc`-backed (including the id counter),
