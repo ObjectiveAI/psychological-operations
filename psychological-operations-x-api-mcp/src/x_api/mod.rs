@@ -90,6 +90,12 @@ pub struct PsychologicalOperationsXApiMcp {
     pub(super) db: Db,
     pub(super) cache_max_size: u64,
     pub(super) cache_ttl: Duration,
+    /// When true, every per-tool SDK `Client` is built in mock mode —
+    /// X-API calls short-circuit to the in-process deterministic mock
+    /// instead of hitting the real network. Sourced from
+    /// `PSYCHOLOGICAL_OPERATIONS_MOCK` (standalone binary) or the CLI's
+    /// `Config.mock` (`mcp begin`).
+    pub(super) mock: bool,
     /// Discovers an agent's usable identities (its AIH plus its tags)
     /// for `list_accounts`, wrapping the objectiveai `CommandExecutor`
     /// behind an object-safe trait (the executor itself is generic and
@@ -112,6 +118,7 @@ impl PsychologicalOperationsXApiMcp {
         db: Db,
         cache_max_size: u64,
         cache_ttl: Duration,
+        mock: bool,
         accounts: Arc<dyn AgentTagLister>,
     ) -> Self {
         Self {
@@ -125,6 +132,7 @@ impl PsychologicalOperationsXApiMcp {
             db,
             cache_max_size,
             cache_ttl,
+            mock,
             accounts,
         }
     }
@@ -170,7 +178,7 @@ impl PsychologicalOperationsXApiMcp {
     pub(super) fn build_client(&self) -> Client {
         Client::new(
             self.reqwest.clone(),
-            /* mock */ false,
+            self.mock,
             self.cache_max_size,
             self.cache_ttl,
             self.state_dir.clone(),

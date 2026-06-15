@@ -694,7 +694,7 @@ async fn run_queries(
 fn make_http_client(ctx: &crate::context::Context) -> Client {
     Client::new(
         reqwest::Client::new(),
-        /* mock */ false,
+        ctx.config.mock,
         ctx.cache_max_size,
         ctx.cache_ttl,
         ctx.config.state_dir(),

@@ -58,6 +58,7 @@ impl Commands {
                         ctx.db.clone(),
                         cache_max_size,
                         Duration::from_secs(cache_ttl),
+                        ctx.config.mock,
                         (*ctx.executor).clone(),
                     )
                     .await

@@ -36,6 +36,7 @@ pub async fn setup<E>(
     db:              Db,
     cache_max_size:  u64,
     cache_ttl:       Duration,
+    mock:            bool,
     executor:        E,
 ) -> std::io::Result<(tokio::net::TcpListener, axum::Router)>
 where
@@ -58,6 +59,7 @@ where
         db,
         cache_max_size,
         cache_ttl,
+        mock,
         accounts,
     );
 
@@ -114,6 +116,7 @@ pub async fn run<E>(
     db:              Db,
     cache_max_size:  u64,
     cache_ttl:       Duration,
+    mock:            bool,
     executor:        E,
 ) -> std::io::Result<()>
 where
@@ -121,7 +124,7 @@ where
     E::Error: std::fmt::Display + Send + 'static,
 {
     let (listener, app) = setup(
-        address, port, state_dir, db, cache_max_size, cache_ttl, executor,
+        address, port, state_dir, db, cache_max_size, cache_ttl, mock, executor,
     ).await?;
     let addr = listener.local_addr()?;
     let announcement = Output::Mcp(Mcp {

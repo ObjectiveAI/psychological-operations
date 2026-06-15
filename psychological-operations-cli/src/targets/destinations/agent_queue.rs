@@ -32,7 +32,7 @@ pub async fn send(
 
     let client = Client::new(
         reqwest::Client::new(),
-        /* mock */ false,
+        ctx.config.mock,
         ctx.cache_max_size,
         ctx.cache_ttl,
         ctx.config.state_dir(),

@@ -31,6 +31,12 @@ struct Args {
     /// Per-entry cache TTL in seconds.
     #[arg(long)]
     cache_ttl: u64,
+    /// Mock mode (env `PSYCHOLOGICAL_OPERATIONS_MOCK`): every X-API call
+    /// short-circuits to the in-process deterministic mock. Lenient parse
+    /// — any non-empty value other than "0"/"false" (case-insensitive)
+    /// is true; absent → false.
+    #[arg(long, env = "PSYCHOLOGICAL_OPERATIONS_MOCK", hide = true)]
+    mock: Option<String>,
     /// Bind address — hidden; supervisor-internal.
     #[arg(long, default_value = "127.0.0.1", hide = true)]
     address: String,
@@ -51,6 +57,7 @@ async fn main() -> std::io::Result<()> {
         .init();
 
     let args = Args::parse();
+    let mock = args.mock.as_deref().map(parse_bool).unwrap_or(false);
     let executor = BinaryExecutor::new(Some(args.state_dir.clone()));
     let db = psychological_operations_db::Db::connect(&args.postgres_url)
         .await
@@ -62,7 +69,16 @@ async fn main() -> std::io::Result<()> {
         db,
         args.cache_max_size,
         Duration::from_secs(args.cache_ttl),
+        mock,
         executor,
     )
     .await
+}
+
+/// Lenient boolean parse for `PSYCHOLOGICAL_OPERATIONS_MOCK`, matching
+/// the CLI's convention: any non-empty value other than "0"/"false"
+/// (case-insensitive) is true.
+fn parse_bool(s: &str) -> bool {
+    let v = s.trim();
+    !v.is_empty() && v != "0" && !v.eq_ignore_ascii_case("false")
 }
