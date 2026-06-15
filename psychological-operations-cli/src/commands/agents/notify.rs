@@ -59,17 +59,12 @@ async fn notify_one(executor: &PluginExecutor, agent: String, kind: AgentKind, n
     let request = agents_message::Request {
         path_type: agents_message::Path::AgentsMessage,
         agent: selector_for(&agent, kind),
-        // The message MUST be whitespace-free. The SDK's
-        // PluginExecutor emits a nested command as `argv.join(" ")`
-        // and the objectiveai host re-tokenizes it with
-        // `split_whitespace` (no shlex) — so any argument carrying a
-        // space is shattered into separate tokens and clap rejects
-        // the reconstructed command. A readable sentence here makes
-        // `agents message` fail to parse; underscores keep the
-        // notification one token while still naming the agent + count
-        // (the recipient is an agent, not a human reader).
+        // Whitespace is fine: 2.2.0's PluginExecutor carries the nested
+        // command as a structured argv array (not `argv.join(" ")`), so
+        // `--simple` and this string stay separate tokens and spaces /
+        // quotes inside the message survive intact.
         message: agents_message::RequestMessage::Simple(format!(
-            "psychological-operations:{n}_queued_tweet(s)_for_you,_agent={agent}"
+            "The account \"{agent}\" has {n} tweets in the queue."
         )),
         dangerous_advanced: None,
         base: Default::default(),
