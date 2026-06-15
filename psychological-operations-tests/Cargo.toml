@@ -1,0 +1,7 @@
+[package]
+name = "psychological-operations-tests"
+version = "0.1.0"
+edition = "2024"
+description = "Cross-crate integration tests for psychological-operations. Tests live under tests/; the lib is intentionally minimal. Hello-world scaffold for now."
+
+[dependencies]
