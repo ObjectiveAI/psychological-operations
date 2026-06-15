@@ -11,3 +11,7 @@ psychological-operations-cli/assets/**/psyop.json text eol=lf
 *.db binary
 *.sqlite binary
 *.zip binary
+
+# Shell scripts must stay LF regardless of `core.autocrlf` — a CRLF in the
+# shebang line breaks `bash` on Linux/CI (and fresh Windows checkouts).
+*.sh text eol=lf
