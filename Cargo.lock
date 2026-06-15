@@ -4563,6 +4563,7 @@ name = "psychological-operations-tests"
 version = "0.1.0"
 dependencies = [
  "futures",
+ "indexmap 2.14.0",
  "objectiveai-sdk",
  "psychological-operations-sdk",
  "serde",

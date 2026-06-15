@@ -18,7 +18,9 @@ use std::path::PathBuf;
 
 use futures::StreamExt;
 use objectiveai_sdk::RemotePathCommitOptional;
+use indexmap::IndexMap;
 use objectiveai_sdk::agent::{
+    ClientObjectiveaiMcp, ClientObjectiveaiMcpPluginEntry, ClientObjectiveaiMcpPluginMcpServer,
     InlineAgentBase, InlineAgentBaseWithFallbacks,
     InlineAgentBaseWithFallbacksOrRemoteCommitOptional, mock,
 };
@@ -26,7 +28,11 @@ use objectiveai_sdk::cli::command::agents::instances::list as instances_list;
 use objectiveai_sdk::cli::command::agents::logs::read::{
     all as logs_read_all, id as logs_read_id, pending as logs_read_pending,
 };
+use objectiveai_sdk::cli::command::agents::message::RequestMessage;
 use objectiveai_sdk::cli::command::agents::queue::deliver as queue_deliver;
+use objectiveai_sdk::cli::command::agents::queue::read::pending as queue_read_pending;
+use objectiveai_sdk::cli::command::agents::selector::AgentSelector;
+use objectiveai_sdk::cli::command::agents::spawn as agents_spawn;
 use objectiveai_sdk::cli::command::agents::tags::apply as tags_apply;
 use objectiveai_sdk::cli::command::binary::{BinaryExecutor, Error as ExecError};
 use objectiveai_sdk::cli::command::plugins::run as plugins_run;
@@ -244,6 +250,23 @@ impl Plugin {
         self.dispatch(vec!["agents".into(), "notify".into()]).await
     }
 
+    /// `agents enqueue` (PLUGIN) — park `tweet_id` (with `message`) on
+    /// `agent`'s psychological-operations queue.
+    pub async fn agents_enqueue(
+        &self,
+        agent: Agent<'_>,
+        tweet_id: &str,
+        message: &str,
+    ) -> RunResult {
+        let mut v = vec!["agents".into(), "enqueue".into()];
+        agent.append(&mut v);
+        v.push("--tweet-id".into());
+        v.push(tweet_id.to_string());
+        v.push("--message".into());
+        v.push(message.to_string());
+        self.dispatch(v).await
+    }
+
     // ── agents: objectiveai HOST root commands ──────────────────────
     //
     // These drive the objectiveai host directly (NOT the psychological-
@@ -251,14 +274,15 @@ impl Plugin {
     // …` via each typed Request's `into_command`. Distinct from the
     // `agents_quota_*` / `agents_notify` plugin methods above.
 
-    /// `agents tags apply` (HOST) — register `tag` bound to a fresh
-    /// inline **mock** agent (deterministic, no upstream LLM).
-    pub async fn agents_tags_apply_mock(&self, tag: &str) -> HostResult<tags_apply::Response> {
+    /// `agents tags apply` (HOST) — register `tag` bound to a fresh inline
+    /// agent (`inner`). Creates a GROUPED tag carrying the agent spec.
+    pub async fn agents_tags_apply_inline(
+        &self,
+        tag: &str,
+        inner: InlineAgentBase,
+    ) -> HostResult<tags_apply::Response> {
         let agent_spec = InlineAgentBaseWithFallbacksOrRemoteCommitOptional::AgentBase(
-            InlineAgentBaseWithFallbacks {
-                inner: InlineAgentBase::Mock(mock::AgentBase::default()),
-                fallbacks: None,
-            },
+            InlineAgentBaseWithFallbacks { inner, fallbacks: None },
         );
         let req = tags_apply::Request {
             path_type: tags_apply::Path::AgentsTagsApply,
@@ -267,6 +291,48 @@ impl Plugin {
                 agent_spec,
                 parent_agent_instance_hierarchy: None,
             },
+            base: Default::default(),
+        };
+        self.host(req).await
+    }
+
+    /// Convenience: register `tag` bound to a default (no-op) inline mock
+    /// agent (deterministic, no upstream LLM, no tools).
+    pub async fn agents_tags_apply_mock(&self, tag: &str) -> HostResult<tags_apply::Response> {
+        self.agents_tags_apply_inline(tag, InlineAgentBase::Mock(mock::AgentBase::default()))
+            .await
+    }
+
+    /// `agents spawn` (HOST) with streaming on and an EMPTY initial
+    /// message — spawns the `tag`'s agent, drains its queued messages, and
+    /// streams every chunk to completion (a synchronous barrier).
+    pub async fn agents_spawn_stream(&self, tag: &str) -> HostResult<agents_spawn::ResponseItem> {
+        let req = agents_spawn::Request {
+            path_type: agents_spawn::Path::AgentsSpawn,
+            message: RequestMessage::Simple(String::new()),
+            agent: AgentSelector::Tag { agent_tag: tag.to_string() },
+            dangerous_advanced: Some(agents_spawn::RequestDangerousAdvanced {
+                stream: Some(true),
+                seed: Some(42),
+                skip_lock: None,
+            }),
+            base: Default::default(),
+        };
+        self.host(req).await
+    }
+
+    /// `agents queue read pending` (HOST) — pending objectiveai
+    /// `message_queue` rows under `targets` (an empty item list ⇒ the
+    /// queue is empty).
+    pub async fn agents_queue_read_pending(
+        &self,
+        targets: Vec<Target>,
+    ) -> HostResult<queue_read_pending::ResponseItem> {
+        let req = queue_read_pending::Request {
+            path_type: queue_read_pending::Path::AgentsQueueReadPending,
+            targets,
+            after_id: None,
+            limit: None,
             base: Default::default(),
         };
         self.host(req).await
@@ -485,6 +551,54 @@ pub fn query_psyop(query: &str, stages: Vec<Stage>) -> PsyOp {
         query_when_for_you_queued: true,
         stages: if stages.is_empty() { None } else { Some(stages) },
     }
+}
+
+/// An inline **mock** agent scripted to make ONE deterministic tool call to
+/// the psychological-operations x-api MCP tool `mark_handled`
+/// (`{"account": <account>, "tweet_ids": [...]}`), then close out with a
+/// content turn. It wires `client_objectiveai_mcp` so the plugin's `x-api`
+/// MCP server is exposed in **full** mode (`mark_handled` is hidden in
+/// readonly). The tool name is the proxy-prefixed `<serverInfo.name>_<tool>`
+/// = `psychological-operations-x-api_mark_handled`.
+pub fn mark_handled_mock_agent(account: &str, tweet_ids: &[&str]) -> InlineAgentBase {
+    let arguments =
+        serde_json::json!({ "account": account, "tweet_ids": tweet_ids }).to_string();
+    let mut base = mock::AgentBase::default();
+    base.calls = Some(vec![
+        // Turn 1: the deterministic tool call.
+        mock::Call {
+            tool_calls: vec![mock::CallToolCall {
+                name: "psychological-operations-x-api_mark_handled".to_string(),
+                arguments,
+            }],
+            content: String::new(),
+        },
+        // Turn 2: close out with content (no tool calls) so the agent
+        // completion finishes after the tool result comes back.
+        mock::Call { tool_calls: Vec::new(), content: "done".to_string() },
+    ]);
+    base.client_objectiveai_mcp = Some(ClientObjectiveaiMcp {
+        objectiveai: None,
+        plugins: vec![ClientObjectiveaiMcpPluginEntry {
+            owner: OWNER.to_string(),
+            name: NAME.to_string(),
+            version: VERSION.to_string(),
+            // Don't surface the plugin's own command tools — only bring up
+            // its declared `x-api` MCP server (which carries mark_handled).
+            executable: false,
+            mcp_servers: Some(vec![ClientObjectiveaiMcpPluginMcpServer {
+                name: "x-api".to_string(),
+                // Forwarded as the per-request `X-OBJECTIVEAI-ARGUMENTS`
+                // header the x-api session reads `mode` from → FULL mode.
+                arguments: Some(IndexMap::from([(
+                    "mode".to_string(),
+                    Some("full".to_string()),
+                )])),
+            }]),
+        }],
+        tools: Vec::new(),
+    });
+    InlineAgentBase::Mock(base)
 }
 
 /// A `function` scoring stage pointing at a `remote:mock` `function` +

@@ -15,3 +15,6 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "io
 futures = "0.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Build the `arguments` map on a scripted mock agent's client_objectiveai_mcp
+# (same IndexMap type objectiveai-sdk uses, so the types unify).
+indexmap = "2"
