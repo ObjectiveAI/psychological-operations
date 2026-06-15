@@ -41,6 +41,14 @@ async fn run_inner(
     dangerously_reset: bool,
     ctx: &crate::context::Context,
 ) -> Result<CliOutput, Error> {
+    // Setup drives the real embedded browser + cookie jar; there is
+    // nothing to mock. Refuse outright in mock mode.
+    if ctx.config.mock {
+        return Err(Error::Other(
+            "x_app setup is not supported in mock mode (PSYCHOLOGICAL_OPERATIONS_MOCK)".into(),
+        ));
+    }
+
     let state_dir = ctx.config.state_dir();
 
     // === Pre-flight ===

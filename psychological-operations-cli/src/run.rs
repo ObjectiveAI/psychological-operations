@@ -26,6 +26,10 @@ struct EnvConfigBuilder {
     objectiveai_agent_remote: Option<String>,
     #[envconfig(from = "OBJECTIVEAI_AGENT_INSTANCE_HIERARCHY")]
     objectiveai_agent_instance_hierarchy: Option<String>,
+    /// Process-wide mock switch (env `PSYCHOLOGICAL_OPERATIONS_MOCK`).
+    /// Parsed leniently (see [`parse_bool`]); defaults to `false`.
+    #[envconfig(from = "PSYCHOLOGICAL_OPERATIONS_MOCK")]
+    mock: Option<String>,
 }
 
 impl EnvConfigBuilder {
@@ -37,8 +41,17 @@ impl EnvConfigBuilder {
             objectiveai_agent_full_id: self.objectiveai_agent_full_id,
             objectiveai_agent_remote: self.objectiveai_agent_remote,
             objectiveai_agent_instance_hierarchy: self.objectiveai_agent_instance_hierarchy,
+            mock: self.mock,
         }
     }
+}
+
+/// Lenient boolean env parse, mirroring objectiveai's convention:
+/// anything non-empty that isn't `"0"` or `"false"` (case-insensitive)
+/// is `true`.
+fn parse_bool(s: &str) -> bool {
+    let v = s.trim();
+    !v.is_empty() && v != "0" && !v.eq_ignore_ascii_case("false")
 }
 
 #[derive(Default)]
@@ -49,6 +62,7 @@ pub struct ConfigBuilder {
     pub objectiveai_agent_full_id: Option<String>,
     pub objectiveai_agent_remote: Option<String>,
     pub objectiveai_agent_instance_hierarchy: Option<String>,
+    pub mock: Option<String>,
 }
 
 impl Envconfig for ConfigBuilder {
@@ -85,6 +99,7 @@ impl ConfigBuilder {
             objectiveai_agent_instance_hierarchy: self
                 .objectiveai_agent_instance_hierarchy
                 .unwrap_or_else(|| "psychological-operations".to_string()),
+            mock: self.mock.as_deref().map(parse_bool).unwrap_or(false),
         }
     }
 }
@@ -119,6 +134,11 @@ pub struct Config {
     /// the `--me` selector's identity and the deliverer hierarchy
     /// stamped on `agents enqueue` rows.
     pub objectiveai_agent_instance_hierarchy: String,
+    /// Process-wide mock switch (env `PSYCHOLOGICAL_OPERATIONS_MOCK`,
+    /// default `false`). The `login`, `browser`, and `x_app setup`
+    /// flows refuse to run when this is set — none of them support mock
+    /// mode (they drive the real embedded browser + cookie jar).
+    pub mock: bool,
 }
 
 impl Config {
