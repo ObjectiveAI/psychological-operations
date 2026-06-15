@@ -4559,6 +4559,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "psychological-operations-tests"
+version = "0.1.0"
+
+[[package]]
 name = "psychological-operations-x-api-mcp"
 version = "0.99.0"
 dependencies = [
