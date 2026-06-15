@@ -3973,9 +3973,9 @@ dependencies = [
 
 [[package]]
 name = "objectiveai-sdk"
-version = "2.2.0"
+version = "2.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "20d6475a219a1c2710998208e256e1fdac7ff78bca2e09cd3c4f97a33feb0605"
+checksum = "6c98fa22364b8db3e787ef71463219f30f144495bd7c2bfc36bccb8103b4aad1"
 dependencies = [
  "anyhow",
  "arbitrary",
@@ -4016,9 +4016,9 @@ dependencies = [
 
 [[package]]
 name = "objectiveai-sdk-macros"
-version = "2.2.0"
+version = "2.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d9cc5690b46e5671c150b657aa1cfbc067b97086104e02fbafb351589e21aa15"
+checksum = "3af1abad716cb4fceaf0b0edf9ebb30e68208cece6815631a834ef64a568eb35"
 
 [[package]]
 name = "once_cell"
