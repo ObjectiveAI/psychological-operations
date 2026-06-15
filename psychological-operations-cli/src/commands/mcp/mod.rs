@@ -78,10 +78,12 @@ impl XApiCommands {
     pub async fn handle(self, ctx: &crate::context::Context) -> bool {
         let result: Result<Output, Error> = async move {
             match self {
-                // `mode` and `agent` are accepted only for launch-command
-                // compatibility — the server uses the per-session header
-                // values, so we discard them here.
-                XApiCommands::Begin { mode: _, agent: _ } => {
+                // `mode` and `agent` are the launch-flag fallbacks: the
+                // session prefers the per-request `X-OBJECTIVEAI-ARGUMENTS`
+                // header, but when the host's conduit passes these as
+                // launch flags WITHOUT also forwarding them per-request,
+                // the server uses them so its session still resolves.
+                XApiCommands::Begin { mode, agent } => {
                     let state_dir = ctx.config.state_dir();
                     // Share the CLI's existing PluginExecutor. Every
                     // field is `Arc`-backed (including the id counter),
@@ -99,6 +101,8 @@ impl XApiCommands {
                         ctx.cache_ttl,
                         ctx.config.mock,
                         (*ctx.executor).clone(),
+                        agent,
+                        mode,
                     )
                     .await
                     .map_err(|e| Error::Other(format!("mcp run: {e}")))?;

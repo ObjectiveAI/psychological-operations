@@ -55,14 +55,31 @@ pub struct HeaderSessionManager {
     /// Used by `ensure_session` to spawn a service end onto each
     /// lazy-created worker.
     service: PsychologicalOperationsXApiMcp,
+    /// Launch-flag fallbacks for `agent` / `mode` (from
+    /// `mcp x-api begin --agent <a> --mode <m>`). objectiveai's conduit
+    /// spawns one server per (plugin, args) and passes the agent/mode as
+    /// launch flags; in some host versions those don't also ride the
+    /// per-request `X-OBJECTIVEAI-ARGUMENTS` header. When the header
+    /// lacks them, these stand in — so a conduit-launched server still
+    /// resolves its session. `None` ⇒ no fallback (header is the only
+    /// source, as before).
+    default_agent: Option<String>,
+    default_mode: Option<Mode>,
 }
 
 impl HeaderSessionManager {
-    pub fn new(registry: Arc<SessionRegistry>, service: PsychologicalOperationsXApiMcp) -> Self {
+    pub fn new(
+        registry: Arc<SessionRegistry>,
+        service: PsychologicalOperationsXApiMcp,
+        default_agent: Option<String>,
+        default_mode: Option<Mode>,
+    ) -> Self {
         Self {
             inner: Arc::new(LocalSessionManager::default()),
             registry,
             service,
+            default_agent,
+            default_mode,
         }
     }
 
@@ -81,7 +98,12 @@ impl HeaderSessionManager {
             return Ok(());
         }
 
-        let state = extract_session_state(message).map_err(error_invalid_input)?;
+        let state = extract_session_state(
+            message,
+            self.default_agent.as_deref(),
+            self.default_mode,
+        )
+        .map_err(error_invalid_input)?;
         self.registry.record(id.clone(), Arc::new(state)).await;
 
         let (handle, worker) = create_local_session(id.clone(), SessionConfig::default());
@@ -140,7 +162,12 @@ impl SessionManager for HeaderSessionManager {
         // delegate. The inner already has the handle from its
         // own `create_session` (called by tower right before
         // this).
-        let state = extract_session_state(&message).map_err(error_invalid_input)?;
+        let state = extract_session_state(
+            &message,
+            self.default_agent.as_deref(),
+            self.default_mode,
+        )
+        .map_err(error_invalid_input)?;
         self.registry.record(id.clone(), Arc::new(state)).await;
         self.inner.initialize_session(id, message).await
     }
@@ -228,7 +255,11 @@ pub fn synthetic_initialize_message() -> ClientJsonRpcMessage {
     })
 }
 
-fn extract_session_state(message: &ClientJsonRpcMessage) -> Result<SessionState, String> {
+fn extract_session_state(
+    message: &ClientJsonRpcMessage,
+    default_agent: Option<&str>,
+    default_mode: Option<Mode>,
+) -> Result<SessionState, String> {
     let parts = match message {
         ClientJsonRpcMessage::Request(req) => {
             req.request.extensions().get::<http::request::Parts>()
@@ -260,25 +291,31 @@ fn extract_session_state(message: &ClientJsonRpcMessage) -> Result<SessionState,
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
 
-    // `agent`: try the JSON args first (case-insensitive key), then
-    // fall back to the X-OBJECTIVEAI-AGENT-INSTANCE-HIERARCHY
-    // header. Error only if neither source has a non-empty value.
+    // `agent`: try the JSON args first (case-insensitive key), then the
+    // X-OBJECTIVEAI-AGENT-INSTANCE-HIERARCHY header, then the launch-flag
+    // fallback (`begin --agent`). Error only if every source is empty.
     let agent = lookup_string_ci(&args, "agent")
         .or_else(|| hierarchy.clone())
+        .or_else(|| {
+            default_agent
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+        })
         .ok_or_else(|| format!(
             "missing agent: {HEADER_ARGUMENTS}[\"agent\"] absent or empty, \
-             and {HEADER_AGENT_INSTANCE_HIERARCHY} header also absent or empty"
+             {HEADER_AGENT_INSTANCE_HIERARCHY} header absent or empty, \
+             and no --agent launch fallback"
         ))?;
 
-    // `mode`: JSON args only; no header fallback. Optional —
-    // missing defaults to `Mode::Readonly`. Only a malformed
-    // value (something other than 'readonly' / 'full') is an
-    // error.
+    // `mode`: JSON args first, then the launch-flag fallback
+    // (`begin --mode`), then `Mode::Readonly`. A malformed header value
+    // is still an error.
     let mode = match lookup_string_ci(&args, "mode") {
         Some(s) => parse_mode(&s).ok_or_else(|| {
             format!("mode: expected 'readonly' or 'full', got {s:?}")
         })?,
-        None => Mode::Readonly,
+        None => default_mode.unwrap_or(Mode::Readonly),
     };
 
     // Header absent ⇒ the resolved agent (which, in that case,

@@ -71,6 +71,10 @@ async fn main() -> std::io::Result<()> {
         Duration::from_secs(args.cache_ttl),
         mock,
         executor,
+        // Standalone server: no launch-flag fallbacks — clients supply
+        // agent/mode per-request via the X-OBJECTIVEAI-ARGUMENTS header.
+        None,
+        None,
     )
     .await
 }

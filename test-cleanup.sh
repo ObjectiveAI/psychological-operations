@@ -33,6 +33,18 @@ else
   echo "test-cleanup: no objectiveai binary at $BIN — skipping kills"
 fi
 
+# Reap any lingering plugin process — a `mcp x-api begin` MCP server the
+# host's conduit didn't tear down outlives the test and holds the plugin
+# binary + its port, which breaks the next prepare's re-stage. The objectiveai
+# kill commands above don't cover it (it's the plugin, not api/db/viewer), so
+# kill it by exact name. Best-effort; the test runner's own binary is
+# `psychological_operations_tests-*` (underscores), so it isn't matched.
+echo "test-cleanup: reaping lingering plugin MCP servers"
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*) taskkill //IM psychological-operations.exe //F >/dev/null 2>&1 || true ;;
+  *)                    pkill -x psychological-operations            >/dev/null 2>&1 || true ;;
+esac
+
 # --- state teardown (skipped under KILL_ONLY) -----------------------------
 if [ -n "${KILL_ONLY:-}" ]; then
   echo "test-cleanup: KILL_ONLY set — leaving .objectiveai/state in place"

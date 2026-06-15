@@ -18,6 +18,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 bash "$SCRIPT_DIR/install-bin.sh"
 export PATH="$SCRIPT_DIR/bin:$PATH"
 
+# Reap any processes leaked by a PRIOR run first — a lingering plugin MCP
+# server holds the staged plugin binary, which would block test-prepare's
+# re-stage. (KILL_ONLY: don't touch state here.)
+KILL_ONLY=1 bash "$SCRIPT_DIR/test-cleanup.sh"
+
 bash "$SCRIPT_DIR/test-prepare.sh"
 bash "$SCRIPT_DIR/test-cleanup.sh"
 

@@ -29,6 +29,7 @@ use crate::header_session_manager::HeaderSessionManager;
 use crate::x_api::accounts::AgentTagLister;
 use crate::x_api::session::SessionRegistry;
 
+#[allow(clippy::too_many_arguments)]
 pub async fn setup<E>(
     address:         &str,
     port:            u16,
@@ -38,6 +39,8 @@ pub async fn setup<E>(
     cache_ttl:       Duration,
     mock:            bool,
     executor:        E,
+    default_agent:   Option<String>,
+    default_mode:    Option<crate::Mode>,
 ) -> std::io::Result<(tokio::net::TcpListener, axum::Router)>
 where
     E: CommandExecutor + Send + Sync + 'static,
@@ -63,7 +66,12 @@ where
         accounts,
     );
 
-    let session_manager = Arc::new(HeaderSessionManager::new(registry.clone(), server.clone()));
+    let session_manager = Arc::new(HeaderSessionManager::new(
+        registry.clone(),
+        server.clone(),
+        default_agent,
+        default_mode,
+    ));
     let ct = CancellationToken::new();
 
     let service: StreamableHttpService<PsychologicalOperationsXApiMcp, HeaderSessionManager> =
@@ -109,6 +117,7 @@ pub async fn serve(listener: tokio::net::TcpListener, app: axum::Router) -> std:
 /// per session via the `X-OBJECTIVEAI-ARGUMENTS` header (with
 /// `X-OBJECTIVEAI-AGENT-INSTANCE-HIERARCHY` as the agent
 /// fallback) on every request.
+#[allow(clippy::too_many_arguments)]
 pub async fn run<E>(
     address:         &str,
     port:            u16,
@@ -118,6 +127,8 @@ pub async fn run<E>(
     cache_ttl:       Duration,
     mock:            bool,
     executor:        E,
+    default_agent:   Option<String>,
+    default_mode:    Option<crate::Mode>,
 ) -> std::io::Result<()>
 where
     E: CommandExecutor + Send + Sync + 'static,
@@ -125,6 +136,7 @@ where
 {
     let (listener, app) = setup(
         address, port, state_dir, db, cache_max_size, cache_ttl, mock, executor,
+        default_agent, default_mode,
     ).await?;
     let addr = listener.local_addr()?;
     let announcement = Output::Mcp(Mcp {
