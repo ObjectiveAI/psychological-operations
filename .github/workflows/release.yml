@@ -115,7 +115,7 @@ jobs:
           - os: ubuntu-22.04-arm
             asset: psychological-operations-linux-aarch64.zip
             bin: psychological-operations
-          - os: macos-13
+          - os: macos-15-intel
             asset: psychological-operations-macos-x86_64.zip
             bin: psychological-operations
           - os: macos-14
