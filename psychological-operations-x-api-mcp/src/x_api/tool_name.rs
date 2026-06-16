@@ -20,7 +20,7 @@ pub enum Direction {
 /// One metered MCP tool. The string forms (`as_name`) match the
 /// `#[tool(name = …)]` registrations exactly — a unit test asserts the
 /// set round-trips against the live tool router.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ToolName {
     GetReplies,
     GetBio,

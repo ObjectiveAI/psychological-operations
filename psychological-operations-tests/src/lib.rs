@@ -607,15 +607,15 @@ pub fn mark_handled_mock_agent(account: &str, tweet_ids: &[&str]) -> InlineAgent
                 name: "x-api".to_string(),
                 // Forwarded as the per-request `X-OBJECTIVEAI-ARGUMENTS`
                 // header → the x-api session reads `mode` (FULL, so
-                // mark_handled is visible). `mode` is the only valid arg
-                // here; the session's account comes from the agent's
-                // `X-OBJECTIVEAI-AGENT-INSTANCE-HIERARCHY` (an `agent` arg
-                // would make the host launch `mcp x-api begin --agent …`,
-                // which isn't a valid flag).
-                arguments: Some(IndexMap::from([(
-                    "mode".to_string(),
-                    Some("full".to_string()),
-                )])),
+                // mark_handled is visible) and the REQUIRED `account`.
+                // The session's agent identity still comes from the
+                // agent's `X-OBJECTIVEAI-AGENT-INSTANCE-HIERARCHY` header
+                // (an `agent` arg would make the host launch
+                // `mcp x-api begin --agent …`, which isn't a valid flag).
+                arguments: Some(IndexMap::from([
+                    ("mode".to_string(), Some("full".to_string())),
+                    ("account".to_string(), Some(account.to_string())),
+                ])),
             }]),
         }],
         tools: Vec::new(),

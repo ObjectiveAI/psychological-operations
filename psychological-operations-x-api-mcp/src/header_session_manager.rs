@@ -42,8 +42,13 @@ use rmcp::transport::streamable_http_server::session::local::{
 };
 use rmcp::transport::streamable_http_server::session::{ServerSseMessage, SessionId};
 
+use psychological_operations_db::quota::{
+    DEFAULT_INTERVAL_SECS, DEFAULT_READ_LIMIT, DEFAULT_TOOL_COST, DEFAULT_WRITE_LIMIT,
+};
+
 use crate::Mode;
 use crate::PsychologicalOperationsXApiMcp;
+use crate::ToolName;
 use crate::x_api::session::{
     HEADER_AGENT_INSTANCE_HIERARCHY, HEADER_ARGUMENTS, SessionRegistry, SessionState,
 };
@@ -280,12 +285,47 @@ fn extract_session_state(message: &ClientJsonRpcMessage) -> Result<SessionState,
         format!("mode: expected 'readonly' or 'full', got {mode_str:?}")
     })?;
 
+    // `account`: JSON args only; no fallback. REQUIRED — currently
+    // stored but unused (groundwork for session-scoped identity).
+    let account = lookup_string_ci(&args, "account").ok_or_else(|| {
+        format!("missing account: {HEADER_ARGUMENTS}[\"account\"] absent or empty")
+    })?;
+
+    // Per-session quota overrides — all OPTIONAL. Absent ⇒ the process
+    // default; PRESENT-but-unparseable ⇒ a hard connect-time error (so a
+    // typo'd budget fails loudly rather than silently reverting to the
+    // default). `quota_interval` is a humantime duration (e.g. "1h"); the
+    // limits/costs are plain non-negative integers. Stored but not yet
+    // consumed: the live quota path still reads the per-account DB config.
+    // The per-tool costs are `quota_usage_<tool>`, one per metered tool.
+    let quota_read = parse_u64_arg(&args, "quota_read")?.unwrap_or(DEFAULT_READ_LIMIT);
+    let quota_write = parse_u64_arg(&args, "quota_write")?.unwrap_or(DEFAULT_WRITE_LIMIT);
+    let quota_interval =
+        parse_interval_secs_arg(&args, "quota_interval")?.unwrap_or(DEFAULT_INTERVAL_SECS);
+    let quota_tool_costs = ToolName::ALL
+        .iter()
+        .map(|&t| {
+            let key = format!("quota_usage_{}", t.as_name());
+            let cost = parse_u64_arg(&args, &key)?.unwrap_or(DEFAULT_TOOL_COST);
+            Ok((t, cost))
+        })
+        .collect::<Result<std::collections::HashMap<ToolName, u64>, String>>()?;
+
     // Header absent ⇒ the resolved agent (which, in that case,
     // necessarily came from the args map) stands in as the
     // ledger key.
     let agent_instance_hierarchy = hierarchy.unwrap_or_else(|| agent.clone());
 
-    Ok(SessionState { agent, mode, agent_instance_hierarchy })
+    Ok(SessionState {
+        agent,
+        mode,
+        account,
+        quota_read,
+        quota_write,
+        quota_interval,
+        quota_tool_costs,
+        agent_instance_hierarchy,
+    })
 }
 
 /// Case-insensitive key lookup over a JSON object. Returns the
@@ -301,6 +341,51 @@ fn lookup_string_ci(
         .and_then(|(_, v)| v.as_str())
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
+}
+
+/// Parse an OPTIONAL `u64` argument by key (case-insensitive). Accepts a
+/// JSON number or a numeric string.
+///
+/// - key absent           ⇒ `Ok(None)` (caller applies its default),
+/// - present + parses      ⇒ `Ok(Some(v))`,
+/// - present + unparseable ⇒ `Err(_)` — a hard connect-time error, so a
+///   typo'd value fails loudly instead of silently reverting to default.
+fn parse_u64_arg(
+    map: &serde_json::Map<String, serde_json::Value>,
+    key: &str,
+) -> Result<Option<u64>, String> {
+    let Some((_, v)) = map.iter().find(|(k, _)| k.eq_ignore_ascii_case(key)) else {
+        return Ok(None);
+    };
+    v.as_u64()
+        .or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
+        .map(Some)
+        .ok_or_else(|| {
+            format!("{HEADER_ARGUMENTS}[{key:?}]: expected a non-negative integer, got {v}")
+        })
+}
+
+/// Parse an OPTIONAL humantime DURATION argument by key (case-
+/// insensitive), returning whole SECONDS. Same absent/present/unparseable
+/// contract as [`parse_u64_arg`]: a present value MUST parse as a
+/// humantime duration (e.g. `"1h"`, `"30m"`, `"3600s"`) or it's a hard
+/// connect-time error.
+fn parse_interval_secs_arg(
+    map: &serde_json::Map<String, serde_json::Value>,
+    key: &str,
+) -> Result<Option<u64>, String> {
+    let Some((_, v)) = map.iter().find(|(k, _)| k.eq_ignore_ascii_case(key)) else {
+        return Ok(None);
+    };
+    let s = v.as_str().ok_or_else(|| {
+        format!("{HEADER_ARGUMENTS}[{key:?}]: expected a humantime duration string, got {v}")
+    })?;
+    let dur = humantime::parse_duration(s.trim()).map_err(|e| {
+        format!(
+            "{HEADER_ARGUMENTS}[{key:?}]: expected a humantime duration (e.g. '1h'), got {s:?}: {e}"
+        )
+    })?;
+    Ok(Some(dur.as_secs()))
 }
 
 /// Exact match only — the canonical `Mode` strings (`readonly` / `full`,

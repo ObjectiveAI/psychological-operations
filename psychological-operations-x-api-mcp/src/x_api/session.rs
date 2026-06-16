@@ -46,6 +46,7 @@ use rmcp::transport::common::server_side_http::SessionId;
 use tokio::sync::RwLock;
 
 use crate::Mode;
+use super::tool_name::ToolName;
 
 /// HTTP header objectiveai stamps with a JSON object of per-URL
 /// arguments. We look for `agent` and `mode` keys
@@ -63,6 +64,25 @@ pub const HEADER_AGENT_INSTANCE_HIERARCHY: &str = "X-OBJECTIVEAI-AGENT-INSTANCE-
 pub struct SessionState {
     pub agent: String,
     pub mode: Mode,
+    /// The X account this session acts as, from the client's REQUIRED
+    /// `account` argument. Stored but not yet consumed — groundwork for
+    /// session-scoped identity.
+    pub account: String,
+    /// Per-session read-budget limit, from the optional `quota_read`
+    /// argument (falls back to the process default). Stored but not yet
+    /// consumed: the live quota path still reads the per-account DB
+    /// config.
+    pub quota_read: u64,
+    /// Per-session write-budget limit (`quota_write`; default-backed).
+    /// Stored but not yet consumed.
+    pub quota_write: u64,
+    /// Per-session quota window in SECONDS (`quota_interval`;
+    /// default-backed). Stored but not yet consumed.
+    pub quota_interval: u64,
+    /// Per-session per-tool cost overrides (`quota_usage_<tool>`), one
+    /// entry per metered tool, each falling back to the default cost.
+    /// Stored but not yet consumed.
+    pub quota_tool_costs: HashMap<ToolName, u64>,
     /// Session-global agent-id chain from
     /// [`HEADER_AGENT_INSTANCE_HIERARCHY`]; falls back to the
     /// resolved `agent` when the header is absent. Keys the

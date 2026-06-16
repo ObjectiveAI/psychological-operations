@@ -38,23 +38,70 @@ pub enum XApiCommands {
     /// Run the X-API MCP server in-process. Binds a random localhost
     /// port, emits one JSONL line with the URL, then serves until the
     /// process is killed. Cache config (size + TTL) comes from the
-    /// env-derived process `Context`, not flags. Per-session
-    /// `(agent, mode)` are supplied by the client on connect via the
+    /// env-derived process `Context`, not flags. Every per-session value
+    /// — `agent`, `mode`, `account`, and the optional `quota_*` overrides
+    /// — is supplied by the client on connect via the
     /// `X-OBJECTIVEAI-ARGUMENTS` header (with
-    /// `X-OBJECTIVEAI-AGENT-INSTANCE-HIERARCHY` as the agent fallback),
-    /// so the only flag is `--mode` — and that's discarded too (see
-    /// below). Quota is per-account, per-tool-call, configured via
-    /// `agents quota`.
+    /// `X-OBJECTIVEAI-AGENT-INSTANCE-HIERARCHY` as the agent fallback).
+    /// The matching flags below exist ONLY so the conduit's
+    /// `mcp x-api begin --<arg> <value>` launch (one flag per declared
+    /// argument) parses; they are all DISCARDED here, with the strict
+    /// validation happening at connect-time in the header parser. Quota
+    /// is per-account, per-tool-call.
     Begin {
-        /// REQUIRED for launch-command compatibility, then DISCARDED.
-        /// objectiveai appends `--mode <mode>` when it launches a plugin
-        /// MCP server, but this server reads the session's mode (and
-        /// agent) per-request from the `X-OBJECTIVEAI-ARGUMENTS` header,
-        /// not from this flag. Required (no default) and validated
-        /// strictly: only the real `Mode` values (`readonly` / `full`)
-        /// parse.
+        /// DISCARDED (header-sourced). Kept as a `Mode` value-enum so a
+        /// launch with a bogus `--mode` still fails fast; the real
+        /// per-session mode is read from the header.
         #[arg(long, value_enum)]
         mode: Mode,
+
+        /// REQUIRED, then DISCARDED. The X account the session acts as;
+        /// read per-request from the header, not this flag. Present only
+        /// so the conduit's `begin --account <v>` launch parses.
+        #[arg(long)]
+        account: String,
+
+        // Optional per-session quota overrides. Accepted as opaque strings
+        // (NOT validated here) only so the conduit's `begin --<k> <v>`
+        // launch parses; DISCARDED — each is parsed + validated from the
+        // `X-OBJECTIVEAI-ARGUMENTS` header per session, where a bad value
+        // is a connect-time error. Underscored `long` names match the
+        // verbatim `--<arg-key>` the conduit emits. `quota_interval` is a
+        // humantime duration; the limits/costs are integers.
+        #[arg(long = "quota_read")]
+        quota_read: Option<String>,
+        #[arg(long = "quota_write")]
+        quota_write: Option<String>,
+        #[arg(long = "quota_interval")]
+        quota_interval: Option<String>,
+        #[arg(long = "quota_usage_get_replies")]
+        quota_usage_get_replies: Option<String>,
+        #[arg(long = "quota_usage_get_bio")]
+        quota_usage_get_bio: Option<String>,
+        #[arg(long = "quota_usage_get_profile_picture")]
+        quota_usage_get_profile_picture: Option<String>,
+        #[arg(long = "quota_usage_get_tweet")]
+        quota_usage_get_tweet: Option<String>,
+        #[arg(long = "quota_usage_open_attachment")]
+        quota_usage_open_attachment: Option<String>,
+        #[arg(long = "quota_usage_run_query")]
+        quota_usage_run_query: Option<String>,
+        #[arg(long = "quota_usage_whoami")]
+        quota_usage_whoami: Option<String>,
+        #[arg(long = "quota_usage_get_bookmarks")]
+        quota_usage_get_bookmarks: Option<String>,
+        #[arg(long = "quota_usage_post")]
+        quota_usage_post: Option<String>,
+        #[arg(long = "quota_usage_reply")]
+        quota_usage_reply: Option<String>,
+        #[arg(long = "quota_usage_quote")]
+        quota_usage_quote: Option<String>,
+        #[arg(long = "quota_usage_like")]
+        quota_usage_like: Option<String>,
+        #[arg(long = "quota_usage_retweet")]
+        quota_usage_retweet: Option<String>,
+        #[arg(long = "quota_usage_bookmark")]
+        quota_usage_bookmark: Option<String>,
     },
 }
 
@@ -70,10 +117,11 @@ impl XApiCommands {
     pub async fn handle(self, ctx: &crate::context::Context) -> bool {
         let result: Result<Output, Error> = async move {
             match self {
-                // `mode` is accepted (and validated) only for launch-
-                // command compatibility — the server uses the per-session
-                // header value, so we discard it here.
-                XApiCommands::Begin { mode: _ } => {
+                // Every flag is accepted only for launch-command
+                // compatibility — the server reads each value per-session
+                // from the `X-OBJECTIVEAI-ARGUMENTS` header (and validates
+                // it at connect), so we discard them all here.
+                XApiCommands::Begin { .. } => {
                     let state_dir = ctx.config.state_dir();
                     // Share the CLI's existing PluginExecutor. Every
                     // field is `Arc`-backed (including the id counter),
