@@ -9,7 +9,7 @@
 #
 # Release assets are bare binaries (no archive) named
 #   objectiveai-<os>-<arch>[.exe]         (the host)
-#   objectiveai-<os>-<arch>-api[.exe]     (the deterministic mock API server)
+#   objectiveai-<os>-<arch>-api[.exe]     (the objectiveai API server)
 #   objectiveai-<os>-<arch>-db[.exe]      (the per-state postgres supervisor)
 #   objectiveai-<os>-<arch>-viewer[.exe]  (the viewer server)
 # from github.com/ObjectiveAI/objectiveai/releases/download/v<version>/.
@@ -43,7 +43,7 @@ platarch="${plat_os}-${plat_arch}"
 # --- binaries to install: "<dest-name-in-bin>|<release-asset>" ------------
 # The host plus the sibling binaries it spawns out of the same bin dir:
 # `objectiveai-db` (per-state postgres supervisor), `objectiveai-api`
-# (mock API server), and `objectiveai-viewer` (the viewer server the host
+# (the objectiveai API server), and `objectiveai-viewer` (the viewer server the host
 # launches for plugin viewer bundles — needed for upcoming viewer-path
 # tests).
 ASSETS=(
