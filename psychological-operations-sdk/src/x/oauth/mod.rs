@@ -1,16 +1,9 @@
-//! Per-persona X OAuth 2.0 PKCE user-context flow — wire-layer
-//! pieces only. The CLI subcommands (`psyops login <name>` and
-//! `agents login <name>`) that orchestrate these into a full
-//! flow live in `psychological-operations-cli` (`login.rs`)
-//! because they depend on the CLI's chromium / config /
-//! event-emit modules.
-//!
-//! - `pkce`: PKCE pair + state nonce generation
-//! - `server`: one-shot localhost callback listener (OS-assigned port)
-//! - `tokens`: token-endpoint wire helpers (exchange + refresh).
-//!   On-disk token storage moved to
-//!   `psychological_operations_sdk::browser::auth_json`.
+//! X OAuth 2.0 token-endpoint wire helper. Only [`tokens::refresh`]
+//! survives here — it's called by [`crate::x::client::Client`] to
+//! auto-refresh an expired access token. On-disk token storage lives in
+//! [`crate::browser::auth_json`]. The rest of the per-persona authorize
+//! flow (PKCE pair, localhost callback listener, initial code exchange)
+//! is implemented in the browser crate (`psychological-operations-browser`),
+//! not here.
 
-pub mod pkce;
-pub mod server;
 pub mod tokens;

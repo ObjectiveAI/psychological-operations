@@ -1,7 +1,6 @@
-//! X OAuth 2.0 token-endpoint wire helpers — code exchange and
-//! refresh. Returns the SDK's canonical [`Tokens`] shape so the
-//! browser, the CLI, and any other consumer agree on the field
-//! layout.
+//! X OAuth 2.0 token-endpoint wire helper — token refresh. Returns the
+//! SDK's canonical [`Tokens`] shape so the browser, the CLI, and any
+//! other consumer agree on the field layout.
 //!
 //! On-disk per-psyop token storage lives in
 //! [`psychological_operations_sdk::browser::auth_json`]; this
@@ -78,25 +77,6 @@ async fn post_token_endpoint(
     }
     serde_json::from_str(&text)
         .map_err(|e| Error::Other(format!("oauth {op_label}: malformed response: {e}: {text}",)))
-}
-
-/// Exchange an authorization code for an access + refresh token.
-/// `redirect_uri` must match the one used in the authorize request.
-pub async fn exchange_authorization_code(
-    client_id: &str,
-    client_secret: &str,
-    code: &str,
-    code_verifier: &str,
-    redirect_uri: &str,
-) -> Result<Tokens, Error> {
-    let body = form_urlencoded(&[
-        ("grant_type", "authorization_code"),
-        ("code", code),
-        ("redirect_uri", redirect_uri),
-        ("code_verifier", code_verifier),
-    ]);
-    let parsed = post_token_endpoint(client_id, client_secret, body, "token exchange").await?;
-    Ok(build_tokens(parsed))
 }
 
 /// Refresh an access token using a refresh token. X rotates the

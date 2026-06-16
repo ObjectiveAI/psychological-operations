@@ -22,7 +22,6 @@ use sqlx::postgres::{PgPool, PgPoolOptions};
 pub mod auth;
 pub mod cache;
 pub mod cookies;
-pub mod engagement;
 pub mod locker;
 pub mod posts;
 pub mod psyops;
@@ -31,7 +30,6 @@ pub mod quota;
 pub mod x_app;
 
 pub use cookies::{parse_twid, signed_in_x_user_id, CookiesError};
-pub use engagement::Engagement;
 pub use locker::LockGuard;
 pub use posts::{MediaUrl, Origin, Post, PostRow};
 pub use queue::QueueEntry;
@@ -93,7 +91,7 @@ impl Db {
 }
 
 /// Unix seconds — shared by every store that timestamps with a
-/// `BIGINT` column (cache, queue, engagement, request log, psyop_runs).
+/// `BIGINT` column (cache, queue, request log, psyop_runs).
 pub fn unix_now() -> i64 {
     use std::time::{SystemTime, UNIX_EPOCH};
     SystemTime::now()

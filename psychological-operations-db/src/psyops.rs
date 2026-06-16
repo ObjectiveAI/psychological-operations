@@ -40,14 +40,6 @@ impl Db {
         Ok(def)
     }
 
-    /// All psyop names, alphabetical.
-    pub async fn psyop_list_names(&self) -> Result<Vec<String>, Error> {
-        let names: Vec<String> = sqlx::query_scalar("SELECT name FROM psyops ORDER BY name ASC")
-            .fetch_all(&self.pool)
-            .await?;
-        Ok(names)
-    }
-
     /// All psyops as `(name, definition, disabled)`, alphabetical.
     pub async fn psyop_list(&self) -> Result<Vec<(String, Value, bool)>, Error> {
         let rows: Vec<(String, Value, bool)> =
@@ -65,18 +57,6 @@ impl Db {
                 .fetch_one(&self.pool)
                 .await?;
         Ok(exists)
-    }
-
-    /// Delete a psyop. Returns `true` if the psyop existed. Pipeline data
-    /// (posts/scores/queues) is left alone — drop it explicitly via
-    /// [`Self::drop_psyop_contents`] when reloading.
-    pub async fn psyop_delete(&self, name: &str) -> Result<bool, Error> {
-        let removed = sqlx::query("DELETE FROM psyops WHERE name = $1")
-            .bind(name)
-            .execute(&self.pool)
-            .await?
-            .rows_affected();
-        Ok(removed > 0)
     }
 
     /// Set a psyop's `disabled` flag. Returns `true` if the psyop

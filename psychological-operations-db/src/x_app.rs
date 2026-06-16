@@ -3,9 +3,8 @@
 //! snapshots).
 //!
 //! Credentials live in the `x_app` singleton row (one App per
-//! deployment). The merge-on-save semantics ("Some-wins,
-//! None-preserves") stay in the SDK's `XAppConfig`; this crate just
-//! stores/loads the four nullable fields via the [`XAppRow`] DTO.
+//! deployment). This crate loads the four nullable fields via the
+//! [`XAppRow`] DTO; the SDK's `XAppConfig` is the typed read view.
 //!
 //! The two developer-console HTML surfaces (post-create dialog, OAuth
 //! popup) are captured per normalized handle in `x_app_html`. The HTML
@@ -48,27 +47,6 @@ impl Db {
             },
             None => XAppRow::default(),
         })
-    }
-
-    /// Replace the X-App credential singleton with `row` wholesale. The
-    /// caller is responsible for any merge (load → merge → set).
-    pub async fn x_app_set(&self, row: &XAppRow) -> Result<(), Error> {
-        sqlx::query(
-            "INSERT INTO x_app (singleton, client_id, client_secret, bearer_token, saved_at) \
-             VALUES (true, $1, $2, $3, $4) \
-             ON CONFLICT (singleton) DO UPDATE SET \
-                 client_id = excluded.client_id, \
-                 client_secret = excluded.client_secret, \
-                 bearer_token = excluded.bearer_token, \
-                 saved_at = excluded.saved_at",
-        )
-        .bind(row.client_id.as_deref())
-        .bind(row.client_secret.as_deref())
-        .bind(row.bearer_token.as_deref())
-        .bind(row.saved_at.as_deref())
-        .execute(&self.pool)
-        .await?;
-        Ok(())
     }
 
     /// Store (upsert) a developer-console HTML snapshot for `handle`.

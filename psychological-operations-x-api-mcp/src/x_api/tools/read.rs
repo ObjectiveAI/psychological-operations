@@ -291,7 +291,7 @@ impl PsychologicalOperationsXApiMcp {
     )]
     async fn whoami(
         &self,
-        Parameters(req): Parameters<WhoamiRequest>,
+        Parameters(_req): Parameters<WhoamiRequest>,
         extensions: Extensions,
     ) -> Result<CallToolResult, ErrorData> {
         let tag = self.resolve_session(&extensions).await?.tag.clone();
@@ -316,7 +316,7 @@ impl PsychologicalOperationsXApiMcp {
     #[tool(name = "get_bookmarks", description = "Fetch your bookmarked tweets.")]
     async fn get_bookmarks(
         &self,
-        Parameters(req): Parameters<GetBookmarksRequest>,
+        Parameters(_req): Parameters<GetBookmarksRequest>,
         extensions: Extensions,
     ) -> Result<CallToolResult, ErrorData> {
         let tag = self.resolve_session(&extensions).await?.tag.clone();

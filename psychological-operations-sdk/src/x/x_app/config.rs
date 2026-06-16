@@ -2,14 +2,9 @@
 //! chromium extension during `x_app setup` and consumed by the
 //! per-psyop OAuth flow.
 //!
-//! Persisted in the db crate's `x_app` singleton row (was `x_app.json`).
-//! The [`XAppConfig`] shape + the merge semantics stay here; storage is
-//! the db's [`XAppRow`].
-//!
-//! `merge` semantics on insert: every `Some(_)` in the incoming payload
-//! wins; `None`s preserve the existing value. This lets the operator
-//! re-click the extension's "Save credentials" button after a partial
-//! paste without clobbering previously-captured fields.
+//! Read path for the db crate's `x_app` singleton row (was `x_app.json`):
+//! the [`XAppConfig`] shape + [`load`] + the completeness check. Storage
+//! is the db's [`XAppRow`].
 
 use psychological_operations_db::{Db, XAppRow};
 use serde::{Deserialize, Serialize};
@@ -53,50 +48,9 @@ impl XAppConfig {
             saved_at: row.saved_at,
         }
     }
-
-    fn to_row(&self) -> XAppRow {
-        XAppRow {
-            client_id: self.client_id.clone(),
-            client_secret: self.client_secret.clone(),
-            bearer_token: self.bearer_token.clone(),
-            saved_at: self.saved_at.clone(),
-        }
-    }
-}
-
-/// Load + assert that the X-App is set up. Returns the loaded config on
-/// success, or a clear error pointing the operator at
-/// `psychological-operations x_app setup`.
-pub async fn ensure_setup(db: &Db) -> Result<XAppConfig, Error> {
-    let cfg = load(db).await?;
-    if !cfg.is_complete() {
-        return Err(Error::Other(
-            "X App not set up — run `psychological-operations x_app setup` \
-             and capture client_id + client_secret before running psyops"
-                .into(),
-        ));
-    }
-    Ok(cfg)
 }
 
 pub async fn load(db: &Db) -> Result<XAppConfig, Error> {
     let row = db.x_app_get().await?;
     Ok(XAppConfig::from_row(row))
-}
-
-pub async fn save(db: &Db, cfg: &XAppConfig) -> Result<(), Error> {
-    db.x_app_set(&cfg.to_row()).await?;
-    Ok(())
-}
-
-/// Returns the merge of `existing` and `incoming` per the "Some-wins,
-/// None-preserves" rule. `incoming.saved_at` always wins (caller is
-/// expected to stamp it to `now`).
-pub fn merge(existing: XAppConfig, incoming: XAppConfig) -> XAppConfig {
-    XAppConfig {
-        client_id: incoming.client_id.or(existing.client_id),
-        client_secret: incoming.client_secret.or(existing.client_secret),
-        bearer_token: incoming.bearer_token.or(existing.bearer_token),
-        saved_at: incoming.saved_at.or(existing.saved_at),
-    }
 }

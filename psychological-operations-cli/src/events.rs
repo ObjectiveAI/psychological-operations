@@ -18,9 +18,9 @@
 //! Wire shape (Error example):
 //!
 //! ```jsonc
-//! // DeliveryFailed { delivery_id: 7, reason: "timeout" }
+//! // QueryFailed { psyop: "p", query: "q", error: "timeout" }
 //! {"type":"error","level":"warn","fatal":false,
-//!  "message":{"event":"delivery_failed","delivery_id":7,"reason":"timeout"}}
+//!  "message":{"event":"query_failed","psyop":"p","query":"q","error":"timeout"}}
 //! ```
 
 use serde::{Deserialize, Serialize};
@@ -86,11 +86,6 @@ pub enum Event {
         status: Option<i32>,
     },
 
-    // ── target delivery ──────────────────────────────────────
-    TargetDelivered {
-        body: serde_json::Value,
-    },
-
     // ── error-flavored variants (routed through emit_error) ──
     ObjectiveaiTaskErrors {
         count: usize,
@@ -108,10 +103,6 @@ pub enum Event {
         psyop: String,
         query: String,
         error: String,
-    },
-    DeliveryFailed {
-        delivery_id: i64,
-        reason: String,
     },
     /// The browser child wrote an `{"error": ...}` line on its piped
     /// stdout while we were streaming for a terminator. Non-fatal:
@@ -157,7 +148,6 @@ impl Event {
             | Event::TweetNotFound { .. }
             | Event::TweetFetchFailed { .. }
             | Event::QueryFailed { .. }
-            | Event::DeliveryFailed { .. }
             | Event::BrowserError { .. }
             | Event::PsyopInvalidAtRun { .. }
             | Event::PsyopSkippedInterval { .. }

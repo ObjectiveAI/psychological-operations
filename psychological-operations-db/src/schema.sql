@@ -91,29 +91,6 @@ CREATE TABLE IF NOT EXISTS queue (
     PRIMARY KEY (agent_tag, tweet_id)
 );
 
--- ── MCP engagement records (ported from sdk/x-api-mcp.sqlite) ─────────
-
-CREATE TABLE IF NOT EXISTS replies (
-    tweet_id TEXT NOT NULL, agent TEXT NOT NULL, created_at BIGINT NOT NULL,
-    PRIMARY KEY (tweet_id, agent)
-);
-CREATE TABLE IF NOT EXISTS retweets (
-    tweet_id TEXT NOT NULL, agent TEXT NOT NULL, created_at BIGINT NOT NULL,
-    PRIMARY KEY (tweet_id, agent)
-);
-CREATE TABLE IF NOT EXISTS likes (
-    tweet_id TEXT NOT NULL, agent TEXT NOT NULL, created_at BIGINT NOT NULL,
-    PRIMARY KEY (tweet_id, agent)
-);
-CREATE TABLE IF NOT EXISTS quotes (
-    tweet_id TEXT NOT NULL, agent TEXT NOT NULL, created_at BIGINT NOT NULL,
-    PRIMARY KEY (tweet_id, agent)
-);
-CREATE TABLE IF NOT EXISTS follows (
-    user_id TEXT NOT NULL, agent TEXT NOT NULL, created_at BIGINT NOT NULL,
-    PRIMARY KEY (user_id, agent)
-);
-
 -- ── MCP per-account, per-tool-call quota ledger ──────────────────────
 -- Metering is on MCP TOOL CALLS, not X-API HTTP requests, keyed by the
 -- `account` (agent name) a tool acts as. The ledger is intentionally
