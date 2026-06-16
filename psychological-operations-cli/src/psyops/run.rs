@@ -111,10 +111,12 @@ async fn run_all_inner(
         (loaded, true)
     };
 
-    // Resolve the runnable set: validate + X-app preflight + interval
-    // gate. Each non-runnable psyop emits its own event (except a silent
-    // interval skip in the no-names case) and is dropped; only db errors
-    // abort the batch.
+    // Resolve the runnable set: validate + interval gate. Each
+    // non-runnable psyop emits its own event (except a silent interval
+    // skip in the no-names case) and is dropped; only db errors abort
+    // the batch. No X-App preflight — a missing/un-set-up X-App simply
+    // surfaces as an error from the first real X-API call, handled
+    // per-psyop like any other run failure.
     let mut runnable: Vec<(String, PsyOp)> = Vec::new();
     for (name, psyop) in loaded {
         if let Err(reason) = psyop.validate() {
@@ -125,16 +127,6 @@ async fn run_all_inner(
             })
             .emit();
             continue;
-        }
-        // X-app preflight — a non-mock psyop hits the real X API, so the
-        // X-App must be signed in + set up. Mock mode short-circuits every
-        // X call to the in-process deterministic mock, so it needs no
-        // X-App (and the browser-based setup can't run headlessly anyway).
-        if !ctx.config.mock {
-            if let Err(e) = psychological_operations_sdk::x::x_app::config::ensure_setup(db).await {
-                emit_run_failed(&name, &format!("x_app: {e}"));
-                continue;
-            }
         }
         // Interval gate — applies to explicitly-named psyops too: naming
         // a psyop never bypasses its throttle. validate() guarantees the

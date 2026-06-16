@@ -16,7 +16,11 @@
 //! manifest's `mcp_servers[].name` (`x-api`).
 
 use clap::Subcommand;
+use objectiveai_sdk::cli::command::agents::tags::apply as tags_apply;
 use psychological_operations_sdk::cli::Output;
+use psychological_operations_sdk::x::client::{AuthMode, Client};
+use psychological_operations_sdk::x::params;
+use psychological_operations_sdk::x::users::me as users_me;
 use psychological_operations_x_api_mcp::Mode;
 
 use crate::error::Error;
@@ -35,17 +39,21 @@ pub enum Commands {
 
 #[derive(Subcommand)]
 pub enum XApiCommands {
-    /// Run the X-API MCP server in-process. Binds a random localhost
-    /// port, emits one JSONL line with the URL, then serves until the
-    /// process is killed. Cache config (size + TTL) comes from the
-    /// env-derived process `Context`, not flags. Every per-session value
-    /// — `tag`, `mode`, and the optional `quota_*` overrides — is supplied
-    /// by the client on connect via the `X-OBJECTIVEAI-ARGUMENTS` header.
-    /// The matching flags below exist ONLY so the conduit's
-    /// `mcp x-api begin --<arg> <value>` launch (one flag per declared
-    /// argument) parses; they are all DISCARDED here, with the strict
-    /// validation happening at connect-time in the header parser. Quota
-    /// is per-tag, per-tool-call.
+    /// Run the X-API MCP server in-process. First it makes the agent
+    /// auth-ready: fetch `/2/users/me` as `AuthMode::Agent(tag)` and
+    /// abort if that fails, then (best-effort, result ignored) bind
+    /// `tag` to an instance under the caller's AIH via `agents tags
+    /// apply`. Only then does it bind a random localhost port, emit one
+    /// JSONL line with the URL, and serve until the process is killed.
+    /// Cache config (size + TTL) comes from the env-derived process
+    /// `Context`, not flags. The per-session `mode` + optional `quota_*`
+    /// overrides are supplied by the client on connect via the
+    /// `X-OBJECTIVEAI-ARGUMENTS` header (which also re-carries `tag`);
+    /// the flags below exist so the conduit's `mcp x-api begin --<arg>
+    /// <value>` launch (one flag per declared argument) parses. `--tag`
+    /// is consumed at startup as above; `--mode` + `--quota_*` are
+    /// DISCARDED here, validated at connect-time in the header parser.
+    /// Quota is per-tag, per-tool-call.
     Begin {
         /// DISCARDED (header-sourced). Kept as a `Mode` value-enum so a
         /// launch with a bogus `--mode` still fails fast; the real
@@ -53,9 +61,10 @@ pub enum XApiCommands {
         #[arg(long, value_enum)]
         mode: Mode,
 
-        /// REQUIRED, then DISCARDED. The agent tag the session acts as;
-        /// read per-request from the header, not this flag. Present only
-        /// so the conduit's `begin --tag <v>` launch parses.
+        /// REQUIRED. The agent tag the session acts as. Consumed at
+        /// startup — the `/2/users/me` auth check + the `agents tags
+        /// apply` binding — before the server serves. Per-request, the
+        /// session still reads `tag` from the header, not this flag.
         #[arg(long)]
         tag: String,
 
@@ -115,11 +124,55 @@ impl XApiCommands {
     pub async fn handle(self, ctx: &crate::context::Context) -> bool {
         let result: Result<Output, Error> = async move {
             match self {
-                // Every flag is accepted only for launch-command
-                // compatibility — the server reads each value per-session
-                // from the `X-OBJECTIVEAI-ARGUMENTS` header (and validates
-                // it at connect), so we discard them all here.
-                XApiCommands::Begin { .. } => {
+                // `tag` is consumed at startup (auth check + tag apply);
+                // `mode` + `quota_*` are accepted only for launch-command
+                // compatibility and discarded — the server reads them
+                // per-session from the `X-OBJECTIVEAI-ARGUMENTS` header
+                // (validated at connect).
+                XApiCommands::Begin { tag, .. } => {
+                    // 1. Auth-readiness gate. The X client must be able to
+                    //    act as this agent: fetch `/2/users/me` as
+                    //    `AuthMode::Agent(tag)`. Any error aborts before the
+                    //    server binds (mock mode short-circuits to success).
+                    let http = Client::new(
+                        reqwest::Client::new(),
+                        ctx.config.mock,
+                        ctx.cache_max_size,
+                        ctx.cache_ttl,
+                        ctx.config.state_dir(),
+                        ctx.db.clone(),
+                    );
+                    let auth = AuthMode::Agent(tag.clone());
+                    let me_req = users_me::get::Request {
+                        user_fields: Some(vec![params::UserFields::Username]),
+                        expansions: None,
+                        tweet_fields: None,
+                    };
+                    users_me::http::get(&http, &auth, &me_req)
+                        .await
+                        .map_err(|e| {
+                            Error::Other(format!("agent {tag} auth check (users/me): {e}"))
+                        })?;
+
+                    // 2. Best-effort tag binding: apply `tag` to an instance
+                    //    under the caller's AIH so later tag-addressed
+                    //    notifications resolve here. Awaited to completion
+                    //    but the result is deliberately ignored — pass or
+                    //    fail, we go on to serve.
+                    let apply = tags_apply::Request {
+                        path_type: tags_apply::Path::AgentsTagsApply,
+                        name: tag.clone(),
+                        target: tags_apply::Target::AgentInstance {
+                            agent_instance: tag.clone(),
+                            parent_agent_instance_hierarchy: Some(
+                                ctx.config.objectiveai_agent_instance_hierarchy.clone(),
+                            ),
+                        },
+                        base: Default::default(),
+                    };
+                    let _ = tags_apply::execute(&*ctx.executor, apply, None).await;
+
+                    // 3. Serve until torn down.
                     let state_dir = ctx.config.state_dir();
                     psychological_operations_x_api_mcp::run(
                         "127.0.0.1",
