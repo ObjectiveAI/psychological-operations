@@ -37,6 +37,7 @@ use super::cache::{request_key, request_key_auth_scoped};
 use super::{AuthError, Error};
 use crate::browser::auth_json::{self, PersonaKind, Tokens};
 use crate::browser::mode::Mode;
+use crate::browser::x_app_credentials::{OAuthPopup, PostCreateDialog};
 use crate::x::types::Problem;
 
 /// Default base URL for the X v2 API. Inlined where used —
@@ -231,12 +232,16 @@ impl Client {
     async fn current_bearer_token(&self, auth: &AuthMode) -> Result<String, AuthError> {
         match auth {
             AuthMode::XApp => {
-                let x_app = super::x_app::config::load(&self.db)
+                // The App-only Bearer lives in the captured post-create
+                // dialog snapshot, keyed by the signed-in X-App's twid.
+                let twid = self.current_twid(auth).await?;
+                let dialog = PostCreateDialog::from_db(&self.db, &twid)
                     .await
                     .map_err(|e| AuthError::XAppNotConfigured(e.to_string()))?;
-                x_app.bearer_token.ok_or_else(|| {
+                dialog.and_then(|d| d.bearer_token).ok_or_else(|| {
                     AuthError::XAppNotConfigured(
-                        "no bearer_token — re-run `psychological-operations x_app setup`".into(),
+                        "no Bearer Token captured — re-run `psychological-operations x_app setup`"
+                            .into(),
                     )
                 })
             }
@@ -272,7 +277,7 @@ impl Client {
             AuthMode::XApp => {
                 return Err(AuthError::Unsupported(
                     "auth file methods are not available for AuthMode::XApp — \
-                     XApp credentials live in x_app.json, not auth.json"
+                     XApp credentials live in the x_app_html snapshots, not auth.json"
                         .into(),
                 ));
             }
@@ -330,16 +335,19 @@ impl Client {
             .as_deref()
             .ok_or(AuthError::NoRefreshToken)?;
         // 4. Refresh via X's OAuth token endpoint.
-        let x_app = super::x_app::config::load(&self.db)
+        // client_id / client_secret live in the captured OAuth-popup
+        // snapshot, keyed by the X-App's twid (already resolved above).
+        let popup = OAuthPopup::from_db(&self.db, &persona.x_app_twid)
             .await
-            .map_err(|e| AuthError::XAppNotConfigured(e.to_string()))?;
-        if !x_app.is_complete() {
-            return Err(AuthError::XAppNotConfigured(
-                "client_id/client_secret missing — run `x_app setup`".into(),
-            ));
-        }
-        let client_id = x_app.client_id.expect("is_complete guarantees client_id");
-        let client_secret = x_app
+            .map_err(|e| AuthError::XAppNotConfigured(e.to_string()))?
+            .filter(|p| p.is_complete())
+            .ok_or_else(|| {
+                AuthError::XAppNotConfigured(
+                    "client_id/client_secret not captured — run `x_app setup`".into(),
+                )
+            })?;
+        let client_id = popup.client_id.expect("is_complete guarantees client_id");
+        let client_secret = popup
             .client_secret
             .expect("is_complete guarantees client_secret");
         let new_tokens = super::oauth::tokens::refresh(&client_id, &client_secret, refresh_token)

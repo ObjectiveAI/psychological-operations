@@ -1,54 +1,16 @@
-//! Master X dev-account App credentials + scraped credential HTML
-//! (ported from `x_app.json` and the on-disk `handles/<h>/*.html`
-//! snapshots).
+//! Scraped X dev-account credential HTML (ported from the on-disk
+//! `handles/<h>/*.html` snapshots).
 //!
-//! Credentials live in the `x_app` singleton row (one App per
-//! deployment). This crate loads the four nullable fields via the
-//! [`XAppRow`] DTO; the SDK's `XAppConfig` is the typed read view.
-//!
-//! The two developer-console HTML surfaces (post-create dialog, OAuth
-//! popup) are captured per normalized handle in `x_app_html`. The HTML
-//! *parsers* stay in the SDK (`browser::x_app_credentials`); this crate
-//! only persists/serves the raw snapshots.
+//! The two developer-console HTML surfaces (post-create dialog →
+//! consumer/secret/bearer; OAuth popup → client id/secret) are captured
+//! per normalized handle in `x_app_html`. The HTML *parsers* live in the
+//! SDK (`browser::x_app_credentials`); this crate only persists/serves
+//! the raw snapshots, which are the single source of truth for the App's
+//! credentials.
 
 use crate::{Db, Error};
 
-/// The four nullable columns of the `x_app` singleton. Maps to/from the
-/// SDK's `XAppConfig` at the call site.
-#[derive(Debug, Clone, Default)]
-pub struct XAppRow {
-    pub client_id: Option<String>,
-    pub client_secret: Option<String>,
-    pub bearer_token: Option<String>,
-    pub saved_at: Option<String>,
-}
-
 impl Db {
-    /// Load the X-App credential singleton. `XAppRow::default()` (all
-    /// `None`) if never saved.
-    pub async fn x_app_get(&self) -> Result<XAppRow, Error> {
-        let row: Option<(
-            Option<String>,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-        )> = sqlx::query_as(
-            "SELECT client_id, client_secret, bearer_token, saved_at \
-                 FROM x_app WHERE singleton",
-        )
-        .fetch_optional(&self.pool)
-        .await?;
-        Ok(match row {
-            Some((client_id, client_secret, bearer_token, saved_at)) => XAppRow {
-                client_id,
-                client_secret,
-                bearer_token,
-                saved_at,
-            },
-            None => XAppRow::default(),
-        })
-    }
-
     /// Store (upsert) a developer-console HTML snapshot for `handle`.
     /// `kind` is `"post_create_dialog"` or `"oauth_popup"`.
     pub async fn x_app_html_set(&self, handle: &str, kind: &str, html: &str) -> Result<(), Error> {

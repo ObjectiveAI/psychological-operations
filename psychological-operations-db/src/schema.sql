@@ -119,15 +119,7 @@ CREATE TABLE IF NOT EXISTS psyops (
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- ── X-App master credentials + scraped HTML (was x_app.json + html) ──
-
-CREATE TABLE IF NOT EXISTS x_app (
-    singleton      BOOLEAN PRIMARY KEY DEFAULT true CHECK (singleton),
-    client_id      TEXT,
-    client_secret  TEXT,
-    bearer_token   TEXT,
-    saved_at       TEXT
-);
+-- ── X-App scraped credential HTML (was x_app.json + html) ────────────
 
 CREATE TABLE IF NOT EXISTS x_app_html (
     handle    TEXT NOT NULL,  -- normalized X handle / numeric twid

@@ -20,7 +20,6 @@ pub mod serde_helpers;
 pub mod types;
 
 pub mod oauth;
-pub mod x_app;
 
 pub use error::{AuthError, Error};
 

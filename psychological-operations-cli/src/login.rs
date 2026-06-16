@@ -31,7 +31,6 @@ use psychological_operations_sdk::browser::output::Output;
 use psychological_operations_sdk::browser::reset;
 use psychological_operations_sdk::browser::x_app_credentials::{OAuthPopup, PostCreateDialog};
 use psychological_operations_sdk::cli::Output as CliOutput;
-use psychological_operations_sdk::x::x_app;
 
 use crate::browser::{extract::ensure_extracted, launch, stream};
 use crate::error::Error;
@@ -170,13 +169,6 @@ async fn check_x_app(ctx: &crate::context::Context) -> Result<String, Error> {
         .await
         .map_err(|e| Error::Other(format!("x-app cookies probe: {e}")))?
         .ok_or_else(|| Error::Other(X_APP_NOT_READY.into()))?;
-
-    let xa = x_app::config::load(&ctx.db)
-        .await
-        .map_err(|e| Error::Other(format!("load x_app config: {e}")))?;
-    if !xa.is_complete() {
-        return Err(Error::Other(X_APP_NOT_READY.into()));
-    }
 
     let post = PostCreateDialog::from_db(&ctx.db, &x_app_twid).await?;
     let popup = OAuthPopup::from_db(&ctx.db, &x_app_twid).await?;
