@@ -3,9 +3,11 @@
 # binaries for the current platform into .objectiveai/bin/.
 #
 # The pinned version is the constant below. A version.txt marker inside
-# .objectiveai/bin/ records what's installed; the download is skipped when
-# the marker already matches AND every expected binary is present. The
-# committed plugins/ tree under bin/ is never touched.
+# .objectiveai/bin/ records what's installed; the download is skipped
+# whenever the marker already matches the pinned version. The individual
+# binaries are intentionally NOT checked for presence, so a locally-patched
+# binary (e.g. a hand-swapped api) survives a prepare as long as version.txt
+# is unchanged. The committed plugins/ tree under bin/ is never touched.
 #
 # Release assets are bare binaries (no archive) named
 #   objectiveai-<os>-<arch>[.exe]         (the host)
@@ -54,16 +56,10 @@ ASSETS=(
 )
 
 # --- up-to-date check ------------------------------------------------------
-up_to_date=1
+# Version marker only: if version.txt matches the pinned version, skip the
+# download entirely. The individual binaries are intentionally NOT checked,
+# so a locally-patched binary isn't clobbered while version.txt is current.
 if [ -f "$VERSION_FILE" ] && [ "$(cat "$VERSION_FILE")" = "$OBJECTIVEAI_VERSION" ]; then
-  for entry in "${ASSETS[@]}"; do
-    dest="${entry%%|*}"
-    [ -f "$BIN_DIR/${dest}${ext}" ] || up_to_date=0
-  done
-else
-  up_to_date=0
-fi
-if [ "$up_to_date" = "1" ]; then
   echo "objectiveai: v$OBJECTIVEAI_VERSION already installed in $BIN_DIR"
   exit 0
 fi
