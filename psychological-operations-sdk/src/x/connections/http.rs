@@ -16,7 +16,9 @@ pub async fn get(
     req: &super::get::Request,
 ) -> Result<super::get::Response, Error> {
     let path = "connections";
-    client.send_with_query(auth, Method::GET, path, req, true, false).await
+    client
+        .send_with_query(auth, Method::GET, path, req, true, false)
+        .await
 }
 
 /// DELETE /2/connections
@@ -26,6 +28,7 @@ pub async fn delete(
     req: &super::delete::Request,
 ) -> Result<super::delete::Response, Error> {
     let path = "connections";
-    client.send(auth, Method::DELETE, path, Some(&req.body), false, false).await
+    client
+        .send(auth, Method::DELETE, path, Some(&req.body), false, false)
+        .await
 }
-

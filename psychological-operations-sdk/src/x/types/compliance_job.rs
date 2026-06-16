@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ComplianceJob {
@@ -20,4 +20,3 @@ pub struct ComplianceJob {
     pub upload_expires_at: UploadExpiration,
     pub upload_url: UploadUrl,
 }
-

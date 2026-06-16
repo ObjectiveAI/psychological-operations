@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DisallowedResourceProblem {
@@ -14,7 +14,6 @@ pub struct DisallowedResourceProblem {
     pub resource_type: DisallowedResourceProblemResourceType,
     pub section: DisallowedResourceProblemSection,
 }
-
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum DisallowedResourceProblemResourceType {
@@ -58,4 +57,3 @@ impl std::fmt::Display for DisallowedResourceProblemSection {
         })
     }
 }
-

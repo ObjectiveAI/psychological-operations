@@ -3,13 +3,13 @@
 
 //! GET /2/chat/conversations/{id} — Get Chat Conversation
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
-use crate::x::types::*;
-#[allow(unused_imports)]
 use crate::x::params;
 #[allow(unused_imports)]
 use crate::x::serde_helpers;
+#[allow(unused_imports)]
+use crate::x::types::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Request {
@@ -19,9 +19,13 @@ pub struct Request {
     pub max_results: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pagination_token: Option<String>,
-    #[serde(rename = "chat_message_event.fields", skip_serializing_if = "Option::is_none", with = "crate::x::serde_helpers::csv_vec_opt")]
-    pub chat_message_event_fields: Option<Vec<crate::x::params::chat_message_event_fields_parameter::ChatMessageEventFields>>,
+    #[serde(
+        rename = "chat_message_event.fields",
+        skip_serializing_if = "Option::is_none",
+        with = "crate::x::serde_helpers::csv_vec_opt"
+    )]
+    pub chat_message_event_fields:
+        Option<Vec<crate::x::params::chat_message_event_fields_parameter::ChatMessageEventFields>>,
 }
 
 pub type Response = ChatGetConversationResponse;
-

@@ -3,13 +3,13 @@
 
 //! GET /2/communities/search — Search Communities
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
-use crate::x::types::*;
-#[allow(unused_imports)]
 use crate::x::params;
 #[allow(unused_imports)]
 use crate::x::serde_helpers;
+#[allow(unused_imports)]
+use crate::x::types::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Request {
@@ -20,9 +20,13 @@ pub struct Request {
     pub next_token: Option<NextToken>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pagination_token: Option<NextToken>,
-    #[serde(rename = "community.fields", skip_serializing_if = "Option::is_none", with = "crate::x::serde_helpers::csv_vec_opt")]
-    pub community_fields: Option<Vec<crate::x::params::community_fields_parameter::CommunityFields>>,
+    #[serde(
+        rename = "community.fields",
+        skip_serializing_if = "Option::is_none",
+        with = "crate::x::serde_helpers::csv_vec_opt"
+    )]
+    pub community_fields:
+        Option<Vec<crate::x::params::community_fields_parameter::CommunityFields>>,
 }
 
 pub type Response = Get2CommunitiesSearchResponse;
-

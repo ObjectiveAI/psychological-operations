@@ -15,7 +15,11 @@ pub async fn get(
     auth: &AuthMode,
     req: &super::get::Request,
 ) -> Result<super::get::Response, Error> {
-    let path = format!("account_activity/webhooks/{}/subscriptions/all/list", urlencoding::encode(&req.webhook_id.to_string()));
-    client.send::<_, ()>(auth, Method::GET, &path, None, true, false).await
+    let path = format!(
+        "account_activity/webhooks/{}/subscriptions/all/list",
+        urlencoding::encode(&req.webhook_id.to_string())
+    );
+    client
+        .send::<_, ()>(auth, Method::GET, &path, None, true, false)
+        .await
 }
-

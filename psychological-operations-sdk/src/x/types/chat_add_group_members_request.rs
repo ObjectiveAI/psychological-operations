@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatAddGroupMembersRequest {
@@ -26,4 +26,3 @@ pub struct ChatAddGroupMembersRequest {
     /// List of user IDs to add to the group conversation.
     pub user_ids: Vec<String>,
 }
-

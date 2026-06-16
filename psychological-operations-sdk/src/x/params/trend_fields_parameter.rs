@@ -19,4 +19,3 @@ impl std::fmt::Display for TrendFields {
         })
     }
 }
-

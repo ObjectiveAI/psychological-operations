@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 /// The X User object.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -65,7 +65,6 @@ pub struct User {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub withheld: Option<UserWithheld>,
 }
-
 
 /// Metadata about a user's affiliation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -193,4 +192,3 @@ pub struct UserEntitiesUrl {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub urls: Option<Vec<UrlEntity>>,
 }
-

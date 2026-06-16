@@ -3,13 +3,13 @@
 
 //! GET /2/trends/by/woeid/{woeid} — Get Trends by WOEID
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
-use crate::x::types::*;
-#[allow(unused_imports)]
 use crate::x::params;
 #[allow(unused_imports)]
 use crate::x::serde_helpers;
+#[allow(unused_imports)]
+use crate::x::types::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Request {
@@ -17,9 +17,12 @@ pub struct Request {
     pub woeid: i32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_trends: Option<i32>,
-    #[serde(rename = "trend.fields", skip_serializing_if = "Option::is_none", with = "crate::x::serde_helpers::csv_vec_opt")]
+    #[serde(
+        rename = "trend.fields",
+        skip_serializing_if = "Option::is_none",
+        with = "crate::x::serde_helpers::csv_vec_opt"
+    )]
     pub trend_fields: Option<Vec<crate::x::params::trend_fields_parameter::TrendFields>>,
 }
 
 pub type Response = Get2TrendsByWoeidWoeidResponse;
-

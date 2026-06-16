@@ -29,9 +29,7 @@ pub enum Commands {
 impl Commands {
     pub async fn handle(self, ctx: &crate::context::Context) -> bool {
         match self {
-            Commands::Setup { dangerously_reset } => {
-                setup::run(dangerously_reset, ctx).await
-            }
+            Commands::Setup { dangerously_reset } => setup::run(dangerously_reset, ctx).await,
         }
     }
 }

@@ -3,13 +3,13 @@
 
 //! GET /2/media/analytics — Get Media analytics
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
-use crate::x::types::*;
-#[allow(unused_imports)]
 use crate::x::params;
 #[allow(unused_imports)]
 use crate::x::serde_helpers;
+#[allow(unused_imports)]
+use crate::x::types::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Request {
@@ -17,8 +17,13 @@ pub struct Request {
     pub end_time: chrono::DateTime<chrono::Utc>,
     pub start_time: chrono::DateTime<chrono::Utc>,
     pub granularity: RequestGranularity,
-    #[serde(rename = "media_analytics.fields", skip_serializing_if = "Option::is_none", with = "crate::x::serde_helpers::csv_vec_opt")]
-    pub media_analytics_fields: Option<Vec<crate::x::params::media_analytics_fields_parameter::MediaAnalyticsFields>>,
+    #[serde(
+        rename = "media_analytics.fields",
+        skip_serializing_if = "Option::is_none",
+        with = "crate::x::serde_helpers::csv_vec_opt"
+    )]
+    pub media_analytics_fields:
+        Option<Vec<crate::x::params::media_analytics_fields_parameter::MediaAnalyticsFields>>,
 }
 
 pub type Response = MediaAnalytics;
@@ -42,4 +47,3 @@ impl std::fmt::Display for RequestGranularity {
         })
     }
 }
-

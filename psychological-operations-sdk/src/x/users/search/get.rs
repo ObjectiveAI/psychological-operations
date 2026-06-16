@@ -3,13 +3,13 @@
 
 //! GET /2/users/search — Search Users
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
-use crate::x::types::*;
-#[allow(unused_imports)]
 use crate::x::params;
 #[allow(unused_imports)]
 use crate::x::serde_helpers;
+#[allow(unused_imports)]
+use crate::x::types::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Request {
@@ -18,13 +18,24 @@ pub struct Request {
     pub max_results: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next_token: Option<PaginationToken36>,
-    #[serde(rename = "user.fields", skip_serializing_if = "Option::is_none", with = "crate::x::serde_helpers::csv_vec_opt")]
+    #[serde(
+        rename = "user.fields",
+        skip_serializing_if = "Option::is_none",
+        with = "crate::x::serde_helpers::csv_vec_opt"
+    )]
     pub user_fields: Option<Vec<crate::x::params::user_fields_parameter::UserFields>>,
-    #[serde(rename = "expansions", skip_serializing_if = "Option::is_none", with = "crate::x::serde_helpers::csv_vec_opt")]
+    #[serde(
+        rename = "expansions",
+        skip_serializing_if = "Option::is_none",
+        with = "crate::x::serde_helpers::csv_vec_opt"
+    )]
     pub expansions: Option<Vec<crate::x::params::user_expansions_parameter::UserExpansions>>,
-    #[serde(rename = "tweet.fields", skip_serializing_if = "Option::is_none", with = "crate::x::serde_helpers::csv_vec_opt")]
+    #[serde(
+        rename = "tweet.fields",
+        skip_serializing_if = "Option::is_none",
+        with = "crate::x::serde_helpers::csv_vec_opt"
+    )]
     pub tweet_fields: Option<Vec<crate::x::params::tweet_fields_parameter::TweetFields>>,
 }
 
 pub type Response = Get2UsersSearchResponse;
-

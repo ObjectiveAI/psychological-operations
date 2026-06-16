@@ -2,7 +2,7 @@
 //! or split it via [`setup`] + [`serve`] when they need to own the
 //! `TcpListener` or wrap the `axum::Router` first.
 //!
-//! `account`, `mode`, and the per-session `quota_*` overrides are NOT
+//! `tag`, `mode`, and the per-session `quota_*` overrides are NOT
 //! parameters here. They flow in per-session via the
 //! `X-OBJECTIVEAI-ARGUMENTS` JSON-object header — see
 //! [`crate::x_api::session`] for the source-resolution contract and
@@ -26,13 +26,13 @@ use crate::header_session_manager::HeaderSessionManager;
 use crate::x_api::session::SessionRegistry;
 
 pub async fn setup(
-    address:         &str,
-    port:            u16,
-    state_dir:       PathBuf,
-    db:              Db,
-    cache_max_size:  u64,
-    cache_ttl:       Duration,
-    mock:            bool,
+    address: &str,
+    port: u16,
+    state_dir: PathBuf,
+    db: Db,
+    cache_max_size: u64,
+    cache_ttl: Duration,
+    mock: bool,
 ) -> std::io::Result<(tokio::net::TcpListener, axum::Router)> {
     let registry = Arc::new(SessionRegistry::new());
 
@@ -89,24 +89,31 @@ pub async fn serve(listener: tokio::net::TcpListener, app: axum::Router) -> std:
 /// [`objectiveai_sdk::cli::command::plugins::run::Mcp`].
 ///
 /// No per-session values in the announcement — clients pin
-/// `account` / `mode` / `quota_*` via the `X-OBJECTIVEAI-ARGUMENTS`
+/// `tag` / `mode` / `quota_*` via the `X-OBJECTIVEAI-ARGUMENTS`
 /// header on every request.
 pub async fn run(
-    address:         &str,
-    port:            u16,
-    state_dir:       PathBuf,
-    db:              Db,
-    cache_max_size:  u64,
-    cache_ttl:       Duration,
-    mock:            bool,
+    address: &str,
+    port: u16,
+    state_dir: PathBuf,
+    db: Db,
+    cache_max_size: u64,
+    cache_ttl: Duration,
+    mock: bool,
 ) -> std::io::Result<()> {
     let (listener, app) = setup(
-        address, port, state_dir, db, cache_max_size, cache_ttl, mock,
-    ).await?;
+        address,
+        port,
+        state_dir,
+        db,
+        cache_max_size,
+        cache_ttl,
+        mock,
+    )
+    .await?;
     let addr = listener.local_addr()?;
     let announcement = Output::Mcp(Mcp {
         r#type: McpType::Mcp,
-        url:    format!("http://{addr}"),
+        url: format!("http://{addr}"),
     });
     println!(
         "{}",

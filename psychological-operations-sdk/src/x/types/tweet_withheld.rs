@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 /// Indicates withholding details for [withheld content](https://help.twitter.com/en/rules-and-policies/tweet-withheld-by-country).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -17,7 +17,6 @@ pub struct TweetWithheld {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scope: Option<TweetWithheldScope>,
 }
-
 
 /// Indicates whether the content being withheld is the `tweet` or a `user`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -36,4 +35,3 @@ impl std::fmt::Display for TweetWithheldScope {
         })
     }
 }
-

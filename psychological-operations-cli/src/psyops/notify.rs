@@ -16,8 +16,8 @@ use serde_json::Value;
 /// Map a `sub_type` to the route path the manifest declares.
 fn route_for(sub_type: &str) -> Option<&'static str> {
     match sub_type {
-        "psyop_added"   => Some("/plugin/psychological-operations/psyops/added"),
-        "psyop_edited"  => Some("/plugin/psychological-operations/psyops/edited"),
+        "psyop_added" => Some("/plugin/psychological-operations/psyops/added"),
+        "psyop_edited" => Some("/plugin/psychological-operations/psyops/edited"),
         _ => None,
     }
 }
@@ -25,7 +25,9 @@ fn route_for(sub_type: &str) -> Option<&'static str> {
 /// Fire one notification at the host's running viewer. No-op if
 /// `sub_type` is unknown.
 pub async fn notify(sub_type: &str, body: &Value, ctx: &crate::context::Context) {
-    let Some(path) = route_for(sub_type) else { return; };
+    let Some(path) = route_for(sub_type) else {
+        return;
+    };
     let req = viewer_send::Request {
         path_type: viewer_send::Path::ViewerSend,
         path: path.to_string(),

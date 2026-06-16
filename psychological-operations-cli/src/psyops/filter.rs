@@ -8,7 +8,7 @@ use starlark::environment::{Globals, Module};
 use starlark::eval::Evaluator;
 use starlark::values::ValueLike;
 
-use psychological_operations_sdk::cli::psyops::filter::{parse_custom, Filter};
+use psychological_operations_sdk::cli::psyops::filter::{Filter, parse_custom};
 
 use crate::tweet::Tweet;
 
@@ -31,16 +31,56 @@ pub fn evaluate(f: &Filter, t: &Tweet) -> Result<bool, String> {
 }
 
 fn static_pass(f: &Filter, t: &Tweet) -> bool {
-    if let Some(v) = f.min_likes        { if t.likes       < v { return false; } }
-    if let Some(v) = f.max_likes        { if t.likes       > v { return false; } }
-    if let Some(v) = f.min_retweets     { if t.retweets    < v { return false; } }
-    if let Some(v) = f.max_retweets     { if t.retweets    > v { return false; } }
-    if let Some(v) = f.min_replies      { if t.replies     < v { return false; } }
-    if let Some(v) = f.max_replies      { if t.replies     > v { return false; } }
-    if let Some(v) = f.min_impressions  { if t.impressions < v { return false; } }
-    if let Some(v) = f.max_impressions  { if t.impressions > v { return false; } }
-    if let Some(v) = f.min_age          { if t.age         < v { return false; } }
-    if let Some(v) = f.max_age          { if t.age         > v { return false; } }
+    if let Some(v) = f.min_likes {
+        if t.likes < v {
+            return false;
+        }
+    }
+    if let Some(v) = f.max_likes {
+        if t.likes > v {
+            return false;
+        }
+    }
+    if let Some(v) = f.min_retweets {
+        if t.retweets < v {
+            return false;
+        }
+    }
+    if let Some(v) = f.max_retweets {
+        if t.retweets > v {
+            return false;
+        }
+    }
+    if let Some(v) = f.min_replies {
+        if t.replies < v {
+            return false;
+        }
+    }
+    if let Some(v) = f.max_replies {
+        if t.replies > v {
+            return false;
+        }
+    }
+    if let Some(v) = f.min_impressions {
+        if t.impressions < v {
+            return false;
+        }
+    }
+    if let Some(v) = f.max_impressions {
+        if t.impressions > v {
+            return false;
+        }
+    }
+    if let Some(v) = f.min_age {
+        if t.age < v {
+            return false;
+        }
+    }
+    if let Some(v) = f.max_age {
+        if t.age > v {
+            return false;
+        }
+    }
 
     // Per-impression ratio gates are skipped entirely when
     // impressions == 0 — there's no meaningful rate without a
@@ -48,15 +88,39 @@ fn static_pass(f: &Filter, t: &Tweet) -> bool {
     // because the impression count hasn't been observed yet.
     if t.impressions > 0 {
         let denom = t.impressions as f64;
-        let likes_pi    = t.likes    as f64 / denom;
+        let likes_pi = t.likes as f64 / denom;
         let retweets_pi = t.retweets as f64 / denom;
-        let replies_pi  = t.replies  as f64 / denom;
-        if let Some(v) = f.min_likes_per_impression    { if likes_pi    < v { return false; } }
-        if let Some(v) = f.max_likes_per_impression    { if likes_pi    > v { return false; } }
-        if let Some(v) = f.min_retweets_per_impression { if retweets_pi < v { return false; } }
-        if let Some(v) = f.max_retweets_per_impression { if retweets_pi > v { return false; } }
-        if let Some(v) = f.min_replies_per_impression  { if replies_pi  < v { return false; } }
-        if let Some(v) = f.max_replies_per_impression  { if replies_pi  > v { return false; } }
+        let replies_pi = t.replies as f64 / denom;
+        if let Some(v) = f.min_likes_per_impression {
+            if likes_pi < v {
+                return false;
+            }
+        }
+        if let Some(v) = f.max_likes_per_impression {
+            if likes_pi > v {
+                return false;
+            }
+        }
+        if let Some(v) = f.min_retweets_per_impression {
+            if retweets_pi < v {
+                return false;
+            }
+        }
+        if let Some(v) = f.max_retweets_per_impression {
+            if retweets_pi > v {
+                return false;
+            }
+        }
+        if let Some(v) = f.min_replies_per_impression {
+            if replies_pi < v {
+                return false;
+            }
+        }
+        if let Some(v) = f.max_replies_per_impression {
+            if replies_pi > v {
+                return false;
+            }
+        }
     }
     true
 }
@@ -66,17 +130,16 @@ fn evaluate_custom(src: &str, t: &Tweet) -> Result<bool, String> {
     let module = Module::new();
     {
         let heap = module.heap();
-        module.set("likes",       heap.alloc(t.likes as i64));
-        module.set("retweets",    heap.alloc(t.retweets as i64));
-        module.set("replies",     heap.alloc(t.replies as i64));
+        module.set("likes", heap.alloc(t.likes as i64));
+        module.set("retweets", heap.alloc(t.retweets as i64));
+        module.set("replies", heap.alloc(t.replies as i64));
         module.set("impressions", heap.alloc(t.impressions as i64));
-        module.set("age",         heap.alloc(t.age as i64));
+        module.set("age", heap.alloc(t.age as i64));
     }
     let globals = Globals::standard();
     {
         let mut eval = Evaluator::new(&module);
-        eval.eval_module(ast, &globals)
-            .map_err(|e| e.to_string())?;
+        eval.eval_module(ast, &globals).map_err(|e| e.to_string())?;
     }
     let value = module
         .get("result")
@@ -93,7 +156,14 @@ mod tests {
     use crate::tweet::tw_default;
 
     fn tw(likes: u64, retweets: u64, replies: u64, impressions: u64, age: u64) -> Tweet {
-        Tweet { likes, retweets, replies, impressions, age, ..tw_default("test") }
+        Tweet {
+            likes,
+            retweets,
+            replies,
+            impressions,
+            age,
+            ..tw_default("test")
+        }
     }
 
     #[test]
@@ -113,9 +183,9 @@ mod tests {
             custom: Some("retweets > replies".into()),
             ..Default::default()
         };
-        assert!(evaluate(&f, &tw(20, 5, 1, 0, 0)).unwrap());   // both pass
-        assert!(!evaluate(&f, &tw(20, 1, 5, 0, 0)).unwrap());  // custom fails
-        assert!(!evaluate(&f, &tw(5,  5, 1, 0, 0)).unwrap());  // static fails
+        assert!(evaluate(&f, &tw(20, 5, 1, 0, 0)).unwrap()); // both pass
+        assert!(!evaluate(&f, &tw(20, 1, 5, 0, 0)).unwrap()); // custom fails
+        assert!(!evaluate(&f, &tw(5, 5, 1, 0, 0)).unwrap()); // static fails
     }
 
     #[test]
@@ -134,8 +204,8 @@ mod tests {
             min_likes_per_impression: Some(0.05),
             ..Default::default()
         };
-        assert!(evaluate(&f, &tw(60, 0, 0, 1000, 0)).unwrap());   // 6% — pass
-        assert!(!evaluate(&f, &tw(40, 0, 0, 1000, 0)).unwrap());  // 4% — reject
+        assert!(evaluate(&f, &tw(60, 0, 0, 1000, 0)).unwrap()); // 6% — pass
+        assert!(!evaluate(&f, &tw(40, 0, 0, 1000, 0)).unwrap()); // 4% — reject
         // zero impressions: ratio gates are skipped entirely, so this
         // passes despite the positive `min_likes_per_impression`.
         assert!(evaluate(&f, &tw(10, 0, 0, 0, 0)).unwrap());

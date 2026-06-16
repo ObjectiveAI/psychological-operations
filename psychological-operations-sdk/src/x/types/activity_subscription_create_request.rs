@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ActivitySubscriptionCreateRequest {
@@ -15,7 +15,6 @@ pub struct ActivitySubscriptionCreateRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub webhook_id: Option<WebhookConfigId>,
 }
-
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ActivitySubscriptionCreateRequestEventType {
@@ -67,14 +66,26 @@ impl std::fmt::Display for ActivitySubscriptionCreateRequestEventType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
             ActivitySubscriptionCreateRequestEventType::ProfileUpdateBio => "profile.update.bio",
-            ActivitySubscriptionCreateRequestEventType::ProfileUpdateProfilePicture => "profile.update.profile_picture",
-            ActivitySubscriptionCreateRequestEventType::ProfileUpdateBannerPicture => "profile.update.banner_picture",
-            ActivitySubscriptionCreateRequestEventType::ProfileUpdateScreenname => "profile.update.screenname",
+            ActivitySubscriptionCreateRequestEventType::ProfileUpdateProfilePicture => {
+                "profile.update.profile_picture"
+            }
+            ActivitySubscriptionCreateRequestEventType::ProfileUpdateBannerPicture => {
+                "profile.update.banner_picture"
+            }
+            ActivitySubscriptionCreateRequestEventType::ProfileUpdateScreenname => {
+                "profile.update.screenname"
+            }
             ActivitySubscriptionCreateRequestEventType::ProfileUpdateGeo => "profile.update.geo",
             ActivitySubscriptionCreateRequestEventType::ProfileUpdateUrl => "profile.update.url",
-            ActivitySubscriptionCreateRequestEventType::ProfileUpdateVerifiedBadge => "profile.update.verified_badge",
-            ActivitySubscriptionCreateRequestEventType::ProfileUpdateAffiliateBadge => "profile.update.affiliate_badge",
-            ActivitySubscriptionCreateRequestEventType::ProfileUpdateHandle => "profile.update.handle",
+            ActivitySubscriptionCreateRequestEventType::ProfileUpdateVerifiedBadge => {
+                "profile.update.verified_badge"
+            }
+            ActivitySubscriptionCreateRequestEventType::ProfileUpdateAffiliateBadge => {
+                "profile.update.affiliate_badge"
+            }
+            ActivitySubscriptionCreateRequestEventType::ProfileUpdateHandle => {
+                "profile.update.handle"
+            }
             ActivitySubscriptionCreateRequestEventType::NewsNew => "news.new",
             ActivitySubscriptionCreateRequestEventType::FollowFollow => "follow.follow",
             ActivitySubscriptionCreateRequestEventType::FollowUnfollow => "follow.unfollow",
@@ -82,7 +93,9 @@ impl std::fmt::Display for ActivitySubscriptionCreateRequestEventType {
             ActivitySubscriptionCreateRequestEventType::SpacesEnd => "spaces.end",
             ActivitySubscriptionCreateRequestEventType::ChatReceived => "chat.received",
             ActivitySubscriptionCreateRequestEventType::ChatSent => "chat.sent",
-            ActivitySubscriptionCreateRequestEventType::ChatConversationJoin => "chat.conversation_join",
+            ActivitySubscriptionCreateRequestEventType::ChatConversationJoin => {
+                "chat.conversation_join"
+            }
             ActivitySubscriptionCreateRequestEventType::DmSent => "dm.sent",
             ActivitySubscriptionCreateRequestEventType::DmReceived => "dm.received",
             ActivitySubscriptionCreateRequestEventType::DmIndicateTyping => "dm.indicate_typing",
@@ -90,4 +103,3 @@ impl std::fmt::Display for ActivitySubscriptionCreateRequestEventType {
         })
     }
 }
-

@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 /// A X Community Note is a note on a Post.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -20,4 +20,3 @@ pub struct Note {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub test_result: Option<NoteTestResult>,
 }
-

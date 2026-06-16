@@ -8,7 +8,7 @@
 //! turn a `PostRow`'s `created` timestamp into an age) stays here next
 //! to its callers.
 
-pub use psychological_operations_db::{Db, MediaUrl, Origin, Post, PostRow, QueuedDelivery};
+pub use psychological_operations_db::{Db, MediaUrl, Origin, Post, PostRow};
 
 /// Parse `created` (RFC 3339) and return seconds since `now`. A
 /// `created` that doesn't parse yields 0 — `min_age` filters would

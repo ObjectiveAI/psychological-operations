@@ -16,6 +16,7 @@ pub async fn post(
     req: &super::post::Request,
 ) -> Result<super::post::Response, Error> {
     let path = "webhooks/replay";
-    client.send(auth, Method::POST, path, req.body.as_ref(), false, false).await
+    client
+        .send(auth, Method::POST, path, req.body.as_ref(), false, false)
+        .await
 }
-

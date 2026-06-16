@@ -15,7 +15,6 @@
 use schemars::Schema;
 use serde::{Deserialize, Serialize};
 
-use crate::cli::destinations::{Destination, DeliverySummary};
 use crate::cli::psyops::{PsyOp, PsyopEntry, PublishedPsyop};
 
 /// Terminal CLI command output. Every variant is typed; no
@@ -26,7 +25,7 @@ pub enum Output {
     /// Generic success ack — set / disable / delete / run /
     /// browse / login / setup / queue-handle / mcp-begin, etc.
     Ok,
-    /// JSON Schema dump from `psyops schema` / `targets schema`.
+    /// JSON Schema dump from `psyops schema`.
     Schema(Schema),
 
     // ── psyops ─────────────────────────────────────────────
@@ -37,12 +36,6 @@ pub enum Output {
     /// `psyops publish` — what was just committed + resolved
     /// enabled state.
     PublishedPsyop(PublishedPsyop),
-
-    // ── targets ────────────────────────────────────────────
-    /// `targets list` — paginated destination entries.
-    DestinationList(Vec<Destination>),
-    /// `targets deliver` — drain summary.
-    DeliverySummary(DeliverySummary),
 
     // ── meta ───────────────────────────────────────────────
     /// `--help` / `--version` / "missing subcommand" rendered

@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 /// A Tweet or error that can be returned by the streaming Tweet API. The values returned with a successful streamed Tweet includes the user provided rules that the Tweet matched.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -20,11 +20,9 @@ pub struct FilteredStreamingTweetResponse {
     pub matching_rules: Option<Vec<FilteredStreamingTweetResponseMatchingRulesItem>>,
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FilteredStreamingTweetResponseMatchingRulesItem {
     pub id: RuleId,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tag: Option<RuleTag>,
 }
-

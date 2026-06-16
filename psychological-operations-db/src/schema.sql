@@ -65,18 +65,6 @@ CREATE TABLE IF NOT EXISTS for_you_queue (
 );
 CREATE INDEX IF NOT EXISTS for_you_queue_by_psyop ON for_you_queue(psyop);
 
-CREATE TABLE IF NOT EXISTS delivery_queue (
-    id               BIGSERIAL PRIMARY KEY,
-    psyop            TEXT  NOT NULL,
-    target           JSONB NOT NULL,
-    post_ids         JSONB NOT NULL,
-    attempts         BIGINT NOT NULL DEFAULT 0,
-    last_error       TEXT,
-    last_attempt_at  TEXT,
-    created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-CREATE INDEX IF NOT EXISTS delivery_queue_by_psyop ON delivery_queue(psyop);
-
 CREATE TABLE IF NOT EXISTS psyop_runs (
     psyop        TEXT   PRIMARY KEY,
     last_run_at  BIGINT NOT NULL
@@ -93,15 +81,14 @@ CREATE TABLE IF NOT EXISTS cache (
 -- ── per-agent tweet queue (ported from sdk/queue.sqlite) ──────────────
 
 CREATE TABLE IF NOT EXISTS queue (
-    agent                              TEXT   NOT NULL,
-    agent_kind                         TEXT   NOT NULL,
+    agent_tag                          TEXT   NOT NULL,
     tweet_id                           TEXT   NOT NULL,
     psyop                              TEXT,
     score                              DOUBLE PRECISION,
     deliverer_agent_instance_hierarchy TEXT,
     message                            TEXT,
     queued_at                          BIGINT NOT NULL,
-    PRIMARY KEY (agent, tweet_id)
+    PRIMARY KEY (agent_tag, tweet_id)
 );
 
 -- ── MCP engagement records (ported from sdk/x-api-mcp.sqlite) ─────────
@@ -153,31 +140,6 @@ CREATE TABLE IF NOT EXISTS psyops (
     disabled    BOOLEAN NOT NULL DEFAULT false,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
--- ── delivery targets (was config.json) ───────────────────────────────
--- Ordered lists; `ord` is a gapless 0-based index matching the
--- `targets list/add/del <index>` surface.
-
--- One-time guard so the first run can seed the default global targets
--- (X-Like + Stdout) exactly once. After seeding, an operator who does
--- `targets del` down to an empty list keeps it empty — the absence of
--- rows is no longer re-interpreted as "needs defaults". Replaces the
--- old "config.json absent vs present-but-empty" distinction.
-CREATE TABLE IF NOT EXISTS config_state (
-    singleton              BOOLEAN PRIMARY KEY DEFAULT true CHECK (singleton),
-    global_targets_seeded  BOOLEAN NOT NULL DEFAULT false
-);
-
-CREATE TABLE IF NOT EXISTS global_targets (
-    ord     INTEGER PRIMARY KEY,
-    target  JSONB   NOT NULL
-);
-CREATE TABLE IF NOT EXISTS psyop_targets (
-    psyop   TEXT    NOT NULL,
-    ord     INTEGER NOT NULL,
-    target  JSONB   NOT NULL,
-    PRIMARY KEY (psyop, ord)
 );
 
 -- ── X-App master credentials + scraped HTML (was x_app.json + html) ──

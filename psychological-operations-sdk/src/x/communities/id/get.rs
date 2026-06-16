@@ -3,21 +3,25 @@
 
 //! GET /2/communities/{id} — Get Community by ID
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
-use crate::x::types::*;
-#[allow(unused_imports)]
 use crate::x::params;
 #[allow(unused_imports)]
 use crate::x::serde_helpers;
+#[allow(unused_imports)]
+use crate::x::types::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Request {
     #[serde(skip_serializing)]
     pub id: CommunityId,
-    #[serde(rename = "community.fields", skip_serializing_if = "Option::is_none", with = "crate::x::serde_helpers::csv_vec_opt")]
-    pub community_fields: Option<Vec<crate::x::params::community_fields_parameter::CommunityFields>>,
+    #[serde(
+        rename = "community.fields",
+        skip_serializing_if = "Option::is_none",
+        with = "crate::x::serde_helpers::csv_vec_opt"
+    )]
+    pub community_fields:
+        Option<Vec<crate::x::params::community_fields_parameter::CommunityFields>>,
 }
 
 pub type Response = Get2CommunitiesIdResponse;
-

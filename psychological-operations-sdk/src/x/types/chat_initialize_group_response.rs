@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatInitializeGroupResponse {
@@ -14,11 +14,9 @@ pub struct ChatInitializeGroupResponse {
     pub errors: Option<Vec<ProblemUnion>>,
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatInitializeGroupResponseData {
     /// The unique identifier for the initialized group conversation. This ID is prefixed with 'g' (e.g., 'g1234567890123456789'). Use this ID when calling POST /chat/conversations to create the group.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub conversation_id: Option<String>,
 }
-

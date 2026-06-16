@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 /// Currency information.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -13,4 +13,3 @@ pub struct PlaidCurrency {
     #[serde(rename = "currencyCode")]
     pub currency_code: String,
 }
-

@@ -15,7 +15,12 @@ pub async fn get(
     auth: &AuthMode,
     req: &super::get::Request,
 ) -> Result<super::get::Response, Error> {
-    let path = format!("users/{}/bookmarks/folders/{}", urlencoding::encode(&req.id.to_string()), urlencoding::encode(&req.folder_id.to_string()));
-    client.send::<_, ()>(auth, Method::GET, &path, None, true, false).await
+    let path = format!(
+        "users/{}/bookmarks/folders/{}",
+        urlencoding::encode(&req.id.to_string()),
+        urlencoding::encode(&req.folder_id.to_string())
+    );
+    client
+        .send::<_, ()>(auth, Method::GET, &path, None, true, false)
+        .await
 }
-

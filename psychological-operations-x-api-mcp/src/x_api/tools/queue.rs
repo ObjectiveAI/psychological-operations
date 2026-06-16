@@ -1,8 +1,8 @@
-//! Queue tools — read + dequeue the per-account ingest queue.
+//! Queue tools — read + dequeue the per-agent ingest queue.
 //!
 //! These are DB-only (no X API call) and quota-free. The queue is keyed
-//! by account, so the tools read + dequeue the entries belonging to the
-//! session's `account` (from the `X-OBJECTIVEAI-ARGUMENTS` header).
+//! by agent tag, so the tools read + dequeue the entries belonging to the
+//! session's `tag` (from the `X-OBJECTIVEAI-ARGUMENTS` header).
 
 use rmcp::model::{CallToolResult, Content, Extensions};
 use rmcp::{ErrorData, handler::server::wrapper::Parameters, schemars, tool, tool_router};
@@ -15,9 +15,7 @@ pub struct ReadQueueRequest {}
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct MarkHandledRequest {
-    #[schemars(
-        description = "Numeric IDs of the tweets to remove from the queue."
-    )]
+    #[schemars(description = "Numeric IDs of the tweets to remove from the queue.")]
     pub tweet_ids: Vec<String>,
 }
 
@@ -32,10 +30,10 @@ impl PsychologicalOperationsXApiMcp {
         Parameters(_req): Parameters<ReadQueueRequest>,
         extensions: Extensions,
     ) -> Result<String, ErrorData> {
-        let account = self.resolve_session(&extensions).await?.account.clone();
+        let tag = self.resolve_session(&extensions).await?.tag.clone();
         let entries = self
             .db
-            .queue_list(&account)
+            .queue_list(&tag)
             .await
             .map_err(|e| ErrorData::internal_error(format!("queue list: {e}"), None))?;
         serde_json::to_string(&entries)
@@ -51,21 +49,24 @@ impl PsychologicalOperationsXApiMcp {
         Parameters(req): Parameters<MarkHandledRequest>,
         extensions: Extensions,
     ) -> Result<CallToolResult, ErrorData> {
-        let account = self.resolve_session(&extensions).await?.account.clone();
-        finish(async move {
-            let missing = self.db.queue_delete_many(&account, &req.tweet_ids).await?;
-            // Some id wasn't queued → the batch was rolled back (nothing
-            // removed). That's the agent referencing items it can't
-            // resolve → agent-facing.
-            if !missing.is_empty() {
-                return Err(ToolError::agent(format!(
-                    "not in the queue for account '{}': {}. Nothing was removed (all-or-nothing).",
-                    account,
-                    missing.join(", "),
-                )));
+        let tag = self.resolve_session(&extensions).await?.tag.clone();
+        finish(
+            async move {
+                let missing = self.db.queue_delete_many(&tag, &req.tweet_ids).await?;
+                // Some id wasn't queued → the batch was rolled back (nothing
+                // removed). That's the agent referencing items it can't
+                // resolve → agent-facing.
+                if !missing.is_empty() {
+                    return Err(ToolError::agent(format!(
+                        "not in the queue for tag '{}': {}. Nothing was removed (all-or-nothing).",
+                        tag,
+                        missing.join(", "),
+                    )));
+                }
+                let body = serde_json::json!({ "removed": req.tweet_ids.len() }).to_string();
+                Ok(CallToolResult::success(vec![Content::text(body)]))
             }
-            let body = serde_json::json!({ "removed": req.tweet_ids.len() }).to_string();
-            Ok(CallToolResult::success(vec![Content::text(body)]))
-        }.await)
+            .await,
+        )
     }
 }

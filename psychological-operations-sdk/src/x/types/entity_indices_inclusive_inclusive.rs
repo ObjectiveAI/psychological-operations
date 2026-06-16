@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 /// Represent a boundary range (start and end index) for a recognized entity (for example a hashtag or a mention). `start` must be smaller than `end`.  The start index is inclusive, the end index is inclusive.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -14,4 +14,3 @@ pub struct EntityIndicesInclusiveInclusive {
     /// Index (zero-based) at which position this entity starts.  The index is inclusive.
     pub start: i32,
 }
-

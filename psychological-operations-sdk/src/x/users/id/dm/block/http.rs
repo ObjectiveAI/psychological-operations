@@ -15,7 +15,11 @@ pub async fn post(
     auth: &AuthMode,
     req: &super::post::Request,
 ) -> Result<super::post::Response, Error> {
-    let path = format!("users/{}/dm/block", urlencoding::encode(&req.id.to_string()));
-    client.send::<_, ()>(auth, Method::POST, &path, None, false, false).await
+    let path = format!(
+        "users/{}/dm/block",
+        urlencoding::encode(&req.id.to_string())
+    );
+    client
+        .send::<_, ()>(auth, Method::POST, &path, None, false, false)
+        .await
 }
-

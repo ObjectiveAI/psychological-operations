@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 /// Response from initializing a Chat media upload.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -12,7 +12,6 @@ pub struct ChatMediaUploadInitializeResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data: Option<ChatMediaUploadInitializeResponseData>,
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatMediaUploadInitializeResponseData {
@@ -23,4 +22,3 @@ pub struct ChatMediaUploadInitializeResponseData {
     /// Resume/session id for the upload.
     pub session_id: String,
 }
-

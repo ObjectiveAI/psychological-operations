@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 /// A user-provided stream filtering rule.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -13,4 +13,3 @@ pub struct RuleNoId {
     pub tag: Option<RuleTag>,
     pub value: RuleValue,
 }
-

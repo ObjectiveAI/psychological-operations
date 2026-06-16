@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MetadataCreateResponse {
@@ -13,7 +13,6 @@ pub struct MetadataCreateResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub errors: Option<Vec<ProblemUnion>>,
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MetadataCreateResponseData {
@@ -52,4 +51,3 @@ pub struct MetadataCreateResponseDataAssociatedMetadata {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub upload_source: Option<UploadSource>,
 }
-

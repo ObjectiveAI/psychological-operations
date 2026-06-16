@@ -15,8 +15,13 @@ pub async fn put(
     auth: &AuthMode,
     req: &super::put::Request,
 ) -> Result<super::put::Response, Error> {
-    let path = format!("activity/subscriptions/{}", urlencoding::encode(&req.subscription_id.to_string()));
-    client.send(auth, Method::PUT, &path, req.body.as_ref(), false, false).await
+    let path = format!(
+        "activity/subscriptions/{}",
+        urlencoding::encode(&req.subscription_id.to_string())
+    );
+    client
+        .send(auth, Method::PUT, &path, req.body.as_ref(), false, false)
+        .await
 }
 
 /// DELETE /2/activity/subscriptions/{subscription_id}
@@ -25,7 +30,11 @@ pub async fn delete(
     auth: &AuthMode,
     req: &super::delete::Request,
 ) -> Result<super::delete::Response, Error> {
-    let path = format!("activity/subscriptions/{}", urlencoding::encode(&req.subscription_id.to_string()));
-    client.send::<_, ()>(auth, Method::DELETE, &path, None, false, false).await
+    let path = format!(
+        "activity/subscriptions/{}",
+        urlencoding::encode(&req.subscription_id.to_string())
+    );
+    client
+        .send::<_, ()>(auth, Method::DELETE, &path, None, false, false)
+        .await
 }
-

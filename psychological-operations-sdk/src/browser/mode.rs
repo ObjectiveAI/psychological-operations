@@ -78,7 +78,9 @@ pub const SUBAGENT_DIR: &str = "agents";
 /// AIH: `a/b/c` → `a/agents/b/agents/c`. A slashless name is returned
 /// unchanged.
 fn intersperse_subagents(aih: &str) -> String {
-    aih.split('/').collect::<Vec<_>>().join(&format!("/{SUBAGENT_DIR}/"))
+    aih.split('/')
+        .collect::<Vec<_>>()
+        .join(&format!("/{SUBAGENT_DIR}/"))
 }
 
 impl Mode {
@@ -139,7 +141,9 @@ mod tests {
 
     #[test]
     fn psyop_is_flat() {
-        let m = Mode::PsyopAuthorize { name: "my-psyop".into() };
+        let m = Mode::PsyopAuthorize {
+            name: "my-psyop".into(),
+        };
         assert_eq!(m.cache_subdir(), "psyop/my-psyop");
     }
 
@@ -151,11 +155,15 @@ mod tests {
 
     #[test]
     fn nested_aih_intersperses_agents() {
-        let m = Mode::AgentAuthorize { name: "foo/bar/buzz".into() };
+        let m = Mode::AgentAuthorize {
+            name: "foo/bar/buzz".into(),
+        };
         assert_eq!(m.cache_subdir(), "agent/foo/agents/bar/agents/buzz");
         // Same persona across its browse/authorize sub-modes shares one
         // profile dir.
-        let b = Mode::AgentBrowser { name: "foo/bar/buzz".into() };
+        let b = Mode::AgentBrowser {
+            name: "foo/bar/buzz".into(),
+        };
         assert_eq!(b.cache_subdir(), m.cache_subdir());
     }
 
@@ -164,7 +172,10 @@ mod tests {
         // `foo`'s own Cache is `agent/foo/Cache`; the child `foo/Cache`
         // lands under the `agents/` folder — no collision.
         let parent = Mode::AgentAuthorize { name: "foo".into() }.cache_subdir();
-        let child = Mode::AgentAuthorize { name: "foo/Cache".into() }.cache_subdir();
+        let child = Mode::AgentAuthorize {
+            name: "foo/Cache".into(),
+        }
+        .cache_subdir();
         assert_eq!(parent, "agent/foo");
         assert_eq!(child, "agent/foo/agents/Cache");
         assert!(child.starts_with(&format!("{parent}/{SUBAGENT_DIR}/")));

@@ -2,16 +2,15 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ActivitySubscriptionUpdateResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data: Option<ActivitySubscriptionUpdateResponseData>,
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ActivitySubscriptionUpdateResponseData {
@@ -21,4 +20,3 @@ pub struct ActivitySubscriptionUpdateResponseData {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub total_subscriptions: Option<i32>,
 }
-

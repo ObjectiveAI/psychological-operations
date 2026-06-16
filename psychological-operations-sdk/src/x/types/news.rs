@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 /// An AI generated news story.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -33,7 +33,6 @@ pub struct News {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NewsClusterPostsResultsItem {
@@ -78,4 +77,3 @@ pub struct NewsContextsSports {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub teams: Option<Vec<String>>,
 }
-

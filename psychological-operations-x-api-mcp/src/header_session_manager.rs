@@ -7,7 +7,7 @@
 //! 2. **Lazy `(handle, worker)` mint on first POST.** When tower
 //!    routes a request through `create_stream` or `accept_message`
 //!    for an id the inner `LocalSessionManager` doesn't currently
-//!    hold, we pull the session args (account/mode/quota) off the current message's
+//!    hold, we pull the session args (tag/mode/quota) off the current message's
 //!    injected `http::request::Parts` (per the source resolution
 //!    documented on
 //!    [`crate::x_api::session::HEADER_ARGUMENTS`]), register
@@ -97,8 +97,7 @@ impl HeaderSessionManager {
         let registry_for_close = self.registry.clone();
         let inner_for_close = self.inner.clone();
         tokio::spawn(async move {
-            let res =
-                serve_server::<_, _, _, TransportAdapterIdentity>(svc, transport).await;
+            let res = serve_server::<_, _, _, TransportAdapterIdentity>(svc, transport).await;
             if let Ok(svc) = res {
                 let _ = svc.waiting().await;
             }
@@ -115,9 +114,7 @@ impl HeaderSessionManager {
         handle
             .initialize(synthetic_initialize_message())
             .await
-            .map_err(|e| {
-                error_invalid_input(format!("synthetic initialize: {e}"))
-            })?;
+            .map_err(|e| error_invalid_input(format!("synthetic initialize: {e}")))?;
 
         self.inner.sessions.write().await.insert(id.clone(), handle);
         Ok(())
@@ -254,18 +251,15 @@ fn extract_session_state(message: &ClientJsonRpcMessage) -> Result<SessionState,
     // `mode`: JSON args only; no header fallback. REQUIRED — no
     // default. Absent/empty is an error, and so is a malformed value
     // (anything other than 'readonly' / 'full').
-    let mode_str = lookup_string_ci(&args, "mode").ok_or_else(|| {
-        format!("missing mode: {HEADER_ARGUMENTS}[\"mode\"] absent or empty")
-    })?;
-    let mode = parse_mode(&mode_str).ok_or_else(|| {
-        format!("mode: expected 'readonly' or 'full', got {mode_str:?}")
-    })?;
+    let mode_str = lookup_string_ci(&args, "mode")
+        .ok_or_else(|| format!("missing mode: {HEADER_ARGUMENTS}[\"mode\"] absent or empty"))?;
+    let mode = parse_mode(&mode_str)
+        .ok_or_else(|| format!("mode: expected 'readonly' or 'full', got {mode_str:?}"))?;
 
-    // `account`: JSON args only; no fallback. REQUIRED — the X identity
-    // every tool acts as (and the quota-ledger key).
-    let account = lookup_string_ci(&args, "account").ok_or_else(|| {
-        format!("missing account: {HEADER_ARGUMENTS}[\"account\"] absent or empty")
-    })?;
+    // `tag`: JSON args only; no fallback. REQUIRED — the agent tag every
+    // tool acts as (and the quota-ledger key).
+    let tag = lookup_string_ci(&args, "tag")
+        .ok_or_else(|| format!("missing tag: {HEADER_ARGUMENTS}[\"tag\"] absent or empty"))?;
 
     // Per-session quota overrides — all OPTIONAL. Absent ⇒ the process
     // default; PRESENT-but-unparseable ⇒ a hard connect-time error (so a
@@ -288,7 +282,7 @@ fn extract_session_state(message: &ClientJsonRpcMessage) -> Result<SessionState,
         .collect::<Result<std::collections::HashMap<ToolName, u64>, String>>()?;
 
     Ok(SessionState {
-        account,
+        tag,
         mode,
         quota_read,
         quota_write,
@@ -301,10 +295,7 @@ fn extract_session_state(message: &ClientJsonRpcMessage) -> Result<SessionState,
 /// matched value as a trimmed non-empty `String`, or `None` if no
 /// key matches, the matched value isn't a string, or it trims to
 /// empty.
-fn lookup_string_ci(
-    map: &serde_json::Map<String, serde_json::Value>,
-    key: &str,
-) -> Option<String> {
+fn lookup_string_ci(map: &serde_json::Map<String, serde_json::Value>, key: &str) -> Option<String> {
     map.iter()
         .find(|(k, _)| k.eq_ignore_ascii_case(key))
         .and_then(|(_, v)| v.as_str())

@@ -15,7 +15,12 @@ pub async fn delete(
     auth: &AuthMode,
     req: &super::delete::Request,
 ) -> Result<super::delete::Response, Error> {
-    let path = format!("account_activity/webhooks/{}/subscriptions/{}/all", urlencoding::encode(&req.webhook_id.to_string()), urlencoding::encode(&req.user_id.to_string()));
-    client.send::<_, ()>(auth, Method::DELETE, &path, None, false, false).await
+    let path = format!(
+        "account_activity/webhooks/{}/subscriptions/{}/all",
+        urlencoding::encode(&req.webhook_id.to_string()),
+        urlencoding::encode(&req.user_id.to_string())
+    );
+    client
+        .send::<_, ()>(auth, Method::DELETE, &path, None, false, false)
+        .await
 }
-

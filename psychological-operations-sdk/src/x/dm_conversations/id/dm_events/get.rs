@@ -3,13 +3,13 @@
 
 //! GET /2/dm_conversations/{id}/dm_events — Get DM events for a DM conversation
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
-use crate::x::types::*;
-#[allow(unused_imports)]
 use crate::x::params;
 #[allow(unused_imports)]
 use crate::x::serde_helpers;
+#[allow(unused_imports)]
+use crate::x::types::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Request {
@@ -21,15 +21,35 @@ pub struct Request {
     pub pagination_token: Option<PaginationToken32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub event_types: Option<Vec<RequestEventTypesItem>>,
-    #[serde(rename = "dm_event.fields", skip_serializing_if = "Option::is_none", with = "crate::x::serde_helpers::csv_vec_opt")]
+    #[serde(
+        rename = "dm_event.fields",
+        skip_serializing_if = "Option::is_none",
+        with = "crate::x::serde_helpers::csv_vec_opt"
+    )]
     pub dm_event_fields: Option<Vec<crate::x::params::dm_event_fields_parameter::DmEventFields>>,
-    #[serde(rename = "expansions", skip_serializing_if = "Option::is_none", with = "crate::x::serde_helpers::csv_vec_opt")]
+    #[serde(
+        rename = "expansions",
+        skip_serializing_if = "Option::is_none",
+        with = "crate::x::serde_helpers::csv_vec_opt"
+    )]
     pub expansions: Option<Vec<crate::x::params::dm_event_expansions_parameter::DmEventExpansions>>,
-    #[serde(rename = "media.fields", skip_serializing_if = "Option::is_none", with = "crate::x::serde_helpers::csv_vec_opt")]
+    #[serde(
+        rename = "media.fields",
+        skip_serializing_if = "Option::is_none",
+        with = "crate::x::serde_helpers::csv_vec_opt"
+    )]
     pub media_fields: Option<Vec<crate::x::params::media_fields_parameter::MediaFields>>,
-    #[serde(rename = "user.fields", skip_serializing_if = "Option::is_none", with = "crate::x::serde_helpers::csv_vec_opt")]
+    #[serde(
+        rename = "user.fields",
+        skip_serializing_if = "Option::is_none",
+        with = "crate::x::serde_helpers::csv_vec_opt"
+    )]
     pub user_fields: Option<Vec<crate::x::params::user_fields_parameter::UserFields>>,
-    #[serde(rename = "tweet.fields", skip_serializing_if = "Option::is_none", with = "crate::x::serde_helpers::csv_vec_opt")]
+    #[serde(
+        rename = "tweet.fields",
+        skip_serializing_if = "Option::is_none",
+        with = "crate::x::serde_helpers::csv_vec_opt"
+    )]
     pub tweet_fields: Option<Vec<crate::x::params::tweet_fields_parameter::TweetFields>>,
 }
 
@@ -54,4 +74,3 @@ impl std::fmt::Display for RequestEventTypesItem {
         })
     }
 }
-

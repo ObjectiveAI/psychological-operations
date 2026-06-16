@@ -29,19 +29,39 @@ use serde::{Deserialize, Serialize};
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum Event {
     // ── lifecycle markers ────────────────────────────────────
-    StageBegin { stage: usize },
-    StageEnd   { stage: usize },
+    StageBegin {
+        stage: usize,
+    },
+    StageEnd {
+        stage: usize,
+    },
 
     // ── psyop run pipeline ───────────────────────────────────
-    HydratingQueue { psyop: String, count: usize },
-    StageEmpty     { psyop: String, stage: usize },
+    HydratingQueue {
+        psyop: String,
+        count: usize,
+    },
+    StageEmpty {
+        psyop: String,
+        stage: usize,
+    },
 
     // ── query / ingest ───────────────────────────────────────
-    QuerySkipped  { psyop: String, query: String, reason: String },
-    QueryComplete { psyop: String, query: String, count: usize },
+    QuerySkipped {
+        psyop: String,
+        query: String,
+        reason: String,
+    },
+    QueryComplete {
+        psyop: String,
+        query: String,
+        count: usize,
+    },
 
     // ── browse / browser ─────────────────────────────────────
-    BrowseBrowserMaterialized { path: String },
+    BrowseBrowserMaterialized {
+        path: String,
+    },
     BrowseSessionEnded {
         psyop: String,
         status: Option<i32>,
@@ -67,33 +87,63 @@ pub enum Event {
     },
 
     // ── target delivery ──────────────────────────────────────
-    TargetDelivered { body: serde_json::Value },
+    TargetDelivered {
+        body: serde_json::Value,
+    },
 
     // ── error-flavored variants (routed through emit_error) ──
-    ObjectiveaiTaskErrors { count: usize },
-    TweetNotFound         { psyop: String, tweet_id: String },
-    TweetFetchFailed      { psyop: String, tweet_id: String, error: String },
-    QueryFailed           { psyop: String, query: String, error: String },
-    DeliveryFailed        { delivery_id: i64, reason: String },
+    ObjectiveaiTaskErrors {
+        count: usize,
+    },
+    TweetNotFound {
+        psyop: String,
+        tweet_id: String,
+    },
+    TweetFetchFailed {
+        psyop: String,
+        tweet_id: String,
+        error: String,
+    },
+    QueryFailed {
+        psyop: String,
+        query: String,
+        error: String,
+    },
+    DeliveryFailed {
+        delivery_id: i64,
+        reason: String,
+    },
     /// The browser child wrote an `{"error": ...}` line on its piped
     /// stdout while we were streaming for a terminator. Non-fatal:
     /// the read loop keeps going.
-    BrowserError          { error: String },
+    BrowserError {
+        error: String,
+    },
     /// `psyops run` loaded a psyop that failed `validate()`. The
     /// run is skipped (exit code stays 0); the operator sees this
     /// warning event with the reason.
-    PsyopInvalidAtRun     { psyop: String, reason: String },
+    PsyopInvalidAtRun {
+        psyop: String,
+        reason: String,
+    },
     /// `psyops run` was invoked before the psyop's `interval` had
     /// elapsed since its last successful run. The run is skipped
     /// (exit code stays 0); `remaining_secs` is how much longer
     /// the operator has to wait.
-    PsyopSkippedInterval  { psyop: String, interval: String, remaining_secs: u64 },
+    PsyopSkippedInterval {
+        psyop: String,
+        interval: String,
+        remaining_secs: u64,
+    },
     /// One psyop in a `psyops run` batch hit a hard error (failed to
     /// load, X-App not set up, `for_you` collection failed, or the run
     /// itself errored). Emitted per-psyop so it doesn't abort the other
     /// psyops; the command exit code stays 0 (only db/infra errors are
     /// fatal).
-    PsyopRunFailed        { psyop: String, error: String },
+    PsyopRunFailed {
+        psyop: String,
+        error: String,
+    },
 }
 
 impl Event {

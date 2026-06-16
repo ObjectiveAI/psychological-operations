@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 /// Name information for the account holder.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -14,4 +14,3 @@ pub struct PlaidName {
     /// The last name of the account holder.
     pub last: String,
 }
-

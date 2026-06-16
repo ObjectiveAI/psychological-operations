@@ -27,14 +27,14 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use reqwest::{Client as ReqwestClient, Method, StatusCode};
-use serde::Serialize;
 use serde::de::DeserializeOwned;
+use serde::Serialize;
 
-use psychological_operations_db::{Db, signed_in_x_user_id};
+use psychological_operations_db::{signed_in_x_user_id, Db};
 
-use super::{AuthError, Error};
 use super::auth::{self, AuthLock, PersonaKey};
 use super::cache::{request_key, request_key_auth_scoped};
+use super::{AuthError, Error};
 use crate::browser::auth_json::{self, PersonaKind, Tokens};
 use crate::browser::mode::Mode;
 use crate::x::types::Problem;
@@ -131,8 +131,13 @@ impl Client {
     /// locking. Returns `Ok(None)` if none exist. Errors for
     /// `AuthMode::XApp` (no persona).
     pub async fn read_auth(&self, auth: &AuthMode) -> Result<Option<Tokens>, Error> {
-        let persona = self.resolve_persona(auth).await.map_err(Error::Authorization)?;
-        self.read_auth_at(&persona).await.map_err(Error::Authorization)
+        let persona = self
+            .resolve_persona(auth)
+            .await
+            .map_err(Error::Authorization)?;
+        self.read_auth_at(&persona)
+            .await
+            .map_err(Error::Authorization)
     }
 
     /// Acquire the two-tier auth lock for the persona `auth` resolves
@@ -142,12 +147,15 @@ impl Client {
     /// producer. Errors for `AuthMode::XApp`.
     pub async fn lock_auth(&self, auth: &AuthMode) -> Result<AuthLock, Error> {
         if self.mock {
-            return Err(Error::Other(
-                "lock_auth not supported in mock mode".into(),
-            ));
+            return Err(Error::Other("lock_auth not supported in mock mode".into()));
         }
-        let persona = self.resolve_persona(auth).await.map_err(Error::Authorization)?;
-        self.lock_auth_at(&persona).await.map_err(Error::Authorization)
+        let persona = self
+            .resolve_persona(auth)
+            .await
+            .map_err(Error::Authorization)?;
+        self.lock_auth_at(&persona)
+            .await
+            .map_err(Error::Authorization)
     }
 
     /// Crate-internal — explicit persona for code paths that
@@ -167,8 +175,8 @@ impl Client {
             .map_err(AuthError::Store)?;
         match value {
             Some(v) => {
-                let tokens: Tokens = serde_json::from_value(v)
-                    .map_err(|e| AuthError::TokenSerde(e.to_string()))?;
+                let tokens: Tokens =
+                    serde_json::from_value(v).map_err(|e| AuthError::TokenSerde(e.to_string()))?;
                 Ok(Some(tokens))
             }
             None => Ok(None),
@@ -183,30 +191,22 @@ impl Client {
 
     /// Write `new_data` to the persona's `auth_tokens` row, then
     /// release the advisory lock (awaited).
-    pub async fn write_auth(
-        &self,
-        lock: AuthLock,
-        new_data: &Tokens,
-    ) -> Result<(), Error> {
+    pub async fn write_auth(&self, lock: AuthLock, new_data: &Tokens) -> Result<(), Error> {
         if self.mock {
-            return Err(Error::Other(
-                "write_auth not supported in mock mode".into(),
-            ));
+            return Err(Error::Other("write_auth not supported in mock mode".into()));
         }
-        self.write_auth_inner(lock, new_data).await.map_err(Error::Authorization)
+        self.write_auth_inner(lock, new_data)
+            .await
+            .map_err(Error::Authorization)
     }
 
     /// Low-level token write (no mock guard) returning the typed
     /// [`AuthError`]. Shared by the public [`Self::write_auth`] and the
     /// in-line refresh in [`Self::persona_bearer`].
-    async fn write_auth_inner(
-        &self,
-        lock: AuthLock,
-        new_data: &Tokens,
-    ) -> Result<(), AuthError> {
+    async fn write_auth_inner(&self, lock: AuthLock, new_data: &Tokens) -> Result<(), AuthError> {
         let persona = lock.persona();
-        let value = serde_json::to_value(new_data)
-            .map_err(|e| AuthError::TokenSerde(e.to_string()))?;
+        let value =
+            serde_json::to_value(new_data).map_err(|e| AuthError::TokenSerde(e.to_string()))?;
         self.db
             .auth_set(
                 persona.kind.db_kind(),
@@ -251,13 +251,12 @@ impl Client {
     /// varies by authed user (today: `/2/users/me`).
     pub(crate) async fn current_twid(&self, auth: &AuthMode) -> Result<String, AuthError> {
         match auth {
-            AuthMode::XApp => signed_in_x_user_id(
-                self.state_dir.as_ref(),
-                &Mode::XApp.cache_subdir(),
-            )
-            .await
-            .map_err(|e| AuthError::Cookie(format!("x-app twid: {e}")))?
-            .ok_or_else(|| AuthError::NotSignedIn("X-App account".into())),
+            AuthMode::XApp => {
+                signed_in_x_user_id(self.state_dir.as_ref(), &Mode::XApp.cache_subdir())
+                    .await
+                    .map_err(|e| AuthError::Cookie(format!("x-app twid: {e}")))?
+                    .ok_or_else(|| AuthError::NotSignedIn("X-App account".into()))
+            }
             AuthMode::Psyop(_) | AuthMode::Agent(_) => {
                 Ok(self.resolve_persona(auth).await?.persona_twid)
             }
@@ -273,7 +272,8 @@ impl Client {
             AuthMode::XApp => {
                 return Err(AuthError::Unsupported(
                     "auth file methods are not available for AuthMode::XApp — \
-                     XApp credentials live in x_app.json, not auth.json".into(),
+                     XApp credentials live in x_app.json, not auth.json"
+                        .into(),
                 ));
             }
             AuthMode::Psyop(name) => (PersonaKind::Psyop, name.clone()),
@@ -283,21 +283,20 @@ impl Client {
             PersonaKind::Psyop => Mode::PsyopAuthorize { name: name.clone() },
             PersonaKind::Agent => Mode::AgentAuthorize { name: name.clone() },
         };
-        let persona_twid = signed_in_x_user_id(
-            &self.state_dir,
-            &cookie_mode.cache_subdir(),
-        )
-        .await
-        .map_err(|e| AuthError::Cookie(format!("persona: {e}")))?
-        .ok_or_else(|| AuthError::NotSignedIn(format!("{kind:?} '{name}'")))?;
-        let x_app_twid = signed_in_x_user_id(
-            &self.state_dir,
-            &Mode::XApp.cache_subdir(),
-        )
-        .await
-        .map_err(|e| AuthError::Cookie(format!("x-app: {e}")))?
-        .ok_or_else(|| AuthError::NotSignedIn("X-App account".into()))?;
-        Ok(PersonaKey { kind, name, persona_twid, x_app_twid })
+        let persona_twid = signed_in_x_user_id(&self.state_dir, &cookie_mode.cache_subdir())
+            .await
+            .map_err(|e| AuthError::Cookie(format!("persona: {e}")))?
+            .ok_or_else(|| AuthError::NotSignedIn(format!("{kind:?} '{name}'")))?;
+        let x_app_twid = signed_in_x_user_id(&self.state_dir, &Mode::XApp.cache_subdir())
+            .await
+            .map_err(|e| AuthError::Cookie(format!("x-app: {e}")))?
+            .ok_or_else(|| AuthError::NotSignedIn("X-App account".into()))?;
+        Ok(PersonaKey {
+            kind,
+            name,
+            persona_twid,
+            x_app_twid,
+        })
     }
 
     /// Resolve persona, read auth.json, refresh through the two-
@@ -343,13 +342,9 @@ impl Client {
         let client_secret = x_app
             .client_secret
             .expect("is_complete guarantees client_secret");
-        let new_tokens = super::oauth::tokens::refresh(
-            &client_id,
-            &client_secret,
-            refresh_token,
-        )
-        .await
-        .map_err(|e| AuthError::Refresh(e.to_string()))?;
+        let new_tokens = super::oauth::tokens::refresh(&client_id, &client_secret, refresh_token)
+            .await
+            .map_err(|e| AuthError::Refresh(e.to_string()))?;
         let access = new_tokens.access_token.clone();
         self.write_auth_inner(lock, &new_tokens).await?;
         Ok(access)
@@ -368,13 +363,19 @@ impl Client {
         method: Method,
         path: &str,
     ) -> Result<reqwest::RequestBuilder, Error> {
-        let token = self.current_bearer_token(auth).await.map_err(Error::Authorization)?;
+        let token = self
+            .current_bearer_token(auth)
+            .await
+            .map_err(Error::Authorization)?;
         let url = format!(
             "{}/{}",
             DEFAULT_BASE_URL.trim_end_matches('/'),
             path.trim_start_matches('/'),
         );
-        let bare = token.strip_prefix("Bearer ").unwrap_or(token.as_str()).to_string();
+        let bare = token
+            .strip_prefix("Bearer ")
+            .unwrap_or(token.as_str())
+            .to_string();
         Ok(self
             .client
             .request(method, &url)
@@ -399,7 +400,9 @@ impl Client {
             return crate::x::mock::send_with_query(method, path, query);
         }
         let rb = self.request(auth, method, path).await?.query(query);
-        let raw = self.execute_cached(Some(auth), rb, cache, auth_scoped).await?;
+        let raw = self
+            .execute_cached(Some(auth), rb, cache, auth_scoped)
+            .await?;
         decode_body(&raw)
     }
 
@@ -424,7 +427,9 @@ impl Client {
         if let Some(b) = body {
             rb = rb.json(b);
         }
-        let raw = self.execute_cached(Some(auth), rb, cache, auth_scoped).await?;
+        let raw = self
+            .execute_cached(Some(auth), rb, cache, auth_scoped)
+            .await?;
         decode_body(&raw)
     }
 
@@ -478,8 +483,14 @@ impl Client {
         if self.mock {
             return crate::x::mock::send_with_query_and_body(method, path, query, body);
         }
-        let rb = self.request(auth, method, path).await?.query(query).json(body);
-        let raw = self.execute_cached(Some(auth), rb, cache, auth_scoped).await?;
+        let rb = self
+            .request(auth, method, path)
+            .await?
+            .query(query)
+            .json(body);
+        let raw = self
+            .execute_cached(Some(auth), rb, cache, auth_scoped)
+            .await?;
         decode_body(&raw)
     }
 
@@ -518,14 +529,15 @@ impl Client {
     /// URLs are persona-independent). No `authorization` header.
     pub async fn fetch_url(&self, url: &str) -> Result<Vec<u8>, Error> {
         if self.mock {
-            return Err(Error::Other(
-                "fetch_url not supported in mock mode".into(),
-            ));
+            return Err(Error::Other("fetch_url not supported in mock mode".into()));
         }
         let rb = self.client.get(url);
         // No auth: twimg media is persona-independent and never
         // auth-scoped.
-        self.execute_cached(None, rb, /* cache */ true, /* auth_scoped */ false).await
+        self.execute_cached(
+            None, rb, /* cache */ true, /* auth_scoped */ false,
+        )
+        .await
     }
 
     /// Build the request, then either route through the cache or
@@ -544,18 +556,18 @@ impl Client {
         if cache {
             let key = if auth_scoped {
                 let auth = auth.expect("auth_scoped requests must pass an AuthMode");
-                let twid = self.current_twid(auth).await.map_err(Error::Authorization)?;
+                let twid = self
+                    .current_twid(auth)
+                    .await
+                    .map_err(Error::Authorization)?;
                 auth_scoped_key_from_request(&twid, &req)
             } else {
                 key_from_request(&req)
             };
             self.db
-                .cache_get_or_fetch(
-                    &key,
-                    self.cache_max_size,
-                    self.cache_ttl,
-                    || async move { run_request_raw(self.client.clone(), req).await },
-                )
+                .cache_get_or_fetch(&key, self.cache_max_size, self.cache_ttl, || async move {
+                    run_request_raw(self.client.clone(), req).await
+                })
                 .await
         } else {
             run_request_raw(self.client.clone(), req).await
@@ -564,25 +576,16 @@ impl Client {
 }
 
 fn key_from_request(req: &reqwest::Request) -> [u8; 32] {
-    let body = req
-        .body()
-        .and_then(|b| b.as_bytes())
-        .unwrap_or(&[]);
+    let body = req.body().and_then(|b| b.as_bytes()).unwrap_or(&[]);
     request_key(req.method(), req.url().as_str(), &[], body)
 }
 
 fn auth_scoped_key_from_request(twid: &str, req: &reqwest::Request) -> [u8; 32] {
-    let body = req
-        .body()
-        .and_then(|b| b.as_bytes())
-        .unwrap_or(&[]);
+    let body = req.body().and_then(|b| b.as_bytes()).unwrap_or(&[]);
     request_key_auth_scoped(twid, req.method(), req.url().as_str(), &[], body)
 }
 
-async fn run_request_raw(
-    client: ReqwestClient,
-    req: reqwest::Request,
-) -> Result<Vec<u8>, Error> {
+async fn run_request_raw(client: ReqwestClient, req: reqwest::Request) -> Result<Vec<u8>, Error> {
     let response = client.execute(req).await.map_err(Error::Transport)?;
     let code = response.status();
     let bytes = response.bytes().await.map_err(Error::Transport)?;

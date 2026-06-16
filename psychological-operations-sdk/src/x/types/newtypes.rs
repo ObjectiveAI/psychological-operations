@@ -673,4 +673,3 @@ impl std::fmt::Display for WebhookConfigId {
         std::fmt::Display::fmt(&self.0, f)
     }
 }
-

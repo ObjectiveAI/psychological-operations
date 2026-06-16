@@ -2,8 +2,8 @@
 //!
 //! All clap-driven `Commands` enums + their `handle` dispatch live
 //! under this module. The matching root-level modules
-//! (`crate::psyops`, `crate::targets`, ...) hold the type
-//! definitions and business logic the handlers call into.
+//! (`crate::psyops`, ...) hold the type definitions and business
+//! logic the handlers call into.
 //!
 //! The top-level entry point is [`run`] — invoked from `main.rs`
 //! with the raw argv. It parses via clap, dispatches to the
@@ -17,7 +17,6 @@ use crate::context::Context;
 pub mod agents;
 pub mod mcp;
 pub mod psyops;
-pub mod targets;
 pub mod x_app;
 
 #[derive(Parser)]
@@ -30,7 +29,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Manage psyops (list/get/enable/disable/publish/run/browse/oauth/targets)
+    /// Manage psyops (list/get/enable/disable/publish/run/browse/oauth)
     Psyops {
         #[command(subcommand)]
         command: psyops::Commands,
@@ -39,13 +38,6 @@ enum Commands {
     Agents {
         #[command(subcommand)]
         command: agents::Commands,
-    },
-    /// Target destinations + delivery queue. CRUD ops take a
-    /// `--global` / `--psyop` / `--psyop+--commit` selector;
-    /// `deliver` drains the post-run queue.
-    Targets {
-        #[command(subcommand)]
-        command: targets::Commands,
     },
     /// Master X dev-account / X-App credentials setup.
     #[command(name = "x_app")]
@@ -90,11 +82,11 @@ where
         // are informational, not failures — emit as a typed `Output::Help`
         // line, then succeed (exit 0).
         Err(e) if is_informational(&e) => {
-            crate::output::emit_output(
-                psychological_operations_sdk::cli::Output::Help(
-                    psychological_operations_sdk::cli::output::Help { text: e.to_string() },
-                ),
-            );
+            crate::output::emit_output(psychological_operations_sdk::cli::Output::Help(
+                psychological_operations_sdk::cli::output::Help {
+                    text: e.to_string(),
+                },
+            ));
             return true;
         }
         Err(e) => {
@@ -105,7 +97,6 @@ where
     match cli.command {
         Commands::Psyops { command } => command.handle(ctx).await,
         Commands::Agents { command } => command.handle(ctx).await,
-        Commands::Targets { command } => command.handle(ctx).await,
         Commands::XApp { command } => command.handle(ctx).await,
         Commands::Mcp { command } => command.handle(ctx).await,
     }

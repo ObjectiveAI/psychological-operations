@@ -3,13 +3,13 @@
 
 //! GET /2/spaces/search — Search Spaces
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
-use crate::x::types::*;
-#[allow(unused_imports)]
 use crate::x::params;
 #[allow(unused_imports)]
 use crate::x::serde_helpers;
+#[allow(unused_imports)]
+use crate::x::types::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Request {
@@ -18,13 +18,29 @@ pub struct Request {
     pub state: Option<RequestState>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_results: Option<i32>,
-    #[serde(rename = "space.fields", skip_serializing_if = "Option::is_none", with = "crate::x::serde_helpers::csv_vec_opt")]
+    #[serde(
+        rename = "space.fields",
+        skip_serializing_if = "Option::is_none",
+        with = "crate::x::serde_helpers::csv_vec_opt"
+    )]
     pub space_fields: Option<Vec<crate::x::params::space_fields_parameter::SpaceFields>>,
-    #[serde(rename = "expansions", skip_serializing_if = "Option::is_none", with = "crate::x::serde_helpers::csv_vec_opt")]
+    #[serde(
+        rename = "expansions",
+        skip_serializing_if = "Option::is_none",
+        with = "crate::x::serde_helpers::csv_vec_opt"
+    )]
     pub expansions: Option<Vec<crate::x::params::space_expansions_parameter::SpaceExpansions>>,
-    #[serde(rename = "user.fields", skip_serializing_if = "Option::is_none", with = "crate::x::serde_helpers::csv_vec_opt")]
+    #[serde(
+        rename = "user.fields",
+        skip_serializing_if = "Option::is_none",
+        with = "crate::x::serde_helpers::csv_vec_opt"
+    )]
     pub user_fields: Option<Vec<crate::x::params::user_fields_parameter::UserFields>>,
-    #[serde(rename = "topic.fields", skip_serializing_if = "Option::is_none", with = "crate::x::serde_helpers::csv_vec_opt")]
+    #[serde(
+        rename = "topic.fields",
+        skip_serializing_if = "Option::is_none",
+        with = "crate::x::serde_helpers::csv_vec_opt"
+    )]
     pub topic_fields: Option<Vec<crate::x::params::topic_fields_parameter::TopicFields>>,
 }
 
@@ -49,4 +65,3 @@ impl std::fmt::Display for RequestState {
         })
     }
 }
-

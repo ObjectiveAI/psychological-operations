@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 /// An Chat message event with extracted envelope fields and the original encoded event.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -38,4 +38,3 @@ pub struct ChatMessageEvent {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sequence_id: Option<String>,
 }
-

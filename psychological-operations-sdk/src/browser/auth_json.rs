@@ -47,8 +47,12 @@ impl PersonaKind {
     /// CEF profile).
     pub fn to_mode(self, name: &str) -> Mode {
         match self {
-            PersonaKind::Psyop => Mode::PsyopAuthorize { name: name.to_string() },
-            PersonaKind::Agent => Mode::AgentAuthorize { name: name.to_string() },
+            PersonaKind::Psyop => Mode::PsyopAuthorize {
+                name: name.to_string(),
+            },
+            PersonaKind::Agent => Mode::AgentAuthorize {
+                name: name.to_string(),
+            },
         }
     }
 }

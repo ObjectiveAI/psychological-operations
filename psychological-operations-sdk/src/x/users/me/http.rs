@@ -16,6 +16,7 @@ pub async fn get(
     req: &super::get::Request,
 ) -> Result<super::get::Response, Error> {
     let path = "users/me";
-    client.send_with_query(auth, Method::GET, path, req, true, true).await
+    client
+        .send_with_query(auth, Method::GET, path, req, true, true)
+        .await
 }
-

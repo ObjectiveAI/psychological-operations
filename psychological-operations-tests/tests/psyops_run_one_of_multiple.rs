@@ -4,9 +4,9 @@
 use psychological_operations_tests::{Plugin, query_psyop};
 
 fn psyop_ran(run: &psychological_operations_tests::RunResult, name: &str) -> bool {
-    run.events.iter().any(|e| {
-        e.get("psyop").and_then(|v| v.as_str()) == Some(name)
-    })
+    run.events
+        .iter()
+        .any(|e| e.get("psyop").and_then(|v| v.as_str()) == Some(name))
 }
 
 #[tokio::test]
@@ -21,6 +21,14 @@ async fn psyops_run_one_of_multiple() {
 
     let run = p.psyops_run(&["target-psyop"], Some(42)).await;
     run.assert_no_errors();
-    assert!(psyop_ran(&run, "target-psyop"), "target-psyop should run: {:?}", run.events);
-    assert!(!psyop_ran(&run, "other-psyop"), "sibling should NOT run: {:?}", run.events);
+    assert!(
+        psyop_ran(&run, "target-psyop"),
+        "target-psyop should run: {:?}",
+        run.events
+    );
+    assert!(
+        !psyop_ran(&run, "other-psyop"),
+        "sibling should NOT run: {:?}",
+        run.events
+    );
 }

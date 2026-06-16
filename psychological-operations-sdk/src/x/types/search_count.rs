@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 /// Represent a Search Count Result.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -13,4 +13,3 @@ pub struct SearchCount {
     pub start: Start,
     pub tweet_count: TweetCount,
 }
-

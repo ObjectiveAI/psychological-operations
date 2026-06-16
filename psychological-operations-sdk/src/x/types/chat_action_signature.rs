@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 /// Cryptographic signature for a chat action.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -21,4 +21,3 @@ pub struct ChatActionSignature {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub signature_payload: Option<String>,
 }
-

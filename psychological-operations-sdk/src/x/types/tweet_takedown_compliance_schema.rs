@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TweetTakedownComplianceSchema {
@@ -16,10 +16,8 @@ pub struct TweetTakedownComplianceSchema {
     pub withheld_in_countries: Vec<CountryCode>,
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TweetTakedownComplianceSchemaTweet {
     pub author_id: UserId,
     pub id: TweetId,
 }
-

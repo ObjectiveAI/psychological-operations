@@ -15,7 +15,11 @@ pub async fn put(
     auth: &AuthMode,
     req: &super::put::Request,
 ) -> Result<super::put::Response, Error> {
-    let path = format!("tweets/{}/hidden", urlencoding::encode(&req.tweet_id.to_string()));
-    client.send(auth, Method::PUT, &path, req.body.as_ref(), false, false).await
+    let path = format!(
+        "tweets/{}/hidden",
+        urlencoding::encode(&req.tweet_id.to_string())
+    );
+    client
+        .send(auth, Method::PUT, &path, req.body.as_ref(), false, false)
+        .await
 }
-

@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Get2UsersIdFollowingResponse {
@@ -18,7 +18,6 @@ pub struct Get2UsersIdFollowingResponse {
     pub meta: Option<Get2UsersIdFollowingResponseMeta>,
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Get2UsersIdFollowingResponseMeta {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -28,4 +27,3 @@ pub struct Get2UsersIdFollowingResponseMeta {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result_count: Option<ResultCount>,
 }
-

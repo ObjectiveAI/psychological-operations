@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 /// Client App Rule Counts for all applications in the project
 pub type AllProjectClientApps = Vec<AppRulesCount>;
@@ -23,4 +23,3 @@ pub type Position = Vec<f64>;
 
 /// An array of all available variants of the media.
 pub type Variants = Vec<Variant>;
-

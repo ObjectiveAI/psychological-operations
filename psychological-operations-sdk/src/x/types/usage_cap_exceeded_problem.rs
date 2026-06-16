@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UsageCapExceededProblem {
@@ -15,7 +15,6 @@ pub struct UsageCapExceededProblem {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scope: Option<UsageCapExceededProblemScope>,
 }
-
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum UsageCapExceededProblemPeriod {
@@ -50,4 +49,3 @@ impl std::fmt::Display for UsageCapExceededProblemScope {
         })
     }
 }
-

@@ -16,7 +16,9 @@ pub async fn get(
     req: &super::get::Request,
 ) -> Result<super::get::Response, Error> {
     let path = "activity/subscriptions";
-    client.send_with_query(auth, Method::GET, path, req, true, false).await
+    client
+        .send_with_query(auth, Method::GET, path, req, true, false)
+        .await
 }
 
 /// POST /2/activity/subscriptions
@@ -26,7 +28,9 @@ pub async fn post(
     req: &super::post::Request,
 ) -> Result<super::post::Response, Error> {
     let path = "activity/subscriptions";
-    client.send(auth, Method::POST, path, req.body.as_ref(), false, false).await
+    client
+        .send(auth, Method::POST, path, req.body.as_ref(), false, false)
+        .await
 }
 
 /// DELETE /2/activity/subscriptions
@@ -36,6 +40,7 @@ pub async fn delete(
     req: &super::delete::Request,
 ) -> Result<super::delete::Response, Error> {
     let path = "activity/subscriptions";
-    client.send_with_query(auth, Method::DELETE, path, req, false, false).await
+    client
+        .send_with_query(auth, Method::DELETE, path, req, false, false)
+        .await
 }
-

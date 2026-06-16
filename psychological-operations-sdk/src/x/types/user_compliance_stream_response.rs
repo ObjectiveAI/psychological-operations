@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -12,7 +12,6 @@ pub enum UserComplianceStreamResponse {
     UserComplianceStreamResponseVariant0(UserComplianceStreamResponseVariant0),
     UserComplianceStreamResponseVariant1(UserComplianceStreamResponseVariant1),
 }
-
 
 /// User compliance event.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -24,4 +23,3 @@ pub struct UserComplianceStreamResponseVariant0 {
 pub struct UserComplianceStreamResponseVariant1 {
     pub errors: Vec<ProblemUnion>,
 }
-

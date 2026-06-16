@@ -10,8 +10,8 @@
 //!
 //! Storage-only by design: methods take/return JSON
 //! ([`serde_json::Value`]), primitives, byte slices, and the small row
-//! DTOs in this crate. The domain types (`PsyOp`, `Destination`,
-//! `Tokens`, `XAppConfig`) live in the SDK/CLI and are (de)serialized at
+//! DTOs in this crate. The domain types (`PsyOp`, `Tokens`,
+//! `XAppConfig`) live in the SDK/CLI and are (de)serialized at
 //! the call sites — the db crate never depends on them.
 
 use std::sync::Arc;
@@ -21,7 +21,6 @@ use sqlx::postgres::{PgPool, PgPoolOptions};
 
 pub mod auth;
 pub mod cache;
-pub mod config;
 pub mod cookies;
 pub mod engagement;
 pub mod locker;
@@ -31,11 +30,11 @@ pub mod queue;
 pub mod quota;
 pub mod x_app;
 
-pub use cookies::{CookiesError, parse_twid, signed_in_x_user_id};
+pub use cookies::{parse_twid, signed_in_x_user_id, CookiesError};
 pub use engagement::Engagement;
 pub use locker::LockGuard;
-pub use posts::{MediaUrl, Origin, Post, PostRow, QueuedDelivery};
-pub use queue::{AgentKind, QueueEntry};
+pub use posts::{MediaUrl, Origin, Post, PostRow};
+pub use queue::QueueEntry;
 pub use x_app::XAppRow;
 
 /// The embedded schema, applied idempotently on [`Db::connect`].

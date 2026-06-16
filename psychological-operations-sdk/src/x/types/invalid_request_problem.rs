@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InvalidRequestProblem {
@@ -14,7 +14,6 @@ pub struct InvalidRequestProblem {
     pub errors: Option<Vec<InvalidRequestProblemErrorsItem>>,
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InvalidRequestProblemErrorsItem {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -22,4 +21,3 @@ pub struct InvalidRequestProblemErrorsItem {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parameters: Option<std::collections::HashMap<String, Vec<String>>>,
 }
-

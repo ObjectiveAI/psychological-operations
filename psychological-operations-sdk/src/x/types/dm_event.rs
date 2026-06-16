@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DmEvent {
@@ -37,7 +37,6 @@ pub struct DmEvent {
     pub urls: Option<Vec<UrlEntityDm>>,
 }
 
-
 /// Specifies the type of attachments (if any) present in this DM.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DmEventAttachments {
@@ -53,4 +52,3 @@ pub struct DmEventAttachments {
 pub struct DmEventReferencedTweetsItem {
     pub id: TweetId,
 }
-

@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -12,7 +12,6 @@ pub enum ChatMediaUploadAppendRequest {
     ChatMediaUploadAppendRequestVariant0(ChatMediaUploadAppendRequestVariant0),
     ChatMediaUploadAppendRequestVariant1(ChatMediaUploadAppendRequestVariant1),
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatMediaUploadAppendRequestVariant0 {
@@ -33,4 +32,3 @@ pub struct ChatMediaUploadAppendRequestVariant1 {
     pub media_hash_key: String,
     pub segment_index: MediaSegments,
 }
-

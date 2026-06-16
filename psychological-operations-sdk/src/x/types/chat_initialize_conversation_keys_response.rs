@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatInitializeConversationKeysResponse {
@@ -14,11 +14,9 @@ pub struct ChatInitializeConversationKeysResponse {
     pub errors: Option<Vec<ProblemUnion>>,
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatInitializeConversationKeysResponseData {
     /// Sequence ID of the conversation key change event. Use this to track key changes in the conversation event stream.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sequence_id: Option<String>,
 }
-

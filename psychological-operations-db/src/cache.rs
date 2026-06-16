@@ -6,7 +6,7 @@
 
 use std::time::Duration;
 
-use crate::{Db, Error, unix_now};
+use crate::{unix_now, Db, Error};
 
 impl Db {
     /// `lock` → `peek` → on miss `fetch` → `store` → release. The

@@ -38,8 +38,7 @@ pub async fn wipe_persona(
         .map_err(|e| format!("delete persona tokens: {e}"))?;
     let cef_subdir = kind.to_mode(name).cache_subdir();
     let profile = state_dir.join("browser").join("cef-root").join(&cef_subdir);
-    wipe_profile_keep_subagents(&profile)
-        .map_err(|e| format!("wipe persona CEF profile: {e}"))?;
+    wipe_profile_keep_subagents(&profile).map_err(|e| format!("wipe persona CEF profile: {e}"))?;
     Ok(())
 }
 

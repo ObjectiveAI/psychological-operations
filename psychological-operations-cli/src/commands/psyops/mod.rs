@@ -29,20 +29,14 @@ pub enum Commands {
         offset: Option<usize>,
     },
     /// Print the on-disk JSON definition of a psyop.
-    Get {
-        name: String,
-    },
+    Get { name: String },
     /// Emit the JSON Schema for a PsyOp definition — the shape
     /// `publish --psyop-inline '<json>'` accepts.
     Schema,
     /// Mark a psyop as enabled.
-    Enable {
-        name: String,
-    },
+    Enable { name: String },
     /// Mark a psyop as disabled.
-    Disable {
-        name: String,
-    },
+    Disable { name: String },
     /// Publish a psyop definition (upserts it by name).
     Publish {
         #[command(flatten)]
@@ -84,29 +78,28 @@ pub enum Commands {
     /// closes the window when done; the CLI blocks on that exit.
     /// The only mode hint shown is "Sign in to X" if not signed in.
     #[command(name = "browser")]
-    Browser {
-        name: String,
-    },
+    Browser { name: String },
 }
 
 impl Commands {
     pub async fn handle(self, ctx: &crate::context::Context) -> bool {
         match self {
-            Commands::List { enabled, disabled, count, offset } =>
-                psyops::list(enabled, disabled, count, offset, ctx).await,
+            Commands::List {
+                enabled,
+                disabled,
+                count,
+                offset,
+            } => psyops::list(enabled, disabled, count, offset, ctx).await,
             Commands::Get { name } => psyops::get(&name, ctx).await,
             Commands::Schema => psyops::schema(),
-            Commands::Enable { name } => {
-                psyops::set_disabled(&name, false, ctx).await
-            }
-            Commands::Disable { name } => {
-                psyops::set_disabled(&name, true, ctx).await
-            }
+            Commands::Enable { name } => psyops::set_disabled(&name, false, ctx).await,
+            Commands::Disable { name } => psyops::set_disabled(&name, true, ctx).await,
             Commands::Publish { args } => psyops::publish(args, ctx).await,
-            Commands::Run { name, seed } => {
-                psyops::run::run_all(name, seed, ctx).await
-            }
-            Commands::Login { name, dangerously_reset } => {
+            Commands::Run { name, seed } => psyops::run::run_all(name, seed, ctx).await,
+            Commands::Login {
+                name,
+                dangerously_reset,
+            } => {
                 crate::login::run(
                     psychological_operations_sdk::browser::auth_json::PersonaKind::Psyop,
                     &name,

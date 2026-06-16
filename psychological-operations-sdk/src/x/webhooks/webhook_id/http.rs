@@ -15,8 +15,13 @@ pub async fn put(
     auth: &AuthMode,
     req: &super::put::Request,
 ) -> Result<super::put::Response, Error> {
-    let path = format!("webhooks/{}", urlencoding::encode(&req.webhook_id.to_string()));
-    client.send::<_, ()>(auth, Method::PUT, &path, None, false, false).await
+    let path = format!(
+        "webhooks/{}",
+        urlencoding::encode(&req.webhook_id.to_string())
+    );
+    client
+        .send::<_, ()>(auth, Method::PUT, &path, None, false, false)
+        .await
 }
 
 /// DELETE /2/webhooks/{webhook_id}
@@ -25,7 +30,11 @@ pub async fn delete(
     auth: &AuthMode,
     req: &super::delete::Request,
 ) -> Result<super::delete::Response, Error> {
-    let path = format!("webhooks/{}", urlencoding::encode(&req.webhook_id.to_string()));
-    client.send::<_, ()>(auth, Method::DELETE, &path, None, false, false).await
+    let path = format!(
+        "webhooks/{}",
+        urlencoding::encode(&req.webhook_id.to_string())
+    );
+    client
+        .send::<_, ()>(auth, Method::DELETE, &path, None, false, false)
+        .await
 }
-

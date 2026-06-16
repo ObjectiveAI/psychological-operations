@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WebhookLinksGetResponse {
@@ -14,7 +14,6 @@ pub struct WebhookLinksGetResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub errors: Option<Vec<ProblemUnion>>,
 }
-
 
 /// The list of active webhook links for a given stream
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -44,4 +43,3 @@ pub struct WebhookLinksGetResponseDataLinksItem {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub webhook_id: Option<String>,
 }
-

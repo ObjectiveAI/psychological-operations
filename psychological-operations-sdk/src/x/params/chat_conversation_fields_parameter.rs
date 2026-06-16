@@ -45,11 +45,14 @@ impl std::fmt::Display for ChatConversationFields {
             ChatConversationFields::MemberIds => "member_ids",
             ChatConversationFields::MessageTtlMsec => "message_ttl_msec",
             ChatConversationFields::ParticipantIds => "participant_ids",
-            ChatConversationFields::ScreenCaptureBlockingEnabled => "screen_capture_blocking_enabled",
-            ChatConversationFields::ScreenCaptureDetectionEnabled => "screen_capture_detection_enabled",
+            ChatConversationFields::ScreenCaptureBlockingEnabled => {
+                "screen_capture_blocking_enabled"
+            }
+            ChatConversationFields::ScreenCaptureDetectionEnabled => {
+                "screen_capture_detection_enabled"
+            }
             ChatConversationFields::Type => "type",
             ChatConversationFields::UpdatedAt => "updated_at",
         })
     }
 }
-

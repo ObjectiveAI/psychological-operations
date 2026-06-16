@@ -87,12 +87,13 @@ impl ConfigBuilder {
         Config {
             // Required — unwrapped here, after env init. Absence is a
             // hard misconfiguration: panic with a clear message.
-            state_dir: PathBuf::from(self.state_dir.expect(
-                "OBJECTIVEAI_STATE_DIR must be set (the state root)",
-            )),
-            postgres_url: self.postgres_url.expect(
-                "OBJECTIVEAI_POSTGRES_URL must be set",
+            state_dir: PathBuf::from(
+                self.state_dir
+                    .expect("OBJECTIVEAI_STATE_DIR must be set (the state root)"),
             ),
+            postgres_url: self
+                .postgres_url
+                .expect("OBJECTIVEAI_POSTGRES_URL must be set"),
             objectiveai_agent_id: self.objectiveai_agent_id,
             objectiveai_agent_full_id: self.objectiveai_agent_full_id,
             objectiveai_agent_remote: self.objectiveai_agent_remote,
@@ -157,4 +158,3 @@ pub fn load_config() -> Config {
 // Output type lives in the SDK now —
 // `psychological_operations_sdk::cli::Output`. Call sites
 // import it directly; lib.rs intentionally does not re-export.
-

@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TweetCreateRequest {
@@ -54,7 +54,6 @@ pub struct TweetCreateRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text: Option<TweetText>,
 }
-
 
 /// Options for editing an existing Post. When provided, this request will edit the specified Post instead of creating a new one.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -205,4 +204,3 @@ pub struct TweetCreateRequestMediaCallToActionsWatchNow {
     /// HTTPS URL the CTA links to.
     pub url: String,
 }
-

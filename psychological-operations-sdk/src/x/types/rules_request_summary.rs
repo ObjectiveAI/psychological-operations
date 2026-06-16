@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -12,7 +12,6 @@ pub enum RulesRequestSummary {
     RulesRequestSummaryVariant0(RulesRequestSummaryVariant0),
     RulesRequestSummaryVariant1(RulesRequestSummaryVariant1),
 }
-
 
 /// A summary of the results of the addition of user-specified stream filtering rules.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -34,4 +33,3 @@ pub struct RulesRequestSummaryVariant1 {
     /// Number of user-specified stream filtering rules that were not deleted.
     pub not_deleted: i32,
 }
-

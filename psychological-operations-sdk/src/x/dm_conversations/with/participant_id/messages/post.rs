@@ -3,13 +3,13 @@
 
 //! POST /2/dm_conversations/with/{participant_id}/messages — Create DM message by participant ID
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
-use crate::x::types::*;
-#[allow(unused_imports)]
 use crate::x::params;
 #[allow(unused_imports)]
 use crate::x::serde_helpers;
+#[allow(unused_imports)]
+use crate::x::types::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Request {
@@ -20,4 +20,3 @@ pub struct Request {
 }
 
 pub type Response = CreateDmEventResponse;
-

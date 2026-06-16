@@ -3,13 +3,13 @@
 
 //! GET /2/notes/search/notes_written — Search for Community Notes Written
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
-use crate::x::types::*;
-#[allow(unused_imports)]
 use crate::x::params;
 #[allow(unused_imports)]
 use crate::x::serde_helpers;
+#[allow(unused_imports)]
+use crate::x::types::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Request {
@@ -18,9 +18,12 @@ pub struct Request {
     pub pagination_token: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_results: Option<i32>,
-    #[serde(rename = "note.fields", skip_serializing_if = "Option::is_none", with = "crate::x::serde_helpers::csv_vec_opt")]
+    #[serde(
+        rename = "note.fields",
+        skip_serializing_if = "Option::is_none",
+        with = "crate::x::serde_helpers::csv_vec_opt"
+    )]
     pub note_fields: Option<Vec<crate::x::params::note_fields_parameter::NoteFields>>,
 }
 
 pub type Response = Get2NotesSearchNotesWrittenResponse;
-

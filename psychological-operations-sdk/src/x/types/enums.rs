@@ -168,7 +168,9 @@ pub enum NoteClassification {
 impl std::fmt::Display for NoteClassification {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
-            NoteClassification::MisinformedOrPotentiallyMisleading => "misinformed_or_potentially_misleading",
+            NoteClassification::MisinformedOrPotentiallyMisleading => {
+                "misinformed_or_potentially_misleading"
+            }
             NoteClassification::NotMisleading => "not_misleading",
         })
     }
@@ -289,4 +291,3 @@ impl std::fmt::Display for ReplySettingsWithVerifiedUsers {
         })
     }
 }
-

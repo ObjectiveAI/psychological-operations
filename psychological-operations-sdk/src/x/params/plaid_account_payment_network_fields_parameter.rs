@@ -28,4 +28,3 @@ impl std::fmt::Display for PlaidAccountPaymentNetworkFields {
         })
     }
 }
-

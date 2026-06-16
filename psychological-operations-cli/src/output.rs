@@ -111,7 +111,13 @@ pub fn emit_fatal(error: impl std::fmt::Display) {
 /// ```
 pub fn emit_result<E: std::fmt::Display>(result: Result<Output, E>) -> bool {
     match result {
-        Ok(output) => { emit_output(output); true }
-        Err(e) => { emit_fatal(e); false }
+        Ok(output) => {
+            emit_output(output);
+            true
+        }
+        Err(e) => {
+            emit_fatal(e);
+            false
+        }
     }
 }

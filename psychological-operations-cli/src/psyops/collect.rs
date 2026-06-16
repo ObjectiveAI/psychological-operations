@@ -39,7 +39,9 @@ pub(crate) async fn collect_for_you(
     let mut child = launch::spawn(
         &materialized.binary,
         &state_dir,
-        launch::Mode::PsyopRead { name: name.to_string() },
+        launch::Mode::PsyopRead {
+            name: name.to_string(),
+        },
         /* pipe_stdin  = */ false,
         /* pipe_stdout = */ true,
     )?;
@@ -68,13 +70,11 @@ pub(crate) async fn collect_for_you(
             continue;
         }
         match serde_json::from_str::<BrowserOutput>(trimmed) {
-            Ok(BrowserOutput::TweetId { id }) => {
-                match db.enqueue_for_you(&id, name).await {
-                    Ok(true)  => inserted += 1,
-                    Ok(false) => skipped += 1,
-                    Err(_)    => skipped += 1,
-                }
-            }
+            Ok(BrowserOutput::TweetId { id }) => match db.enqueue_for_you(&id, name).await {
+                Ok(true) => inserted += 1,
+                Ok(false) => skipped += 1,
+                Err(_) => skipped += 1,
+            },
             // Other events are informational here — `Log`,
             // `Url`, `SignedIn`, `Panel`, `Response`, `Help`,
             // `Error`. Drop them; the browser's own stderr
@@ -88,9 +88,9 @@ pub(crate) async fn collect_for_you(
         }
     }
 
-    let status = child.wait().map_err(|e| {
-        Error::Other(format!("waiting for browser ({name}) failed: {e}"))
-    })?;
+    let status = child
+        .wait()
+        .map_err(|e| Error::Other(format!("waiting for browser ({name}) failed: {e}")))?;
     crate::output::OutputResult::from(crate::events::Event::BrowseSessionEnded {
         psyop: name.to_string(),
         status: status.code(),

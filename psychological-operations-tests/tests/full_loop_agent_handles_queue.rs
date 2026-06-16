@@ -9,20 +9,20 @@
 //!
 //! Steps:
 //! 1. (HOST)   apply a tag → scripted mock agent (calls mark_handled)
-//! 2. (PLUGIN) `agents enqueue` one tweet onto the tag's psyops queue
-//! 3. (PLUGIN) `agents notify` → enqueues ONE objectiveai notification
-//! 4. (HOST)   `agents spawn` (empty message, streaming) → agent calls
+//! 2. (PLUGIN) `agents enqueue` one tweet onto the tag's psyops queue —
+//!             which auto-notifies the agent of its new pending count
+//! 3. (HOST)   `agents spawn` (empty message, streaming) → agent calls
 //!             mark_handled; the MCP server removes the tweet
 //!     → assert the tool call + the MCP server's response in the stream
 //!     → assert the delivered notification text (same as the agent-queue test)
-//! 5. (PLUGIN) `agents notify` again — psyops queue now empty, so no-op
-//! 6. (HOST)   `agents queue read pending` is empty (no enqueuement occurred)
+//! 4. (HOST)   `agents queue read pending` is empty (the enqueue's
+//!             auto-notification was consumed by the spawn; nothing re-enqueued)
 
 use objectiveai_sdk::cli::command::agents::logs::read::all::{
     ClientNotificationPartType, ResponseItem as LogItem,
 };
 use objectiveai_sdk::cli::command::agents::logs::read::id::Response as LogById;
-use psychological_operations_tests::{Agent, Plugin, Target, mark_handled_mock_agent};
+use psychological_operations_tests::{Plugin, Target, mark_handled_mock_agent};
 
 #[tokio::test]
 async fn full_loop_agent_handles_queue() {
@@ -31,30 +31,32 @@ async fn full_loop_agent_handles_queue() {
     let p = Plugin::new("full_loop_agent_handles_queue");
 
     // 1. Bind the tag to a scripted mock agent that calls
-    //    `mark_handled(account=tag, tweet_ids=[tweet_id])` in FULL mode.
+    //    `mark_handled(tweet_ids=[tweet_id])` in FULL mode.
     p.agents_tags_apply_inline(tag, mark_handled_mock_agent(tag, &[tweet_id]))
         .await
         .assert_no_errors();
 
-    // 2. Park one tweet on the tag's psyops queue.
-    p.agents_enqueue(Agent::Tag(tag), tweet_id, "handle this please")
+    // 2. Park one tweet on the tag's psyops queue — `agents enqueue`
+    //    auto-notifies the agent of its new pending count ("…has 1 tweets…").
+    p.agents_enqueue(tag, tweet_id, "handle this please")
         .await
         .assert_ok();
 
-    // 3. Notify → enqueues ONE objectiveai notification ("…has 1 tweets…").
-    p.agents_notify().await.assert_ok();
-
-    // 4. Plain spawn (empty message, streaming) — drains the notification,
+    // 3. Plain spawn (empty message, streaming) — drains the notification,
     //    the agent calls mark_handled, the MCP server removes the tweet.
     let spawn = p.agents_spawn_stream(tag).await;
     spawn.assert_no_errors();
 
-    // 4a. Assert the correct tool call + the MCP server's response. Streaming
+    // 3a. Assert the correct tool call + the MCP server's response. Streaming
     //     chunks fragment fields across items, so match the serialized stream.
     let stream = spawn
         .items
         .iter()
-        .map(|i| serde_json::to_value(i).expect("spawn item serializes").to_string())
+        .map(|i| {
+            serde_json::to_value(i)
+                .expect("spawn item serializes")
+                .to_string()
+        })
         .collect::<Vec<_>>()
         .join("\n");
     assert!(
@@ -70,10 +72,14 @@ async fn full_loop_agent_handles_queue() {
         "expected the MCP server's {{\"removed\":N}} response in the spawn stream",
     );
 
-    // 4b. Same notification assertion as the agent-queue test: the delivered
+    // 3b. Same notification assertion as the agent-queue test: the delivered
     //     ClientNotification (in the agent's own logs, read by tag) reads
-    //     back as the exact `agents notify` text.
-    let logs = p.agents_logs_read_all(vec![Target::Tag { agent_tag: tag.to_string() }]).await;
+    //     back as the exact auto-notification text.
+    let logs = p
+        .agents_logs_read_all(vec![Target::Tag {
+            agent_tag: tag.to_string(),
+        }])
+        .await;
     logs.assert_no_errors();
     let id = logs
         .items
@@ -96,15 +102,14 @@ async fn full_loop_agent_handles_queue() {
             _ => None,
         })
         .expect("a Text response from `agents logs read id`");
-    assert_eq!(text, format!("The account \"{tag}\" has 1 tweets in the queue."));
+    assert_eq!(
+        text,
+        format!("The agent \"{tag}\" has 1 tweets in the queue.")
+    );
 
-    // 5. Notify again — the agent emptied the psyops queue, so this finds
-    //    nothing to enqueue.
-    p.agents_notify().await.assert_ok();
-
-    // 6. The objectiveai message_queue is empty: the first notification was
-    //    consumed by the spawn, and notify #2 enqueued nothing because the
-    //    agent's mark_handled call already drained the psyops queue.
+    // 4. The objectiveai message_queue is empty: the enqueue's
+    //    auto-notification was consumed by the spawn, and the agent's
+    //    mark_handled call already drained the psyops queue.
     let queue = p.agents_queue_read_pending(vec![Target::Me]).await;
     queue.assert_no_errors();
     assert!(

@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 /// An activity event or error that can be returned by the x activity streaming API.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -14,7 +14,6 @@ pub struct ActivityStreamingResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub errors: Option<Vec<ProblemUnion>>,
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ActivityStreamingResponseData {
@@ -29,4 +28,3 @@ pub struct ActivityStreamingResponseData {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tag: Option<String>,
 }
-

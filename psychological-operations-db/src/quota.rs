@@ -8,7 +8,7 @@
 //! classification + cost live in the MCP, which reads these rows and
 //! applies everything at enforcement time.
 
-use crate::{Db, Error, unix_now};
+use crate::{unix_now, Db, Error};
 
 /// Default trailing read budget (tool calls' summed read cost / interval).
 pub const DEFAULT_READ_LIMIT: u64 = 30;

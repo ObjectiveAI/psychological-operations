@@ -9,7 +9,6 @@
 //! name modification: '/' is never collapsed and is allowed in tags.
 
 use clap::{ArgGroup, Args};
-use psychological_operations_db::AgentKind;
 
 #[derive(Debug, Args)]
 #[command(group = ArgGroup::new("agent_ref")
@@ -58,17 +57,6 @@ impl AgentRef {
             unreachable!("clap ArgGroup agent_ref required=true, multiple=false")
         }
     }
-
-    /// Which `agent_kind` this selector resolves to: `--agent-tag`
-    /// yields [`AgentKind::AgentTag`]; `--me` / `--agent-instance`
-    /// yield [`AgentKind::AgentInstanceHierarchy`].
-    pub fn kind(&self) -> AgentKind {
-        if self.agent_tag.is_some() {
-            AgentKind::AgentTag
-        } else {
-            AgentKind::AgentInstanceHierarchy
-        }
-    }
 }
 
 #[cfg(test)]
@@ -83,12 +71,7 @@ mod tests {
         }
     }
 
-    fn sel(
-        tag: Option<&str>,
-        me: bool,
-        inst: Option<&str>,
-        parent: Option<&str>,
-    ) -> AgentRef {
+    fn sel(tag: Option<&str>, me: bool, inst: Option<&str>, parent: Option<&str>) -> AgentRef {
         AgentRef {
             agent_tag: tag.map(Into::into),
             me,
@@ -100,8 +83,14 @@ mod tests {
     #[test]
     fn tag_verbatim() {
         // Tags are used as-is, including any '/'.
-        assert_eq!(sel(Some("my-tag"), false, None, None).resolve_raw(&cfg("h")), "my-tag");
-        assert_eq!(sel(Some("a/b"), false, None, None).resolve_raw(&cfg("h")), "a/b");
+        assert_eq!(
+            sel(Some("my-tag"), false, None, None).resolve_raw(&cfg("h")),
+            "my-tag"
+        );
+        assert_eq!(
+            sel(Some("a/b"), false, None, None).resolve_raw(&cfg("h")),
+            "a/b"
+        );
     }
 
     #[test]
@@ -113,7 +102,10 @@ mod tests {
     #[test]
     fn me_default_hierarchy() {
         let s = sel(None, true, None, None);
-        assert_eq!(s.resolve_raw(&cfg("psychological-operations")), "psychological-operations");
+        assert_eq!(
+            s.resolve_raw(&cfg("psychological-operations")),
+            "psychological-operations"
+        );
     }
 
     #[test]
@@ -126,16 +118,5 @@ mod tests {
     fn instance_with_parent_keeps_slashes() {
         let s = sel(None, false, Some("inst"), Some("p/q"));
         assert_eq!(s.resolve_raw(&cfg("ignored")), "p/q/inst");
-    }
-
-    #[test]
-    fn kind_reflects_selector() {
-        assert_eq!(sel(Some("t"), false, None, None).kind(), AgentKind::AgentTag);
-        assert_eq!(sel(None, true, None, None).kind(), AgentKind::AgentInstanceHierarchy);
-        assert_eq!(sel(None, false, Some("i"), None).kind(), AgentKind::AgentInstanceHierarchy);
-        assert_eq!(
-            sel(None, false, Some("i"), Some("p")).kind(),
-            AgentKind::AgentInstanceHierarchy
-        );
     }
 }

@@ -3,19 +3,23 @@
 
 //! GET /2/webhooks — Get webhook
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
-use crate::x::types::*;
-#[allow(unused_imports)]
 use crate::x::params;
 #[allow(unused_imports)]
 use crate::x::serde_helpers;
+#[allow(unused_imports)]
+use crate::x::types::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Request {
-    #[serde(rename = "webhook_config.fields", skip_serializing_if = "Option::is_none", with = "crate::x::serde_helpers::csv_vec_opt")]
-    pub webhook_config_fields: Option<Vec<crate::x::params::webhook_config_fields_parameter::WebhookConfigFields>>,
+    #[serde(
+        rename = "webhook_config.fields",
+        skip_serializing_if = "Option::is_none",
+        with = "crate::x::serde_helpers::csv_vec_opt"
+    )]
+    pub webhook_config_fields:
+        Option<Vec<crate::x::params::webhook_config_fields_parameter::WebhookConfigFields>>,
 }
 
 pub type Response = Get2WebhooksResponse;
-

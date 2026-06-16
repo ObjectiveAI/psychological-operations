@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 /// Represent the portion of text recognized as a URL.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -31,4 +31,3 @@ pub struct UrlFields {
     pub unwound_url: Option<url::Url>,
     pub url: Url,
 }
-

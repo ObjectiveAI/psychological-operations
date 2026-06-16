@@ -65,9 +65,18 @@ pub struct PsyOp {
     /// defined.
     #[serde(default, skip_serializing_if = "skip_stages")]
     pub stages: Option<Vec<Stage>>,
+
+    /// Agent tags to deliver survivors to. After scoring, each survivor
+    /// is written to every listed agent's queue and the agent is notified
+    /// of its new pending count. Empty (the default) means score-only —
+    /// no delivery.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub agent_tags: Vec<String>,
 }
 
-fn default_true() -> bool { true }
+fn default_true() -> bool {
+    true
+}
 
 /// Skip-serializing predicate for `queries`: omit the field when
 /// it's `None` OR `Some(empty)`. Both shapes mean "no query-driven
@@ -110,7 +119,9 @@ impl PsyOp {
             return Err("max_posts must be > 0".into());
         }
         if self.min_posts < 2 {
-            return Err("min_posts must be >= 2 (objectiveai cannot score fewer than 2 inputs)".into());
+            return Err(
+                "min_posts must be >= 2 (objectiveai cannot score fewer than 2 inputs)".into(),
+            );
         }
         if self.min_posts > self.max_posts {
             return Err("min_posts must be <= max_posts".into());

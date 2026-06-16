@@ -15,7 +15,11 @@ pub async fn post(
     auth: &AuthMode,
     req: &super::post::Request,
 ) -> Result<super::post::Response, Error> {
-    let path = format!("chat/media/upload/{}/finalize", urlencoding::encode(&req.id.to_string()));
-    client.send(auth, Method::POST, &path, Some(&req.body), false, false).await
+    let path = format!(
+        "chat/media/upload/{}/finalize",
+        urlencoding::encode(&req.id.to_string())
+    );
+    client
+        .send(auth, Method::POST, &path, Some(&req.body), false, false)
+        .await
 }
-

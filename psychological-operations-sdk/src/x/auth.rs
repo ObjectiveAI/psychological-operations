@@ -19,14 +19,14 @@ use crate::browser::auth_json::PersonaKind;
 /// (kind + name + persona twid) under a specific X-App account.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PersonaKey {
-    pub kind:         PersonaKind,
-    pub name:         String,
+    pub kind: PersonaKind,
+    pub name: String,
     /// The X-user-id of the persona signed into this profile's
     /// CEF cookie jar.
     pub persona_twid: String,
     /// The X-user-id of the X-App master account that minted the
     /// OAuth credentials for this persona.
-    pub x_app_twid:   String,
+    pub x_app_twid: String,
 }
 
 /// Opaque handle to a held auth lock. Acquired via
@@ -36,7 +36,7 @@ pub struct PersonaKey {
 /// external code cannot construct an `AuthLock` to fake holding
 /// the lock.
 pub struct AuthLock {
-    pub(crate) guard:   LockGuard,
+    pub(crate) guard: LockGuard,
     pub(crate) persona: PersonaKey,
 }
 

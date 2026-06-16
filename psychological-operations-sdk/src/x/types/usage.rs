@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 /// Usage per client app
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -29,7 +29,6 @@ pub struct Usage {
     pub project_usage: Option<i32>,
 }
 
-
 /// The daily usage breakdown for a project
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UsageDailyProjectUsage {
@@ -40,4 +39,3 @@ pub struct UsageDailyProjectUsage {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub usage: Option<Vec<UsageFields>>,
 }
-

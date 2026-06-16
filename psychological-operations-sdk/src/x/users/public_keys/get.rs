@@ -3,20 +3,24 @@
 
 //! GET /2/users/public_keys — Get public keys for multiple users
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
-use crate::x::types::*;
-#[allow(unused_imports)]
 use crate::x::params;
 #[allow(unused_imports)]
 use crate::x::serde_helpers;
+#[allow(unused_imports)]
+use crate::x::types::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Request {
     pub ids: Vec<UserId>,
-    #[serde(rename = "public_key.fields", skip_serializing_if = "Option::is_none", with = "crate::x::serde_helpers::csv_vec_opt")]
-    pub public_key_fields: Option<Vec<crate::x::params::public_key_fields_parameter::PublicKeyFields>>,
+    #[serde(
+        rename = "public_key.fields",
+        skip_serializing_if = "Option::is_none",
+        with = "crate::x::serde_helpers::csv_vec_opt"
+    )]
+    pub public_key_fields:
+        Option<Vec<crate::x::params::public_key_fields_parameter::PublicKeyFields>>,
 }
 
 pub type Response = Get2UsersPublicKeysResponse;
-

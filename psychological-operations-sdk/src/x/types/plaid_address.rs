@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 /// Address information for the account holder.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -25,4 +25,3 @@ pub struct PlaidAddress {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub region: Option<String>,
 }
-

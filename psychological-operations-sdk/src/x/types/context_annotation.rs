@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 /// Annotation inferred from the Tweet text.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -12,4 +12,3 @@ pub struct ContextAnnotation {
     pub domain: ContextAnnotationDomainFields,
     pub entity: ContextAnnotationEntityFields,
 }
-

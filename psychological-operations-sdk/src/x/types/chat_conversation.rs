@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 /// A Chat conversation resource representing either a direct or group conversation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -49,7 +49,6 @@ pub struct ChatConversation {
     pub updated_at: Option<String>,
 }
 
-
 /// The type of conversation: 'direct' or 'group'.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ChatConversationType {
@@ -67,4 +66,3 @@ impl std::fmt::Display for ChatConversationType {
         })
     }
 }
-

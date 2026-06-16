@@ -18,11 +18,7 @@ use psychological_operations_sdk::cli::Output;
 use crate::browser::{extract::ensure_extracted, launch};
 use crate::error::Error;
 
-pub async fn run(
-    kind: PersonaKind,
-    name: &str,
-    ctx: &crate::context::Context,
-) -> bool {
+pub async fn run(kind: PersonaKind, name: &str, ctx: &crate::context::Context) -> bool {
     crate::output::emit_result(run_inner(kind, name, ctx).await)
 }
 
@@ -42,8 +38,12 @@ async fn run_inner(
     let materialized = ensure_extracted(&ctx.config)?;
     let state_dir = ctx.config.state_dir();
     let launch_mode = match kind {
-        PersonaKind::Psyop => launch::Mode::PsyopBrowser { name: name.to_string() },
-        PersonaKind::Agent => launch::Mode::AgentBrowser { name: name.to_string() },
+        PersonaKind::Psyop => launch::Mode::PsyopBrowser {
+            name: name.to_string(),
+        },
+        PersonaKind::Agent => launch::Mode::AgentBrowser {
+            name: name.to_string(),
+        },
     };
     let event_kind = match kind {
         PersonaKind::Psyop => "psyop_browser",

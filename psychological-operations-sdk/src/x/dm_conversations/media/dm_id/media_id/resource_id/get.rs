@@ -3,13 +3,13 @@
 
 //! GET /2/dm_conversations/media/{dm_id}/{media_id}/{resource_id} — Download DM Media
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
-use crate::x::types::*;
-#[allow(unused_imports)]
 use crate::x::params;
 #[allow(unused_imports)]
 use crate::x::serde_helpers;
+#[allow(unused_imports)]
+use crate::x::types::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Request {
@@ -24,4 +24,3 @@ pub struct Request {
 /// 204 No Content / no body / non-JSON response.
 #[derive(Debug, Clone, Default)]
 pub struct Response;
-

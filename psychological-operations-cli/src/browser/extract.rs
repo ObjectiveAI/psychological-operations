@@ -73,8 +73,8 @@ fn content_hash() -> u64 {
 
 fn extract_zip(bytes: &[u8], dest: &Path) -> Result<(), Error> {
     let cursor = Cursor::new(bytes);
-    let mut archive = zip::ZipArchive::new(cursor)
-        .map_err(|e| Error::Other(format!("browser zip open: {e}")))?;
+    let mut archive =
+        zip::ZipArchive::new(cursor).map_err(|e| Error::Other(format!("browser zip open: {e}")))?;
     for i in 0..archive.len() {
         let mut file = archive
             .by_index(i)
@@ -96,10 +96,7 @@ fn extract_zip(bytes: &[u8], dest: &Path) -> Result<(), Error> {
         {
             use std::os::unix::fs::PermissionsExt;
             if let Some(mode) = file.unix_mode() {
-                let _ = fs::set_permissions(
-                    &outpath,
-                    fs::Permissions::from_mode(mode),
-                );
+                let _ = fs::set_permissions(&outpath, fs::Permissions::from_mode(mode));
             }
         }
     }

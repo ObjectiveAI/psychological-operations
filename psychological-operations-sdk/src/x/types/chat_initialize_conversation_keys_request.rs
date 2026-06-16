@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatInitializeConversationKeysRequest {
@@ -19,4 +19,3 @@ pub struct ChatInitializeConversationKeysRequest {
     /// The conversation key encrypted for each participant using their public key.
     pub conversation_participant_keys: Vec<ChatConversationParticipantKey>,
 }
-

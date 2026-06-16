@@ -15,8 +15,14 @@ pub async fn get(
     auth: &AuthMode,
     req: &super::get::Request,
 ) -> Result<super::get::Response, Error> {
-    let path = format!("dm_conversations/media/{}/{}/{}", urlencoding::encode(&req.dm_id.to_string()), urlencoding::encode(&req.media_id.to_string()), urlencoding::encode(&req.resource_id.to_string()));
-    client.send_no_response::<()>(auth, Method::GET, &path, None, true, false).await?;
+    let path = format!(
+        "dm_conversations/media/{}/{}/{}",
+        urlencoding::encode(&req.dm_id.to_string()),
+        urlencoding::encode(&req.media_id.to_string()),
+        urlencoding::encode(&req.resource_id.to_string())
+    );
+    client
+        .send_no_response::<()>(auth, Method::GET, &path, None, true, false)
+        .await?;
     Ok(super::get::Response)
 }
-

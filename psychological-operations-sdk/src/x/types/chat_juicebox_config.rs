@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 /// Key recovery configuration for Juicebox-based key storage.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -29,7 +29,6 @@ pub struct ChatJuiceboxConfig {
     pub token_map: Option<Vec<ChatJuiceboxConfigTokenMapItem>>,
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatJuiceboxConfigTokenMapItem {
     /// Realm identifier.
@@ -53,4 +52,3 @@ pub struct ChatJuiceboxConfigTokenMapItemValue {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub token: Option<String>,
 }
-

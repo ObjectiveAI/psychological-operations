@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 /// A [GeoJson Point](https://tools.ietf.org/html/rfc7946#section-3.1.2) geometry object.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -13,7 +13,6 @@ pub struct Point {
     #[serde(rename = "type")]
     pub type_: PointType,
 }
-
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum PointType {
@@ -28,4 +27,3 @@ impl std::fmt::Display for PointType {
         })
     }
 }
-

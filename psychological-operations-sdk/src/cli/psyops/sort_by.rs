@@ -41,8 +41,7 @@ pub fn parse_custom(src: &str) -> Result<AstModule, String> {
     // Bind the expression to a public name (no leading underscore)
     // — starlark hides any module global whose name starts with `_`.
     let wrapped = format!("result = ({src})\n");
-    AstModule::parse("sort.custom", wrapped, &Dialect::Standard)
-        .map_err(|e| e.to_string())
+    AstModule::parse("sort.custom", wrapped, &Dialect::Standard).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]

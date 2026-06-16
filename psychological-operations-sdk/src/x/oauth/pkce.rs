@@ -1,12 +1,12 @@
 //! PKCE pair + state nonce generation for the OAuth 2.0 PKCE flow.
 
-use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine;
 use rand::RngCore;
 use sha2::{Digest, Sha256};
 
 pub struct Pkce {
-    pub code_verifier:  String,
+    pub code_verifier: String,
     pub code_challenge: String,
 }
 
@@ -21,7 +21,10 @@ pub fn generate() -> Pkce {
     let digest = Sha256::digest(code_verifier.as_bytes());
     let code_challenge = URL_SAFE_NO_PAD.encode(digest);
 
-    Pkce { code_verifier, code_challenge }
+    Pkce {
+        code_verifier,
+        code_challenge,
+    }
 }
 
 /// Generate a fresh state nonce — 32 url-safe base64 chars.

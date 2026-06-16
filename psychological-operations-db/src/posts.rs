@@ -1,6 +1,6 @@
 //! The psyop pipeline tables (ported from the CLI's old `data.db`):
-//! posts, sources, contents, scores, for_you_queue, delivery_queue,
-//! psyop_runs. Keyed by psyop **name** only — `psyop_commit_sha` is
+//! posts, sources, contents, scores, for_you_queue, psyop_runs.
+//! Keyed by psyop **name** only — `psyop_commit_sha` is
 //! gone (git versioning was dropped).
 
 use serde::{Deserialize, Serialize};
@@ -50,18 +50,6 @@ pub struct PostRow {
     pub replies: u64,
     pub impressions: u64,
     pub seq: i64,
-}
-
-/// One row from `delivery_queue` — a delivery awaiting (re)delivery.
-#[derive(Debug, Clone)]
-pub struct QueuedDelivery {
-    pub id: i64,
-    pub psyop: String,
-    pub target: serde_json::Value,
-    pub post_ids: serde_json::Value,
-    pub attempts: i64,
-    pub last_error: Option<String>,
-    pub last_attempt_at: Option<String>,
 }
 
 impl Db {
@@ -273,35 +261,6 @@ impl Db {
         Ok(out)
     }
 
-    /// Persisted `(score, handle)` for each `post_id`, in `ids` order.
-    /// Missing rows fall back to `(0.0, "")`.
-    pub async fn get_scored_handles(&self, ids: &[String]) -> Result<Vec<(f64, String)>, Error> {
-        if ids.is_empty() {
-            return Ok(Vec::new());
-        }
-        let rows = sqlx::query(
-            "SELECT p.id AS id, p.handle AS handle, COALESCE(s.score, 0.0) AS score
-               FROM posts p
-               LEFT JOIN scores s ON s.post_id = p.id
-              WHERE p.id = ANY($1)",
-        )
-        .bind(ids)
-        .fetch_all(&self.pool)
-        .await?;
-        let mut by_id: std::collections::HashMap<String, (f64, String)> =
-            std::collections::HashMap::new();
-        for row in rows {
-            let id: String = row.get("id");
-            let handle: String = row.get("handle");
-            let score: f64 = row.get("score");
-            by_id.insert(id, (score, handle));
-        }
-        Ok(ids
-            .iter()
-            .map(|id| by_id.get(id).cloned().unwrap_or_else(|| (0.0, String::new())))
-            .collect())
-    }
-
     /// Upsert score rows and drop the matching `contents` row in one
     /// transaction. `ids` and `scores` must be the same length.
     pub async fn set_scores(&self, ids: &[String], scores: &[f64]) -> Result<(), Error> {
@@ -328,26 +287,6 @@ impl Db {
         Ok(())
     }
 
-    /// Enqueue a delivery (attempts=0). `target` + `post_ids` are JSON.
-    pub async fn enqueue_delivery(
-        &self,
-        psyop: &str,
-        target: &serde_json::Value,
-        post_ids: &serde_json::Value,
-    ) -> Result<i64, Error> {
-        let id: i64 = sqlx::query_scalar(
-            "INSERT INTO delivery_queue (psyop, target, post_ids)
-             VALUES ($1, $2, $3)
-             RETURNING id",
-        )
-        .bind(psyop)
-        .bind(target)
-        .bind(post_ids)
-        .fetch_one(&self.pool)
-        .await?;
-        Ok(id)
-    }
-
     /// Reap `contents` for every post under `psyop`. Returns rows deleted.
     pub async fn drop_psyop_contents(&self, psyop: &str) -> Result<usize, Error> {
         let n = sqlx::query(
@@ -359,58 +298,6 @@ impl Db {
         .await?
         .rows_affected();
         Ok(n as usize)
-    }
-
-    /// All queued deliveries. `psyop_filter = Some(name)` narrows to one
-    /// psyop; `None` returns every pending row.
-    pub async fn list_pending_deliveries(
-        &self,
-        psyop_filter: Option<&str>,
-    ) -> Result<Vec<QueuedDelivery>, Error> {
-        let rows = sqlx::query(
-            "SELECT id, psyop, target, post_ids, attempts, last_error, last_attempt_at
-             FROM delivery_queue
-             WHERE ($1::text IS NULL OR psyop = $1)
-             ORDER BY id ASC",
-        )
-        .bind(psyop_filter)
-        .fetch_all(&self.pool)
-        .await?;
-        Ok(rows
-            .into_iter()
-            .map(|r| QueuedDelivery {
-                id: r.get("id"),
-                psyop: r.get("psyop"),
-                target: r.get("target"),
-                post_ids: r.get("post_ids"),
-                attempts: r.get("attempts"),
-                last_error: r.get("last_error"),
-                last_attempt_at: r.get("last_attempt_at"),
-            })
-            .collect())
-    }
-
-    /// Bump `attempts`, set `last_error` + `last_attempt_at` (= now).
-    pub async fn bump_delivery_attempt(&self, id: i64, last_error: &str) -> Result<(), Error> {
-        sqlx::query(
-            "UPDATE delivery_queue
-             SET attempts = attempts + 1, last_error = $1, last_attempt_at = now()::text
-             WHERE id = $2",
-        )
-        .bind(last_error)
-        .bind(id)
-        .execute(&self.pool)
-        .await?;
-        Ok(())
-    }
-
-    /// Delete a queued delivery row.
-    pub async fn delete_delivery(&self, id: i64) -> Result<(), Error> {
-        sqlx::query("DELETE FROM delivery_queue WHERE id = $1")
-            .bind(id)
-            .execute(&self.pool)
-            .await?;
-        Ok(())
     }
 
     /// Unix seconds of this psyop's last successful run, or `None`.

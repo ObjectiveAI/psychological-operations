@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 /// Public key information for Chat encryption
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -22,7 +22,6 @@ pub struct PublicKey {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
 }
-
 
 /// Juicebox configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -50,4 +49,3 @@ pub struct PublicKeyTokenMapRealmsItem {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub token: Option<String>,
 }
-

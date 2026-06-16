@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 /// An Engagement Api Response.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -14,7 +14,6 @@ pub struct Engagement {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub measurement: Option<EngagementMeasurement>,
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EngagementErrorsItem {
@@ -77,4 +76,3 @@ pub struct EngagementMeasurementMetricsTimeSeriesItemValueTimestamp {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub iso8601_time: Option<String>,
 }
-

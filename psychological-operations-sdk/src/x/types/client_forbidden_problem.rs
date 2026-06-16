@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClientForbiddenProblem {
@@ -15,7 +15,6 @@ pub struct ClientForbiddenProblem {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub registration_url: Option<url::Url>,
 }
-
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ClientForbiddenProblemReason {
@@ -33,4 +32,3 @@ impl std::fmt::Display for ClientForbiddenProblemReason {
         })
     }
 }
-

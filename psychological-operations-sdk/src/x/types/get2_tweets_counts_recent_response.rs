@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Get2TweetsCountsRecentResponse {
@@ -15,7 +15,6 @@ pub struct Get2TweetsCountsRecentResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub meta: Option<Get2TweetsCountsRecentResponseMeta>,
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Get2TweetsCountsRecentResponseMeta {
@@ -28,4 +27,3 @@ pub struct Get2TweetsCountsRecentResponseMeta {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub total_tweet_count: Option<Aggregate>,
 }
-

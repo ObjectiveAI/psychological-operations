@@ -6,7 +6,7 @@
 //! tool handler via
 //! [`super::PsychologicalOperationsXApiMcp::resolve_session`].
 //!
-//! Only the values the client supplies belong here: `account`, `mode`,
+//! Only the values the client supplies belong here: `tag`, `mode`,
 //! and the per-session quota overrides. Everything else (`state_dir`,
 //! `cache_max_size`, `cache_ttl`) is process-wide and lives on the
 //! server struct.
@@ -16,8 +16,8 @@
 //! objectiveai stamps [`HEADER_ARGUMENTS`] (`X-OBJECTIVEAI-ARGUMENTS`)
 //! on every outbound request: a JSON object of per-URL key/value pairs
 //! the upstream client passed. We do case-insensitive lookups for
-//! `account` (REQUIRED — the X identity to act as), `mode` (REQUIRED),
-//! and the optional `quota_*` overrides. A missing/malformed `account`
+//! `tag` (REQUIRED — the agent tag to act as), `mode` (REQUIRED),
+//! and the optional `quota_*` overrides. A missing/malformed `tag`
 //! or `mode` is a hard error; the quota args fall back to the process
 //! defaults.
 //!
@@ -35,11 +35,11 @@ use std::sync::Arc;
 use rmcp::transport::common::server_side_http::SessionId;
 use tokio::sync::RwLock;
 
-use crate::Mode;
 use super::tool_name::ToolName;
+use crate::Mode;
 
 /// HTTP header objectiveai stamps with a JSON object of per-URL
-/// arguments. We look for `account`, `mode`, and the `quota_*` keys
+/// arguments. We look for `tag`, `mode`, and the `quota_*` keys
 /// case-insensitively. See module docs.
 pub const HEADER_ARGUMENTS: &str = "X-OBJECTIVEAI-ARGUMENTS";
 
@@ -47,10 +47,10 @@ pub const HEADER_ARGUMENTS: &str = "X-OBJECTIVEAI-ARGUMENTS";
 /// to the rmcp session in memory.
 #[derive(Debug, Clone)]
 pub struct SessionState {
-    /// The X account this session acts as, from the client's REQUIRED
-    /// `account` argument — the identity every tool authenticates as,
-    /// and the key the quota ledger is charged against.
-    pub account: String,
+    /// The agent tag this session acts as, from the client's REQUIRED
+    /// `tag` argument — the identity every tool authenticates as, and the
+    /// key the quota ledger is charged against.
+    pub tag: String,
     pub mode: Mode,
     /// Per-session read-budget limit (`quota_read`; falls back to the
     /// process default). Charged against by read tools in `enforce_quota`.

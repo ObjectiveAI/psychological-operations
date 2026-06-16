@@ -3,13 +3,13 @@
 
 //! GET /2/tweets/counts/recent — Get count of recent Posts
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
-use crate::x::types::*;
-#[allow(unused_imports)]
 use crate::x::params;
 #[allow(unused_imports)]
 use crate::x::serde_helpers;
+#[allow(unused_imports)]
+use crate::x::types::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Request {
@@ -28,8 +28,13 @@ pub struct Request {
     pub pagination_token: Option<PaginationToken36>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub granularity: Option<RequestGranularity>,
-    #[serde(rename = "search_count.fields", skip_serializing_if = "Option::is_none", with = "crate::x::serde_helpers::csv_vec_opt")]
-    pub search_count_fields: Option<Vec<crate::x::params::search_count_fields_parameter::SearchCountFields>>,
+    #[serde(
+        rename = "search_count.fields",
+        skip_serializing_if = "Option::is_none",
+        with = "crate::x::serde_helpers::csv_vec_opt"
+    )]
+    pub search_count_fields:
+        Option<Vec<crate::x::params::search_count_fields_parameter::SearchCountFields>>,
 }
 
 pub type Response = Get2TweetsCountsRecentResponse;
@@ -53,4 +58,3 @@ impl std::fmt::Display for RequestGranularity {
         })
     }
 }
-

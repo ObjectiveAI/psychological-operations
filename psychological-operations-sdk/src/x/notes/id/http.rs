@@ -16,6 +16,7 @@ pub async fn delete(
     req: &super::delete::Request,
 ) -> Result<super::delete::Response, Error> {
     let path = format!("notes/{}", urlencoding::encode(&req.id.to_string()));
-    client.send::<_, ()>(auth, Method::DELETE, &path, None, false, false).await
+    client
+        .send::<_, ()>(auth, Method::DELETE, &path, None, false, false)
+        .await
 }
-

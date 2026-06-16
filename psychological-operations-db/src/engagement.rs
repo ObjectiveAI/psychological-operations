@@ -13,7 +13,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::{Db, Error, unix_now};
+use crate::{unix_now, Db, Error};
 
 /// Whether `(agent, tweet_id)` has been recorded in each of the four
 /// tweet engagement tables.
@@ -50,22 +50,30 @@ impl Db {
 
     /// Record `(tweet_id, agent)` in `replies`.
     pub async fn engagement_mark_replied(&self, agent: &str, tweet_id: &str) -> Result<(), Error> {
-        self.engagement_insert("replies", "tweet_id", agent, tweet_id).await
+        self.engagement_insert("replies", "tweet_id", agent, tweet_id)
+            .await
     }
 
     /// Record `(tweet_id, agent)` in `retweets`.
-    pub async fn engagement_mark_retweeted(&self, agent: &str, tweet_id: &str) -> Result<(), Error> {
-        self.engagement_insert("retweets", "tweet_id", agent, tweet_id).await
+    pub async fn engagement_mark_retweeted(
+        &self,
+        agent: &str,
+        tweet_id: &str,
+    ) -> Result<(), Error> {
+        self.engagement_insert("retweets", "tweet_id", agent, tweet_id)
+            .await
     }
 
     /// Record `(tweet_id, agent)` in `likes`.
     pub async fn engagement_mark_liked(&self, agent: &str, tweet_id: &str) -> Result<(), Error> {
-        self.engagement_insert("likes", "tweet_id", agent, tweet_id).await
+        self.engagement_insert("likes", "tweet_id", agent, tweet_id)
+            .await
     }
 
     /// Record `(tweet_id, agent)` in `quotes`.
     pub async fn engagement_mark_quoted(&self, agent: &str, tweet_id: &str) -> Result<(), Error> {
-        self.engagement_insert("quotes", "tweet_id", agent, tweet_id).await
+        self.engagement_insert("quotes", "tweet_id", agent, tweet_id)
+            .await
     }
 
     /// Whether `(user_id, agent)` is recorded in the `follows` table.
@@ -84,7 +92,8 @@ impl Db {
 
     /// Record `(user_id, agent)` in `follows`.
     pub async fn engagement_mark_followed(&self, agent: &str, user_id: &str) -> Result<(), Error> {
-        self.engagement_insert("follows", "user_id", agent, user_id).await
+        self.engagement_insert("follows", "user_id", agent, user_id)
+            .await
     }
 
     /// Shared idempotent insert. `table`/`key_col` are fixed string

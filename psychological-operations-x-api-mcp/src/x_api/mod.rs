@@ -14,7 +14,7 @@
 //! Binary media bytes come from `Client::fetch_url` — the SDK's sole
 //! hand-written non-codegen call (twimg has no OpenAPI surface).
 //!
-//! `account`, `mode`, and the per-session `quota_*` overrides are NOT
+//! `tag`, `mode`, and the per-session `quota_*` overrides are NOT
 //! process-wide. They land here per session, sourced from the
 //! `X-OBJECTIVEAI-ARGUMENTS` JSON-object header on every request —
 //! recorded by [`crate::header_session_manager::HeaderSessionManager`]
@@ -43,9 +43,8 @@ use rmcp::{
     handler::server::router::tool::ToolRouter,
     handler::server::tool::ToolCallContext,
     model::{
-        CallToolRequestParams, CallToolResult, Content, Implementation,
-        ListToolsResult, PaginatedRequestParams, ProtocolVersion,
-        ServerCapabilities, ServerInfo, Tool,
+        CallToolRequestParams, CallToolResult, Content, Implementation, ListToolsResult,
+        PaginatedRequestParams, ProtocolVersion, ServerCapabilities, ServerInfo, Tool,
     },
     service::RequestContext,
     transport::common::http_header::HEADER_SESSION_ID,
@@ -143,24 +142,19 @@ impl PsychologicalOperationsXApiMcp {
             .get(HEADER_SESSION_ID)
             .and_then(|v| v.to_str().ok())
             .ok_or_else(|| {
-                ErrorData::invalid_params(
-                    format!("missing {HEADER_SESSION_ID} header"),
-                    None,
-                )
+                ErrorData::invalid_params(format!("missing {HEADER_SESSION_ID} header"), None)
             })?;
         self.sessions
             .get(&id.to_owned().into())
             .await
-            .ok_or_else(|| {
-                ErrorData::invalid_params(format!("unknown session: {id}"), None)
-            })
+            .ok_or_else(|| ErrorData::invalid_params(format!("unknown session: {id}"), None))
     }
 
     /// Build a fresh SDK [`Client`], reusing the process-wide reqwest
     /// pool, cache config, state dir, and `db` handle. Called once per
     /// tool invocation — `Client::new` is infallible + synchronous. The
     /// identity to act as is no longer baked in here: each tool builds
-    /// `AuthMode::Agent(state.account)` from the session's `account`
+    /// `AuthMode::Agent(state.tag)` from the session's `tag`
     /// and passes it to the generated X-API calls.
     pub(super) fn build_client(&self) -> Client {
         Client::new(
@@ -203,7 +197,7 @@ impl PsychologicalOperationsXApiMcp {
         // so an expensive tool stays usable as long as there's any
         // headroom left.
         let usage = self
-            .quota_used(&state.account, dir, interval, &state.quota_tool_costs)
+            .quota_used(&state.tag, dir, interval, &state.quota_tool_costs)
             .await?;
         if usage >= limit {
             let label = match dir {
@@ -216,7 +210,7 @@ impl PsychologicalOperationsXApiMcp {
             ))])));
         }
         self.db
-            .record_tool_invocation(&state.account, tool.as_name())
+            .record_tool_invocation(&state.tag, tool.as_name())
             .await
             .map_err(quota_db_err)?;
         Ok(None)
@@ -228,7 +222,7 @@ impl PsychologicalOperationsXApiMcp {
     /// are ignored.
     async fn quota_used(
         &self,
-        account: &str,
+        tag: &str,
         dir: Direction,
         interval_secs: u64,
         tool_costs: &std::collections::HashMap<ToolName, u64>,
@@ -236,12 +230,14 @@ impl PsychologicalOperationsXApiMcp {
         let cutoff = unix_now() - interval_secs as i64;
         let counts = self
             .db
-            .tool_invocation_counts_since(account, cutoff)
+            .tool_invocation_counts_since(tag, cutoff)
             .await
             .map_err(quota_db_err)?;
         let mut usage: u64 = 0;
         for (t, n) in counts {
-            let Some(tn) = ToolName::from_name(&t) else { continue };
+            let Some(tn) = ToolName::from_name(&t) else {
+                continue;
+            };
             if tn.direction() != dir {
                 continue;
             }
@@ -263,7 +259,7 @@ impl PsychologicalOperationsXApiMcp {
             Direction::Write => (state.quota_write, state.quota_interval),
         };
         let used = self
-            .quota_used(&state.account, dir, interval, &state.quota_tool_costs)
+            .quota_used(&state.tag, dir, interval, &state.quota_tool_costs)
             .await
             .ok()?;
         let available = limit.saturating_sub(used);
@@ -271,7 +267,9 @@ impl PsychologicalOperationsXApiMcp {
             Direction::Read => "Read Quota",
             Direction::Write => "Write Quota",
         };
-        Some(Content::text(format!("[{label}] {used} used, {available} available\n\n")))
+        Some(Content::text(format!(
+            "[{label}] {used} used, {available} available\n\n"
+        )))
     }
 }
 
@@ -317,7 +315,11 @@ impl ServerHandler for PsychologicalOperationsXApiMcp {
             .into_iter()
             .filter(|t| !is_hidden_for(mode, &t.name))
             .collect();
-        Ok(ListToolsResult { tools, next_cursor: None, meta: None })
+        Ok(ListToolsResult {
+            tools,
+            next_cursor: None,
+            meta: None,
+        })
     }
 
     async fn call_tool(
@@ -331,10 +333,7 @@ impl ServerHandler for PsychologicalOperationsXApiMcp {
             // one is a "should never happen" — a system fault, not an agent
             // mistake.
             return Err(ErrorData::internal_error(
-                format!(
-                    "tool '{}' is not available in readonly mode",
-                    request.name
-                ),
+                format!("tool '{}' is not available in readonly mode", request.name),
                 None,
             ));
         }
@@ -396,8 +395,7 @@ mod tests {
             .collect();
 
         // Tools that intentionally carry no quota.
-        let quota_free: HashSet<&str> =
-            ["read_queue", "mark_handled"].into_iter().collect();
+        let quota_free: HashSet<&str> = ["read_queue", "mark_handled"].into_iter().collect();
 
         // Every metered name is a real tool, and never quota-free.
         for tn in ToolName::ALL {

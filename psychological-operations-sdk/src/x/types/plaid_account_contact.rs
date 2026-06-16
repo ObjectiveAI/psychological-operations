@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 /// Contact information associated with a Plaid account.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -20,4 +20,3 @@ pub struct PlaidAccountContact {
     /// List of telephone numbers associated with the account holder.
     pub telephones: Vec<PlaidTelephone>,
 }
-

@@ -15,7 +15,12 @@ pub async fn delete(
     auth: &AuthMode,
     req: &super::delete::Request,
 ) -> Result<super::delete::Response, Error> {
-    let path = format!("lists/{}/members/{}", urlencoding::encode(&req.id.to_string()), urlencoding::encode(&req.user_id.to_string()));
-    client.send::<_, ()>(auth, Method::DELETE, &path, None, false, false).await
+    let path = format!(
+        "lists/{}/members/{}",
+        urlencoding::encode(&req.id.to_string()),
+        urlencoding::encode(&req.user_id.to_string())
+    );
+    client
+        .send::<_, ()>(auth, Method::DELETE, &path, None, false, false)
+        .await
 }
-

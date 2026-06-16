@@ -109,4 +109,3 @@ impl std::fmt::Display for TweetFields {
         })
     }
 }
-

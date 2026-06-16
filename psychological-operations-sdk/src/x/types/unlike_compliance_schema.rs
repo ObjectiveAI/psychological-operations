@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UnlikeComplianceSchema {
@@ -13,10 +13,8 @@ pub struct UnlikeComplianceSchema {
     pub favorite: UnlikeComplianceSchemaFavorite,
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UnlikeComplianceSchemaFavorite {
     pub id: TweetId,
     pub user_id: UserId,
 }
-

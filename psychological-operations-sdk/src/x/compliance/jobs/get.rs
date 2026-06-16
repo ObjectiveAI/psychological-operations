@@ -3,13 +3,13 @@
 
 //! GET /2/compliance/jobs — Get Compliance Jobs
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
-use crate::x::types::*;
-#[allow(unused_imports)]
 use crate::x::params;
 #[allow(unused_imports)]
 use crate::x::serde_helpers;
+#[allow(unused_imports)]
+use crate::x::types::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Request {
@@ -17,8 +17,13 @@ pub struct Request {
     pub type_: RequestType,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<RequestStatus>,
-    #[serde(rename = "compliance_job.fields", skip_serializing_if = "Option::is_none", with = "crate::x::serde_helpers::csv_vec_opt")]
-    pub compliance_job_fields: Option<Vec<crate::x::params::compliance_job_fields_parameter::ComplianceJobFields>>,
+    #[serde(
+        rename = "compliance_job.fields",
+        skip_serializing_if = "Option::is_none",
+        with = "crate::x::serde_helpers::csv_vec_opt"
+    )]
+    pub compliance_job_fields:
+        Option<Vec<crate::x::params::compliance_job_fields_parameter::ComplianceJobFields>>,
 }
 
 pub type Response = Get2ComplianceJobsResponse;
@@ -62,4 +67,3 @@ impl std::fmt::Display for RequestStatus {
         })
     }
 }
-

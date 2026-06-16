@@ -16,6 +16,7 @@ pub async fn get(
     _req: &super::get::Request,
 ) -> Result<super::get::Response, Error> {
     let path = "openapi.json";
-    client.send::<_, ()>(auth, Method::GET, path, None, true, false).await
+    client
+        .send::<_, ()>(auth, Method::GET, path, None, true, false)
+        .await
 }
-

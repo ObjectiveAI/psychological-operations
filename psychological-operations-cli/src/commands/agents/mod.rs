@@ -6,12 +6,12 @@
 //! logged-in user (the twid-conflict guard does not fire) and have
 //! no scrape mode.
 //!
-//! Most subcommands (`login`, `browser`, `enqueue`) select their agent
-//! via the shared [`agent_ref::AgentRef`] argument group, which resolves
-//! to a single agent `name`. `login` / `browser` are thin dispatches
-//! into `crate::login::run` / `crate::persona_browser::run` with
-//! `PersonaKind::Agent`; `enqueue` and `notify` live in their own
-//! modules.
+//! `login` / `browser` select their agent via the shared
+//! [`agent_ref::AgentRef`] argument group; they're thin dispatches into
+//! `crate::login::run` / `crate::persona_browser::run` with
+//! `PersonaKind::Agent`. `enqueue` (by `--agent-tag`) parks a tweet in an
+//! agent's queue and auto-notifies; `notify` is the shared
+//! count-notification helper it (and `psyops run`) call into.
 
 use clap::Subcommand;
 
@@ -52,13 +52,13 @@ pub enum Commands {
         #[command(flatten)]
         agent: AgentRef,
     },
-    /// Enqueue a tweet for the selected agent into the per-agent,
-    /// caller-agnostic queue. The agent is chosen by the shared
-    /// `--agent-tag` / `--me` / `--agent-instance` selector.
+    /// Enqueue a tweet into an agent's per-agent queue (by tag), then
+    /// auto-notify the agent of its new pending count.
     #[command(name = "enqueue")]
     Enqueue {
-        #[command(flatten)]
-        agent: AgentRef,
+        /// Agent tag whose queue to add to.
+        #[arg(long)]
+        agent_tag: String,
         /// Numeric ID of the tweet.
         #[arg(long)]
         tweet_id: String,
@@ -66,18 +66,15 @@ pub enum Commands {
         #[arg(long)]
         message: String,
     },
-    /// Notify every agent that has queued tweets. For each distinct
-    /// agent, enqueues an `agents message` (keyed
-    /// `psychological-operations`) reporting how many tweets are
-    /// waiting. All sends run concurrently.
-    #[command(name = "notify")]
-    Notify,
 }
 
 impl Commands {
     pub async fn handle(self, ctx: &crate::context::Context) -> bool {
         match self {
-            Commands::Login { agent, dangerously_reset } => {
+            Commands::Login {
+                agent,
+                dangerously_reset,
+            } => {
                 let name = agent.resolve_raw(&ctx.config);
                 crate::login::run(
                     psychological_operations_sdk::browser::auth_json::PersonaKind::Agent,
@@ -96,12 +93,11 @@ impl Commands {
                 )
                 .await
             }
-            Commands::Enqueue { agent, tweet_id, message } => {
-                let name = agent.resolve_raw(&ctx.config);
-                let kind = agent.kind();
-                enqueue::run(&name, kind, &tweet_id, &message, ctx).await
-            }
-            Commands::Notify => notify::run(ctx).await,
+            Commands::Enqueue {
+                agent_tag,
+                tweet_id,
+                message,
+            } => enqueue::run(&agent_tag, &tweet_id, &message, ctx).await,
         }
     }
 }

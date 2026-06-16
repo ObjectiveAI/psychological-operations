@@ -1,19 +1,19 @@
 pub mod collect;
-pub mod run;
 pub mod notify;
+pub mod run;
 
-pub mod psyop;
-pub mod sort_by;
 pub mod filter;
 pub mod output_top;
+pub mod psyop;
+pub mod sort_by;
 
 // Type definitions + publish-time validators moved to the SDK
 // under `psychological_operations_sdk::cli::psyops`. Re-export at
 // the same shorthand `crate::psyops::*` so call sites that wrote
 // `use crate::psyops::PsyOp;` keep resolving.
 pub use psychological_operations_sdk::cli::psyops::{
-    Filter, ForYou, OutputTop, PsyOp, PsyopEntry, PublishedPsyop, Query,
-    SearchEndpoint, SortBy, Stage, StageBase, is_vector_function,
+    Filter, ForYou, OutputTop, PsyOp, PsyopEntry, PublishedPsyop, Query, SearchEndpoint, SortBy,
+    Stage, StageBase, is_vector_function,
 };
 
 use clap::Args;
@@ -69,7 +69,10 @@ async fn list_inner(
             if disabled && is_enabled {
                 return None;
             }
-            Some(PsyopEntry { name, enabled: is_enabled })
+            Some(PsyopEntry {
+                name,
+                enabled: is_enabled,
+            })
         })
         .collect();
     entries.sort_by(|a, b| a.name.cmp(&b.name));
@@ -77,7 +80,7 @@ async fn list_inner(
     let start = offset.unwrap_or(0);
     let end = match count {
         Some(c) => start.saturating_add(c).min(entries.len()),
-        None    => entries.len(),
+        None => entries.len(),
     };
     let page: &[PsyopEntry] = if start >= entries.len() {
         &[]
@@ -97,17 +100,24 @@ pub(crate) fn schema() -> bool {
 }
 
 pub(crate) async fn get(name: &str, ctx: &crate::context::Context) -> bool {
-    crate::output::emit_result(async {
-        let psyop = self::psyop::load(name, ctx).await?;
-        Ok::<_, crate::error::Error>(Output::Psyop(psyop))
-    }.await)
+    crate::output::emit_result(
+        async {
+            let psyop = self::psyop::load(name, ctx).await?;
+            Ok::<_, crate::error::Error>(Output::Psyop(psyop))
+        }
+        .await,
+    )
 }
 
 pub(crate) async fn set_disabled(name: &str, value: bool, ctx: &crate::context::Context) -> bool {
     crate::output::emit_result(set_disabled_inner(name, value, ctx).await)
 }
 
-async fn set_disabled_inner(name: &str, value: bool, ctx: &crate::context::Context) -> Result<Output, crate::error::Error> {
+async fn set_disabled_inner(
+    name: &str,
+    value: bool,
+    ctx: &crate::context::Context,
+) -> Result<Output, crate::error::Error> {
     if !ctx.db.psyop_set_disabled(name, value).await? {
         return Err(crate::error::Error::PsyopNotFound(name.to_string()));
     }
@@ -126,7 +136,10 @@ pub(crate) async fn publish(args: PublishArgs, ctx: &crate::context::Context) ->
     crate::output::emit_result(publish_inner(args, ctx).await)
 }
 
-async fn publish_inner(args: PublishArgs, ctx: &crate::context::Context) -> Result<Output, crate::error::Error> {
+async fn publish_inner(
+    args: PublishArgs,
+    ctx: &crate::context::Context,
+) -> Result<Output, crate::error::Error> {
     let psyop: PsyOp = if let Some(inline) = args.source.psyop_inline {
         serde_json::from_str(&inline)?
     } else if let Some(path) = args.source.psyop_file {
@@ -135,7 +148,9 @@ async fn publish_inner(args: PublishArgs, ctx: &crate::context::Context) -> Resu
     } else {
         unreachable!("clap group ensures one is set")
     };
-    psyop.validate().map_err(crate::error::Error::InvalidPsyop)?;
+    psyop
+        .validate()
+        .map_err(crate::error::Error::InvalidPsyop)?;
 
     // Add vs edit: existence BEFORE the upsert. `psyop_upsert` leaves
     // the `disabled` flag untouched on edit.
@@ -148,7 +163,11 @@ async fn publish_inner(args: PublishArgs, ctx: &crate::context::Context) -> Resu
         "enabled": is_enabled,
         "definition": &psyop,
     });
-    let sub_type = if existed_before { "psyop_edited" } else { "psyop_added" };
+    let sub_type = if existed_before {
+        "psyop_edited"
+    } else {
+        "psyop_added"
+    };
     notify::notify(sub_type, &body, ctx).await;
 
     Ok(Output::PublishedPsyop(PublishedPsyop {
@@ -160,10 +179,7 @@ async fn publish_inner(args: PublishArgs, ctx: &crate::context::Context) -> Resu
 /// Build the `PsyopWithDefinition`-shaped notification body for
 /// `psyop_added` / `psyop_edited`. Returns `None` if the psyop can't be
 /// read back — caller drops the notify.
-async fn full_psyop_body(
-    name: &str,
-    ctx: &crate::context::Context,
-) -> Option<serde_json::Value> {
+async fn full_psyop_body(name: &str, ctx: &crate::context::Context) -> Option<serde_json::Value> {
     let psyop = self::psyop::load(name, ctx).await.ok()?;
     let is_enabled = !ctx.db.psyop_disabled(name).await.unwrap_or(false);
     Some(serde_json::json!({

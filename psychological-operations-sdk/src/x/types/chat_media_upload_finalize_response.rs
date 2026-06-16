@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 /// Response from finalizing a Chat media upload.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -13,10 +13,8 @@ pub struct ChatMediaUploadFinalizeResponse {
     pub data: Option<ChatMediaUploadFinalizeResponseData>,
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatMediaUploadFinalizeResponseData {
     /// Whether the finalize request succeeded.
     pub success: bool,
 }
-

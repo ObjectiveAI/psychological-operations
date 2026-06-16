@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 /// The evaluation result of a community note.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -16,4 +16,3 @@ pub struct NoteTestResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub evaluator_type: Option<String>,
 }
-

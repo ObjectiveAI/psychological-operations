@@ -27,19 +27,19 @@ const DEFAULT_CACHE_MAX_SIZE: u64 = 2 * 1024 * 1024 * 1024;
 const DEFAULT_CACHE_TTL: Duration = Duration::from_secs(15 * 60);
 
 pub struct Context {
-    pub config:         crate::run::Config,
-    pub executor:       Arc<PluginExecutor>,
+    pub config: crate::run::Config,
+    pub executor: Arc<PluginExecutor>,
     /// The single persistence layer (postgres pool). Cloned into every
     /// `x::client::Client` and used directly by command handlers for
     /// psyops/config/posts/queue access. Built once in [`Context::new`].
-    pub db:             Db,
+    pub db: Db,
     /// Bytes. Passed to `x::client::Client::new` as the response
     /// cache's size budget. One source of truth across every CLI Client
     /// construction site.
     pub cache_max_size: u64,
     /// Per-entry TTL passed to `x::client::Client::new`. Same
     /// rationale as `cache_max_size` — single source of truth.
-    pub cache_ttl:      Duration,
+    pub cache_ttl: Duration,
 }
 
 impl Context {
@@ -62,8 +62,6 @@ impl Context {
             cache_max_size: DEFAULT_CACHE_MAX_SIZE,
             cache_ttl: DEFAULT_CACHE_TTL,
         };
-        // First-run seeding of the default global targets (idempotent).
-        crate::config::seed_defaults(&ctx).await?;
         Ok(ctx)
     }
 }

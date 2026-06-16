@@ -7,7 +7,7 @@ use clap::Parser;
 /// v2 API, intermediated by the postgres-backed response cache and the
 /// two-tier (in-process + advisory) lock in the db crate.
 ///
-/// `account`, `mode`, and the per-session `quota_*` overrides are NOT
+/// `tag`, `mode`, and the per-session `quota_*` overrides are NOT
 /// flags — clients supply them per session via the
 /// `X-OBJECTIVEAI-ARGUMENTS` JSON-object header on every connect. See
 /// `crate::x_api::session` for the source-resolution contract.

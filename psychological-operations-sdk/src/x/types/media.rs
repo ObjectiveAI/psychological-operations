@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Media {
@@ -18,7 +18,6 @@ pub struct Media {
     pub width: Option<MediaWidth>,
 }
 
-
 /// Polymorphic view of [`Media`] discriminated by `type`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
@@ -30,4 +29,3 @@ pub enum MediaUnion {
     #[serde(rename = "video")]
     Video(Video),
 }
-

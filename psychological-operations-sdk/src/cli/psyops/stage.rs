@@ -1,14 +1,11 @@
+use objectiveai_sdk::functions::executions::request::Strategy;
+use objectiveai_sdk::functions::{
+    AlphaInlineFunction, FullInlineFunction, FullInlineFunctionOrRemoteCommitOptional,
+    InlineFunction, InlineProfileOrRemoteCommitOptional,
+};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use starlark::syntax::{AstModule, Dialect};
-use objectiveai_sdk::functions::{
-    FullInlineFunctionOrRemoteCommitOptional,
-    FullInlineFunction,
-    AlphaInlineFunction,
-    InlineFunction,
-    InlineProfileOrRemoteCommitOptional,
-};
-use objectiveai_sdk::functions::executions::request::Strategy;
 
 /// The one knob every `Stage` variant has in common: after the
 /// stage produces its scores, narrow the surviving set with an
@@ -53,7 +50,7 @@ pub enum Stage {
         #[serde(flatten)]
         base: StageBase,
         function: FullInlineFunctionOrRemoteCommitOptional,
-        profile:  InlineProfileOrRemoteCommitOptional,
+        profile: InlineProfileOrRemoteCommitOptional,
         strategy: Strategy,
         /// Inverts the scoring result (`1 - score`) before
         /// threshold / top narrowing apply.
@@ -102,7 +99,9 @@ pub enum OutputTop {
     Starlark(String),
 }
 
-fn default_true() -> bool { true }
+fn default_true() -> bool {
+    true
+}
 
 /// Parse-only check on `OutputTop::Starlark`. Called by
 /// `StageBase::validate` so a bad expression is rejected at
@@ -111,8 +110,7 @@ fn default_true() -> bool { true }
 /// pull the bound value back out of the module.
 pub fn parse_output_top(src: &str) -> Result<AstModule, String> {
     let wrapped = format!("result = ({src})\n");
-    AstModule::parse("output_top.starlark", wrapped, &Dialect::Standard)
-        .map_err(|e| e.to_string())
+    AstModule::parse("output_top.starlark", wrapped, &Dialect::Standard).map_err(|e| e.to_string())
 }
 
 impl Stage {
@@ -121,7 +119,7 @@ impl Stage {
     /// `output_top`.
     pub fn base(&self) -> &StageBase {
         match self {
-            Stage::Bare { base }         => base,
+            Stage::Bare { base } => base,
             Stage::Function { base, .. } => base,
         }
     }
@@ -131,7 +129,11 @@ impl Stage {
     /// `output_threshold`.
     pub fn validate(&self) -> Result<(), String> {
         self.base().validate()?;
-        if let Stage::Function { output_threshold: Some(t), .. } = self {
+        if let Stage::Function {
+            output_threshold: Some(t),
+            ..
+        } = self
+        {
             if !t.is_finite() || !(0.0..=1.0).contains(t) {
                 return Err(format!("output_threshold ({t}) must be in [0.0, 1.0]"));
             }

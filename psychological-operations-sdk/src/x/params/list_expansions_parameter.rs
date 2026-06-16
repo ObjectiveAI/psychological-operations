@@ -16,4 +16,3 @@ impl std::fmt::Display for ListExpansions {
         })
     }
 }
-

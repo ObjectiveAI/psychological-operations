@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResourceUnauthorizedProblem {
@@ -16,7 +16,6 @@ pub struct ResourceUnauthorizedProblem {
     pub section: ResourceUnauthorizedProblemSection,
     pub value: String,
 }
-
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ResourceUnauthorizedProblemResourceType {
@@ -60,4 +59,3 @@ impl std::fmt::Display for ResourceUnauthorizedProblemSection {
         })
     }
 }
-

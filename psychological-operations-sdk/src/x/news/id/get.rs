@@ -3,21 +3,24 @@
 
 //! GET /2/news/{id} — Get news stories by ID
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
-use crate::x::types::*;
-#[allow(unused_imports)]
 use crate::x::params;
 #[allow(unused_imports)]
 use crate::x::serde_helpers;
+#[allow(unused_imports)]
+use crate::x::types::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Request {
     #[serde(skip_serializing)]
     pub id: NewsId,
-    #[serde(rename = "news.fields", skip_serializing_if = "Option::is_none", with = "crate::x::serde_helpers::csv_vec_opt")]
+    #[serde(
+        rename = "news.fields",
+        skip_serializing_if = "Option::is_none",
+        with = "crate::x::serde_helpers::csv_vec_opt"
+    )]
     pub news_fields: Option<Vec<crate::x::params::news_fields_parameter::NewsFields>>,
 }
 
 pub type Response = Get2NewsIdResponse;
-

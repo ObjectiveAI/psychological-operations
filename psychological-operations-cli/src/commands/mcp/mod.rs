@@ -39,15 +39,13 @@ pub enum XApiCommands {
     /// port, emits one JSONL line with the URL, then serves until the
     /// process is killed. Cache config (size + TTL) comes from the
     /// env-derived process `Context`, not flags. Every per-session value
-    /// — `agent`, `mode`, `account`, and the optional `quota_*` overrides
-    /// — is supplied by the client on connect via the
-    /// `X-OBJECTIVEAI-ARGUMENTS` header (with
-    /// `X-OBJECTIVEAI-AGENT-INSTANCE-HIERARCHY` as the agent fallback).
+    /// — `tag`, `mode`, and the optional `quota_*` overrides — is supplied
+    /// by the client on connect via the `X-OBJECTIVEAI-ARGUMENTS` header.
     /// The matching flags below exist ONLY so the conduit's
     /// `mcp x-api begin --<arg> <value>` launch (one flag per declared
     /// argument) parses; they are all DISCARDED here, with the strict
     /// validation happening at connect-time in the header parser. Quota
-    /// is per-account, per-tool-call.
+    /// is per-tag, per-tool-call.
     Begin {
         /// DISCARDED (header-sourced). Kept as a `Mode` value-enum so a
         /// launch with a bogus `--mode` still fails fast; the real
@@ -55,11 +53,11 @@ pub enum XApiCommands {
         #[arg(long, value_enum)]
         mode: Mode,
 
-        /// REQUIRED, then DISCARDED. The X account the session acts as;
+        /// REQUIRED, then DISCARDED. The agent tag the session acts as;
         /// read per-request from the header, not this flag. Present only
-        /// so the conduit's `begin --account <v>` launch parses.
+        /// so the conduit's `begin --tag <v>` launch parses.
         #[arg(long)]
-        account: String,
+        tag: String,
 
         // Optional per-session quota overrides. Accepted as opaque strings
         // (NOT validated here) only so the conduit's `begin --<k> <v>`
@@ -141,7 +139,8 @@ impl XApiCommands {
                     Ok(Output::Ok)
                 }
             }
-        }.await;
+        }
+        .await;
         crate::output::emit_result(result)
     }
 }

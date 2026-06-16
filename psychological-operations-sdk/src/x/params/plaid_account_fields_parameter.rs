@@ -43,4 +43,3 @@ impl std::fmt::Display for PlaidAccountFields {
         })
     }
 }
-

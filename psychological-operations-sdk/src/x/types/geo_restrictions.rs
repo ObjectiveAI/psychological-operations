@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -12,7 +12,6 @@ pub enum GeoRestrictions {
     GeoRestrictionsVariant0(GeoRestrictionsVariant0),
     GeoRestrictionsVariant1(GeoRestrictionsVariant1),
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GeoRestrictionsVariant0 {
@@ -29,4 +28,3 @@ pub struct GeoRestrictionsVariant1 {
     /// List of whitelisted country codes
     pub whitelisted_country_codes: Vec<String>,
 }
-

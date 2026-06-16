@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UsersFollowingCreateResponse {
@@ -14,7 +14,6 @@ pub struct UsersFollowingCreateResponse {
     pub errors: Option<Vec<ProblemUnion>>,
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UsersFollowingCreateResponseData {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -22,4 +21,3 @@ pub struct UsersFollowingCreateResponseData {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pending_follow: Option<bool>,
 }
-

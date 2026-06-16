@@ -17,7 +17,7 @@ use tokio::net::TcpListener;
 use crate::x::Error;
 
 pub struct Callback {
-    pub code:  Option<String>,
+    pub code: Option<String>,
     pub error: Option<String>,
     pub state: Option<String>,
 }
@@ -28,17 +28,27 @@ pub struct Callback {
 /// URL before launching chromium, then awaits the future.
 pub async fn bind_and_await(
     timeout: Duration,
-) -> Result<(u16, impl std::future::Future<Output = Result<Callback, Error>>), Error> {
-    let listener = TcpListener::bind("127.0.0.1:0").await
+) -> Result<
+    (
+        u16,
+        impl std::future::Future<Output = Result<Callback, Error>>,
+    ),
+    Error,
+> {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
         .map_err(|e| Error::Other(format!("oauth: bind 127.0.0.1:0 failed: {e}")))?;
-    let port = listener.local_addr()
+    let port = listener
+        .local_addr()
         .map_err(|e| Error::Other(format!("oauth: local_addr failed: {e}")))?
         .port();
 
     let fut = async move {
         let accept = async {
             // Single accept — we only handle one redirect, then drop.
-            let (mut socket, _peer) = listener.accept().await
+            let (mut socket, _peer) = listener
+                .accept()
+                .await
                 .map_err(|e| Error::Other(format!("oauth: accept failed: {e}")))?;
 
             // Read until end of headers (`\r\n\r\n`). A redirect GET is
@@ -46,19 +56,24 @@ pub async fn bind_and_await(
             let mut buf = Vec::with_capacity(2048);
             let mut chunk = [0u8; 1024];
             loop {
-                let n = socket.read(&mut chunk).await
+                let n = socket
+                    .read(&mut chunk)
+                    .await
                     .map_err(|e| Error::Other(format!("oauth: read failed: {e}")))?;
-                if n == 0 { break; }
+                if n == 0 {
+                    break;
+                }
                 buf.extend_from_slice(&chunk[..n]);
-                if buf.windows(4).any(|w| w == b"\r\n\r\n") { break; }
+                if buf.windows(4).any(|w| w == b"\r\n\r\n") {
+                    break;
+                }
                 if buf.len() > 8192 {
                     return Err(Error::Other("oauth: request too large".into()));
                 }
             }
 
-            let header = std::str::from_utf8(&buf).map_err(|e| {
-                Error::Other(format!("oauth: non-UTF-8 request: {e}"))
-            })?;
+            let header = std::str::from_utf8(&buf)
+                .map_err(|e| Error::Other(format!("oauth: non-UTF-8 request: {e}")))?;
             let request_line = header.lines().next().unwrap_or("");
             // Format: "GET /callback?code=…&state=… HTTP/1.1"
             let mut it = request_line.split_whitespace();
@@ -98,13 +113,14 @@ pub async fn bind_and_await(
                  Connection: close\r\n\
                  \r\n\
                  {}",
-                body.len(), body,
+                body.len(),
+                body,
             );
             let _ = socket.write_all(response.as_bytes()).await;
             let _ = socket.shutdown().await;
 
             Ok(Callback {
-                code:  params.get("code").cloned(),
+                code: params.get("code").cloned(),
                 error: params.get("error").cloned(),
                 state: params.get("state").cloned(),
             })

@@ -16,7 +16,9 @@ pub async fn post(
     req: &super::post::Request,
 ) -> Result<super::post::Response, Error> {
     let path = "media/subtitles";
-    client.send(auth, Method::POST, path, req.body.as_ref(), false, false).await
+    client
+        .send(auth, Method::POST, path, req.body.as_ref(), false, false)
+        .await
 }
 
 /// DELETE /2/media/subtitles
@@ -26,6 +28,7 @@ pub async fn delete(
     req: &super::delete::Request,
 ) -> Result<super::delete::Response, Error> {
     let path = "media/subtitles";
-    client.send(auth, Method::DELETE, path, req.body.as_ref(), false, false).await
+    client
+        .send(auth, Method::DELETE, path, req.body.as_ref(), false, false)
+        .await
 }
-

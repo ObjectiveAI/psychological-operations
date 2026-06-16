@@ -94,8 +94,12 @@ async fn run_inner(
     // === Spawn browser in <kind>Authorize mode ===
     let materialized = ensure_extracted(&ctx.config)?;
     let launch_mode = match kind {
-        PersonaKind::Psyop => launch::Mode::PsyopAuthorize { name: name.to_string() },
-        PersonaKind::Agent => launch::Mode::AgentAuthorize { name: name.to_string() },
+        PersonaKind::Psyop => launch::Mode::PsyopAuthorize {
+            name: name.to_string(),
+        },
+        PersonaKind::Agent => launch::Mode::AgentAuthorize {
+            name: name.to_string(),
+        },
     };
     let event_kind = match kind {
         PersonaKind::Psyop => "psyop_login",
@@ -152,13 +156,10 @@ async fn run_inner(
     })
     .emit();
 
-    outcome
-        .map(|()| CliOutput::Ok)
-        .map_err(Error::Other)
+    outcome.map(|()| CliOutput::Ok).map_err(Error::Other)
 }
 
-const X_APP_NOT_READY: &str =
-    "X-App account is not signed in or not set up with an X OAuth app — \
+const X_APP_NOT_READY: &str = "X-App account is not signed in or not set up with an X OAuth app — \
      complete `psychological-operations x_app setup` first";
 
 /// Resolve the X-App's twid via cookies + verify the credentials
@@ -190,8 +191,12 @@ async fn check_x_app(ctx: &crate::context::Context) -> Result<String, Error> {
 
 fn cookie_mode(kind: PersonaKind, name: &str) -> Mode {
     match kind {
-        PersonaKind::Psyop => Mode::PsyopAuthorize { name: name.to_string() },
-        PersonaKind::Agent => Mode::AgentAuthorize { name: name.to_string() },
+        PersonaKind::Psyop => Mode::PsyopAuthorize {
+            name: name.to_string(),
+        },
+        PersonaKind::Agent => Mode::AgentAuthorize {
+            name: name.to_string(),
+        },
     }
 }
 

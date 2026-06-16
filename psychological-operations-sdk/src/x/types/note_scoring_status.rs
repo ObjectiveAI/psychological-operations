@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 /// The scoring status of a Community Note.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -17,7 +17,6 @@ pub struct NoteScoringStatus {
     pub rating_counts_per_model: Option<NoteScoringStatusRatingCountsPerModel>,
 }
 
-
 /// Rating count stats per model.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NoteScoringStatusRatingCountsPerModel {
@@ -27,4 +26,3 @@ pub struct NoteScoringStatusRatingCountsPerModel {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub value: Option<NoteRatingCountsPerModel>,
 }
-

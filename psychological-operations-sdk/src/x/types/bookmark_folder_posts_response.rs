@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BookmarkFolderPostsResponse {
@@ -15,7 +15,6 @@ pub struct BookmarkFolderPostsResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub meta: Option<BookmarkFolderPostsResponseMeta>,
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BookmarkFolderPostsResponseDataItem {
@@ -28,4 +27,3 @@ pub struct BookmarkFolderPostsResponseMeta {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next_token: Option<NextToken>,
 }
-

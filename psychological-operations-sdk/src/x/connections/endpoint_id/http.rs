@@ -15,7 +15,11 @@ pub async fn delete(
     auth: &AuthMode,
     req: &super::delete::Request,
 ) -> Result<super::delete::Response, Error> {
-    let path = format!("connections/{}", urlencoding::encode(&req.endpoint_id.to_string()));
-    client.send::<_, ()>(auth, Method::DELETE, &path, None, false, false).await
+    let path = format!(
+        "connections/{}",
+        urlencoding::encode(&req.endpoint_id.to_string())
+    );
+    client
+        .send::<_, ()>(auth, Method::DELETE, &path, None, false, false)
+        .await
 }
-

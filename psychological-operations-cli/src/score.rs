@@ -1,24 +1,21 @@
 use futures::StreamExt;
+use objectiveai_sdk::RemotePathCommitOptional;
 use objectiveai_sdk::cli::command::functions::{
     execute::{
-        self,
-        ResponseItem as CreateResponseItem,
-        FunctionSpec, ProfileSpec,
+        self, FunctionSpec, ProfileSpec, ResponseItem as CreateResponseItem,
         standard::{self, ResponseItem as StandardItem},
         swiss_system::{self, ResponseItem as SwissItem},
     },
     get as functions_get,
 };
+use objectiveai_sdk::functions::executions::request::Strategy;
 use objectiveai_sdk::functions::{
-    FullInlineFunctionOrRemoteCommitOptional,
-    FullInlineFunction,
+    FullInlineFunction, FullInlineFunctionOrRemoteCommitOptional,
     InlineProfileOrRemoteCommitOptional,
 };
-use objectiveai_sdk::functions::executions::request::Strategy;
-use objectiveai_sdk::RemotePathCommitOptional;
 
 use crate::db::Post;
-use crate::input::{new_post_input_value, PostsInputValue, PostInputValue};
+use crate::input::{PostInputValue, PostsInputValue, new_post_input_value};
 use crate::psyops::is_vector_function;
 
 #[derive(Clone)]
@@ -152,15 +149,20 @@ async fn run_function_execution(
     let mut terminal: Option<serde_json::Value> = None;
 
     while let Some(item) = stream.next().await {
-        let item = item
-            .map_err(|e| crate::error::Error::ObjectiveAiCli(format!("functions execute stream: {e}")))?;
+        let item = item.map_err(|e| {
+            crate::error::Error::ObjectiveAiCli(format!("functions execute stream: {e}"))
+        })?;
         let (output, tasks_errors) = match &item {
             CreateResponseItem::Standard(StandardItem::Chunk(c)) => (
-                c.output.as_ref().map(|o| serde_json::to_value(&o.output).expect("output serializes")),
+                c.output
+                    .as_ref()
+                    .map(|o| serde_json::to_value(&o.output).expect("output serializes")),
                 c.tasks_errors.unwrap_or(false),
             ),
             CreateResponseItem::SwissSystem(SwissItem::Chunk(c)) => (
-                c.output.as_ref().map(|o| serde_json::to_value(&o.output).expect("output serializes")),
+                c.output
+                    .as_ref()
+                    .map(|o| serde_json::to_value(&o.output).expect("output serializes")),
                 c.tasks_errors.unwrap_or(false),
             ),
             _ => (None, false),
@@ -195,9 +197,11 @@ async fn run_function_execution(
         }
     }
 
-    terminal.ok_or_else(|| crate::error::Error::ObjectiveAiCli(
-        "functions execute produced no terminal chunk with output".into(),
-    ))
+    terminal.ok_or_else(|| {
+        crate::error::Error::ObjectiveAiCli(
+            "functions execute produced no terminal chunk with output".into(),
+        )
+    })
 }
 
 /// Throwaway directory holding one function-execution's file-passed
@@ -250,23 +254,28 @@ impl Drop for ExecTempDir {
 #[allow(clippy::too_many_arguments)]
 pub async fn score_function(
     function_spec: &FullInlineFunctionOrRemoteCommitOptional,
-    profile:       &InlineProfileOrRemoteCommitOptional,
-    strategy:      &Strategy,
-    invert:        bool,
-    images:        bool,
-    videos:        bool,
-    posts:         Vec<Post>,
-    seed:          Option<i64>,
-    ctx:           &crate::context::Context,
+    profile: &InlineProfileOrRemoteCommitOptional,
+    strategy: &Strategy,
+    invert: bool,
+    images: bool,
+    videos: bool,
+    posts: Vec<Post>,
+    seed: Option<i64>,
+    ctx: &crate::context::Context,
 ) -> Result<Vec<ScoredPost>, crate::error::Error> {
-    let mut scored: Vec<ScoredPost> = posts.into_iter()
-        .map(|p| ScoredPost { post: p, score: 0.0 })
+    let mut scored: Vec<ScoredPost> = posts
+        .into_iter()
+        .map(|p| ScoredPost {
+            post: p,
+            score: 0.0,
+        })
         .collect();
 
     let function = resolve_function(function_spec, ctx).await?;
     let is_vector = is_vector_function(&function);
 
-    let items: Vec<PostInputValue> = scored.iter()
+    let items: Vec<PostInputValue> = scored
+        .iter()
         .map(|s| new_post_input_value(&s.post, images, videos))
         .collect();
 
@@ -281,31 +290,47 @@ pub async fn score_function(
         serde_json::from_value(input_value)?;
 
     let result = run_function_execution(
-        &function, profile, strategy, input_value,
-        split, invert, seed, ctx,
-    ).await?;
+        &function,
+        profile,
+        strategy,
+        input_value,
+        split,
+        invert,
+        seed,
+        ctx,
+    )
+    .await?;
 
-    let scores: Vec<f64> = result.as_array()
-        .ok_or_else(|| crate::error::Error::Other(
-            format!("expected array score output, got {result}"),
-        ))?
+    let scores: Vec<f64> = result
+        .as_array()
+        .ok_or_else(|| {
+            crate::error::Error::Other(format!("expected array score output, got {result}"))
+        })?
         .iter()
-        .map(|v| v.as_f64().ok_or_else(|| crate::error::Error::Other(
-            format!("expected numeric score, got {v}"),
-        )))
+        .map(|v| {
+            v.as_f64().ok_or_else(|| {
+                crate::error::Error::Other(format!("expected numeric score, got {v}"))
+            })
+        })
         .collect::<Result<Vec<_>, _>>()?;
 
     if scores.len() != scored.len() {
-        return Err(crate::error::Error::Other(
-            format!("score count ({}) doesn't match post count ({})", scores.len(), scored.len()),
-        ));
+        return Err(crate::error::Error::Other(format!(
+            "score count ({}) doesn't match post count ({})",
+            scores.len(),
+            scored.len()
+        )));
     }
 
     for (s, val) in scored.iter_mut().zip(scores.iter()) {
         s.score = *val;
     }
 
-    scored.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    scored.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     Ok(scored)
 }

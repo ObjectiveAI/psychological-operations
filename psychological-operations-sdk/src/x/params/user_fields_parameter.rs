@@ -91,4 +91,3 @@ impl std::fmt::Display for UserFields {
         })
     }
 }
-

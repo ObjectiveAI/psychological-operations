@@ -50,9 +50,7 @@ impl From<XError> for ToolError {
             XError::Authorization(_)
             | XError::Db(_)
             | XError::RequestBuild(_)
-            | XError::Deserialize(_) => {
-                ToolError::System(ErrorData::internal_error(msg, None))
-            }
+            | XError::Deserialize(_) => ToolError::System(ErrorData::internal_error(msg, None)),
             XError::Transport(_)
             | XError::BadStatus { .. }
             | XError::Problem { .. }

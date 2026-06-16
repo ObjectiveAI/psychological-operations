@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 /// Represents the data for Usage
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -16,4 +16,3 @@ pub struct UsageFields {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub usage: Option<i32>,
 }
-

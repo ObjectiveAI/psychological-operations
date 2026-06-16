@@ -6,7 +6,7 @@
 //! configuration is explicit at the function signatures — there
 //! is no `Config` struct and no env-var layer.
 //!
-//! `account`, `mode`, and the per-session `quota_*` overrides are
+//! `tag`, `mode`, and the per-session `quota_*` overrides are
 //! sourced on every connect from the `X-OBJECTIVEAI-ARGUMENTS`
 //! JSON-object header — see [`crate::x_api::session`] for the
 //! source-resolution contract.

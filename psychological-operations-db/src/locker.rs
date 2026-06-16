@@ -12,8 +12,8 @@
 
 use std::sync::Arc;
 
-use sqlx::Postgres;
 use sqlx::pool::PoolConnection;
+use sqlx::Postgres;
 use tokio::sync::{Mutex, OwnedMutexGuard};
 
 use crate::{Db, Error};
@@ -55,7 +55,9 @@ impl Drop for LockGuard {
         // connection into a task that unlocks before returning it to
         // the pool (else the pooled session stays locked). Requires a
         // live tokio runtime — every caller is tokio-rooted.
-        let Some(mut conn) = self.conn.take() else { return };
+        let Some(mut conn) = self.conn.take() else {
+            return;
+        };
         let key = self.key;
         let inproc = self.inproc_guard.take();
         tokio::spawn(async move {

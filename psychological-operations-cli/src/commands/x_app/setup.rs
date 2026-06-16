@@ -30,10 +30,7 @@ use psychological_operations_sdk::cli::Output as CliOutput;
 use crate::browser::{extract::ensure_extracted, launch, stream};
 use crate::error::Error;
 
-pub async fn run(
-    dangerously_reset: bool,
-    ctx: &crate::context::Context,
-) -> bool {
+pub async fn run(dangerously_reset: bool, ctx: &crate::context::Context) -> bool {
     crate::output::emit_result(run_inner(dangerously_reset, ctx).await)
 }
 
@@ -112,9 +109,7 @@ async fn run_inner(
     })
     .emit();
 
-    outcome
-        .map(|()| CliOutput::Ok)
-        .map_err(Error::Other)
+    outcome.map(|()| CliOutput::Ok).map_err(Error::Other)
 }
 
 /// `true` iff the X-App is signed in (cookies) AND both captured HTML

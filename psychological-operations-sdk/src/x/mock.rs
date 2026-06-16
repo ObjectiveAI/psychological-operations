@@ -6,8 +6,8 @@
 //! endpoint's documented Response type. Same input → same output.
 
 use reqwest::Method;
-use serde::Serialize;
 use serde::de::DeserializeOwned;
+use serde::Serialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
@@ -25,13 +25,11 @@ fn hash_u64(parts: &[&str]) -> u64 {
     u64::from_le_bytes(buf)
 }
 
-fn hex8(n: u64) -> String { format!("{n:016x}") }
+fn hex8(n: u64) -> String {
+    format!("{n:016x}")
+}
 
-pub fn send<T, B>(
-    method: Method,
-    path: &str,
-    body: Option<&B>,
-) -> Result<T, Error>
+pub fn send<T, B>(method: Method, path: &str, body: Option<&B>) -> Result<T, Error>
 where
     T: DeserializeOwned,
     B: Serialize + ?Sized,
@@ -40,25 +38,19 @@ where
         .map(|b| serde_json::to_value(b).unwrap_or(Value::Null))
         .unwrap_or(Value::Null);
     let value = dispatch(&method, path, &Value::Null, &body_value)?;
-    serde_json::from_value(value).map_err(|e| Error::Other(format!(
-        "mock: deserialize {method} /{path}: {e}",
-    )))
+    serde_json::from_value(value)
+        .map_err(|e| Error::Other(format!("mock: deserialize {method} /{path}: {e}",)))
 }
 
-pub fn send_with_query<T, Q>(
-    method: Method,
-    path: &str,
-    query: &Q,
-) -> Result<T, Error>
+pub fn send_with_query<T, Q>(method: Method, path: &str, query: &Q) -> Result<T, Error>
 where
     T: DeserializeOwned,
     Q: Serialize + ?Sized,
 {
     let q_value = serde_json::to_value(query).unwrap_or(Value::Null);
     let value = dispatch(&method, path, &q_value, &Value::Null)?;
-    serde_json::from_value(value).map_err(|e| Error::Other(format!(
-        "mock: deserialize {method} /{path}: {e}",
-    )))
+    serde_json::from_value(value)
+        .map_err(|e| Error::Other(format!("mock: deserialize {method} /{path}: {e}",)))
 }
 
 pub fn send_with_query_and_body<T, Q, B>(
@@ -75,16 +67,11 @@ where
     let q_value = serde_json::to_value(query).unwrap_or(Value::Null);
     let body_value = serde_json::to_value(body).unwrap_or(Value::Null);
     let value = dispatch(&method, path, &q_value, &body_value)?;
-    serde_json::from_value(value).map_err(|e| Error::Other(format!(
-        "mock: deserialize {method} /{path}: {e}",
-    )))
+    serde_json::from_value(value)
+        .map_err(|e| Error::Other(format!("mock: deserialize {method} /{path}: {e}",)))
 }
 
-pub fn send_no_response<B>(
-    method: Method,
-    path: &str,
-    _body: Option<&B>,
-) -> Result<(), Error>
+pub fn send_no_response<B>(method: Method, path: &str, _body: Option<&B>) -> Result<(), Error>
 where
     B: Serialize + ?Sized,
 {
@@ -92,11 +79,7 @@ where
     Ok(())
 }
 
-pub fn send_with_query_no_response<Q>(
-    method: Method,
-    path: &str,
-    query: &Q,
-) -> Result<(), Error>
+pub fn send_with_query_no_response<Q>(method: Method, path: &str, query: &Q) -> Result<(), Error>
 where
     Q: Serialize + ?Sized,
 {
@@ -105,19 +88,14 @@ where
     Ok(())
 }
 
-fn dispatch(
-    method: &Method,
-    path: &str,
-    query: &Value,
-    body: &Value,
-) -> Result<Value, Error> {
+fn dispatch(method: &Method, path: &str, query: &Value, body: &Value) -> Result<Value, Error> {
     let segs: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
     match (method.clone(), segs.as_slice()) {
-        (Method::GET, ["tweets", id])                 => Ok(mock_tweet_get(id)),
+        (Method::GET, ["tweets", id]) => Ok(mock_tweet_get(id)),
         (Method::GET, ["tweets", "search", "recent"]) => Ok(mock_search_recent(query)),
-        (Method::GET, ["users", "me"])                => Ok(mock_users_me()),
-        (Method::POST, ["users", id, "likes"])        => Ok(mock_likes_post(id, body)),
-        (Method::POST, ["users", id, "retweets"])     => Ok(mock_retweets_post(id, body)),
+        (Method::GET, ["users", "me"]) => Ok(mock_users_me()),
+        (Method::POST, ["users", id, "likes"]) => Ok(mock_likes_post(id, body)),
+        (Method::POST, ["users", id, "retweets"]) => Ok(mock_retweets_post(id, body)),
         _ => Err(Error::Other(format!(
             "mock-x-api: unimplemented {method} /{path}",
         ))),

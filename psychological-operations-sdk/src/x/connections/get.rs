@@ -3,13 +3,13 @@
 
 //! GET /2/connections — Get Connection History
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
-use crate::x::types::*;
-#[allow(unused_imports)]
 use crate::x::params;
 #[allow(unused_imports)]
 use crate::x::serde_helpers;
+#[allow(unused_imports)]
+use crate::x::types::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Request {
@@ -21,8 +21,13 @@ pub struct Request {
     pub max_results: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pagination_token: Option<String>,
-    #[serde(rename = "connection.fields", skip_serializing_if = "Option::is_none", with = "crate::x::serde_helpers::csv_vec_opt")]
-    pub connection_fields: Option<Vec<crate::x::params::connection_fields_parameter::ConnectionFields>>,
+    #[serde(
+        rename = "connection.fields",
+        skip_serializing_if = "Option::is_none",
+        with = "crate::x::serde_helpers::csv_vec_opt"
+    )]
+    pub connection_fields:
+        Option<Vec<crate::x::params::connection_fields_parameter::ConnectionFields>>,
 }
 
 pub type Response = Get2ConnectionsResponse;
@@ -99,4 +104,3 @@ impl std::fmt::Display for RequestEndpointsItem {
         })
     }
 }
-

@@ -13,14 +13,14 @@
 pub mod auth;
 pub mod cache;
 pub mod client;
-pub mod serde_helpers;
-pub mod types;
-pub mod params;
 pub mod error;
 pub mod mock;
+pub mod params;
+pub mod serde_helpers;
+pub mod types;
 
-pub mod x_app;
 pub mod oauth;
+pub mod x_app;
 
 pub use error::{AuthError, Error};
 

@@ -41,7 +41,6 @@ use objectiveai_sdk::functions::{
     FullInlineFunctionOrRemoteCommitOptional, InlineProfileOrRemoteCommitOptional,
 };
 use psychological_operations_sdk::cli::Output;
-use psychological_operations_sdk::cli::destinations::{DeliverySummary, Destination};
 use psychological_operations_sdk::cli::psyops::{
     PsyOp, PsyopEntry, PublishedPsyop, Query, SearchEndpoint, SortBy, Stage, StageBase,
 };
@@ -70,7 +69,11 @@ fn objectiveai_dir() -> PathBuf {
 
 /// The prebuilt objectiveai host binary (`<dir>/bin/objectiveai[.exe]`).
 fn objectiveai_binary() -> PathBuf {
-    let name = if cfg!(windows) { "objectiveai.exe" } else { "objectiveai" };
+    let name = if cfg!(windows) {
+        "objectiveai.exe"
+    } else {
+        "objectiveai"
+    };
     objectiveai_dir().join("bin").join(name)
 }
 
@@ -105,7 +108,10 @@ impl Plugin {
             // dropped, so a panicking assertion mid-stream doesn't leave
             // the process running.
             .kill_on_drop(true);
-        Self { executor, state: state.to_string() }
+        Self {
+            executor,
+            state: state.to_string(),
+        }
     }
 
     // ── psyops ──────────────────────────────────────────────────────
@@ -133,17 +139,20 @@ impl Plugin {
 
     /// `psyops get <name>`.
     pub async fn psyops_get(&self, name: &str) -> RunResult {
-        self.dispatch(vec!["psyops".into(), "get".into(), name.into()]).await
+        self.dispatch(vec!["psyops".into(), "get".into(), name.into()])
+            .await
     }
 
     /// `psyops enable <name>`.
     pub async fn psyops_enable(&self, name: &str) -> RunResult {
-        self.dispatch(vec!["psyops".into(), "enable".into(), name.into()]).await
+        self.dispatch(vec!["psyops".into(), "enable".into(), name.into()])
+            .await
     }
 
     /// `psyops disable <name>`.
     pub async fn psyops_disable(&self, name: &str) -> RunResult {
-        self.dispatch(vec!["psyops".into(), "disable".into(), name.into()]).await
+        self.dispatch(vec!["psyops".into(), "disable".into(), name.into()])
+            .await
     }
 
     /// `psyops run [--name X]… [--seed N]`. An empty `names` runs every
@@ -161,55 +170,28 @@ impl Plugin {
         self.dispatch(v).await
     }
 
-    // ── targets ─────────────────────────────────────────────────────
+    // ── agents: enqueue (plugin) ────────────────────────────────────
 
-    /// `targets list (--global | --psyop <name>)`.
-    pub async fn targets_list(&self, sel: Selector<'_>) -> RunResult {
-        let mut v = vec!["targets".into(), "list".into()];
-        sel.append(&mut v);
-        self.dispatch(v).await
-    }
-
-    /// `targets deliver (--global | --psyop <name>)`.
-    pub async fn targets_deliver(&self, sel: Selector<'_>) -> RunResult {
-        let mut v = vec!["targets".into(), "deliver".into()];
-        sel.append(&mut v);
-        self.dispatch(v).await
-    }
-
-    /// `targets add (--global | --psyop <name>) <json>` — the destination
-    /// is a TYPED [`Destination`], serialized to the JSON the CLI expects.
-    pub async fn targets_add(&self, sel: Selector<'_>, dest: &Destination) -> RunResult {
-        let json = serde_json::to_string(dest).expect("destination serializes");
-        let mut v = vec!["targets".into(), "add".into()];
-        sel.append(&mut v);
-        v.push(json);
-        self.dispatch(v).await
-    }
-
-    // ── agents: notify (plugin) ─────────────────────────────────────
-
-    /// `agents notify` (PLUGIN, no args) — park an objectiveai
-    /// notification for every agent with queued tweets.
-    pub async fn agents_notify(&self) -> RunResult {
-        self.dispatch(vec!["agents".into(), "notify".into()]).await
-    }
-
-    /// `agents enqueue` (PLUGIN) — park `tweet_id` (with `message`) on
-    /// `agent`'s psychological-operations queue.
+    /// `agents enqueue --agent-tag <tag> --tweet-id <id> --message <msg>`
+    /// (PLUGIN) — park `tweet_id` on the agent's queue; the command then
+    /// auto-notifies the agent of its new pending count.
     pub async fn agents_enqueue(
         &self,
-        agent: Agent<'_>,
+        agent_tag: &str,
         tweet_id: &str,
         message: &str,
     ) -> RunResult {
-        let mut v = vec!["agents".into(), "enqueue".into()];
-        agent.append(&mut v);
-        v.push("--tweet-id".into());
-        v.push(tweet_id.to_string());
-        v.push("--message".into());
-        v.push(message.to_string());
-        self.dispatch(v).await
+        self.dispatch(vec![
+            "agents".into(),
+            "enqueue".into(),
+            "--agent-tag".into(),
+            agent_tag.to_string(),
+            "--tweet-id".into(),
+            tweet_id.to_string(),
+            "--message".into(),
+            message.to_string(),
+        ])
+        .await
     }
 
     // ── agents: objectiveai HOST root commands ──────────────────────
@@ -217,7 +199,7 @@ impl Plugin {
     // These drive the objectiveai host directly (NOT the psychological-
     // operations plugin): the same executor spawns `objectiveai agents
     // …` via each typed Request's `into_command`. Distinct from the
-    // `agents_quota_*` / `agents_notify` plugin methods above.
+    // `agents_enqueue` plugin method above.
 
     /// `agents tags apply` (HOST) — register `tag` bound to a fresh inline
     /// agent (`inner`). Creates a GROUPED tag carrying the agent spec.
@@ -227,7 +209,10 @@ impl Plugin {
         inner: InlineAgentBase,
     ) -> HostResult<tags_apply::Response> {
         let agent_spec = InlineAgentBaseWithFallbacksOrRemoteCommitOptional::AgentBase(
-            InlineAgentBaseWithFallbacks { inner, fallbacks: None },
+            InlineAgentBaseWithFallbacks {
+                inner,
+                fallbacks: None,
+            },
         );
         let req = tags_apply::Request {
             path_type: tags_apply::Path::AgentsTagsApply,
@@ -255,7 +240,9 @@ impl Plugin {
         let req = agents_spawn::Request {
             path_type: agents_spawn::Path::AgentsSpawn,
             message: RequestMessage::Simple(String::new()),
-            agent: AgentSelector::Tag { agent_tag: tag.to_string() },
+            agent: AgentSelector::Tag {
+                agent_tag: tag.to_string(),
+            },
             dangerous_advanced: Some(agents_spawn::RequestDangerousAdvanced {
                 stream: Some(true),
                 seed: Some(42),
@@ -390,7 +377,8 @@ impl Plugin {
     /// commands without a typed wrapper yet. Prefer the command-named
     /// methods above.
     pub async fn cli(&self, args: &[&str]) -> RunResult {
-        self.dispatch(args.iter().map(|s| s.to_string()).collect()).await
+        self.dispatch(args.iter().map(|s| s.to_string()).collect())
+            .await
     }
 
     /// Core: run `plugins run …` for this plugin with `args` (the
@@ -437,52 +425,12 @@ impl Plugin {
     }
 }
 
-/// `targets` / `psyops` two-way selector → `--global` or `--psyop <name>`.
-pub enum Selector<'a> {
-    Global,
-    Psyop(&'a str),
-}
-
-impl Selector<'_> {
-    fn append(&self, v: &mut Vec<String>) {
-        match self {
-            Selector::Global => v.push("--global".into()),
-            Selector::Psyop(n) => {
-                v.push("--psyop".into());
-                v.push((*n).to_string());
-            }
-        }
-    }
-}
-
-/// `agents` agent selector → `--me` / `--agent-tag <t>` /
-/// `--agent-instance <i>`.
-pub enum Agent<'a> {
-    Me,
-    Tag(&'a str),
-    Instance(&'a str),
-}
-
-impl Agent<'_> {
-    fn append(&self, v: &mut Vec<String>) {
-        match self {
-            Agent::Me => v.push("--me".into()),
-            Agent::Tag(t) => {
-                v.push("--agent-tag".into());
-                v.push((*t).to_string());
-            }
-            Agent::Instance(i) => {
-                v.push("--agent-instance".into());
-                v.push((*i).to_string());
-            }
-        }
-    }
-}
-
 /// Build a minimal valid [`PsyOp`] that ingests via one deterministic
 /// mock-X search `query` (no `for_you` — tests must never configure it,
 /// since for-you collection drives the real CEF browser), with the given
-/// scoring `stages` (empty = no scoring → max-score survivors).
+/// scoring `stages` (empty = no scoring → max-score survivors). No
+/// `agent_tags` (score-only, no delivery); a delivery test sets that
+/// field on the returned value.
 pub fn query_psyop(query: &str, stages: Vec<Stage>) -> PsyOp {
     PsyOp {
         queries: Some(vec![Query {
@@ -497,7 +445,12 @@ pub fn query_psyop(query: &str, stages: Vec<Stage>) -> PsyOp {
         max_posts: 10,
         sort: SortBy::Newest,
         query_when_for_you_queued: true,
-        stages: if stages.is_empty() { None } else { Some(stages) },
+        stages: if stages.is_empty() {
+            None
+        } else {
+            Some(stages)
+        },
+        agent_tags: Vec::new(),
     }
 }
 
@@ -508,7 +461,7 @@ pub fn query_psyop(query: &str, stages: Vec<Stage>) -> PsyOp {
 /// MCP server is exposed in **full** mode (`mark_handled` is hidden in
 /// readonly). The tool name is the proxy-prefixed `<serverInfo.name>_<tool>`
 /// = `psychological-operations-x-api_mark_handled`.
-pub fn mark_handled_mock_agent(account: &str, tweet_ids: &[&str]) -> InlineAgentBase {
+pub fn mark_handled_mock_agent(tag: &str, tweet_ids: &[&str]) -> InlineAgentBase {
     let arguments = serde_json::json!({ "tweet_ids": tweet_ids }).to_string();
     let mut base = mock::AgentBase::default();
     base.calls = Some(vec![
@@ -522,7 +475,10 @@ pub fn mark_handled_mock_agent(account: &str, tweet_ids: &[&str]) -> InlineAgent
         },
         // Turn 2: close out with content (no tool calls) so the agent
         // completion finishes after the tool result comes back.
-        mock::Call { tool_calls: Vec::new(), content: "done".to_string() },
+        mock::Call {
+            tool_calls: Vec::new(),
+            content: "done".to_string(),
+        },
     ]);
     base.client_objectiveai_mcp = Some(ClientObjectiveaiMcp {
         objectiveai: None,
@@ -537,12 +493,12 @@ pub fn mark_handled_mock_agent(account: &str, tweet_ids: &[&str]) -> InlineAgent
                 name: "x-api".to_string(),
                 // Forwarded as the per-request `X-OBJECTIVEAI-ARGUMENTS`
                 // header → the x-api session reads `mode` (FULL, so
-                // mark_handled is visible) and the REQUIRED `account`
-                // (the identity every tool acts as). There's no per-tool
-                // `account` arg anymore — tools read it from the session.
+                // mark_handled is visible) and the REQUIRED `tag` (the
+                // agent identity every tool acts as). There's no per-tool
+                // `tag` arg anymore — tools read it from the session.
                 arguments: Some(IndexMap::from([
                     ("mode".to_string(), Some("full".to_string())),
-                    ("account".to_string(), Some(account.to_string())),
+                    ("tag".to_string(), Some(tag.to_string())),
                 ])),
             }]),
         }],
@@ -647,11 +603,10 @@ impl<T> HostResult<T> {
 #[derive(Default)]
 pub struct RunResult {
     /// Terminal psychological-operations outputs (e.g. `Ok`, `PsyopList`,
-    /// `DeliverySummary`).
+    /// `PublishedPsyop`).
     pub outputs: Vec<Output>,
     /// Mid-stream items that aren't a terminal `Output` — raw JSON, e.g.
-    /// progress events (`{"event":"stage_begin"}`) and the `agents quota
-    /// … get` notifications (`{"account":…,"limit":…}`).
+    /// progress events (`{"event":"stage_begin"}`).
     pub events: Vec<Value>,
     /// Error frames surfaced by the host or plugin.
     pub errors: Vec<objectiveai_sdk::cli::Error>,
@@ -682,7 +637,7 @@ impl RunResult {
     }
 
     /// How many mid-stream events have `event == name` (e.g.
-    /// `"stage_begin"`, `"query_complete"`, `"target_delivered"`).
+    /// `"stage_begin"`, `"query_complete"`).
     pub fn event_count(&self, name: &str) -> usize {
         self.events
             .iter()
@@ -726,27 +681,5 @@ impl RunResult {
                 _ => None,
             })
             .unwrap_or_else(|| panic!("no psyop output among {:?}", self.outputs))
-    }
-
-    /// The first `targets list` result.
-    pub fn destination_list(&self) -> &[Destination] {
-        self.outputs
-            .iter()
-            .find_map(|o| match o {
-                Output::DestinationList(v) => Some(v.as_slice()),
-                _ => None,
-            })
-            .unwrap_or_else(|| panic!("no destination_list output among {:?}", self.outputs))
-    }
-
-    /// The first `targets deliver` summary.
-    pub fn delivery_summary(&self) -> &DeliverySummary {
-        self.outputs
-            .iter()
-            .find_map(|o| match o {
-                Output::DeliverySummary(s) => Some(s),
-                _ => None,
-            })
-            .unwrap_or_else(|| panic!("no delivery_summary output among {:?}", self.outputs))
     }
 }

@@ -80,9 +80,7 @@ impl PostCreateDialog {
 
     /// True iff all three fields parsed successfully.
     pub fn is_complete(&self) -> bool {
-        self.consumer_key.is_some()
-            && self.secret_key.is_some()
-            && self.bearer_token.is_some()
+        self.consumer_key.is_some() && self.secret_key.is_some() && self.bearer_token.is_some()
     }
 
     /// Count of fields successfully parsed (0..=3). The browser
@@ -189,9 +187,8 @@ fn find_value_for_label(dialog: ElementRef<'_>, label: &str) -> Option<String> {
 /// (`•••` / `***` / `xxxx`).
 fn scan_for_value(el: ElementRef<'_>, label: &str) -> Option<String> {
     let label_lower = label.to_lowercase();
-    let input_sel =
-        Selector::parse(r#"input, textarea, code, pre, p[class*="font-mono"]"#)
-            .expect("valid selector");
+    let input_sel = Selector::parse(r#"input, textarea, code, pre, p[class*="font-mono"]"#)
+        .expect("valid selector");
     for cand in el.select(&input_sel) {
         let value = match cand.value().name() {
             "input" | "textarea" => cand
@@ -201,11 +198,19 @@ fn scan_for_value(el: ElementRef<'_>, label: &str) -> Option<String> {
                 .filter(|v| !v.is_empty())
                 .or_else(|| {
                     let t = collect_text(cand).trim().to_string();
-                    if t.is_empty() { None } else { Some(t) }
+                    if t.is_empty() {
+                        None
+                    } else {
+                        Some(t)
+                    }
                 }),
             _ => {
                 let t = collect_text(cand).trim().to_string();
-                if t.is_empty() { None } else { Some(t) }
+                if t.is_empty() {
+                    None
+                } else {
+                    Some(t)
+                }
             }
         };
         if let Some(v) = value {

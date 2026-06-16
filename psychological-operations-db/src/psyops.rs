@@ -42,10 +42,9 @@ impl Db {
 
     /// All psyop names, alphabetical.
     pub async fn psyop_list_names(&self) -> Result<Vec<String>, Error> {
-        let names: Vec<String> =
-            sqlx::query_scalar("SELECT name FROM psyops ORDER BY name ASC")
-                .fetch_all(&self.pool)
-                .await?;
+        let names: Vec<String> = sqlx::query_scalar("SELECT name FROM psyops ORDER BY name ASC")
+            .fetch_all(&self.pool)
+            .await?;
         Ok(names)
     }
 
@@ -68,36 +67,28 @@ impl Db {
         Ok(exists)
     }
 
-    /// Delete a psyop and its per-psyop delivery targets. Returns
-    /// `true` if the psyop existed. Pipeline data (posts/scores/queues)
-    /// is left alone — drop it explicitly via
+    /// Delete a psyop. Returns `true` if the psyop existed. Pipeline data
+    /// (posts/scores/queues) is left alone — drop it explicitly via
     /// [`Self::drop_psyop_contents`] when reloading.
     pub async fn psyop_delete(&self, name: &str) -> Result<bool, Error> {
-        let mut tx = self.pool.begin().await?;
-        sqlx::query("DELETE FROM psyop_targets WHERE psyop = $1")
-            .bind(name)
-            .execute(&mut *tx)
-            .await?;
         let removed = sqlx::query("DELETE FROM psyops WHERE name = $1")
             .bind(name)
-            .execute(&mut *tx)
+            .execute(&self.pool)
             .await?
             .rows_affected();
-        tx.commit().await?;
         Ok(removed > 0)
     }
 
     /// Set a psyop's `disabled` flag. Returns `true` if the psyop
     /// existed (was updated).
     pub async fn psyop_set_disabled(&self, name: &str, disabled: bool) -> Result<bool, Error> {
-        let updated = sqlx::query(
-            "UPDATE psyops SET disabled = $2, updated_at = now() WHERE name = $1",
-        )
-        .bind(name)
-        .bind(disabled)
-        .execute(&self.pool)
-        .await?
-        .rows_affected();
+        let updated =
+            sqlx::query("UPDATE psyops SET disabled = $2, updated_at = now() WHERE name = $1")
+                .bind(name)
+                .bind(disabled)
+                .execute(&self.pool)
+                .await?
+                .rows_affected();
         Ok(updated > 0)
     }
 

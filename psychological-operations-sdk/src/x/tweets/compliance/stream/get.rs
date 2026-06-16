@@ -3,13 +3,13 @@
 
 //! GET /2/tweets/compliance/stream — Stream Posts compliance data
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
-use crate::x::types::*;
-#[allow(unused_imports)]
 use crate::x::params;
 #[allow(unused_imports)]
 use crate::x::serde_helpers;
+#[allow(unused_imports)]
+use crate::x::types::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Request {
@@ -23,4 +23,3 @@ pub struct Request {
 }
 
 pub type Response = TweetComplianceStreamResponse;
-

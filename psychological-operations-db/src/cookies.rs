@@ -108,8 +108,8 @@ pub async fn signed_in_x_user_id(
     state_dir: &Path,
     cache_subdir: &str,
 ) -> Result<Option<String>, CookiesError> {
-    use sqlx::ConnectOptions;
     use sqlx::sqlite::SqliteConnectOptions;
+    use sqlx::ConnectOptions;
 
     let cef_root = state_dir.join("browser").join("cef-root");
     let cookies_db = cef_root.join(cache_subdir).join("Network").join("Cookies");
@@ -157,8 +157,7 @@ fn load_aes_key(local_state_path: &Path) -> Result<Vec<u8>, CookiesError> {
     use base64::Engine;
 
     let raw = std::fs::read(local_state_path)?;
-    let json: serde_json::Value =
-        serde_json::from_slice(&raw).map_err(CookiesError::LocalState)?;
+    let json: serde_json::Value = serde_json::from_slice(&raw).map_err(CookiesError::LocalState)?;
     let key_b64 = json
         .get("os_crypt")
         .and_then(|v| v.get("encrypted_key"))
@@ -186,7 +185,7 @@ fn load_aes_key(_local_state_path: &Path) -> Result<Vec<u8>, CookiesError> {
 /// Currently supports `v10` only — `v11` is Chromium's newer app-bound
 /// scheme and would need additional unwrap steps.
 fn decrypt_value(key: &[u8], blob: &[u8]) -> Result<Vec<u8>, CookiesError> {
-    use aes_gcm::{Aes256Gcm, KeyInit, Nonce, aead::Aead};
+    use aes_gcm::{aead::Aead, Aes256Gcm, KeyInit, Nonce};
 
     if blob.len() < 3 + 12 + 16 {
         return Err(CookiesError::AesGcm);
@@ -217,8 +216,8 @@ fn decrypt_value(key: &[u8], blob: &[u8]) -> Result<Vec<u8>, CookiesError> {
 
 #[cfg(windows)]
 fn dpapi_unprotect(input: &[u8]) -> Result<Vec<u8>, CookiesError> {
-    use windows::Win32::Foundation::{HLOCAL, LocalFree};
-    use windows::Win32::Security::Cryptography::{CRYPT_INTEGER_BLOB, CryptUnprotectData};
+    use windows::Win32::Foundation::{LocalFree, HLOCAL};
+    use windows::Win32::Security::Cryptography::{CryptUnprotectData, CRYPT_INTEGER_BLOB};
 
     let mut input_blob = CRYPT_INTEGER_BLOB {
         cbData: input.len() as u32,

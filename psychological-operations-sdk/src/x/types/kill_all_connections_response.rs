@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KillAllConnectionsResponse {
@@ -13,7 +13,6 @@ pub struct KillAllConnectionsResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub errors: Option<Vec<ProblemUnion>>,
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KillAllConnectionsResponseData {
@@ -34,4 +33,3 @@ pub struct KillAllConnectionsResponseDataResultsItem {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub uuid: Option<String>,
 }
-

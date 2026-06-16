@@ -3,13 +3,13 @@
 
 //! DELETE /2/account_activity/webhooks/{webhook_id}/subscriptions/{user_id}/all — Delete subscription
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
-use crate::x::types::*;
-#[allow(unused_imports)]
 use crate::x::params;
 #[allow(unused_imports)]
 use crate::x::serde_helpers;
+#[allow(unused_imports)]
+use crate::x::types::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Request {
@@ -20,4 +20,3 @@ pub struct Request {
 }
 
 pub type Response = SubscriptionsDeleteResponse;
-

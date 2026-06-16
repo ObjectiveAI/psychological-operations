@@ -13,7 +13,7 @@ use starlark::values::ValueLike;
 use starlark::values::dict::DictRef;
 use starlark::values::list::ListRef;
 
-use psychological_operations_sdk::cli::psyops::sort_by::{parse_custom, SortBy};
+use psychological_operations_sdk::cli::psyops::sort_by::{SortBy, parse_custom};
 
 use crate::tweet::{Tweet, alloc_dict};
 
@@ -22,11 +22,26 @@ use crate::tweet::{Tweet, alloc_dict};
 /// reorders by the resulting id list.
 pub fn evaluate(s: &SortBy, mut tweets: Vec<Tweet>) -> Result<Vec<Tweet>, String> {
     match s {
-        SortBy::Likes    => { tweets.sort_by(|a, b| b.likes.cmp(&a.likes));       Ok(tweets) }
-        SortBy::Retweets => { tweets.sort_by(|a, b| b.retweets.cmp(&a.retweets)); Ok(tweets) }
-        SortBy::Replies  => { tweets.sort_by(|a, b| b.replies.cmp(&a.replies));   Ok(tweets) }
-        SortBy::Newest   => { tweets.sort_by(|a, b| b.created.cmp(&a.created));   Ok(tweets) }
-        SortBy::Oldest   => { tweets.sort_by(|a, b| a.created.cmp(&b.created));   Ok(tweets) }
+        SortBy::Likes => {
+            tweets.sort_by(|a, b| b.likes.cmp(&a.likes));
+            Ok(tweets)
+        }
+        SortBy::Retweets => {
+            tweets.sort_by(|a, b| b.retweets.cmp(&a.retweets));
+            Ok(tweets)
+        }
+        SortBy::Replies => {
+            tweets.sort_by(|a, b| b.replies.cmp(&a.replies));
+            Ok(tweets)
+        }
+        SortBy::Newest => {
+            tweets.sort_by(|a, b| b.created.cmp(&a.created));
+            Ok(tweets)
+        }
+        SortBy::Oldest => {
+            tweets.sort_by(|a, b| a.created.cmp(&b.created));
+            Ok(tweets)
+        }
         SortBy::Custom(src) => evaluate_custom(src, tweets),
     }
 }
@@ -42,16 +57,15 @@ fn evaluate_custom(src: &str, tweets: Vec<Tweet>) -> Result<Vec<Tweet>, String> 
     let globals = Globals::standard();
     {
         let mut eval = Evaluator::new(&module);
-        eval.eval_module(ast, &globals)
-            .map_err(|e| e.to_string())?;
+        eval.eval_module(ast, &globals).map_err(|e| e.to_string())?;
     }
     let result_owned = module
         .get("result")
         .ok_or_else(|| "custom sort produced no result".to_string())?;
     let result = result_owned.to_value();
 
-    let list = ListRef::from_value(result)
-        .ok_or_else(|| "custom sort must return a list".to_string())?;
+    let list =
+        ListRef::from_value(result).ok_or_else(|| "custom sort must return a list".to_string())?;
 
     if list.len() != tweets.len() {
         return Err(format!(
@@ -106,7 +120,10 @@ mod tests {
     use crate::tweet::tw_default;
 
     fn tw(id: &str, likes: u64) -> Tweet {
-        Tweet { likes, ..tw_default(id) }
+        Tweet {
+            likes,
+            ..tw_default(id)
+        }
     }
 
     fn ids(ts: &[Tweet]) -> Vec<&str> {
@@ -122,9 +139,12 @@ mod tests {
 
     #[test]
     fn newest_oldest() {
-        let mut a = tw_default("a"); a.created = "2026-01-01T00:00:00Z".into();
-        let mut b = tw_default("b"); b.created = "2026-05-01T00:00:00Z".into();
-        let mut c = tw_default("c"); c.created = "2026-03-01T00:00:00Z".into();
+        let mut a = tw_default("a");
+        a.created = "2026-01-01T00:00:00Z".into();
+        let mut b = tw_default("b");
+        b.created = "2026-05-01T00:00:00Z".into();
+        let mut c = tw_default("c");
+        c.created = "2026-03-01T00:00:00Z".into();
         let v = vec![a.clone(), b.clone(), c.clone()];
         let newest = evaluate(&SortBy::Newest, v.clone()).unwrap();
         assert_eq!(ids(&newest), vec!["b", "c", "a"]);
@@ -135,9 +155,8 @@ mod tests {
     #[test]
     fn custom_sorted_by_likes_matches_builtin() {
         let v = vec![tw("a", 1), tw("b", 5), tw("c", 3)];
-        let custom = SortBy::Custom(
-            "sorted(tweets, key=lambda t: t['likes'], reverse=True)".into(),
-        );
+        let custom =
+            SortBy::Custom("sorted(tweets, key=lambda t: t['likes'], reverse=True)".into());
         let out = evaluate(&custom, v).unwrap();
         assert_eq!(ids(&out), vec!["b", "c", "a"]);
     }
@@ -145,9 +164,8 @@ mod tests {
     #[test]
     fn custom_returning_ids_works() {
         let v = vec![tw("a", 1), tw("b", 5), tw("c", 3)];
-        let custom = SortBy::Custom(
-            "[t['id'] for t in sorted(tweets, key=lambda t: t['likes'])]".into(),
-        );
+        let custom =
+            SortBy::Custom("[t['id'] for t in sorted(tweets, key=lambda t: t['likes'])]".into());
         let out = evaluate(&custom, v).unwrap();
         assert_eq!(ids(&out), vec!["a", "c", "b"]);
     }

@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ListMutateResponse {
@@ -14,10 +14,8 @@ pub struct ListMutateResponse {
     pub errors: Option<Vec<ProblemUnion>>,
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ListMutateResponseData {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_member: Option<bool>,
 }
-

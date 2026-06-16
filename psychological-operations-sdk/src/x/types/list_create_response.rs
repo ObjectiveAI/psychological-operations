@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ListCreateResponse {
@@ -15,7 +15,6 @@ pub struct ListCreateResponse {
     pub errors: Option<Vec<ProblemUnion>>,
 }
 
-
 /// A X List is a curated group of accounts.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ListCreateResponseData {
@@ -23,4 +22,3 @@ pub struct ListCreateResponseData {
     /// The name of this List.
     pub name: String,
 }
-

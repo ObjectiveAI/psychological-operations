@@ -3,19 +3,23 @@
 
 //! GET /2/users/personalized_trends — Get personalized Trends
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
-use crate::x::types::*;
-#[allow(unused_imports)]
 use crate::x::params;
 #[allow(unused_imports)]
 use crate::x::serde_helpers;
+#[allow(unused_imports)]
+use crate::x::types::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Request {
-    #[serde(rename = "personalized_trend.fields", skip_serializing_if = "Option::is_none", with = "crate::x::serde_helpers::csv_vec_opt")]
-    pub personalized_trend_fields: Option<Vec<crate::x::params::personalized_trend_fields_parameter::PersonalizedTrendFields>>,
+    #[serde(
+        rename = "personalized_trend.fields",
+        skip_serializing_if = "Option::is_none",
+        with = "crate::x::serde_helpers::csv_vec_opt"
+    )]
+    pub personalized_trend_fields:
+        Option<Vec<crate::x::params::personalized_trend_fields_parameter::PersonalizedTrendFields>>,
 }
 
 pub type Response = Get2UsersPersonalizedTrendsResponse;
-

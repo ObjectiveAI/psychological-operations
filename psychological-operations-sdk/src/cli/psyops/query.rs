@@ -47,5 +47,7 @@ pub enum SearchEndpoint {
 }
 
 impl Default for SearchEndpoint {
-    fn default() -> Self { Self::Recent }
+    fn default() -> Self {
+        Self::Recent
+    }
 }

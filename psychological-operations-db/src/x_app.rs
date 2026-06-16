@@ -28,13 +28,17 @@ impl Db {
     /// Load the X-App credential singleton. `XAppRow::default()` (all
     /// `None`) if never saved.
     pub async fn x_app_get(&self) -> Result<XAppRow, Error> {
-        let row: Option<(Option<String>, Option<String>, Option<String>, Option<String>)> =
-            sqlx::query_as(
-                "SELECT client_id, client_secret, bearer_token, saved_at \
+        let row: Option<(
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        )> = sqlx::query_as(
+            "SELECT client_id, client_secret, bearer_token, saved_at \
                  FROM x_app WHERE singleton",
-            )
-            .fetch_optional(&self.pool)
-            .await?;
+        )
+        .fetch_optional(&self.pool)
+        .await?;
         Ok(match row {
             Some((client_id, client_secret, bearer_token, saved_at)) => XAppRow {
                 client_id,

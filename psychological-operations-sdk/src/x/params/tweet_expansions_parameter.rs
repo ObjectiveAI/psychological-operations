@@ -50,9 +50,10 @@ impl std::fmt::Display for TweetExpansions {
             TweetExpansions::InReplyToUserId => "in_reply_to_user_id",
             TweetExpansions::EntitiesNoteMentionsUsername => "entities.note.mentions.username",
             TweetExpansions::ReferencedTweetsId => "referenced_tweets.id",
-            TweetExpansions::ReferencedTweetsIdAttachmentsMediaKeys => "referenced_tweets.id.attachments.media_keys",
+            TweetExpansions::ReferencedTweetsIdAttachmentsMediaKeys => {
+                "referenced_tweets.id.attachments.media_keys"
+            }
             TweetExpansions::ReferencedTweetsIdAuthorId => "referenced_tweets.id.author_id",
         })
     }
 }
-

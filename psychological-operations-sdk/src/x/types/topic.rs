@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 /// The topic of a Space, as selected by its creator.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -16,4 +16,3 @@ pub struct Topic {
     /// The name of the given topic.
     pub name: String,
 }
-

@@ -22,4 +22,3 @@ impl std::fmt::Display for LikeWithTweetAuthorExpansions {
         })
     }
 }
-

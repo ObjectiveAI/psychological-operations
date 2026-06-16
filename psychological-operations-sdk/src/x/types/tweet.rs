@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Tweet {
@@ -85,7 +85,6 @@ pub struct Tweet {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub withheld: Option<TweetWithheld>,
 }
-
 
 /// Specifies the type of attachments (if any) present in this Tweet.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -251,4 +250,3 @@ impl std::fmt::Display for TweetReferencedTweetsItemType {
         })
     }
 }
-

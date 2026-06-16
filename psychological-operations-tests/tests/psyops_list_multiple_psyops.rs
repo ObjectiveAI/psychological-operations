@@ -16,8 +16,15 @@ async fn psyops_list_multiple_psyops() {
 
     let listed = p.psyops_list().await;
     listed.assert_no_errors();
-    let names: Vec<&str> = listed.psyop_list().iter().map(|e| e.name.as_str()).collect();
+    let names: Vec<&str> = listed
+        .psyop_list()
+        .iter()
+        .map(|e| e.name.as_str())
+        .collect();
     for expected in ["a-psyop", "b-psyop", "c-psyop"] {
-        assert!(names.contains(&expected), "expected {expected} in {names:?}");
+        assert!(
+            names.contains(&expected),
+            "expected {expected} in {names:?}"
+        );
     }
 }

@@ -45,10 +45,7 @@ fn deserialize_video() {
         MediaUnion::Video(v) => {
             let variants = v.variants.expect("variants present");
             assert_eq!(variants.len(), 3);
-            assert_eq!(
-                variants[1].content_type.as_deref(),
-                Some("video/mp4"),
-            );
+            assert_eq!(variants[1].content_type.as_deref(), Some("video/mp4"),);
         }
         other => panic!("expected Video, got {other:?}"),
     }

@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 /// An HTTP Problem Details object, as defined in IETF RFC 7807 (https://tools.ietf.org/html/rfc7807).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -17,7 +17,6 @@ pub struct Problem {
     #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
     pub type_: Option<String>,
 }
-
 
 /// Polymorphic view of [`Problem`] discriminated by `type`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -60,4 +59,3 @@ pub enum ProblemUnion {
     #[serde(rename = "https://api.twitter.com/2/problems/usage-capped")]
     HttpsApiTwitterCom2ProblemsUsageCapped(UsageCapExceededProblem),
 }
-

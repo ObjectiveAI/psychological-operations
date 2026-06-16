@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 /// A count of user-provided stream filtering rules at the application and project levels.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -23,4 +23,3 @@ pub struct RulesCount {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub project_rules_count: Option<i32>,
 }
-

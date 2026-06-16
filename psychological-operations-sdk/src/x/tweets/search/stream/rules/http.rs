@@ -16,7 +16,9 @@ pub async fn get(
     req: &super::get::Request,
 ) -> Result<super::get::Response, Error> {
     let path = "tweets/search/stream/rules";
-    client.send_with_query(auth, Method::GET, path, req, true, false).await
+    client
+        .send_with_query(auth, Method::GET, path, req, true, false)
+        .await
 }
 
 /// POST /2/tweets/search/stream/rules
@@ -26,6 +28,7 @@ pub async fn post(
     req: &super::post::Request,
 ) -> Result<super::post::Response, Error> {
     let path = "tweets/search/stream/rules";
-    client.send_with_query_and_body(auth, Method::POST, path, req, &req.body, false, false).await
+    client
+        .send_with_query_and_body(auth, Method::POST, path, req, &req.body, false, false)
+        .await
 }
-

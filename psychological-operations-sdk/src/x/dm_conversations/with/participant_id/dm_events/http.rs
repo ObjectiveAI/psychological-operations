@@ -15,7 +15,11 @@ pub async fn get(
     auth: &AuthMode,
     req: &super::get::Request,
 ) -> Result<super::get::Response, Error> {
-    let path = format!("dm_conversations/with/{}/dm_events", urlencoding::encode(&req.participant_id.to_string()));
-    client.send_with_query(auth, Method::GET, &path, req, true, false).await
+    let path = format!(
+        "dm_conversations/with/{}/dm_events",
+        urlencoding::encode(&req.participant_id.to_string())
+    );
+    client
+        .send_with_query(auth, Method::GET, &path, req, true, false)
+        .await
 }
-

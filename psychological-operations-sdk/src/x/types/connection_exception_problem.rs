@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConnectionExceptionProblem {
@@ -13,7 +13,6 @@ pub struct ConnectionExceptionProblem {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub connection_issue: Option<ConnectionExceptionProblemConnectionIssue>,
 }
-
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ConnectionExceptionProblemConnectionIssue {
@@ -31,10 +30,13 @@ impl std::fmt::Display for ConnectionExceptionProblemConnectionIssue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
             ConnectionExceptionProblemConnectionIssue::TooManyConnections => "TooManyConnections",
-            ConnectionExceptionProblemConnectionIssue::ProvisioningSubscription => "ProvisioningSubscription",
-            ConnectionExceptionProblemConnectionIssue::RuleConfigurationIssue => "RuleConfigurationIssue",
+            ConnectionExceptionProblemConnectionIssue::ProvisioningSubscription => {
+                "ProvisioningSubscription"
+            }
+            ConnectionExceptionProblemConnectionIssue::RuleConfigurationIssue => {
+                "RuleConfigurationIssue"
+            }
             ConnectionExceptionProblemConnectionIssue::RulesInvalidIssue => "RulesInvalidIssue",
         })
     }
 }
-

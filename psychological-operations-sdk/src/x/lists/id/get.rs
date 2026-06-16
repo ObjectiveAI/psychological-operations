@@ -3,25 +3,36 @@
 
 //! GET /2/lists/{id} — Get List by ID
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
-use crate::x::types::*;
-#[allow(unused_imports)]
 use crate::x::params;
 #[allow(unused_imports)]
 use crate::x::serde_helpers;
+#[allow(unused_imports)]
+use crate::x::types::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Request {
     #[serde(skip_serializing)]
     pub id: ListId,
-    #[serde(rename = "list.fields", skip_serializing_if = "Option::is_none", with = "crate::x::serde_helpers::csv_vec_opt")]
+    #[serde(
+        rename = "list.fields",
+        skip_serializing_if = "Option::is_none",
+        with = "crate::x::serde_helpers::csv_vec_opt"
+    )]
     pub list_fields: Option<Vec<crate::x::params::list_fields_parameter::ListFields>>,
-    #[serde(rename = "expansions", skip_serializing_if = "Option::is_none", with = "crate::x::serde_helpers::csv_vec_opt")]
+    #[serde(
+        rename = "expansions",
+        skip_serializing_if = "Option::is_none",
+        with = "crate::x::serde_helpers::csv_vec_opt"
+    )]
     pub expansions: Option<Vec<crate::x::params::list_expansions_parameter::ListExpansions>>,
-    #[serde(rename = "user.fields", skip_serializing_if = "Option::is_none", with = "crate::x::serde_helpers::csv_vec_opt")]
+    #[serde(
+        rename = "user.fields",
+        skip_serializing_if = "Option::is_none",
+        with = "crate::x::serde_helpers::csv_vec_opt"
+    )]
     pub user_fields: Option<Vec<crate::x::params::user_fields_parameter::UserFields>>,
 }
 
 pub type Response = Get2ListsIdResponse;
-

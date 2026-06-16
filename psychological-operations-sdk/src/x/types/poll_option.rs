@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 /// Describes a choice in a Poll object.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -15,4 +15,3 @@ pub struct PollOption {
     /// Number of users who voted for this choice.
     pub votes: i32,
 }
-

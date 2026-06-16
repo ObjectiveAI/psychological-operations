@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TweetNotice {
@@ -26,10 +26,8 @@ pub struct TweetNotice {
     pub tweet: TweetNoticeTweet,
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TweetNoticeTweet {
     pub author_id: UserId,
     pub id: TweetId,
 }
-

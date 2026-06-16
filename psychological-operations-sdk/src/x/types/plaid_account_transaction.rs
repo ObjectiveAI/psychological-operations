@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 /// Descriptor for a Plaid account.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -31,4 +31,3 @@ pub struct PlaidAccountTransaction {
     #[serde(rename = "transactionTimestamp")]
     pub transaction_timestamp: String,
 }
-

@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 /// Rating counts for a rater factor bucket.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -25,7 +25,6 @@ pub struct NoteFactorBucketCounts {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub somewhat_helpful_count: Option<i32>,
 }
-
 
 /// Helpful tag counts.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -48,4 +47,3 @@ pub struct NoteFactorBucketCountsNotHelpfulTagCounts {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tag_name: Option<String>,
 }
-

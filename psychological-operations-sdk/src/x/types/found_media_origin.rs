@@ -2,9 +2,9 @@
 // Source: x-api-spec/openapi.json (sha256 dd4e81f817babcd5...)
 
 #[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use super::*;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FoundMediaOrigin {
@@ -13,4 +13,3 @@ pub struct FoundMediaOrigin {
     /// The media provider (e.g., 'giphy') that sourced the media ( <= 8 Characters )
     pub provider: String,
 }
-
