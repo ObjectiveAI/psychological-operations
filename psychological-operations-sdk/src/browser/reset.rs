@@ -79,13 +79,14 @@ fn rm_rf_optional(path: &Path) -> std::io::Result<()> {
 
 /// Wipe X-App state:
 ///
-/// * clear all captured credential HTML snapshots (`x_app_html`),
+/// * clear ALL captured credential HTML snapshots (`x_app_html`) — both
+///   the `post_create_dialog` and `oauth_popup` rows, for every handle;
+///   these snapshots are the source of truth for the App's credentials,
 /// * recursively delete the X-App CEF profile at
 ///   `<state_dir>/browser/cef-root/x-app/`.
 ///
-/// The X-App credential singleton (`x_app`) is intentionally left
-/// alone — `x_app setup` recaptures the HTML and re-derives it. Used by
-/// `x_app setup --dangerously-reset` before relaunching.
+/// Used by `x_app setup --dangerously-reset` before relaunching, which
+/// recaptures fresh snapshots.
 pub async fn wipe_x_app(db: &Db, state_dir: &Path) -> Result<(), String> {
     db.x_app_html_clear()
         .await
