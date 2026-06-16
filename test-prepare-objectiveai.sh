@@ -8,9 +8,10 @@
 # committed plugins/ tree under bin/ is never touched.
 #
 # Release assets are bare binaries (no archive) named
-#   objectiveai-<os>-<arch>[.exe]        (the host)
-#   objectiveai-<os>-<arch>-api[.exe]    (the deterministic mock API server)
-#   objectiveai-<os>-<arch>-db[.exe]     (the per-state postgres supervisor)
+#   objectiveai-<os>-<arch>[.exe]         (the host)
+#   objectiveai-<os>-<arch>-api[.exe]     (the deterministic mock API server)
+#   objectiveai-<os>-<arch>-db[.exe]      (the per-state postgres supervisor)
+#   objectiveai-<os>-<arch>-viewer[.exe]  (the viewer server)
 # from github.com/ObjectiveAI/objectiveai/releases/download/v<version>/.
 set -euo pipefail
 
@@ -41,13 +42,15 @@ platarch="${plat_os}-${plat_arch}"
 
 # --- binaries to install: "<dest-name-in-bin>|<release-asset>" ------------
 # The host plus the sibling binaries it spawns out of the same bin dir:
-# `objectiveai-db` (per-state postgres supervisor) and `objectiveai-api`
-# (mock API server). `objectiveai-viewer` is omitted — the suite never
-# opens the viewer.
+# `objectiveai-db` (per-state postgres supervisor), `objectiveai-api`
+# (mock API server), and `objectiveai-viewer` (the viewer server the host
+# launches for plugin viewer bundles — needed for upcoming viewer-path
+# tests).
 ASSETS=(
   "objectiveai|objectiveai-${platarch}${ext}"
   "objectiveai-api|objectiveai-${platarch}-api${ext}"
   "objectiveai-db|objectiveai-${platarch}-db${ext}"
+  "objectiveai-viewer|objectiveai-${platarch}-viewer${ext}"
 )
 
 # --- up-to-date check ------------------------------------------------------
