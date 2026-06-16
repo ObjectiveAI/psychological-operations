@@ -187,60 +187,6 @@ impl Plugin {
         self.dispatch(v).await
     }
 
-    // ── agents quota ────────────────────────────────────────────────
-
-    /// `agents quota limit set <agent> (--read|--write) <value>`.
-    pub async fn agents_quota_limit_set(&self, agent: Agent<'_>, dir: Dir, value: u64) -> RunResult {
-        let mut v = vec!["agents".into(), "quota".into(), "limit".into(), "set".into()];
-        agent.append(&mut v);
-        v.push(dir.flag().into());
-        v.push(value.to_string());
-        self.dispatch(v).await
-    }
-
-    /// `agents quota limit get <agent> (--read|--write)`.
-    pub async fn agents_quota_limit_get(&self, agent: Agent<'_>, dir: Dir) -> RunResult {
-        let mut v = vec!["agents".into(), "quota".into(), "limit".into(), "get".into()];
-        agent.append(&mut v);
-        v.push(dir.flag().into());
-        self.dispatch(v).await
-    }
-
-    /// `agents quota interval set <agent> (--read|--write) <humantime>`.
-    pub async fn agents_quota_interval_set(&self, agent: Agent<'_>, dir: Dir, interval: &str) -> RunResult {
-        let mut v = vec!["agents".into(), "quota".into(), "interval".into(), "set".into()];
-        agent.append(&mut v);
-        v.push(dir.flag().into());
-        v.push(interval.to_string());
-        self.dispatch(v).await
-    }
-
-    /// `agents quota interval get <agent> (--read|--write)`.
-    pub async fn agents_quota_interval_get(&self, agent: Agent<'_>, dir: Dir) -> RunResult {
-        let mut v = vec!["agents".into(), "quota".into(), "interval".into(), "get".into()];
-        agent.append(&mut v);
-        v.push(dir.flag().into());
-        self.dispatch(v).await
-    }
-
-    /// `agents quota tool set <agent> <tool> <cost>` — a tool's direction
-    /// is intrinsic, so no `--read/--write`.
-    pub async fn agents_quota_tool_set(&self, agent: Agent<'_>, tool: &str, cost: u64) -> RunResult {
-        let mut v = vec!["agents".into(), "quota".into(), "tool".into(), "set".into()];
-        agent.append(&mut v);
-        v.push(tool.to_string());
-        v.push(cost.to_string());
-        self.dispatch(v).await
-    }
-
-    /// `agents quota tool get <agent> <tool>`.
-    pub async fn agents_quota_tool_get(&self, agent: Agent<'_>, tool: &str) -> RunResult {
-        let mut v = vec!["agents".into(), "quota".into(), "tool".into(), "get".into()];
-        agent.append(&mut v);
-        v.push(tool.to_string());
-        self.dispatch(v).await
-    }
-
     // ── agents: notify (plugin) ─────────────────────────────────────
 
     /// `agents notify` (PLUGIN, no args) — park an objectiveai
@@ -533,21 +479,6 @@ impl Agent<'_> {
     }
 }
 
-/// Quota direction → `--read` / `--write`.
-pub enum Dir {
-    Read,
-    Write,
-}
-
-impl Dir {
-    fn flag(&self) -> &'static str {
-        match self {
-            Dir::Read => "--read",
-            Dir::Write => "--write",
-        }
-    }
-}
-
 /// Build a minimal valid [`PsyOp`] that ingests via one deterministic
 /// mock-X search `query` (no `for_you` — tests must never configure it,
 /// since for-you collection drives the real CEF browser), with the given
@@ -572,14 +503,13 @@ pub fn query_psyop(query: &str, stages: Vec<Stage>) -> PsyOp {
 
 /// An inline **mock** agent scripted to make ONE deterministic tool call to
 /// the psychological-operations x-api MCP tool `mark_handled`
-/// (`{"account": <account>, "tweet_ids": [...]}`), then close out with a
+/// (`{"tweet_ids": [...]}`), then close out with a
 /// content turn. It wires `client_objectiveai_mcp` so the plugin's `x-api`
 /// MCP server is exposed in **full** mode (`mark_handled` is hidden in
 /// readonly). The tool name is the proxy-prefixed `<serverInfo.name>_<tool>`
 /// = `psychological-operations-x-api_mark_handled`.
 pub fn mark_handled_mock_agent(account: &str, tweet_ids: &[&str]) -> InlineAgentBase {
-    let arguments =
-        serde_json::json!({ "account": account, "tweet_ids": tweet_ids }).to_string();
+    let arguments = serde_json::json!({ "tweet_ids": tweet_ids }).to_string();
     let mut base = mock::AgentBase::default();
     base.calls = Some(vec![
         // Turn 1: the deterministic tool call.
@@ -607,11 +537,9 @@ pub fn mark_handled_mock_agent(account: &str, tweet_ids: &[&str]) -> InlineAgent
                 name: "x-api".to_string(),
                 // Forwarded as the per-request `X-OBJECTIVEAI-ARGUMENTS`
                 // header → the x-api session reads `mode` (FULL, so
-                // mark_handled is visible) and the REQUIRED `account`.
-                // The session's agent identity still comes from the
-                // agent's `X-OBJECTIVEAI-AGENT-INSTANCE-HIERARCHY` header
-                // (an `agent` arg would make the host launch
-                // `mcp x-api begin --agent …`, which isn't a valid flag).
+                // mark_handled is visible) and the REQUIRED `account`
+                // (the identity every tool acts as). There's no per-tool
+                // `account` arg anymore — tools read it from the session.
                 arguments: Some(IndexMap::from([
                     ("mode".to_string(), Some("full".to_string())),
                     ("account".to_string(), Some(account.to_string())),

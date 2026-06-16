@@ -2,22 +2,19 @@
 //! or split it via [`setup`] + [`serve`] when they need to own the
 //! `TcpListener` or wrap the `axum::Router` first.
 //!
-//! `agent` and `mode` are NOT parameters here. They flow in
-//! per-session via the `X-OBJECTIVEAI-ARGUMENTS` JSON-object
-//! header (with `X-OBJECTIVEAI-AGENT-INSTANCE-HIERARCHY` as the
-//! agent fallback) — see [`crate::x_api::session`] for the
-//! source-resolution contract and
+//! `account`, `mode`, and the per-session `quota_*` overrides are NOT
+//! parameters here. They flow in per-session via the
+//! `X-OBJECTIVEAI-ARGUMENTS` JSON-object header — see
+//! [`crate::x_api::session`] for the source-resolution contract and
 //! [`crate::header_session_manager`] for the wiring. State is
-//! in-memory only; the manager's `ensure_session` lazily
-//! re-captures the headers from any request landing for a
-//! session id it doesn't yet hold, so process restart is
-//! transparent to the upstream.
+//! in-memory only; the manager's `ensure_session` lazily re-captures
+//! the headers from any request landing for a session id it doesn't
+//! yet hold, so process restart is transparent to the upstream.
 
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use objectiveai_sdk::cli::command::CommandExecutor;
 use objectiveai_sdk::cli::command::plugins::run::{Mcp, McpType};
 use objectiveai_sdk::cli::plugins::Output;
 use psychological_operations_db::Db;
@@ -26,10 +23,9 @@ use tokio_util::sync::CancellationToken;
 
 use crate::PsychologicalOperationsXApiMcp;
 use crate::header_session_manager::HeaderSessionManager;
-use crate::x_api::accounts::AgentTagLister;
 use crate::x_api::session::SessionRegistry;
 
-pub async fn setup<E>(
+pub async fn setup(
     address:         &str,
     port:            u16,
     state_dir:       PathBuf,
@@ -37,19 +33,7 @@ pub async fn setup<E>(
     cache_max_size:  u64,
     cache_ttl:       Duration,
     mock:            bool,
-    executor:        E,
-) -> std::io::Result<(tokio::net::TcpListener, axum::Router)>
-where
-    E: CommandExecutor + Send + Sync + 'static,
-    E::Error: std::fmt::Display + Send + 'static,
-{
-    // The executor backs `list_accounts` (it runs `agents instances get`
-    // on the session's AIH to discover bound tags). The generic executor
-    // isn't object-safe, so box it behind the object-safe `AgentTagLister`
-    // shim (blanket-impl'd for every executor) before handing it to the
-    // concrete server type.
-    let accounts: Arc<dyn AgentTagLister> = Arc::new(executor);
-
+) -> std::io::Result<(tokio::net::TcpListener, axum::Router)> {
     let registry = Arc::new(SessionRegistry::new());
 
     let server = PsychologicalOperationsXApiMcp::new(
@@ -60,7 +44,6 @@ where
         cache_max_size,
         cache_ttl,
         mock,
-        accounts,
     );
 
     let session_manager = Arc::new(HeaderSessionManager::new(registry.clone(), server.clone()));
@@ -105,11 +88,10 @@ pub async fn serve(listener: tokio::net::TcpListener, app: axum::Router) -> std:
 /// `mcp_servers` entry would — see the docstring on
 /// [`objectiveai_sdk::cli::command::plugins::run::Mcp`].
 ///
-/// No `(agent, mode)` in the announcement — clients pin those
-/// per session via the `X-OBJECTIVEAI-ARGUMENTS` header (with
-/// `X-OBJECTIVEAI-AGENT-INSTANCE-HIERARCHY` as the agent
-/// fallback) on every request.
-pub async fn run<E>(
+/// No per-session values in the announcement — clients pin
+/// `account` / `mode` / `quota_*` via the `X-OBJECTIVEAI-ARGUMENTS`
+/// header on every request.
+pub async fn run(
     address:         &str,
     port:            u16,
     state_dir:       PathBuf,
@@ -117,14 +99,9 @@ pub async fn run<E>(
     cache_max_size:  u64,
     cache_ttl:       Duration,
     mock:            bool,
-    executor:        E,
-) -> std::io::Result<()>
-where
-    E: CommandExecutor + Send + Sync + 'static,
-    E::Error: std::fmt::Display + Send + 'static,
-{
+) -> std::io::Result<()> {
     let (listener, app) = setup(
-        address, port, state_dir, db, cache_max_size, cache_ttl, mock, executor,
+        address, port, state_dir, db, cache_max_size, cache_ttl, mock,
     ).await?;
     let addr = listener.local_addr()?;
     let announcement = Output::Mcp(Mcp {

@@ -14,17 +14,15 @@
 //! Binary media bytes come from `Client::fetch_url` — the SDK's sole
 //! hand-written non-codegen call (twimg has no OpenAPI surface).
 //!
-//! `agent` and `mode` are NOT process-wide. They land here per
-//! session, sourced from the `X-OBJECTIVEAI-ARGUMENTS` JSON-object
-//! header (with `X-OBJECTIVEAI-AGENT-INSTANCE-HIERARCHY` as the
-//! agent fallback) on every request — recorded by
-//! [`crate::header_session_manager::HeaderSessionManager`] into
-//! [`session::SessionRegistry`] keyed by `Mcp-Session-Id`. Tool
-//! handlers look the pair up via [`PsychologicalOperationsXApiMcp::resolve_session`]
+//! `account`, `mode`, and the per-session `quota_*` overrides are NOT
+//! process-wide. They land here per session, sourced from the
+//! `X-OBJECTIVEAI-ARGUMENTS` JSON-object header on every request —
+//! recorded by [`crate::header_session_manager::HeaderSessionManager`]
+//! into [`session::SessionRegistry`] keyed by `Mcp-Session-Id`. Tool
+//! handlers look them up via [`PsychologicalOperationsXApiMcp::resolve_session`]
 //! and build a fresh SDK [`Client`] for each call via
 //! [`PsychologicalOperationsXApiMcp::build_client`].
 
-pub mod accounts;
 mod builders;
 mod model;
 mod projection;
@@ -38,7 +36,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use psychological_operations_db::quota::DEFAULT_TOOL_COST;
-use psychological_operations_db::{Db, QuotaDirection, unix_now};
+use psychological_operations_db::{Db, unix_now};
 use psychological_operations_sdk::x::client::Client;
 use rmcp::{
     ErrorData, RoleServer, ServerHandler,
@@ -54,7 +52,6 @@ use rmcp::{
 };
 
 use crate::Mode;
-use accounts::AgentTagLister;
 use session::{SessionRegistry, SessionState};
 use tool_name::{Direction, ToolName};
 
@@ -96,11 +93,6 @@ pub struct PsychologicalOperationsXApiMcp {
     /// `PSYCHOLOGICAL_OPERATIONS_MOCK` (standalone binary) or the CLI's
     /// `Config.mock` (`mcp begin`).
     pub(super) mock: bool,
-    /// Discovers an agent's usable identities (its AIH plus its tags)
-    /// for `list_accounts`, wrapping the objectiveai `CommandExecutor`
-    /// behind an object-safe trait (the executor itself is generic and
-    /// not object-safe). One operation: `agents instances get`.
-    pub(super) accounts: Arc<dyn AgentTagLister>,
 }
 
 impl std::fmt::Debug for PsychologicalOperationsXApiMcp {
@@ -119,13 +111,9 @@ impl PsychologicalOperationsXApiMcp {
         cache_max_size: u64,
         cache_ttl: Duration,
         mock: bool,
-        accounts: Arc<dyn AgentTagLister>,
     ) -> Self {
         Self {
-            tool_router: Self::read_tools()
-                + Self::write_tools()
-                + Self::queue_tools()
-                + Self::accounts_tools(),
+            tool_router: Self::read_tools() + Self::write_tools() + Self::queue_tools(),
             sessions,
             reqwest,
             state_dir,
@@ -133,7 +121,6 @@ impl PsychologicalOperationsXApiMcp {
             cache_max_size,
             cache_ttl,
             mock,
-            accounts,
         }
     }
 
@@ -173,7 +160,7 @@ impl PsychologicalOperationsXApiMcp {
     /// pool, cache config, state dir, and `db` handle. Called once per
     /// tool invocation — `Client::new` is infallible + synchronous. The
     /// identity to act as is no longer baked in here: each tool builds
-    /// `AuthMode::Agent(req.account)` from its required `account` arg
+    /// `AuthMode::Agent(state.account)` from the session's `account`
     /// and passes it to the generated X-API calls.
     pub(super) fn build_client(&self) -> Client {
         Client::new(
@@ -202,19 +189,22 @@ impl PsychologicalOperationsXApiMcp {
     /// reserved for genuine db failures.
     async fn enforce_quota(
         &self,
-        account: &str,
+        state: &SessionState,
         tool: ToolName,
     ) -> Result<Option<CallToolResult>, ErrorData> {
         let dir = tool.direction();
-        let qdir = direction_to_quota(dir);
-        let cfg = self.db.quota_config(account).await.map_err(quota_db_err)?;
-        let (limit, interval) = cfg.for_direction(qdir);
+        let (limit, interval) = match dir {
+            Direction::Read => (state.quota_read, state.quota_interval),
+            Direction::Write => (state.quota_write, state.quota_interval),
+        };
         // Deny only when usage is already at/above the limit. The call's
         // own cost doesn't gate it — a single call may push usage past
         // the limit (which then blocks the *next* same-direction call),
         // so an expensive tool stays usable as long as there's any
         // headroom left.
-        let usage = self.quota_used(account, dir, interval).await?;
+        let usage = self
+            .quota_used(&state.account, dir, interval, &state.quota_tool_costs)
+            .await?;
         if usage >= limit {
             let label = match dir {
                 Direction::Read => "Read Quota Denial",
@@ -226,7 +216,7 @@ impl PsychologicalOperationsXApiMcp {
             ))])));
         }
         self.db
-            .record_tool_invocation(account, tool.as_name())
+            .record_tool_invocation(&state.account, tool.as_name())
             .await
             .map_err(quota_db_err)?;
         Ok(None)
@@ -241,6 +231,7 @@ impl PsychologicalOperationsXApiMcp {
         account: &str,
         dir: Direction,
         interval_secs: u64,
+        tool_costs: &std::collections::HashMap<ToolName, u64>,
     ) -> Result<u64, ErrorData> {
         let cutoff = unix_now() - interval_secs as i64;
         let counts = self
@@ -248,14 +239,13 @@ impl PsychologicalOperationsXApiMcp {
             .tool_invocation_counts_since(account, cutoff)
             .await
             .map_err(quota_db_err)?;
-        let costs = self.db.quota_tool_costs(account).await.map_err(quota_db_err)?;
         let mut usage: u64 = 0;
         for (t, n) in counts {
             let Some(tn) = ToolName::from_name(&t) else { continue };
             if tn.direction() != dir {
                 continue;
             }
-            let c = costs.get(&t).copied().unwrap_or(DEFAULT_TOOL_COST);
+            let c = tool_costs.get(&tn).copied().unwrap_or(DEFAULT_TOOL_COST);
             usage = usage.saturating_add(n.saturating_mul(c));
         }
         Ok(usage)
@@ -267,24 +257,21 @@ impl PsychologicalOperationsXApiMcp {
     /// post-record). Best-effort: a db hiccup yields `None` and the
     /// response simply omits the header rather than failing an
     /// otherwise-successful tool call.
-    async fn quota_header(&self, account: &str, dir: Direction) -> Option<Content> {
-        let cfg = self.db.quota_config(account).await.ok()?;
-        let (limit, interval) = cfg.for_direction(direction_to_quota(dir));
-        let used = self.quota_used(account, dir, interval).await.ok()?;
+    async fn quota_header(&self, state: &SessionState, dir: Direction) -> Option<Content> {
+        let (limit, interval) = match dir {
+            Direction::Read => (state.quota_read, state.quota_interval),
+            Direction::Write => (state.quota_write, state.quota_interval),
+        };
+        let used = self
+            .quota_used(&state.account, dir, interval, &state.quota_tool_costs)
+            .await
+            .ok()?;
         let available = limit.saturating_sub(used);
         let label = match dir {
             Direction::Read => "Read Quota",
             Direction::Write => "Write Quota",
         };
         Some(Content::text(format!("[{label}] {used} used, {available} available\n\n")))
-    }
-}
-
-/// Map a tool's intrinsic direction to the db's quota-direction selector.
-fn direction_to_quota(dir: Direction) -> QuotaDirection {
-    match dir {
-        Direction::Read => QuotaDirection::Read,
-        Direction::Write => QuotaDirection::Write,
     }
 }
 
@@ -351,35 +338,18 @@ impl ServerHandler for PsychologicalOperationsXApiMcp {
                 None,
             ));
         }
-        // Every metered tool carries a required `account` and is charged
-        // against that account's read/write budget before it runs.
-        // `read_queue`, `mark_handled`, and `list_accounts` are quota-free
-        // — absent from `ToolName`, so they skip this gate (and the
-        // usage header).
+        // Metered tools (those in `ToolName`) are charged against the
+        // session's account before they run; `read_queue` + `mark_handled`
+        // are quota-free (absent from `ToolName`), so they skip the gate
+        // and the usage header. The acting account comes from the session.
         let metered = match ToolName::from_name(&request.name) {
             Some(tool) => {
-                // A missing `account` is the agent's mistake → hand it back
-                // as an `is_error` tool result, not a protocol error.
-                let account = match request
-                    .arguments
-                    .as_ref()
-                    .and_then(|a| a.get("account"))
-                    .and_then(|v| v.as_str())
-                {
-                    Some(a) => a.to_owned(),
-                    None => {
-                        return Ok(CallToolResult::error(vec![Content::text(format!(
-                            "tool '{}' requires an 'account' argument",
-                            request.name,
-                        ))]));
-                    }
-                };
                 // Quota denial comes back as an `is_error` tool result we
                 // hand straight to the agent — not a protocol error.
-                if let Some(denied) = self.enforce_quota(&account, tool).await? {
+                if let Some(denied) = self.enforce_quota(&state, tool).await? {
                     return Ok(denied);
                 }
-                Some((account, tool.direction()))
+                Some(tool.direction())
             }
             None => None,
         };
@@ -387,8 +357,8 @@ impl ServerHandler for PsychologicalOperationsXApiMcp {
         let mut result = self.tool_router.call(tcc).await?;
         // Prepend the account's post-call quota usage for the direction
         // this tool charged against, so the caller can pace itself.
-        if let Some((account, dir)) = metered {
-            if let Some(header) = self.quota_header(&account, dir).await {
+        if let Some(dir) = metered {
+            if let Some(header) = self.quota_header(&state, dir).await {
                 result.content.insert(0, header);
             }
         }
@@ -418,8 +388,7 @@ mod tests {
     fn tool_name_matches_router() {
         let router = PsychologicalOperationsXApiMcp::read_tools()
             + PsychologicalOperationsXApiMcp::write_tools()
-            + PsychologicalOperationsXApiMcp::queue_tools()
-            + PsychologicalOperationsXApiMcp::accounts_tools();
+            + PsychologicalOperationsXApiMcp::queue_tools();
         let router_names: HashSet<String> = router
             .list_all()
             .into_iter()
@@ -428,7 +397,7 @@ mod tests {
 
         // Tools that intentionally carry no quota.
         let quota_free: HashSet<&str> =
-            ["list_accounts", "read_queue", "mark_handled"].into_iter().collect();
+            ["read_queue", "mark_handled"].into_iter().collect();
 
         // Every metered name is a real tool, and never quota-free.
         for tn in ToolName::ALL {

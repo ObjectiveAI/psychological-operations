@@ -7,7 +7,7 @@
 //! 2. **Lazy `(handle, worker)` mint on first POST.** When tower
 //!    routes a request through `create_stream` or `accept_message`
 //!    for an id the inner `LocalSessionManager` doesn't currently
-//!    hold, we pull `(agent, mode)` off the current message's
+//!    hold, we pull the session args (account/mode/quota) off the current message's
 //!    injected `http::request::Parts` (per the source resolution
 //!    documented on
 //!    [`crate::x_api::session::HEADER_ARGUMENTS`]), register
@@ -18,11 +18,9 @@
 //!    session had existed all along.
 //!
 //! The net effect: objectiveai keeps re-sending the per-URL
-//! `X-OBJECTIVEAI-ARGUMENTS` (+ session-global
-//! `X-OBJECTIVEAI-AGENT-INSTANCE-HIERARCHY`) on every connect;
-//! the server keeps state in memory only; a process restart
-//! silently rebuilds the (agent, mode) entry on the very next
-//! request. No disk.
+//! `X-OBJECTIVEAI-ARGUMENTS` on every connect; the server keeps
+//! state in memory only; a process restart silently rebuilds the
+//! session entry on the very next request. No disk.
 
 use std::sync::Arc;
 
@@ -49,9 +47,7 @@ use psychological_operations_db::quota::{
 use crate::Mode;
 use crate::PsychologicalOperationsXApiMcp;
 use crate::ToolName;
-use crate::x_api::session::{
-    HEADER_AGENT_INSTANCE_HIERARCHY, HEADER_ARGUMENTS, SessionRegistry, SessionState,
-};
+use crate::x_api::session::{HEADER_ARGUMENTS, SessionRegistry, SessionState};
 
 #[derive(Debug, Clone)]
 pub struct HeaderSessionManager {
@@ -255,26 +251,6 @@ fn extract_session_state(message: &ClientJsonRpcMessage) -> Result<SessionState,
         .and_then(|s| serde_json::from_str(s).ok())
         .unwrap_or_default();
 
-    // The session-global agent-id chain. Doubles as the fallback
-    // source for `agent` below, and as the per-caller key for the
-    // API request log (quota ledger).
-    let hierarchy = parts
-        .headers
-        .get(HEADER_AGENT_INSTANCE_HIERARCHY)
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty());
-
-    // `agent`: try the JSON args first (case-insensitive key), then
-    // fall back to the X-OBJECTIVEAI-AGENT-INSTANCE-HIERARCHY
-    // header. Error only if neither source has a non-empty value.
-    let agent = lookup_string_ci(&args, "agent")
-        .or_else(|| hierarchy.clone())
-        .ok_or_else(|| format!(
-            "missing agent: {HEADER_ARGUMENTS}[\"agent\"] absent or empty, \
-             and {HEADER_AGENT_INSTANCE_HIERARCHY} header also absent or empty"
-        ))?;
-
     // `mode`: JSON args only; no header fallback. REQUIRED — no
     // default. Absent/empty is an error, and so is a malformed value
     // (anything other than 'readonly' / 'full').
@@ -285,8 +261,8 @@ fn extract_session_state(message: &ClientJsonRpcMessage) -> Result<SessionState,
         format!("mode: expected 'readonly' or 'full', got {mode_str:?}")
     })?;
 
-    // `account`: JSON args only; no fallback. REQUIRED — currently
-    // stored but unused (groundwork for session-scoped identity).
+    // `account`: JSON args only; no fallback. REQUIRED — the X identity
+    // every tool acts as (and the quota-ledger key).
     let account = lookup_string_ci(&args, "account").ok_or_else(|| {
         format!("missing account: {HEADER_ARGUMENTS}[\"account\"] absent or empty")
     })?;
@@ -295,8 +271,8 @@ fn extract_session_state(message: &ClientJsonRpcMessage) -> Result<SessionState,
     // default; PRESENT-but-unparseable ⇒ a hard connect-time error (so a
     // typo'd budget fails loudly rather than silently reverting to the
     // default). `quota_interval` is a humantime duration (e.g. "1h"); the
-    // limits/costs are plain non-negative integers. Stored but not yet
-    // consumed: the live quota path still reads the per-account DB config.
+    // limits/costs are plain non-negative integers. These ARE the live
+    // quota config — `enforce_quota` reads them straight off the session.
     // The per-tool costs are `quota_usage_<tool>`, one per metered tool.
     let quota_read = parse_u64_arg(&args, "quota_read")?.unwrap_or(DEFAULT_READ_LIMIT);
     let quota_write = parse_u64_arg(&args, "quota_write")?.unwrap_or(DEFAULT_WRITE_LIMIT);
@@ -311,20 +287,13 @@ fn extract_session_state(message: &ClientJsonRpcMessage) -> Result<SessionState,
         })
         .collect::<Result<std::collections::HashMap<ToolName, u64>, String>>()?;
 
-    // Header absent ⇒ the resolved agent (which, in that case,
-    // necessarily came from the args map) stands in as the
-    // ledger key.
-    let agent_instance_hierarchy = hierarchy.unwrap_or_else(|| agent.clone());
-
     Ok(SessionState {
-        agent,
-        mode,
         account,
+        mode,
         quota_read,
         quota_write,
         quota_interval,
         quota_tool_costs,
-        agent_instance_hierarchy,
     })
 }
 

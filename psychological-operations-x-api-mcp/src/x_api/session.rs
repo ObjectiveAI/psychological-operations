@@ -6,36 +6,26 @@
 //! tool handler via
 //! [`super::PsychologicalOperationsXApiMcp::resolve_session`].
 //!
-//! Only the values the client supplies belong here: `agent`,
-//! `mode`, and the agent instance hierarchy (the quota-ledger
-//! key). Everything else (`state_dir`, `cache_max_size`,
-//! `cache_ttl`, the quota limits) is process-wide and lives on
-//! the server struct.
+//! Only the values the client supplies belong here: `account`, `mode`,
+//! and the per-session quota overrides. Everything else (`state_dir`,
+//! `cache_max_size`, `cache_ttl`) is process-wide and lives on the
+//! server struct.
 //!
-//! ## Where `agent` and `mode` come from
+//! ## Where these come from
 //!
-//! objectiveai no longer forwards arbitrary custom client headers.
-//! Instead it stamps two headers on every outbound request:
-//!
-//!   - [`HEADER_ARGUMENTS`] (`X-OBJECTIVEAI-ARGUMENTS`) carries a
-//!     JSON object of per-URL key/value pairs the upstream client
-//!     wanted to pass. We do a case-insensitive lookup for `agent`
-//!     and `mode` keys here.
-//!   - [`HEADER_AGENT_INSTANCE_HIERARCHY`]
-//!     (`X-OBJECTIVEAI-AGENT-INSTANCE-HIERARCHY`) is the
-//!     session-global agent-id chain objectiveai maintains. If the
-//!     arguments map doesn't carry an `agent`, we fall back to this
-//!     header.
-//!
-//! `agent` is required; missing from both sources is a hard error.
-//! `mode` is required too; missing or malformed is a hard error (no
-//! [`Mode::Readonly`] default).
+//! objectiveai stamps [`HEADER_ARGUMENTS`] (`X-OBJECTIVEAI-ARGUMENTS`)
+//! on every outbound request: a JSON object of per-URL key/value pairs
+//! the upstream client passed. We do case-insensitive lookups for
+//! `account` (REQUIRED — the X identity to act as), `mode` (REQUIRED),
+//! and the optional `quota_*` overrides. A missing/malformed `account`
+//! or `mode` is a hard error; the quota args fall back to the process
+//! defaults.
 //!
 //! ## In-memory only
 //!
-//! The registry is in-memory only. objectiveai re-sends these
-//! headers on every connect, so a process restart that flushes
-//! this map is invisible to the client: the lazy header capture in
+//! The registry is in-memory only. objectiveai re-sends the header on
+//! every connect, so a process restart that flushes this map is
+//! invisible to the client: the lazy header capture in
 //! [`crate::header_session_manager::HeaderSessionManager::create_stream`]
 //! rebuilds the entry from the next request's headers.
 
@@ -49,46 +39,30 @@ use crate::Mode;
 use super::tool_name::ToolName;
 
 /// HTTP header objectiveai stamps with a JSON object of per-URL
-/// arguments. We look for `agent` and `mode` keys
+/// arguments. We look for `account`, `mode`, and the `quota_*` keys
 /// case-insensitively. See module docs.
 pub const HEADER_ARGUMENTS: &str = "X-OBJECTIVEAI-ARGUMENTS";
-
-/// HTTP header objectiveai stamps with the session-global agent
-/// instance hierarchy. Used as the fallback source for `agent`
-/// when the arguments map doesn't carry one.
-pub const HEADER_AGENT_INSTANCE_HIERARCHY: &str = "X-OBJECTIVEAI-AGENT-INSTANCE-HIERARCHY";
 
 /// The values pulled from the request HTTP headers and pinned
 /// to the rmcp session in memory.
 #[derive(Debug, Clone)]
 pub struct SessionState {
-    pub agent: String,
-    pub mode: Mode,
     /// The X account this session acts as, from the client's REQUIRED
-    /// `account` argument. Stored but not yet consumed — groundwork for
-    /// session-scoped identity.
+    /// `account` argument — the identity every tool authenticates as,
+    /// and the key the quota ledger is charged against.
     pub account: String,
-    /// Per-session read-budget limit, from the optional `quota_read`
-    /// argument (falls back to the process default). Stored but not yet
-    /// consumed: the live quota path still reads the per-account DB
-    /// config.
+    pub mode: Mode,
+    /// Per-session read-budget limit (`quota_read`; falls back to the
+    /// process default). Charged against by read tools in `enforce_quota`.
     pub quota_read: u64,
     /// Per-session write-budget limit (`quota_write`; default-backed).
-    /// Stored but not yet consumed.
     pub quota_write: u64,
     /// Per-session quota window in SECONDS (`quota_interval`;
-    /// default-backed). Stored but not yet consumed.
+    /// default-backed).
     pub quota_interval: u64,
     /// Per-session per-tool cost overrides (`quota_usage_<tool>`), one
     /// entry per metered tool, each falling back to the default cost.
-    /// Stored but not yet consumed.
     pub quota_tool_costs: HashMap<ToolName, u64>,
-    /// Session-global agent-id chain from
-    /// [`HEADER_AGENT_INSTANCE_HIERARCHY`]; falls back to the
-    /// resolved `agent` when the header is absent. Keys the
-    /// per-caller API request log (and thus the read/write
-    /// quota ledger).
-    pub agent_instance_hierarchy: String,
 }
 
 /// In-memory map of `SessionId → SessionState`. Shared between the

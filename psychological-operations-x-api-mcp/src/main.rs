@@ -2,17 +2,15 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use clap::Parser;
-use objectiveai_sdk::cli::command::binary::BinaryExecutor;
 
 /// X-API MCP server. Drives a streamable-HTTP MCP that proxies the X
 /// v2 API, intermediated by the postgres-backed response cache and the
 /// two-tier (in-process + advisory) lock in the db crate.
 ///
-/// `agent` and `mode` are NOT flags — clients supply them per
-/// session via the `X-OBJECTIVEAI-ARGUMENTS` JSON-object header
-/// (and `X-OBJECTIVEAI-AGENT-INSTANCE-HIERARCHY` as the agent
-/// fallback) on every connect. See `crate::x_api::session` for
-/// the source-resolution contract.
+/// `account`, `mode`, and the per-session `quota_*` overrides are NOT
+/// flags — clients supply them per session via the
+/// `X-OBJECTIVEAI-ARGUMENTS` JSON-object header on every connect. See
+/// `crate::x_api::session` for the source-resolution contract.
 #[derive(Parser)]
 #[command(name = "psychological-operations-x-api-mcp")]
 struct Args {
@@ -58,7 +56,6 @@ async fn main() -> std::io::Result<()> {
 
     let args = Args::parse();
     let mock = args.mock.as_deref().map(parse_bool).unwrap_or(false);
-    let executor = BinaryExecutor::new(Some(args.state_dir.clone()));
     let db = psychological_operations_db::Db::connect(&args.postgres_url)
         .await
         .map_err(|e| std::io::Error::other(format!("db connect: {e}")))?;
@@ -70,7 +67,6 @@ async fn main() -> std::io::Result<()> {
         args.cache_max_size,
         Duration::from_secs(args.cache_ttl),
         mock,
-        executor,
     )
     .await
 }

@@ -36,7 +36,6 @@ pub use engagement::Engagement;
 pub use locker::LockGuard;
 pub use posts::{MediaUrl, Origin, Post, PostRow, QueuedDelivery};
 pub use queue::{AgentKind, QueueEntry};
-pub use quota::{QuotaConfig, QuotaDirection};
 pub use x_app::XAppRow;
 
 /// The embedded schema, applied idempotently on [`Db::connect`].

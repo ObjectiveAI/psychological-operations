@@ -127,29 +127,13 @@ CREATE TABLE IF NOT EXISTS follows (
     PRIMARY KEY (user_id, agent)
 );
 
--- ── MCP per-account, per-tool-call quota ─────────────────────────────
+-- ── MCP per-account, per-tool-call quota ledger ──────────────────────
 -- Metering is on MCP TOOL CALLS, not X-API HTTP requests, keyed by the
 -- `account` (agent name) a tool acts as. The ledger is intentionally
--- dumb — bare invocations, no cost/direction stored; the MCP applies
--- each tool's read/write classification + per-tool cost at query time.
-
--- Per-account limits + sliding-window intervals. Missing row/columns →
--- the db crate's code defaults (read 30, write 10, interval 1h).
-CREATE TABLE IF NOT EXISTS quota_config (
-    account             TEXT PRIMARY KEY,
-    read_limit          BIGINT,
-    write_limit         BIGINT,
-    read_interval_secs  BIGINT,
-    write_interval_secs BIGINT
-);
-
--- Per-account per-tool cost override (default 1 when absent).
-CREATE TABLE IF NOT EXISTS quota_tool_cost (
-    account TEXT   NOT NULL,
-    tool    TEXT   NOT NULL,
-    cost    BIGINT NOT NULL,
-    PRIMARY KEY (account, tool)
-);
+-- dumb — bare invocations, no cost/direction stored. Limits, interval,
+-- and per-tool costs now arrive per-session on the MCP `quota_*`
+-- arguments; the MCP applies them (+ each tool's read/write direction)
+-- against this ledger at enforcement time.
 
 -- Bare per-account tool-invocation ledger (no cost, no direction).
 CREATE TABLE IF NOT EXISTS tool_invocations (

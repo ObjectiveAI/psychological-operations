@@ -2,10 +2,10 @@
 //! even though its endpoint shares a URL prefix with the `bookmark`
 //! write: the GET is a read.
 //!
-//! Every tool takes a required `account` — the identity to act as,
-//! one of the names `list_accounts` returns. The client is built bare
-//! and the persona is `AuthMode::Agent(account)`; mode-gating and the
-//! per-account quota gate run centrally in `call_tool` before dispatch.
+//! Each tool acts as the session's `account` (from the
+//! `X-OBJECTIVEAI-ARGUMENTS` header) — the client is built bare and the
+//! persona is `AuthMode::Agent(account)`; mode-gating and the per-account
+//! quota gate run centrally in `call_tool` before dispatch.
 //!
 //! Each body runs inside [`finish`] so failures classify (see
 //! [`super::super::tool_error`]): authorization-resolution and infra
@@ -23,7 +23,7 @@ use psychological_operations_sdk::x::types::{
 use psychological_operations_sdk::x::users::by::username::username as users_by_username;
 use psychological_operations_sdk::x::users::id::bookmarks as users_id_bookmarks;
 use psychological_operations_sdk::x::users::me as users_me;
-use rmcp::model::{CallToolResult, Content};
+use rmcp::model::{CallToolResult, Content, Extensions};
 use rmcp::{ErrorData, handler::server::wrapper::Parameters, schemars, tool, tool_router};
 
 use super::super::PsychologicalOperationsXApiMcp;
@@ -34,40 +34,30 @@ use super::super::tool_error::{ToolError, finish};
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct GetRepliesRequest {
-    #[schemars(description = "Account (identity) to act as — one of the names from list_accounts.")]
-    pub account: String,
     #[schemars(description = "Numeric ID of the tweet whose replies you want.")]
     pub tweet_id: String,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct GetBioRequest {
-    #[schemars(description = "Account (identity) to act as — one of the names from list_accounts.")]
-    pub account: String,
     #[schemars(description = "X handle without the leading @.")]
     pub handle: String,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct GetProfilePictureRequest {
-    #[schemars(description = "Account (identity) to act as — one of the names from list_accounts.")]
-    pub account: String,
     #[schemars(description = "X handle without the leading @.")]
     pub handle: String,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct GetTweetRequest {
-    #[schemars(description = "Account (identity) to act as — one of the names from list_accounts.")]
-    pub account: String,
     #[schemars(description = "Numeric tweet ID.")]
     pub tweet_id: String,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct OpenAttachmentRequest {
-    #[schemars(description = "Account (identity) to act as — one of the names from list_accounts.")]
-    pub account: String,
     #[schemars(description = "Numeric tweet ID the attachment belongs to.")]
     pub tweet_id: String,
     #[schemars(description = "Attachment URL as returned in get_tweet's attachments[].url.")]
@@ -76,22 +66,16 @@ pub struct OpenAttachmentRequest {
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct RunQueryRequest {
-    #[schemars(description = "Account (identity) to act as — one of the names from list_accounts.")]
-    pub account: String,
     #[schemars(description = "Raw X v2 search query (e.g. \"from:openai -is:retweet\").")]
     pub query: String,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct WhoamiRequest {
-    #[schemars(description = "Account (identity) to act as — one of the names from list_accounts.")]
-    pub account: String,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct GetBookmarksRequest {
-    #[schemars(description = "Account (identity) to act as — one of the names from list_accounts.")]
-    pub account: String,
 }
 
 #[tool_router(router = read_tools, vis = "pub")]
@@ -103,10 +87,12 @@ impl PsychologicalOperationsXApiMcp {
     async fn get_replies(
         &self,
         Parameters(req): Parameters<GetRepliesRequest>,
+        extensions: Extensions,
     ) -> Result<CallToolResult, ErrorData> {
+        let account = self.resolve_session(&extensions).await?.account.clone();
         finish(async move {
             let http = self.build_client();
-            let auth = AuthMode::Agent(req.account.clone());
+            let auth = AuthMode::Agent(account);
 
             let creq = tweets_search_recent::get::Request {
                 query: format!("conversation_id:{}", req.tweet_id),
@@ -152,10 +138,12 @@ impl PsychologicalOperationsXApiMcp {
     async fn get_bio(
         &self,
         Parameters(req): Parameters<GetBioRequest>,
+        extensions: Extensions,
     ) -> Result<CallToolResult, ErrorData> {
+        let account = self.resolve_session(&extensions).await?.account.clone();
         finish(async move {
             let http = self.build_client();
-            let auth = AuthMode::Agent(req.account.clone());
+            let auth = AuthMode::Agent(account);
 
             let creq = users_by_username::get::Request {
                 username: req.handle,
@@ -176,10 +164,12 @@ impl PsychologicalOperationsXApiMcp {
     async fn get_profile_picture(
         &self,
         Parameters(req): Parameters<GetProfilePictureRequest>,
+        extensions: Extensions,
     ) -> Result<CallToolResult, ErrorData> {
+        let account = self.resolve_session(&extensions).await?.account.clone();
         finish(async move {
             let http = self.build_client();
-            let auth = AuthMode::Agent(req.account.clone());
+            let auth = AuthMode::Agent(account);
 
             let creq = users_by_username::get::Request {
                 username: req.handle,
@@ -203,10 +193,12 @@ impl PsychologicalOperationsXApiMcp {
     async fn get_tweet(
         &self,
         Parameters(req): Parameters<GetTweetRequest>,
+        extensions: Extensions,
     ) -> Result<CallToolResult, ErrorData> {
+        let account = self.resolve_session(&extensions).await?.account.clone();
         finish(async move {
             let http = self.build_client();
-            let auth = AuthMode::Agent(req.account.clone());
+            let auth = AuthMode::Agent(account);
 
             let creq = standard_tweet_request(&req.tweet_id);
             let resp = tweets_id::http::get(&http, &auth, &creq).await?;
@@ -231,10 +223,12 @@ impl PsychologicalOperationsXApiMcp {
     async fn open_attachment(
         &self,
         Parameters(req): Parameters<OpenAttachmentRequest>,
+        extensions: Extensions,
     ) -> Result<CallToolResult, ErrorData> {
+        let account = self.resolve_session(&extensions).await?.account.clone();
         finish(async move {
             let http = self.build_client();
-            let auth = AuthMode::Agent(req.account.clone());
+            let auth = AuthMode::Agent(account);
 
             let creq = standard_tweet_request(&req.tweet_id);
             let resp = tweets_id::http::get(&http, &auth, &creq).await?;
@@ -265,10 +259,12 @@ impl PsychologicalOperationsXApiMcp {
     async fn run_query(
         &self,
         Parameters(req): Parameters<RunQueryRequest>,
+        extensions: Extensions,
     ) -> Result<CallToolResult, ErrorData> {
+        let account = self.resolve_session(&extensions).await?.account.clone();
         finish(async move {
             let http = self.build_client();
-            let auth = AuthMode::Agent(req.account.clone());
+            let auth = AuthMode::Agent(account);
 
             let creq = standard_search_request(req.query);
             let resp = tweets_search_recent::http::get(&http, &auth, &creq).await?;
@@ -291,10 +287,12 @@ impl PsychologicalOperationsXApiMcp {
     async fn whoami(
         &self,
         Parameters(req): Parameters<WhoamiRequest>,
+        extensions: Extensions,
     ) -> Result<CallToolResult, ErrorData> {
+        let account = self.resolve_session(&extensions).await?.account.clone();
         finish(async move {
             let http = self.build_client();
-            let auth = AuthMode::Agent(req.account.clone());
+            let auth = AuthMode::Agent(account);
 
             let creq = users_me::get::Request {
                 user_fields: Some(vec![params::UserFields::Username]),
@@ -314,10 +312,12 @@ impl PsychologicalOperationsXApiMcp {
     async fn get_bookmarks(
         &self,
         Parameters(req): Parameters<GetBookmarksRequest>,
+        extensions: Extensions,
     ) -> Result<CallToolResult, ErrorData> {
+        let account = self.resolve_session(&extensions).await?.account.clone();
         finish(async move {
             let http = self.build_client();
-            let auth = AuthMode::Agent(req.account.clone());
+            let auth = AuthMode::Agent(account);
 
             let user_id = resolve_self_user_id(&http, &auth).await?;
             let creq = users_id_bookmarks::get::Request {

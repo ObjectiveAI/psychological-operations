@@ -1,26 +1,20 @@
 //! Queue tools — read + dequeue the per-account ingest queue.
 //!
-//! These are DB-only (no X API call) and quota-free, but still take a
-//! required `account` — the queue is keyed by account, so the tool reads
-//! and dequeues the entries belonging to the identity named in the arg
-//! (one of the names `list_accounts` returns).
+//! These are DB-only (no X API call) and quota-free. The queue is keyed
+//! by account, so the tools read + dequeue the entries belonging to the
+//! session's `account` (from the `X-OBJECTIVEAI-ARGUMENTS` header).
 
-use rmcp::model::{CallToolResult, Content};
+use rmcp::model::{CallToolResult, Content, Extensions};
 use rmcp::{ErrorData, handler::server::wrapper::Parameters, schemars, tool, tool_router};
 
 use super::super::PsychologicalOperationsXApiMcp;
 use super::super::tool_error::{ToolError, finish};
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
-pub struct ReadQueueRequest {
-    #[schemars(description = "Account whose queue to read — one of the names from list_accounts.")]
-    pub account: String,
-}
+pub struct ReadQueueRequest {}
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct MarkHandledRequest {
-    #[schemars(description = "Account whose queue to dequeue from — one of the names from list_accounts.")]
-    pub account: String,
     #[schemars(
         description = "Numeric IDs of the tweets to remove from the queue."
     )]
@@ -35,11 +29,13 @@ impl PsychologicalOperationsXApiMcp {
     )]
     async fn read_queue(
         &self,
-        Parameters(req): Parameters<ReadQueueRequest>,
+        Parameters(_req): Parameters<ReadQueueRequest>,
+        extensions: Extensions,
     ) -> Result<String, ErrorData> {
+        let account = self.resolve_session(&extensions).await?.account.clone();
         let entries = self
             .db
-            .queue_list(&req.account)
+            .queue_list(&account)
             .await
             .map_err(|e| ErrorData::internal_error(format!("queue list: {e}"), None))?;
         serde_json::to_string(&entries)
@@ -53,16 +49,18 @@ impl PsychologicalOperationsXApiMcp {
     async fn mark_handled(
         &self,
         Parameters(req): Parameters<MarkHandledRequest>,
+        extensions: Extensions,
     ) -> Result<CallToolResult, ErrorData> {
+        let account = self.resolve_session(&extensions).await?.account.clone();
         finish(async move {
-            let missing = self.db.queue_delete_many(&req.account, &req.tweet_ids).await?;
+            let missing = self.db.queue_delete_many(&account, &req.tweet_ids).await?;
             // Some id wasn't queued → the batch was rolled back (nothing
             // removed). That's the agent referencing items it can't
             // resolve → agent-facing.
             if !missing.is_empty() {
                 return Err(ToolError::agent(format!(
                     "not in the queue for account '{}': {}. Nothing was removed (all-or-nothing).",
-                    req.account,
+                    account,
                     missing.join(", "),
                 )));
             }

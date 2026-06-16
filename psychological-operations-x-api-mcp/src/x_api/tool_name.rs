@@ -3,12 +3,10 @@
 //! the CLI's `agents quota tool` command (as a clap `ValueEnum`).
 //!
 //! Only quota-charged tools appear here. Deliberately absent are the
-//! three quota-free tools: `list_accounts` (the bootstrap that discovers
-//! accounts; takes no `account`), `read_queue`, and `mark_handled`. A
-//! tool's absence from this enum is exactly what makes it quota-free —
-//! `call_tool` skips enforcement for any name `from_name` doesn't know,
-//! and the `agents quota tool` CLI can't set a cost for it. Each tool
-//! present here is intrinsically a read XOR a write.
+//! two quota-free tools: `read_queue` and `mark_handled`. A tool's
+//! absence from this enum is exactly what makes it quota-free —
+//! `call_tool` skips enforcement for any name `from_name` doesn't know.
+//! Each tool present here is intrinsically a read XOR a write.
 
 /// Which budget a tool's cost counts against.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

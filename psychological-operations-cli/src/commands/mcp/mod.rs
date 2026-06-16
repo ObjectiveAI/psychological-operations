@@ -123,13 +123,6 @@ impl XApiCommands {
                 // it at connect), so we discard them all here.
                 XApiCommands::Begin { .. } => {
                     let state_dir = ctx.config.state_dir();
-                    // Share the CLI's existing PluginExecutor. Every
-                    // field is `Arc`-backed (including the id counter),
-                    // so the clone is a logical handle to the same
-                    // executor — pending map, stdout lock, liveness
-                    // flag, and id sequence are all shared. The X-API
-                    // server doesn't actually invoke it, but if it
-                    // ever does the calls land on the same demuxer.
                     psychological_operations_x_api_mcp::run(
                         "127.0.0.1",
                         0,
@@ -138,7 +131,6 @@ impl XApiCommands {
                         ctx.cache_max_size,
                         ctx.cache_ttl,
                         ctx.config.mock,
-                        (*ctx.executor).clone(),
                     )
                     .await
                     .map_err(|e| Error::Other(format!("mcp run: {e}")))?;
