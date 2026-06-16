@@ -41,10 +41,13 @@ pub enum Commands {
 pub enum XApiCommands {
     /// Run the X-API MCP server in-process. First it makes the agent
     /// auth-ready: fetch `/2/users/me` as `AuthMode::Agent(tag)` and
-    /// abort if that fails, then (best-effort, result ignored) bind
-    /// `tag` to an instance under the caller's AIH via `agents tags
-    /// apply`. Only then does it bind a random localhost port, emit one
-    /// JSONL line with the URL, and serve until the process is killed.
+    /// abort if that fails, then bind `tag` to the caller's own agent
+    /// instance — split the caller AIH on its last `/` into
+    /// parent/instance (a caller AIH with no `/` is rejected: "caller
+    /// must be an objectiveai agent") and `agents tags apply` it (the
+    /// apply result is ignored). Only then does it bind a random
+    /// localhost port, emit one JSONL line with the URL, and serve
+    /// until the process is killed.
     /// Cache config (size + TTL) comes from the env-derived process
     /// `Context`, not flags. The per-session `mode` + optional `quota_*`
     /// overrides are supplied by the client on connect via the
@@ -154,19 +157,25 @@ impl XApiCommands {
                             Error::Other(format!("agent {tag} auth check (users/me): {e}"))
                         })?;
 
-                    // 2. Best-effort tag binding: apply `tag` to an instance
-                    //    under the caller's AIH so later tag-addressed
-                    //    notifications resolve here. Awaited to completion
-                    //    but the result is deliberately ignored — pass or
-                    //    fail, we go on to serve.
+                    // 2. Bind `tag` to the caller's OWN agent instance so
+                    //    later tag-addressed notifications resolve here. The
+                    //    caller AIH is `{parent}/{instance}`; split it on the
+                    //    last `/` so the tag resolves to exactly that
+                    //    instance. A caller AIH with no `/` isn't a real
+                    //    agent instance — error out. The `agents tags apply`
+                    //    call is awaited but its result is deliberately
+                    //    ignored — pass or fail, we go on to serve.
+                    let caller_aih = &ctx.config.objectiveai_agent_instance_hierarchy;
+                    let (parent, agent_instance) =
+                        caller_aih.rsplit_once('/').ok_or_else(|| {
+                            Error::Other("caller must be an objectiveai agent".to_string())
+                        })?;
                     let apply = tags_apply::Request {
                         path_type: tags_apply::Path::AgentsTagsApply,
                         name: tag.clone(),
                         target: tags_apply::Target::AgentInstance {
-                            agent_instance: tag.clone(),
-                            parent_agent_instance_hierarchy: Some(
-                                ctx.config.objectiveai_agent_instance_hierarchy.clone(),
-                            ),
+                            agent_instance: agent_instance.to_string(),
+                            parent_agent_instance_hierarchy: Some(parent.to_string()),
                         },
                         base: Default::default(),
                     };
