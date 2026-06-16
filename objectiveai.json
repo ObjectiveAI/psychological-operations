@@ -1,19 +1,34 @@
 {
-  "description": "Teach X's For You algorithm to surface tweets that match a function you define.",
+  "owner": "ObjectiveAI",
+  "name": "psychological-operations",
   "version": "0.99.0",
-  "author": "ObjectiveAI",
-  "homepage": "https://github.com/ObjectiveAI/psychological-operations",
-  "license": "MIT",
-  "binaries": {
-    "linux_x86_64": "psychological-operations-linux-x86_64",
-    "macos_x86_64": "psychological-operations-macos-x86_64",
-    "macos_aarch64": "psychological-operations-macos-aarch64",
-    "windows_x86_64": "psychological-operations-windows-x86_64.exe"
+  "description": "Teach X's For You algorithm to surface tweets that match a function you define.",
+  "exec": {
+    "windows": ["./psychological-operations.exe"],
+    "linux": ["./psychological-operations"],
+    "macos": ["./psychological-operations"]
   },
-  "viewer_url": "http://localhost:5173",
+  "cli_zip": {
+    "windows": {
+      "x86_64": "psychological-operations-windows-x86_64.zip",
+      "aarch64": "psychological-operations-windows-aarch64.zip"
+    },
+    "linux": {
+      "x86_64": "psychological-operations-linux-x86_64.zip",
+      "aarch64": "psychological-operations-linux-aarch64.zip"
+    },
+    "macos": {
+      "x86_64": "psychological-operations-macos-x86_64.zip",
+      "aarch64": "psychological-operations-macos-aarch64.zip"
+    }
+  },
+  "viewer_zip": "psychological-operations-viewer.zip",
   "viewer_routes": [
-    { "method": "POST", "path": "/psyops/added",   "type": "psyop_added"   },
-    { "method": "POST", "path": "/psyops/edited",  "type": "psyop_edited"  },
-    { "method": "POST", "path": "/psyops/deleted", "type": "psyop_deleted" }
+    { "path": "/psyops/added",   "method": "POST", "type": "psyop_added" },
+    { "path": "/psyops/edited",  "method": "POST", "type": "psyop_edited" },
+    { "path": "/psyops/deleted", "method": "POST", "type": "psyop_deleted" }
+  ],
+  "mcp_servers": [
+    { "name": "x-api", "authorization": false }
   ]
 }

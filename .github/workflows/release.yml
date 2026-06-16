@@ -102,24 +102,31 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # All six platforms the manifest's `cli_zip` enumerates (3 OS ×
+        # 2 arch). Each leg produces ONE `.zip` asset whose name matches
+        # the corresponding `objectiveai.json::cli_zip.<os>.<arch>` entry;
+        # the host downloads + extracts it into the plugin's `cli/` dir.
+        # The CLI embeds its CEF browser bundle at build time, so every
+        # target is self-contained (no per-arch Chrome dependency).
         include:
-          # NOTE: Linux aarch64 is intentionally omitted — Chrome for
-          # Testing does not ship a linux-arm64 build, so the embedded
-          # Chrome bundle (required by psychological-operations-cli's
-          # build.rs) cannot be staged for that target. Add this leg
-          # back when CfT publishes linux-arm64 binaries.
           - os: ubuntu-22.04
-            asset: psychological-operations-linux-x86_64
-            src_name: psychological-operations
+            asset: psychological-operations-linux-x86_64.zip
+            bin: psychological-operations
+          - os: ubuntu-22.04-arm
+            asset: psychological-operations-linux-aarch64.zip
+            bin: psychological-operations
           - os: macos-13
-            asset: psychological-operations-macos-x86_64
-            src_name: psychological-operations
+            asset: psychological-operations-macos-x86_64.zip
+            bin: psychological-operations
           - os: macos-14
-            asset: psychological-operations-macos-aarch64
-            src_name: psychological-operations
+            asset: psychological-operations-macos-aarch64.zip
+            bin: psychological-operations
           - os: windows-latest
-            asset: psychological-operations-windows-x86_64.exe
-            src_name: psychological-operations.exe
+            asset: psychological-operations-windows-x86_64.zip
+            bin: psychological-operations.exe
+          - os: windows-11-arm
+            asset: psychological-operations-windows-aarch64.zip
+            bin: psychological-operations.exe
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -139,9 +146,22 @@ jobs:
             cat "$log"
             echo "::endgroup::"
           done
-      - name: Stage release binary
+      - name: Package release zip
+        # The plugin manifest's `cli_zip` points at one `.zip` per
+        # platform; the host extracts it into the plugin's `cli/` working
+        # dir and runs `exec` (`./psychological-operations[.exe]`) from
+        # there. So each zip holds the single CLI binary at its root,
+        # named exactly what `exec` invokes. Copy the binary into the CWD
+        # first so the archiver sees a plain relative path (a bash $HOME
+        # path doesn't survive into PowerShell on the Windows legs).
         shell: bash
-        run: cp "$HOME/.psychological-operations/${{ matrix.src_name }}" "${{ matrix.asset }}"
+        run: |
+          cp "$HOME/.psychological-operations/${{ matrix.bin }}" "./${{ matrix.bin }}"
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            powershell -Command "Compress-Archive -Path '${{ matrix.bin }}' -DestinationPath '${{ matrix.asset }}' -Force"
+          else
+            zip -j "${{ matrix.asset }}" "${{ matrix.bin }}"
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.asset }}
