@@ -1,139 +1,90 @@
-name: Release
+name: release
 
+# Manual-only for now (`workflow_dispatch`). When you're ready for the
+# release to cut automatically on a version bump, uncomment the `push`
+# block below — it fires when version.sh's CLI-version bump lands on main,
+# exactly like mundus-animarum. (Left off so a routine push doesn't cut a
+# release before we're ready.)
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
+  # push:
+  #   branches: [main]
+  #   paths: ["psychological-operations-cli/Cargo.toml"]
 
 permissions:
   contents: write
 
 jobs:
-  check-version:
-    name: Check CLI version
+  prepare:
     runs-on: ubuntu-latest
     outputs:
-      should-release: ${{ steps.check.outputs.should-release }}
-      version: ${{ steps.check.outputs.version }}
+      version: ${{ steps.v.outputs.version }}
+      should_release: ${{ steps.v.outputs.should_release }}
     steps:
       - uses: actions/checkout@v4
-      - name: Read version from psychological-operations-cli/Cargo.toml
-        id: check
+      - name: Resolve version, verify sync, create release if new
+        id: v
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          VERSION=$(cargo metadata --format-version 1 --no-deps --manifest-path psychological-operations-cli/Cargo.toml | jq -r '.packages[] | select(.name == "psychological-operations-cli") | .version')
-          echo "CLI version: $VERSION"
+          # The CLI's package version is the release source of truth.
+          VERSION=$(cargo metadata --no-deps --format-version 1 --manifest-path psychological-operations-cli/Cargo.toml \
+            | jq -r '.packages[] | select(.name == "psychological-operations-cli") | .version')
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          if gh release view "v$VERSION" --repo "${{ github.repository }}" >/dev/null 2>&1; then
-            echo "Release v$VERSION already exists — skipping build"
-            echo "should-release=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "Release v$VERSION does not exist — will build"
-            echo "should-release=true" >> "$GITHUB_OUTPUT"
-          fi
-      - name: Verify version sync across CLI / manifest / viewer
-        # `objectiveai plugins install` reads `objectiveai.json::version`
-        # from the repo HEAD and downloads `releases/download/v{that}/…`.
-        # The release tag we cut is sourced from Cargo.toml — if these
-        # ever drift, the host downloads the wrong release. Same goes
-        # for the viewer's package.json, which version.sh keeps in
-        # lock-step. Fail loud here before any build leg burns CI time.
-        run: |
-          CARGO_VER="${{ steps.check.outputs.version }}"
+          echo "CLI version: $VERSION"
+
+          # `objectiveai plugins install` downloads releases/download/v<manifest
+          # version>/…, and the viewer bundle ships under the same tag. If the
+          # manifest or viewer drift from the CLI version the host fetches the
+          # wrong release — fail loud before any build leg burns CI time.
           MANIFEST_VER=$(jq -r .version objectiveai.json)
           VIEWER_VER=$(jq -r .version psychological-operations-viewer/package.json)
-          echo "Cargo:    $CARGO_VER"
-          echo "Manifest: $MANIFEST_VER"
-          echo "Viewer:   $VIEWER_VER"
-          if [ "$CARGO_VER" != "$MANIFEST_VER" ] || [ "$CARGO_VER" != "$VIEWER_VER" ]; then
-            echo "::error::version drift across Cargo.toml / objectiveai.json / psychological-operations-viewer/package.json. Run \`bash version.sh $CARGO_VER\` to resync."
+          echo "Manifest: $MANIFEST_VER   Viewer: $VIEWER_VER"
+          if [ "$VERSION" != "$MANIFEST_VER" ] || [ "$VERSION" != "$VIEWER_VER" ]; then
+            echo "::error::version drift — CLI $VERSION / manifest $MANIFEST_VER / viewer $VIEWER_VER. Run \`bash version.sh $VERSION\` to resync."
             exit 1
           fi
 
-  create-release:
-    name: Create release
-    needs: check-version
-    if: needs.check-version.outputs.should-release == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Generate release notes
-        # Write notes to a file rather than capturing into a step output —
-        # commit messages routinely contain backticks (`like this`) and
-        # other shell metacharacters, which GHA's `${{ }}` interpolator
-        # would inline literally into the next step's bash script and
-        # cause bash to try evaluating them as command substitutions.
-        # `--notes-file` reads the bytes directly with zero shell
-        # interpolation involved.
-        run: |
-          PREV_TAG=$(git tag --list 'v*' --sort=-v:refname | head -n 1)
-          if [ -n "$PREV_TAG" ]; then
-            echo "Previous tag: $PREV_TAG"
-            git log --pretty=format:"- %s" "$PREV_TAG"..HEAD > release-notes.md
-          else
-            echo "No previous tags — using full history"
-            git log --pretty=format:"- %s" > release-notes.md
-          fi
-      - name: Create release if missing
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          VERSION="${{ needs.check-version.outputs.version }}"
           if gh release view "v$VERSION" --repo "${{ github.repository }}" >/dev/null 2>&1; then
-            echo "Release v$VERSION already exists — leaving as-is."
-            exit 0
+            echo "Release v$VERSION already exists — nothing to do."
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+          else
+            # Not a draft, so each build leg's asset is visible the moment it
+            # uploads. Notes are auto-generated from the commits/PRs since the
+            # last tag (no shell interpolation of commit messages).
+            gh release create "v$VERSION" \
+              --repo "${{ github.repository }}" \
+              --target "$GITHUB_SHA" \
+              --title "v$VERSION" \
+              --generate-notes
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
           fi
-          # Created without --draft so per-asset uploads are user-visible
-          # the moment each build job finishes uploading. Build jobs append
-          # their assets in parallel via `gh release upload --clobber`.
-          gh release create "v$VERSION" \
-            --repo "${{ github.repository }}" \
-            --target "${{ github.sha }}" \
-            --title "v$VERSION" \
-            --notes-file release-notes.md
 
   build-cli:
-    name: Build CLI (${{ matrix.asset }})
-    needs: [check-version, create-release]
-    if: needs.check-version.outputs.should-release == 'true'
+    name: CLI (${{ matrix.zip }})
+    needs: prepare
+    if: needs.prepare.outputs.should_release == 'true'
     strategy:
       fail-fast: false
       matrix:
-        # All six platforms the manifest's `cli_zip` enumerates (3 OS ×
-        # 2 arch). Each leg produces ONE `.zip` asset whose name matches
-        # the corresponding `objectiveai.json::cli_zip.<os>.<arch>` entry;
-        # the host downloads + extracts it into the plugin's `cli/` dir.
-        # The CLI embeds its CEF browser bundle at build time, so every
-        # target is self-contained (no per-arch Chrome dependency).
+        # The six platforms enumerated by objectiveai.json::cli_zip
+        # (3 OS × 2 arch). NATIVE runners + install.sh, NOT cross-compile:
+        # the CLI embeds a per-platform CEF browser bundle at build time, so
+        # each target must build on its own OS + arch.
         include:
-          - os: ubuntu-22.04
-            asset: psychological-operations-linux-x86_64.zip
-            bin: psychological-operations
-          - os: ubuntu-22.04-arm
-            asset: psychological-operations-linux-aarch64.zip
-            bin: psychological-operations
-          - os: macos-15-intel
-            asset: psychological-operations-macos-x86_64.zip
-            bin: psychological-operations
-          - os: macos-14
-            asset: psychological-operations-macos-aarch64.zip
-            bin: psychological-operations
-          - os: windows-latest
-            asset: psychological-operations-windows-x86_64.zip
-            bin: psychological-operations.exe
-          - os: windows-11-arm
-            asset: psychological-operations-windows-aarch64.zip
-            bin: psychological-operations.exe
-    runs-on: ${{ matrix.os }}
+          - { runner: ubuntu-22.04,     zip: psychological-operations-linux-x86_64.zip,    bin: psychological-operations }
+          - { runner: ubuntu-22.04-arm, zip: psychological-operations-linux-aarch64.zip,   bin: psychological-operations }
+          - { runner: macos-15-intel,   zip: psychological-operations-macos-x86_64.zip,    bin: psychological-operations }
+          - { runner: macos-14,         zip: psychological-operations-macos-aarch64.zip,   bin: psychological-operations }
+          - { runner: windows-latest,   zip: psychological-operations-windows-x86_64.zip,  bin: psychological-operations.exe }
+          - { runner: windows-11-arm,   zip: psychological-operations-windows-aarch64.zip, bin: psychological-operations.exe }
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
-      - name: Build CLI
+      - name: Build CLI (embeds the CEF browser bundle)
         shell: bash
         run: bash psychological-operations-cli/install.sh
       - name: Dump build logs on failure
@@ -142,48 +93,34 @@ jobs:
         run: |
           shopt -s nullglob
           for log in .logs/build/*.txt; do
-            echo "::group::$log"
-            cat "$log"
-            echo "::endgroup::"
+            echo "::group::$log"; cat "$log"; echo "::endgroup::"
           done
-      - name: Package release zip
-        # The plugin manifest's `cli_zip` points at one `.zip` per
-        # platform; the host extracts it into the plugin's `cli/` working
-        # dir and runs `exec` (`./psychological-operations[.exe]`) from
-        # there. So each zip holds the single CLI binary at its root,
-        # named exactly what `exec` invokes. Copy the binary into the CWD
-        # first so the archiver sees a plain relative path (a bash $HOME
-        # path doesn't survive into PowerShell on the Windows legs).
+      - name: Package zip
+        # The host extracts cli_zip into the plugin's cli/ dir and runs
+        # `exec` (./psychological-operations[.exe]) from there, so the zip
+        # holds the single binary at its root. Copy to CWD first so the
+        # archiver sees a relative path (a bash $HOME path doesn't survive
+        # into PowerShell on the Windows legs).
         shell: bash
         run: |
           cp "$HOME/.psychological-operations/${{ matrix.bin }}" "./${{ matrix.bin }}"
           if [ "$RUNNER_OS" = "Windows" ]; then
-            powershell -Command "Compress-Archive -Path '${{ matrix.bin }}' -DestinationPath '${{ matrix.asset }}' -Force"
+            powershell -Command "Compress-Archive -Path '${{ matrix.bin }}' -DestinationPath '${{ matrix.zip }}' -Force"
           else
-            zip -j "${{ matrix.asset }}" "${{ matrix.bin }}"
+            zip -j "${{ matrix.zip }}" "${{ matrix.bin }}"
           fi
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.asset }}
-          path: ${{ matrix.asset }}
-          if-no-files-found: error
-      - name: Upload asset to release
-        # Each matrix leg appends its single asset to the release the moment
-        # this leg finishes building — so fast platforms aren't gated on the
-        # slowest one. `--clobber` keeps re-runs idempotent.
+      - name: Upload to release
+        # Each leg appends its asset the moment it finishes, so fast platforms
+        # aren't gated on the slowest. `--clobber` keeps re-runs idempotent.
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         shell: bash
-        run: |
-          VERSION="${{ needs.check-version.outputs.version }}"
-          gh release upload "v$VERSION" "${{ matrix.asset }}" \
-            --clobber \
-            --repo "${{ github.repository }}"
+        run: gh release upload "v${{ needs.prepare.outputs.version }}" "${{ matrix.zip }}" --repo "${{ github.repository }}" --clobber
 
   build-viewer:
-    name: Build viewer
-    needs: [check-version, create-release]
-    if: needs.check-version.outputs.should-release == 'true'
+    name: Viewer (psychological-operations-viewer.zip)
+    needs: prepare
+    if: needs.prepare.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -196,17 +133,10 @@ jobs:
           cache: pnpm
           cache-dependency-path: psychological-operations-viewer/pnpm-lock.yaml
       - name: Build viewer bundle
+        # Produces psychological-operations-viewer.zip at the repo root —
+        # the filename objectiveai.json::viewer_zip references.
         run: bash psychological-operations-viewer/build.sh
-      - uses: actions/upload-artifact@v4
-        with:
-          name: psychological-operations-viewer.zip
-          path: psychological-operations-viewer.zip
-          if-no-files-found: error
-      - name: Upload viewer asset to release
+      - name: Upload to release
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          VERSION="${{ needs.check-version.outputs.version }}"
-          gh release upload "v$VERSION" psychological-operations-viewer.zip \
-            --clobber \
-            --repo "${{ github.repository }}"
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "v${{ needs.prepare.outputs.version }}" psychological-operations-viewer.zip --repo "${{ github.repository }}" --clobber

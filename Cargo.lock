@@ -4487,7 +4487,7 @@ dependencies = [
 
 [[package]]
 name = "psychological-operations-cli"
-version = "0.99.0"
+version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -4573,7 +4573,7 @@ dependencies = [
 
 [[package]]
 name = "psychological-operations-x-api-mcp"
-version = "0.99.0"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",

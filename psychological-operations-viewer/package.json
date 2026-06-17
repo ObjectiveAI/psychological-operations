@@ -1,6 +1,6 @@
 {
   "name": "psychological-operations-viewer",
-  "version": "0.99.0",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "description": "Plugin viewer for psychological-operations under the objectiveai host.",

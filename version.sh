@@ -1,164 +1,68 @@
 #!/usr/bin/env bash
-# version.sh — set the version of every psychological-operations package
-# (and inter-package dependency reference) to a single value. Touches the
-# workspace Cargo.toml files, the Chromium extension manifests, and our
-# objectiveai-plugin manifest (`objectiveai.json` at the repo root).
-# Skips Cargo.lock — that regenerates on next build.
 #
-# Usage:
-#   bash version.sh <new-version>
-# Example:
-#   bash version.sh 0.99
-
+# Bump the psychological-operations version everywhere, in sync.
+#
+#   bash version.sh <new-version>      e.g.  bash version.sh 0.2.0
+#
+# Sets one version across the whole project:
+#   - every workspace crate's [package] version (Cargo.toml)
+#   - their Cargo.lock entries
+#   - objectiveai.json                  the plugin manifest (what
+#                                        `plugins install` reads + downloads)
+#   - psychological-operations-viewer/package.json   the viewer bundle
+#
+# The CLI's version is the release source of truth: the release workflow
+# reads it, and the manifest + viewer must match it (the workflow's
+# prepare job fails loudly otherwise). The x-api MCP server reports its
+# version via CARGO_PKG_VERSION, so no code literal needs bumping.
+#
+# Pure sed, no compile. Does NOT commit. Requires GNU sed (git-bash on
+# Windows, or Linux).
 set -euo pipefail
 
-if [ "$#" -ne 1 ] || [ -z "${1:-}" ]; then
-  echo "Usage: $0 <new-version>" >&2
-  echo "Example: $0 0.99" >&2
+new="${1:-}"
+if [[ -z "$new" ]]; then
+  echo "usage: $0 <new-version>" >&2
+  exit 1
+fi
+if [[ ! "$new" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.+][0-9A-Za-z.-]+)?$ ]]; then
+  echo "error: '$new' is not a valid version (expected X.Y.Z)" >&2
   exit 1
 fi
 
-NEW_VERSION="$1"
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$(dirname "$0")"
 
-# ---------------------------------------------------------------------------
-# Primitives
-# ---------------------------------------------------------------------------
-# awk-based so the script is portable between GNU and BSD toolchains
-# (macOS sed's `-i` flag and GNU sed's `0,/pat/` range syntax don't agree).
-
-# Rewrite the first line matching $pat with the literal replacement $repl.
-# If no match is found, the file is left unchanged (no error).
-first_line_replace() {
-  local file="$1"
-  local pat="$2"
-  local repl="$3"
-  local tmp
-  tmp=$(mktemp)
-  awk -v pat="$pat" -v repl="$repl" '
-    !done && $0 ~ pat { print repl; done=1; next }
-    { print }
-  ' "$file" > "$tmp"
-  mv "$tmp" "$file"
-}
-
-# On each line matching $line_pat, replace every occurrence of $token_pat
-# with $token_repl. Other lines pass through unchanged.
-inline_substitute() {
-  local file="$1"
-  local line_pat="$2"
-  local token_pat="$3"
-  local token_repl="$4"
-  local tmp
-  tmp=$(mktemp)
-  awk -v lp="$line_pat" -v tp="$token_pat" -v tr="$token_repl" '
-    $0 ~ lp { gsub(tp, tr) }
-    { print }
-  ' "$file" > "$tmp"
-  mv "$tmp" "$file"
-}
-
-# ---------------------------------------------------------------------------
-# Per-file-type updaters
-# ---------------------------------------------------------------------------
-
-# Cargo.toml [package] version. The first `^version = "..."` line is the
-# package version; third-party dependency version specs never appear at
-# column 0 without a leading `= {`, so this targets the right line.
-set_toml_package_version() {
-  local file="$1"
-  first_line_replace "$file" \
-    '^version = "[^"]+"' \
-    "version = \"$NEW_VERSION\""
-}
-
-# Inter-package Cargo.toml dependency version pins.
-# Matches lines like:
-#   psychological-operations-cli = { path = "...", version = "X.Y.Z", ... }
-# ...and rewrites the `version = "..."` token inside. Anchored on
-# `^psychological-operations` so it never touches `objectiveai = { ... }`
-# or other unrelated deps.
-set_cargo_psyops_deps() {
-  local file="$1"
-  inline_substitute "$file" \
-    '^psychological-operations(-[a-zA-Z0-9_-]+)?[[:space:]]*=' \
-    'version = "[0-9][^"]*"' \
-    "version = \"$NEW_VERSION\""
-}
-
-# Chromium manifest.json `"version": "..."` — first occurrence in the file
-# (manifest layout puts it near the top, right after `"name"`).
-set_manifest_json_version() {
-  local file="$1"
-  first_line_replace "$file" \
-    '^[[:space:]]*"version":[[:space:]]*"[^"]+"' \
-    "  \"version\": \"$NEW_VERSION\","
-}
-
-# package.json `"version": "..."` — top-level field, first occurrence.
-# Assumes the layout pnpm init produces: `"version"` sits on an
-# early line (typically line 3) before any nested `"dependencies"` /
-# `"devDependencies"` object — so first_line_replace's first-hit
-# rewrite targets the top-level field, not a nested dep's version.
-set_package_json_version() {
-  local file="$1"
-  first_line_replace "$file" \
-    '^[[:space:]]+"version":[[:space:]]*"[^"]+"' \
-    "  \"version\": \"$NEW_VERSION\","
-}
-
-# ---------------------------------------------------------------------------
-# File lists
-# ---------------------------------------------------------------------------
-
-CARGO_TOMLS=(
+# Workspace crates (package name + Cargo.toml path).
+CRATES=(
+  psychological-operations-db
+  psychological-operations-sdk
+  psychological-operations-cli
+  psychological-operations-x-api-mcp
+  psychological-operations-browser
+  psychological-operations-tests
+)
+TOMLS=(
+  psychological-operations-db/Cargo.toml
+  psychological-operations-sdk/Cargo.toml
   psychological-operations-cli/Cargo.toml
-  psychological-operations-mcp/Cargo.toml
-  psychological-operations-chromium/crx-pack/Cargo.toml
+  psychological-operations-x-api-mcp/Cargo.toml
+  psychological-operations-browser/src-tauri/Cargo.toml
+  psychological-operations-tests/Cargo.toml
 )
 
-MANIFEST_JSONS=(
-  psychological-operations-chromium-extension-read/manifest.json
-  psychological-operations-chromium-extension-auth/manifest.json
-  objectiveai.json
-)
+# Each crate's [package] version — the first `version = "..."` line (deps
+# carry their version inside `{ ... }`, never at column 0, so this is safe).
+for toml in "${TOMLS[@]}"; do
+  sed -i -E '0,/^version = "[^"]*"/ s//version = "'"$new"'"/' "$toml"
+done
 
-PACKAGE_JSONS=(
-  psychological-operations-viewer/package.json
-)
+# Cargo.lock — the `version` line directly after each crate's name line.
+for name in "${CRATES[@]}"; do
+  sed -i -E '/^name = "'"$name"'"$/{n;s/^version = "[^"]*"/version = "'"$new"'"/}' Cargo.lock
+done
 
-# ---------------------------------------------------------------------------
-# Apply
-# ---------------------------------------------------------------------------
+# Plugin manifest + viewer bundle (top-level "version", first occurrence).
+sed -i -E '0,/"version": "[^"]*"/ s//"version": "'"$new"'"/' objectiveai.json
+sed -i -E '0,/"version": "[^"]*"/ s//"version": "'"$new"'"/' psychological-operations-viewer/package.json
 
-update() {
-  local kind="$1"
-  local rel="$2"
-  local file="$REPO_ROOT/$rel"
-  if [ ! -f "$file" ]; then
-    echo "  skip      $rel (not found)"
-    return
-  fi
-  echo "  $kind  $rel"
-  case "$kind" in
-    cargo)
-      set_toml_package_version "$file"
-      set_cargo_psyops_deps "$file"
-      ;;
-    manifest)
-      set_manifest_json_version "$file"
-      ;;
-    package)
-      set_package_json_version "$file"
-      ;;
-  esac
-}
-
-echo "Setting version to $NEW_VERSION"
-
-for rel in "${CARGO_TOMLS[@]}";    do update cargo    "$rel"; done
-for rel in "${MANIFEST_JSONS[@]}"; do update manifest "$rel"; done
-for rel in "${PACKAGE_JSONS[@]}";  do update package  "$rel"; done
-
-echo
-echo "Done. Cargo.lock will refresh on next build."
+echo "Bumped to $new across all crates + Cargo.lock + objectiveai.json + viewer package.json"
