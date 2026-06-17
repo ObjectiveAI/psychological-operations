@@ -1,16 +1,15 @@
 #!/usr/bin/env bash
 # build.sh — isolated build script; run it directly (`bash build.sh`). It
-# builds the three psychological-operations artifacts and packages them into
-# the two RELEASE-NAMED zips at the repo root:
+# builds the three psychological-operations artifacts, packages them into the
+# two RELEASE-NAMED zips, and lays them out as a plugin tree under
+#   .objectiveai/bin/plugins/ObjectiveAI/psychological-operations/<version>/
+# with the zips plus their extracted contents:
 #
-#   psychological-operations-<os>-<arch>.zip   the cli_zip — the CLI binary
-#                                              + the browser CEF bundle, flat
-#                                              (what the host extracts into
-#                                              <plugin>/cli and points
-#                                              OBJECTIVEAI_BIN_DIR at)
-#   psychological-operations-viewer.zip        the viewer web bundle
+#   psychological-operations-<os>-<arch>.zip  + cli/      cli_zip (CLI binary
+#                                                         + browser CEF bundle)
+#   psychological-operations-viewer.zip       + viewer/   the viewer web bundle
 #
-# These are the same filenames the GitHub release uploads. Debug by default;
+# The zip filenames match the GitHub release assets. Debug by default;
 # pass --release for a release build (applies to the cargo + browser-bundle
 # builds; the viewer's vite build is unconditional).
 #
@@ -133,11 +132,15 @@ esac
 BUNDLE_ZIP="$REPO_ROOT/psychological-operations-browser/embed/$TARGET/$PROFILE/browser-bundle.zip"
 [ -f "$BUNDLE_ZIP" ] || { echo "browser bundle not found: $BUNDLE_ZIP" >&2; wait "$viewer_pid" 2>/dev/null || true; exit 1; }
 
-# ── cli_zip = the browser bundle + the CLI binary, flat at the root ──
-# The browser bundle zip is already flat (CEF runtime + browser exe); copy
-# it under the release cli_zip name and append the CLI binary — no
+# ── destination: the plugin tree under .objectiveai ──────────────────
+VERSION="0.1.0"  # kept in sync by version.sh
+PLUGIN_DIR="$REPO_ROOT/.objectiveai/bin/plugins/ObjectiveAI/psychological-operations/$VERSION"
+CLI_ZIP="$PLUGIN_DIR/psychological-operations-$PLATFORM-$ARCH.zip"
+VIEWER_ZIP="$PLUGIN_DIR/psychological-operations-viewer.zip"
+mkdir -p "$PLUGIN_DIR"
+
+# cli_zip = the browser bundle (flat) + the CLI binary appended — no
 # unzip/rezip of the ~190 MB runtime.
-CLI_ZIP="$REPO_ROOT/psychological-operations-$PLATFORM-$ARCH.zip"
 CLI_BIN="$REPO_ROOT/target/$PROFILE/psychological-operations$EXE"
 [ -f "$CLI_BIN" ] || { echo "CLI binary not found: $CLI_BIN" >&2; wait "$viewer_pid" 2>/dev/null || true; exit 1; }
 rm -f "$CLI_ZIP"
@@ -151,14 +154,27 @@ case "$PLATFORM" in
     zip -j "$CLI_ZIP" "$CLI_BIN"
     ;;
 esac
-echo "==> wrote $(basename "$CLI_ZIP")"
 
-# ── wait for the viewer zip ──────────────────────────────────────────
+# viewer_zip: the viewer build emitted it at the repo root — move it in.
 viewer_rc=0; wait "$viewer_pid" || viewer_rc=$?
-if [ "$viewer_rc" -ne 0 ]; then
-  echo "build.sh FAILED (viewer=$viewer_rc)" >&2
-  exit 1
-fi
-echo "==> wrote psychological-operations-viewer.zip"
+[ "$viewer_rc" -eq 0 ] || { echo "build.sh FAILED (viewer=$viewer_rc)" >&2; exit 1; }
+mv -f "$REPO_ROOT/psychological-operations-viewer.zip" "$VIEWER_ZIP"
 
-echo "==> done ($PROFILE) -> psychological-operations-$PLATFORM-$ARCH.zip + psychological-operations-viewer.zip"
+# Embed each zip into its folder (wipe cli/ + viewer/ recursively first).
+rm -rf "$PLUGIN_DIR/cli" "$PLUGIN_DIR/viewer"
+mkdir -p "$PLUGIN_DIR/cli" "$PLUGIN_DIR/viewer"
+case "$PLATFORM" in
+  windows)
+    powershell.exe -NoProfile -Command \
+      "Expand-Archive -Force -LiteralPath '$(cygpath -w "$CLI_ZIP")' -DestinationPath '$(cygpath -w "$PLUGIN_DIR/cli")'"
+    powershell.exe -NoProfile -Command \
+      "Expand-Archive -Force -LiteralPath '$(cygpath -w "$VIEWER_ZIP")' -DestinationPath '$(cygpath -w "$PLUGIN_DIR/viewer")'"
+    ;;
+  *)
+    unzip -o -q "$CLI_ZIP" -d "$PLUGIN_DIR/cli"
+    unzip -o -q "$VIEWER_ZIP" -d "$PLUGIN_DIR/viewer"
+    ;;
+esac
+
+echo "==> done ($PROFILE) -> $PLUGIN_DIR"
+echo "      psychological-operations-$PLATFORM-$ARCH.zip + psychological-operations-viewer.zip (+ cli/ + viewer/)"

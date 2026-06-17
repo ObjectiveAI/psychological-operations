@@ -10,6 +10,8 @@
 #   - objectiveai.json                  the plugin manifest (what
 #                                        `plugins install` reads + downloads)
 #   - psychological-operations-viewer/package.json   the viewer bundle
+#   - build.sh                          the hard-coded plugin version it
+#                                        builds the .objectiveai tree under
 #
 # The CLI's version is the release source of truth: the release workflow
 # reads it, and the manifest + viewer must match it (the workflow's
@@ -65,4 +67,8 @@ done
 sed -i -E '0,/"version": "[^"]*"/ s//"version": "'"$new"'"/' objectiveai.json
 sed -i -E '0,/"version": "[^"]*"/ s//"version": "'"$new"'"/' psychological-operations-viewer/package.json
 
-echo "Bumped to $new across all crates + Cargo.lock + objectiveai.json + viewer package.json"
+# build.sh's hard-coded plugin version (the `VERSION="..."` line; anchored at
+# column 0 so it won't touch NINJA_VERSION).
+sed -i -E 's/^VERSION="[^"]*"/VERSION="'"$new"'"/' build.sh
+
+echo "Bumped to $new across all crates + Cargo.lock + objectiveai.json + viewer package.json + build.sh"
