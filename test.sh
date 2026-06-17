@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # test.sh — full integration-test cycle for psychological-operations-tests:
 #
-#   0. build.sh provisioning       — ensure ./bin tools (ninja, cargo-nextest)
+#   0. install-bin.sh              — ensure ./bin tools (ninja, cargo-nextest)
 #   1. test-prepare.sh             — fetch objectiveai + build the plugin
 #   2. test-cleanup.sh             — clean slate (kill servers + wipe state)
 #   3. cargo-nextest run           — the whole psychological-operations-tests crate
@@ -14,13 +14,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Build tools live in ./bin (NOT the host): ninja for the CEF browser
-# bundle that test-prepare builds, cargo-nextest to run the suite. The
-# provisioning lives in build.sh now (install-bin.sh is gone); source it to
-# reuse the helpers (provision_ninja / provision_cargo_nextest) without
-# triggering a build.
-source "$SCRIPT_DIR/build.sh"
-provision_ninja
-provision_cargo_nextest
+# bundle that test-prepare builds, cargo-nextest to run the suite.
+bash "$SCRIPT_DIR/install-bin.sh"
 export PATH="$SCRIPT_DIR/bin:$PATH"
 
 # Reap any processes leaked by a PRIOR run first — a lingering plugin MCP
