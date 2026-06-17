@@ -1,9 +1,9 @@
 *.exe
 *.zip
 node_modules/
-# Repo-local build tools installed by install-bin.sh (ninja, ...).
+# Repo-local build tools provisioned by build.sh (ninja, ...).
 /bin/
-# `cargo install --root` (cargo-nextest, in install-bin.sh) drops these
+# `cargo install --root` (cargo-nextest, in build.sh) drops these
 # install-manifest files at the repo root alongside ./bin.
 /.crates.toml
 /.crates2.json
