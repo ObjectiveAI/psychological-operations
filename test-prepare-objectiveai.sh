@@ -18,7 +18,7 @@
 set -euo pipefail
 
 # --- the pinned version ----------------------------------------------------
-OBJECTIVEAI_VERSION="2.2.2"
+OBJECTIVEAI_VERSION="2.2.3"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BIN_DIR="$SCRIPT_DIR/.objectiveai/bin"
