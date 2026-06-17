@@ -9,8 +9,9 @@
 #
 # DEBUG (not release) so it compiles fast. The CLI embeds the browser, so
 # the browser bundle is staged first (the CLI's build.rs requires it at
-# embed/<host-triple>/debug/). The viewer build (pnpm) runs IN PARALLEL
-# with the browser+CLI build, since it's independent.
+# embed/<host-triple>/debug/). The viewer (build.sh -> zip -> unpack into
+# viewer/) runs IN PARALLEL with the browser+CLI build, since it's
+# independent.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -32,17 +33,32 @@ clean_keep_gitignore() {
 }
 
 # --- viewer (parallel) -----------------------------------------------------
+# Build the release viewer zip via the SAME build.sh CI/release uses
+# (pnpm install + pnpm build + scripts/zip.mjs -> repo-root
+# psychological-operations-viewer.zip), then UNPACK it into viewer/ —
+# mirroring how the objectiveai host installs the manifest's `viewer_zip`
+# (download + extract into <plugin>/viewer/). Exercises the real packaging
+# path rather than a dist/ shortcut, so a broken zip surfaces here.
 build_viewer() {
-  echo "build: viewer (pnpm install + build)"
-  (
-    cd "$SCRIPT_DIR/psychological-operations-viewer"
-    pnpm install --frozen-lockfile
-    pnpm build
-  )
+  echo "build: viewer (build.sh -> zip, then unpack)"
+  bash "$SCRIPT_DIR/psychological-operations-viewer/build.sh"
+  local zip="$SCRIPT_DIR/psychological-operations-viewer.zip"
+  [ -f "$zip" ] || { echo "build: viewer zip missing at $zip" >&2; return 1; }
   clean_keep_gitignore "$VIEWER_DIR"
-  # Copy dist/ CONTENTS (index.html + assets) into viewer/ — no dist/ prefix.
-  cp -R "$SCRIPT_DIR/psychological-operations-viewer/dist/." "$VIEWER_DIR/"
-  echo "build: viewer -> $VIEWER_DIR"
+  # Unpack the zip (root = index.html + assets, no dist/ prefix) into
+  # viewer/. git-bash ships no `unzip`, so the Windows leg uses
+  # PowerShell's Expand-Archive (cygpath converts to Windows paths).
+  case "$TARGET" in
+    *windows*)
+      powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \
+        "Expand-Archive -Force -LiteralPath '$(cygpath -w "$zip")' -DestinationPath '$(cygpath -w "$VIEWER_DIR")'"
+      ;;
+    *)
+      unzip -o -q "$zip" -d "$VIEWER_DIR"
+      ;;
+  esac
+  rm -f "$zip"
+  echo "build: viewer -> $VIEWER_DIR (unpacked from zip)"
 }
 build_viewer &
 viewer_pid=$!
@@ -71,11 +87,12 @@ echo "build: CLI -> $CLI_DIR/psychological-operations${ext}"
 
 # --- wait for the parallel viewer build -----------------------------------
 # Non-fatal: the integration suite is the Rust crate, which never exercises
-# the viewer UI. A viewer build failure (e.g. an @objectiveai/sdk API drift)
-# must NOT block the tests — warn loudly and carry on with an unpopulated
-# viewer/ (the plugin's manifest declares no viewer for the test build).
+# the viewer UI. A viewer build failure must NOT block the tests — warn
+# loudly and carry on with an empty viewer/. The staged manifest still
+# declares the viewer (viewer_zip + viewer_routes); that only matters if
+# someone opens the viewer tab, which the Rust tests never do.
 if ! wait "$viewer_pid"; then
-  echo "build: WARNING — viewer build FAILED; continuing without a viewer bundle" >&2
+  echo "build: WARNING — viewer build FAILED; continuing with an empty viewer/" >&2
 fi
 
 echo "build: done"
