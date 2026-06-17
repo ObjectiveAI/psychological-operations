@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 import cn from "classnames";
-import { invokeCli } from "@objectiveai/sdk/viewer";
+import { runCli } from "./cli";
 import { usePsyops } from "./hooks/usePsyops";
 import { LoadingEllipsis } from "./components/LoadingEllipsis";
 import { PsyopTile } from "./components/PsyopTile";
@@ -8,10 +8,10 @@ import { PsyopTile } from "./components/PsyopTile";
 export function App() {
   const state = usePsyops();
 
-  // One run at a time, globally. The viewer SDK's `invokeCli` has no
-  // per-invocation demux — concurrent runs would interleave their
-  // iterator streams and each could terminate on someone else's
-  // {"type":"end"} marker. See viewer/index.ts:142-146.
+  // One run at a time, globally. The viewer→host cli transport has no
+  // per-invocation demux — concurrent runs would interleave their output
+  // streams (no per-call sub_type on cli_command events) and each could
+  // terminate on another's end marker.
   const [runningPsyop, setRunningPsyop] = useState<string | null>(null);
   const [outputs, setOutputs] = useState<Record<string, string[]>>({});
 
@@ -23,7 +23,7 @@ export function App() {
 
       void (async () => {
         try {
-          const iter = invokeCli(["psyops", "run", "--name", name]);
+          const iter = runCli(["psyops", "run", "--name", name]);
           for await (const line of iter) {
             // ONE setState per yielded line so React renders
             // between awaits — that's what surfaces lines "as

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { invokeCli, listen } from "@objectiveai/sdk/viewer";
+import { listen } from "@objectiveai/sdk/viewer";
+import { runCli } from "../cli";
 import type {
   Psyop,
   PsyopEntry,
@@ -64,10 +65,9 @@ export function usePsyops(): UsePsyopsState {
         const entries = await fetchList();
         if (genRef.current !== gen) return;
 
-        // SEQUENTIAL — not concurrent. `@objectiveai/sdk/viewer`'s
-        // `invokeCli` has no per-invocation demux; firing two in
-        // parallel produces interleaved streams the iterators
-        // can't separate. See viewer/index.ts:142-146.
+        // SEQUENTIAL — not concurrent. The viewer→host cli transport has
+        // no per-invocation demux; firing two in parallel produces
+        // interleaved streams the iterators can't separate.
         const full: PsyopWithDefinition[] = [];
         for (const entry of entries) {
           if (genRef.current !== gen) return;
@@ -143,14 +143,14 @@ export function usePsyops(): UsePsyopsState {
 
 async function fetchList(): Promise<PsyopEntry[]> {
   return await extractNotificationValue<PsyopEntry[]>(
-    invokeCli(["psyops", "list"]),
+    runCli(["psyops", "list"]),
     "psyops list",
   );
 }
 
 async function fetchPsyop(name: string): Promise<Psyop> {
   return await extractNotificationValue<Psyop>(
-    invokeCli(["psyops", "get", name]),
+    runCli(["psyops", "get", name]),
     `psyops get ${name}`,
   );
 }
