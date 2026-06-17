@@ -27,7 +27,7 @@ use psychological_operations_sdk::browser::reset;
 use psychological_operations_sdk::browser::x_app_credentials::{OAuthPopup, PostCreateDialog};
 use psychological_operations_sdk::cli::Output as CliOutput;
 
-use crate::browser::{extract::ensure_extracted, launch, stream};
+use crate::browser::{browser_binary, launch, stream};
 use crate::error::Error;
 
 pub async fn run(dangerously_reset: bool, ctx: &crate::context::Context) -> bool {
@@ -68,9 +68,8 @@ async fn run_inner(
     }
 
     // === Spawn browser in XApp mode ===
-    let materialized = ensure_extracted(&ctx.config)?;
     let mut child = launch::spawn(
-        &materialized.binary,
+        &browser_binary(&ctx.config),
         &state_dir,
         launch::Mode::XApp,
         /* pipe_stdin  = */ true,

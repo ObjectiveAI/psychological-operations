@@ -7,9 +7,10 @@
 #     viewer/   <- the viewer web bundle (objectiveai-viewer-compatible:
 #                  index.html + assets, served via plugin://)
 #
-# DEBUG (not release) so it compiles fast. The CLI embeds the browser, so
-# the browser bundle is staged first (the CLI's build.rs requires it at
-# embed/<host-triple>/debug/). The viewer (build.sh -> zip -> unpack into
+# DEBUG (not release) so it compiles fast. The browser bundle (CEF
+# runtime + browser exe) is built then unpacked into cli/ ALONGSIDE the
+# CLI binary — the CLI runs the browser straight from OBJECTIVEAI_BIN_DIR
+# (= cli/) now, no embedding. The viewer (build.sh -> zip -> unpack into
 # viewer/) runs IN PARALLEL with the browser+CLI build, since it's
 # independent.
 set -euo pipefail
@@ -84,6 +85,23 @@ CLI_BIN="$SCRIPT_DIR/target/debug/psychological-operations${ext}"
 clean_keep_gitignore "$CLI_DIR"
 cp "$CLI_BIN" "$CLI_DIR/psychological-operations${ext}"
 echo "build: CLI -> $CLI_DIR/psychological-operations${ext}"
+
+# Stage the browser bundle (CEF runtime + browser exe) into cli/ next to
+# the CLI — the CLI now runs the browser straight from OBJECTIVEAI_BIN_DIR
+# (= cli/), no embedding/extraction. Mirrors the host unpacking the
+# release zip. build-bundle.{ps1,sh} above produced browser-bundle.zip.
+BUNDLE_ZIP="$SCRIPT_DIR/psychological-operations-browser/embed/$TARGET/debug/browser-bundle.zip"
+[ -f "$BUNDLE_ZIP" ] || { echo "build: browser bundle missing at $BUNDLE_ZIP" >&2; exit 1; }
+case "$TARGET" in
+  *windows*)
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \
+      "Expand-Archive -Force -LiteralPath '$(cygpath -w "$BUNDLE_ZIP")' -DestinationPath '$(cygpath -w "$CLI_DIR")'"
+    ;;
+  *)
+    unzip -o -q "$BUNDLE_ZIP" -d "$CLI_DIR"
+    ;;
+esac
+echo "build: browser bundle -> $CLI_DIR"
 
 # --- wait for the parallel viewer build -----------------------------------
 # Non-fatal: the integration suite is the Rust crate, which never exercises

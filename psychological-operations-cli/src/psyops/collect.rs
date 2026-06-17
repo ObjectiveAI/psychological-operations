@@ -15,7 +15,7 @@ use std::io::{BufRead, BufReader};
 
 use psychological_operations_sdk::browser::output::Output as BrowserOutput;
 
-use crate::browser::{extract::ensure_extracted, launch};
+use crate::browser::{browser_binary, launch};
 use crate::db::Db;
 use crate::error::Error;
 
@@ -28,16 +28,15 @@ pub(crate) async fn collect_for_you(
     name: &str,
     ctx: &crate::context::Context,
 ) -> Result<(), Error> {
-    let materialized = ensure_extracted(&ctx.config)?;
     let state_dir = ctx.config.state_dir();
 
     crate::output::OutputResult::from(crate::events::Event::BrowseBrowserMaterialized {
-        path: materialized.root.display().to_string(),
+        path: ctx.config.bin_dir().display().to_string(),
     })
     .emit();
 
     let mut child = launch::spawn(
-        &materialized.binary,
+        &browser_binary(&ctx.config),
         &state_dir,
         launch::Mode::PsyopRead {
             name: name.to_string(),

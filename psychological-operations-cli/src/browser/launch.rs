@@ -1,6 +1,6 @@
-//! Spawn the extracted psychological-operations-browser binary in
-//! a given mode. Caller has already resolved the mode (and any
-//! psyop/agent name) and called [`super::extract::ensure_extracted`].
+//! Spawn the psychological-operations-browser binary (from the plugin's
+//! `OBJECTIVEAI_BIN_DIR`, via [`super::browser_binary`]) in a given mode.
+//! Caller has already resolved the mode (and any psyop/agent name).
 
 use std::path::Path;
 use std::process::{Child, Command, Stdio};

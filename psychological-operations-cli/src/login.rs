@@ -32,7 +32,7 @@ use psychological_operations_sdk::browser::reset;
 use psychological_operations_sdk::browser::x_app_credentials::{OAuthPopup, PostCreateDialog};
 use psychological_operations_sdk::cli::Output as CliOutput;
 
-use crate::browser::{extract::ensure_extracted, launch, stream};
+use crate::browser::{browser_binary, launch, stream};
 use crate::error::Error;
 
 pub async fn run(
@@ -91,7 +91,6 @@ async fn run_inner(
     }
 
     // === Spawn browser in <kind>Authorize mode ===
-    let materialized = ensure_extracted(&ctx.config)?;
     let launch_mode = match kind {
         PersonaKind::Psyop => launch::Mode::PsyopAuthorize {
             name: name.to_string(),
@@ -109,7 +108,7 @@ async fn run_inner(
     // the terminator lands; stdout so we can watch for
     // `AuthorizeSucceeded` / `AuthorizeFailed`.
     let mut child = launch::spawn(
-        &materialized.binary,
+        &browser_binary(&ctx.config),
         &state_dir,
         launch_mode,
         /* pipe_stdin  = */ true,

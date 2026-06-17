@@ -68,9 +68,10 @@ jobs:
       fail-fast: false
       matrix:
         # The six platforms enumerated by objectiveai.json::cli_zip
-        # (3 OS × 2 arch). NATIVE runners + install.sh, NOT cross-compile:
-        # the CLI embeds a per-platform CEF browser bundle at build time, so
-        # each target must build on its own OS + arch.
+        # (3 OS × 2 arch). NATIVE runners, NOT cross-compile: each zip
+        # bundles the platform's CEF browser runtime (built per-OS by
+        # build-bundle.{ps1,sh}), so each target must build on its own
+        # OS + arch.
         include:
           - { runner: ubuntu-22.04,     zip: psychological-operations-linux-x86_64.zip,    bin: psychological-operations }
           - { runner: ubuntu-22.04-arm, zip: psychological-operations-linux-aarch64.zip,   bin: psychological-operations }
@@ -84,30 +85,40 @@ jobs:
         with:
           submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
-      - name: Build CLI (embeds the CEF browser bundle)
-        shell: bash
-        run: bash psychological-operations-cli/install.sh
-      - name: Dump build logs on failure
-        if: failure()
-        shell: bash
-        run: |
-          shopt -s nullglob
-          for log in .logs/build/*.txt; do
-            echo "::group::$log"; cat "$log"; echo "::endgroup::"
-          done
-      - name: Package zip
-        # The host extracts cli_zip into the plugin's cli/ dir and runs
-        # `exec` (./psychological-operations[.exe]) from there, so the zip
-        # holds the single binary at its root. Copy to CWD first so the
-        # archiver sees a relative path (a bash $HOME path doesn't survive
-        # into PowerShell on the Windows legs).
+      - name: Build browser bundle (CEF runtime + browser exe)
+        # Produces psychological-operations-browser/embed/<triple>/release/
+        # browser-bundle.zip (CEF runtime + browser exe, flat). The CLI no
+        # longer embeds it — it ships beside the CLI in the release zip and
+        # the host runs it from OBJECTIVEAI_BIN_DIR.
         shell: bash
         run: |
-          cp "$HOME/.psychological-operations/${{ matrix.bin }}" "./${{ matrix.bin }}"
+          set -euo pipefail
+          case "$RUNNER_OS" in
+            Windows) powershell -NoProfile -ExecutionPolicy Bypass -File psychological-operations-browser/scripts/build-bundle.ps1 -Release ;;
+            *)       bash psychological-operations-browser/scripts/build-bundle.sh --release ;;
+          esac
+      - name: Build CLI (release)
+        shell: bash
+        run: cargo build --release -p psychological-operations-cli
+      - name: Package zip (CLI + browser bundle)
+        # The host extracts this zip into the plugin's cli/ dir and points
+        # OBJECTIVEAI_BIN_DIR at it; the CLI runs the browser straight from
+        # there. So the zip holds the CLI binary + the CEF bundle contents,
+        # flat at the zip root.
+        shell: bash
+        run: |
+          set -euo pipefail
+          TARGET="$(rustc -vV | sed -n 's/^host: //p')"
+          BUNDLE="psychological-operations-browser/embed/$TARGET/release/browser-bundle.zip"
+          [ -f "$BUNDLE" ] || { echo "missing browser bundle: $BUNDLE" >&2; exit 1; }
+          rm -rf stage && mkdir -p stage
+          cp "target/release/${{ matrix.bin }}" "stage/${{ matrix.bin }}"
           if [ "$RUNNER_OS" = "Windows" ]; then
-            powershell -Command "Compress-Archive -Path '${{ matrix.bin }}' -DestinationPath '${{ matrix.zip }}' -Force"
+            powershell -NoProfile -Command "Expand-Archive -Force -LiteralPath '$(cygpath -w "$PWD/$BUNDLE")' -DestinationPath '$(cygpath -w "$PWD/stage")'"
+            powershell -NoProfile -Command "Compress-Archive -Path 'stage/*' -DestinationPath '${{ matrix.zip }}' -Force"
           else
-            zip -j "${{ matrix.zip }}" "${{ matrix.bin }}"
+            unzip -o -q "$BUNDLE" -d stage
+            ( cd stage && zip -qr "../${{ matrix.zip }}" . )
           fi
       - name: Upload to release
         # Each leg appends its asset the moment it finishes, so fast platforms

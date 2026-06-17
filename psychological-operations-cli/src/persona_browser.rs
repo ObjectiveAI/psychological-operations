@@ -15,7 +15,7 @@
 use psychological_operations_sdk::browser::auth_json::PersonaKind;
 use psychological_operations_sdk::cli::Output;
 
-use crate::browser::{extract::ensure_extracted, launch};
+use crate::browser::{browser_binary, launch};
 use crate::error::Error;
 
 pub async fn run(kind: PersonaKind, name: &str, ctx: &crate::context::Context) -> bool {
@@ -35,7 +35,6 @@ async fn run_inner(
         ));
     }
 
-    let materialized = ensure_extracted(&ctx.config)?;
     let state_dir = ctx.config.state_dir();
     let launch_mode = match kind {
         PersonaKind::Psyop => launch::Mode::PsyopBrowser {
@@ -53,7 +52,7 @@ async fn run_inner(
     // Inherit stdin/stdout — no terminator stream, no shutdown
     // request, the operator closes the window when done.
     let mut child = launch::spawn(
-        &materialized.binary,
+        &browser_binary(&ctx.config),
         &state_dir,
         launch_mode,
         /* pipe_stdin  = */ false,

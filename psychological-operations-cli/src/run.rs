@@ -8,12 +8,17 @@ use envconfig::Envconfig;
 
 #[derive(Envconfig)]
 struct EnvConfigBuilder {
-    /// Root of the remaining filesystem state — the CEF/Chromium
-    /// profile tree + browser cache + host-protocol exec-tmp live under
-    /// it. Everything else is in postgres now. Required; unwrapped at
-    /// `build()` (we panic if absent).
+    /// Root of the remaining filesystem state — the CEF/Chromium profile
+    /// tree + host-protocol exec-tmp live under it. Everything else is in
+    /// postgres now. Required; unwrapped at `build()` (we panic if absent).
     #[envconfig(from = "OBJECTIVEAI_STATE_DIR")]
     state_dir: Option<String>,
+    /// Dir holding the plugin's binaries — the CLI plus the
+    /// psychological-operations-browser exe + its CEF runtime, all
+    /// extracted from the release zip by the host into `<plugin>/cli/`.
+    /// The host stamps it on every spawn. Required; unwrapped at `build()`.
+    #[envconfig(from = "OBJECTIVEAI_BIN_DIR")]
+    bin_dir: Option<String>,
     /// Postgres connection URL — the single persistence layer.
     /// Required; unwrapped at `build()`.
     #[envconfig(from = "OBJECTIVEAI_POSTGRES_URL")]
@@ -36,6 +41,7 @@ impl EnvConfigBuilder {
     pub fn build(self) -> ConfigBuilder {
         ConfigBuilder {
             state_dir: self.state_dir,
+            bin_dir: self.bin_dir,
             postgres_url: self.postgres_url,
             objectiveai_agent_id: self.objectiveai_agent_id,
             objectiveai_agent_full_id: self.objectiveai_agent_full_id,
@@ -57,6 +63,7 @@ fn parse_bool(s: &str) -> bool {
 #[derive(Default)]
 pub struct ConfigBuilder {
     pub state_dir: Option<String>,
+    pub bin_dir: Option<String>,
     pub postgres_url: Option<String>,
     pub objectiveai_agent_id: Option<String>,
     pub objectiveai_agent_full_id: Option<String>,
@@ -91,6 +98,10 @@ impl ConfigBuilder {
                 self.state_dir
                     .expect("OBJECTIVEAI_STATE_DIR must be set (the state root)"),
             ),
+            bin_dir: PathBuf::from(
+                self.bin_dir
+                    .expect("OBJECTIVEAI_BIN_DIR must be set (the plugin binaries dir)"),
+            ),
             postgres_url: self
                 .postgres_url
                 .expect("OBJECTIVEAI_POSTGRES_URL must be set"),
@@ -108,11 +119,18 @@ impl ConfigBuilder {
 #[derive(Debug, Clone, Default)]
 pub struct Config {
     /// Root of the remaining filesystem state (env
-    /// `OBJECTIVEAI_STATE_DIR`). Only the CEF/Chromium profile tree, the
-    /// extracted browser bundle cache, and the host-protocol `exec-tmp`
-    /// live under it now — all other state moved to postgres. Assumed to
-    /// already exist. Required (panics if unset).
+    /// `OBJECTIVEAI_STATE_DIR`). Only the CEF/Chromium profile tree and
+    /// the host-protocol `exec-tmp` live under it now — all other state
+    /// moved to postgres. Assumed to already exist. Required (panics if
+    /// unset).
     pub state_dir: PathBuf,
+    /// Dir holding the plugin's binaries (env `OBJECTIVEAI_BIN_DIR`, set
+    /// by the host on every spawn): the CLI plus the
+    /// psychological-operations-browser exe + its CEF runtime, extracted
+    /// from the release zip into `<plugin>/cli/`. The browser is spawned
+    /// straight from here — no embedding, no extraction. Required (panics
+    /// if unset).
+    pub bin_dir: PathBuf,
     /// Postgres connection URL (env `OBJECTIVEAI_POSTGRES_URL`) — the
     /// single persistence layer. Required.
     pub postgres_url: String,
@@ -147,6 +165,12 @@ impl Config {
     /// live directly under it; assumed to already exist.
     pub fn state_dir(&self) -> PathBuf {
         self.state_dir.clone()
+    }
+
+    /// The plugin binaries dir (env `OBJECTIVEAI_BIN_DIR`) — holds the
+    /// CLI + the browser exe + its CEF runtime.
+    pub fn bin_dir(&self) -> PathBuf {
+        self.bin_dir.clone()
     }
 }
 
