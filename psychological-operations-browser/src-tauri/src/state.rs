@@ -26,8 +26,8 @@
 
 use std::sync::{Mutex, OnceLock};
 
-use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine;
 use psychological_operations_db::Db;
 use psychological_operations_sdk::browser::mode::{self, Mode};
 use psychological_operations_sdk::browser::output::{Output, SignedInInfo};
@@ -125,10 +125,7 @@ fn panel_slot() -> &'static Mutex<Option<PanelState>> {
 /// Snapshot of the current derived panel state. `None` before any
 /// setter has fired (i.e. fresh process, no facts yet).
 pub fn current_panel() -> Option<PanelState> {
-    panel_slot()
-        .lock()
-        .expect("panel slot poisoned")
-        .clone()
+    panel_slot().lock().expect("panel slot poisoned").clone()
 }
 
 /// Snapshot of the current X user-id (parsed from the `twid`
@@ -182,10 +179,7 @@ pub fn set_current_url(handle: &AppHandle<Wry>, url: String) {
 /// `Some(0)` collapses back into the create-app flow,
 /// `Some(_)` triggers `ClickProductionApp`,
 /// `None` keeps the panel quiet until the overlay reports.
-pub fn set_production_app_count(
-    handle: &AppHandle<Wry>,
-    count: Option<u32>,
-) {
+pub fn set_production_app_count(handle: &AppHandle<Wry>, count: Option<u32>) {
     {
         let mut facts = facts_slot().lock().expect("facts slot poisoned");
         if facts.production_app_count == count {
@@ -289,7 +283,7 @@ pub async fn apply_cookie_facts(
                 match (auth_token.as_ref(), conflict_psyop.as_deref()) {
                     (Some(_), Some(name)) => handle
                         .state::<Db>()
-                        .auth_find_other_owner("psyop", uid, name)
+                        .persona_twid_find_other_owner("psyop", uid, name)
                         .await
                         .ok()
                         .flatten(),
@@ -310,7 +304,11 @@ pub async fn apply_cookie_facts(
         facts.credentials_complete = creds_complete;
         facts.oauth_client_complete = oauth_complete;
         facts.twid_conflict = twid_conflict;
-        if token_changed { Some(auth_token) } else { None }
+        if token_changed {
+            Some(auth_token)
+        } else {
+            None
+        }
     };
 
     if let Some(new_token) = token_changed_to {
@@ -513,17 +511,12 @@ pub fn derive(facts: &Facts) -> PanelState {
             } else if let Some(other) = &facts.twid_conflict {
                 PanelState::Show {
                     condition: PanelCondition::PsyopAccountInUse,
-                    message: format!(
-                        "Sign out. This account is already in use by PsyOp {other}."
-                    ),
+                    message: format!("Sign out. This account is already in use by PsyOp {other}."),
                 }
             } else {
                 PanelState::Show {
                     condition: PanelCondition::TweetsRead,
-                    message: format!(
-                        "Tweets read: {}",
-                        facts.tweets_read_count.unwrap_or(0)
-                    ),
+                    message: format!("Tweets read: {}", facts.tweets_read_count.unwrap_or(0)),
                 }
             }
         }
@@ -542,9 +535,7 @@ pub fn derive(facts: &Facts) -> PanelState {
             } else if let Some(other) = &facts.twid_conflict {
                 PanelState::Show {
                     condition: PanelCondition::PsyopAccountInUse,
-                    message: format!(
-                        "Sign out. This account is already in use by PsyOp {other}."
-                    ),
+                    message: format!("Sign out. This account is already in use by PsyOp {other}."),
                 }
             } else {
                 PanelState::Hidden
@@ -591,9 +582,10 @@ pub fn derive(facts: &Facts) -> PanelState {
 /// x.com proper if the user wanders there.
 fn is_onboarding(url: Option<&str>) -> bool {
     let Some(url) = url else { return false };
-    let Ok(parsed) = Url::parse(url) else { return false };
-    parsed.host_str() == Some("console.x.com")
-        && parsed.path().starts_with("/onboarding")
+    let Ok(parsed) = Url::parse(url) else {
+        return false;
+    };
+    parsed.host_str() == Some("console.x.com") && parsed.path().starts_with("/onboarding")
 }
 
 /// True when `url` is on the X-App developer-console "Apps" tab
@@ -601,7 +593,9 @@ fn is_onboarding(url: Option<&str>) -> bool {
 /// app page (`/accounts/<id>/apps/<app-id>[/...]`).
 fn is_apps_tab(url: Option<&str>) -> bool {
     let Some(url) = url else { return false };
-    let Ok(parsed) = Url::parse(url) else { return false };
+    let Ok(parsed) = Url::parse(url) else {
+        return false;
+    };
     if parsed.host_str() != Some("console.x.com") {
         return false;
     }
@@ -609,7 +603,9 @@ fn is_apps_tab(url: Option<&str>) -> bool {
     let path = parsed.path();
     let mut segs = path.split('/').filter(|s| !s.is_empty());
     matches!(segs.next(), Some("accounts"))
-        && segs.next().is_some_and(|s| s.chars().all(|c| c.is_ascii_digit()))
+        && segs
+            .next()
+            .is_some_and(|s| s.chars().all(|c| c.is_ascii_digit()))
         && matches!(segs.next(), Some("apps"))
 }
 
@@ -621,13 +617,17 @@ fn is_apps_tab(url: Option<&str>) -> bool {
 /// viewed.
 fn is_apps_list(url: Option<&str>) -> bool {
     let Some(url) = url else { return false };
-    let Ok(parsed) = Url::parse(url) else { return false };
+    let Ok(parsed) = Url::parse(url) else {
+        return false;
+    };
     if parsed.host_str() != Some("console.x.com") {
         return false;
     }
     let mut segs = parsed.path().split('/').filter(|s| !s.is_empty());
     matches!(segs.next(), Some("accounts"))
-        && segs.next().is_some_and(|s| s.chars().all(|c| c.is_ascii_digit()))
+        && segs
+            .next()
+            .is_some_and(|s| s.chars().all(|c| c.is_ascii_digit()))
         && matches!(segs.next(), Some("apps"))
         && segs.next().is_none()
 }
@@ -639,15 +639,21 @@ fn is_apps_list(url: Option<&str>) -> bool {
 /// separately by [`is_auth_settings`].
 fn is_app_page(url: Option<&str>) -> bool {
     let Some(url) = url else { return false };
-    let Ok(parsed) = Url::parse(url) else { return false };
+    let Ok(parsed) = Url::parse(url) else {
+        return false;
+    };
     if parsed.host_str() != Some("console.x.com") {
         return false;
     }
     let mut segs = parsed.path().split('/').filter(|s| !s.is_empty());
     matches!(segs.next(), Some("accounts"))
-        && segs.next().is_some_and(|s| s.chars().all(|c| c.is_ascii_digit()))
+        && segs
+            .next()
+            .is_some_and(|s| s.chars().all(|c| c.is_ascii_digit()))
         && matches!(segs.next(), Some("apps"))
-        && segs.next().is_some_and(|s| s.chars().all(|c| c.is_ascii_digit()))
+        && segs
+            .next()
+            .is_some_and(|s| s.chars().all(|c| c.is_ascii_digit()))
         && segs.next().is_none()
 }
 
@@ -657,13 +663,17 @@ fn is_app_page(url: Option<&str>) -> bool {
 /// here). Where `ConfigureAuthSettings` fires.
 fn is_auth_settings(url: Option<&str>) -> bool {
     let Some(url) = url else { return false };
-    let Ok(parsed) = Url::parse(url) else { return false };
+    let Ok(parsed) = Url::parse(url) else {
+        return false;
+    };
     if parsed.host_str() != Some("console.x.com") {
         return false;
     }
     let mut segs = parsed.path().split('/').filter(|s| !s.is_empty());
     matches!(segs.next(), Some("accounts"))
-        && segs.next().is_some_and(|s| s.chars().all(|c| c.is_ascii_digit()))
+        && segs
+            .next()
+            .is_some_and(|s| s.chars().all(|c| c.is_ascii_digit()))
         && matches!(segs.next(), Some("apps"))
         && matches!(segs.next(), Some("settings"))
         && segs.next().is_none()

@@ -30,10 +30,10 @@ use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
-use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine;
 use chrono::Utc;
-use psychological_operations_db::{Db, signed_in_x_user_id};
+use psychological_operations_db::Db;
 use psychological_operations_sdk::browser::auth_json::{PersonaKind, Tokens};
 use psychological_operations_sdk::browser::mode::Mode;
 use psychological_operations_sdk::browser::output::Output;
@@ -96,18 +96,15 @@ pub async fn maybe_start_flow(handle: &AppHandle<Wry>) {
         return;
     };
 
-    let state_dir = handle.state::<Args>().state_dir.clone();
+    let db = handle.state::<Db>();
 
-    // The X-App master account's twid (read from the X-App CEF
-    // profile's cookie jar) is part of the auth.json path —
-    // different X-App accounts produce different auth.json files
-    // under the same persona. If nobody is signed into the X-App
-    // profile yet, the flow can't sensibly mint creds, so log and
-    // bail.
-    let x_app_twid = match signed_in_x_user_id(&state_dir, &Mode::XApp.cache_subdir()).await {
-        Ok(Some(t)) => t,
+    // Fail fast if no X-App is set up — `run_flow` re-resolves the active
+    // x_app twid (from `x_app_html`, not cookies) and stores it on the token
+    // row, so we only need the presence gate here.
+    match db.x_app_twid_active().await {
+        Ok(Some(_)) => {}
         Ok(None) => {
-            let msg = "no X-App account signed in".to_string();
+            let msg = "no X-App account set up".to_string();
             let _ = Output::Log {
                 message: format!("authorize: {msg}; not starting flow"),
             }
@@ -116,7 +113,7 @@ pub async fn maybe_start_flow(handle: &AppHandle<Wry>) {
             return;
         }
         Err(e) => {
-            let msg = format!("X-App cookies probe failed: {e}");
+            let msg = format!("x-app twid lookup failed: {e}");
             let _ = Output::Log {
                 message: format!("authorize: {msg}"),
             }
@@ -126,39 +123,54 @@ pub async fn maybe_start_flow(handle: &AppHandle<Wry>) {
         }
     };
 
-    let db = handle.state::<Db>();
-
-    // Already have tokens for this (persona, X-App) pair? Then there's
-    // nothing to do.
-    let auth_exists = db
-        .auth_get(kind.db_kind(), &persona_name, &persona_twid, &x_app_twid)
-        .await
-        .map(|t| t.is_some())
-        .unwrap_or(false);
-    if auth_exists {
-        return;
-    }
-
     // For psyops only, probe the cross-psyop conflict (the same twid
-    // already owned by a different psyop). Agents skip it — the same X
-    // account can authorize multiple agents (and psyops too).
+    // already mapped to a different psyop). Agents skip it — the same X
+    // account can be operated by multiple agents (and psyops too). Checked
+    // BEFORE we write this persona's mapping.
     let conflict = match kind {
         PersonaKind::Psyop => db
-            .auth_find_other_owner("psyop", &persona_twid, &persona_name)
+            .persona_twid_find_other_owner("psyop", &persona_twid, &persona_name)
             .await
             .ok()
             .flatten(),
         PersonaKind::Agent => None,
     };
     if let Some(other) = conflict {
-        let msg = format!(
-            "twid {persona_twid} belongs to PsyOp {other}; not starting flow"
-        );
+        let msg = format!("twid {persona_twid} belongs to PsyOp {other}; not starting flow");
         let _ = Output::Log {
             message: format!("authorize: {msg}"),
         }
         .emit();
         let _ = Output::AuthorizeFailed { error: msg }.emit();
+        return;
+    }
+
+    // Establish the persona → account-twid mapping — the source of truth
+    // for every runtime auth lookup. Written even when consent is skipped
+    // below, so the mapping exists regardless of whether a token is minted.
+    if let Err(e) = db
+        .persona_twid_set(kind.db_kind(), &persona_name, &persona_twid)
+        .await
+    {
+        let msg = format!("persona twid mapping write failed: {e}");
+        let _ = Output::Log {
+            message: format!("authorize: {msg}"),
+        }
+        .emit();
+        let _ = Output::AuthorizeFailed { error: msg }.emit();
+        return;
+    }
+
+    // The account already has a token? Then there's nothing to mint — skip
+    // the OAuth redirect and report success so the login closes cleanly.
+    // (Multiple agents sharing one X account reuse the single token row.)
+    let auth_exists = db
+        .account_auth_get(&persona_twid)
+        .await
+        .map(|t| t.is_some())
+        .unwrap_or(false);
+    if auth_exists {
+        let _ = Output::AuthorizeSucceeded.emit();
         return;
     }
 
@@ -175,9 +187,7 @@ pub async fn maybe_start_flow(handle: &AppHandle<Wry>) {
 
     let handle_for_task = handle.clone();
     tauri::async_runtime::spawn(async move {
-        if let Err(e) =
-            run_flow(handle_for_task, kind, persona_name, persona_twid).await
-        {
+        if let Err(e) = run_flow(handle_for_task, kind, persona_name, persona_twid).await {
             let _ = Output::Log {
                 message: format!("authorize: flow failed: {e}"),
             }
@@ -202,8 +212,7 @@ async fn run_flow(
     let (port, callback_fut) = bind_callback_server(CALLBACK_TIMEOUT)
         .await
         .map_err(|e| format!("bind callback server: {e}"))?;
-    let redirect_uri =
-        format!("http://127.0.0.1:{port}/psychological-operations/callback");
+    let redirect_uri = format!("http://127.0.0.1:{port}/psychological-operations/callback");
     let authorize_url = build_authorize_url(
         &client_id,
         &redirect_uri,
@@ -212,9 +221,7 @@ async fn run_flow(
     );
 
     let _ = Output::Log {
-        message: format!(
-            "authorize: navigating to authorize URL on port {port}"
-        ),
+        message: format!("authorize: navigating to authorize URL on port {port}"),
     }
     .emit();
     cef::navigate(authorize_url);
@@ -312,7 +319,10 @@ fn pkce_generate() -> Pkce {
     let code_verifier = URL_SAFE_NO_PAD.encode(bytes);
     let digest = Sha256::digest(code_verifier.as_bytes());
     let code_challenge = URL_SAFE_NO_PAD.encode(digest);
-    Pkce { code_verifier, code_challenge }
+    Pkce {
+        code_verifier,
+        code_challenge,
+    }
 }
 
 fn random_state() -> String {
@@ -333,8 +343,13 @@ struct Callback {
 
 async fn bind_callback_server(
     timeout: Duration,
-) -> Result<(u16, impl std::future::Future<Output = Result<Callback, String>>), String>
-{
+) -> Result<
+    (
+        u16,
+        impl std::future::Future<Output = Result<Callback, String>>,
+    ),
+    String,
+> {
     let listener = TcpListener::bind(("127.0.0.1", CALLBACK_PORT))
         .await
         .map_err(|e| format!("bind 127.0.0.1:{CALLBACK_PORT}: {e}"))?;
@@ -367,8 +382,8 @@ async fn bind_callback_server(
                     return Err("oauth: request too large".into());
                 }
             }
-            let header = std::str::from_utf8(&buf)
-                .map_err(|e| format!("non-UTF-8 request: {e}"))?;
+            let header =
+                std::str::from_utf8(&buf).map_err(|e| format!("non-UTF-8 request: {e}"))?;
             let request_line = header.lines().next().unwrap_or("");
             let mut it = request_line.split_whitespace();
             let _method = it.next();
@@ -433,8 +448,8 @@ async fn exchange_code_for_tokens(
     code_verifier: &str,
     redirect_uri: &str,
 ) -> Result<Tokens, String> {
-    let basic = base64::engine::general_purpose::STANDARD
-        .encode(format!("{client_id}:{client_secret}"));
+    let basic =
+        base64::engine::general_purpose::STANDARD.encode(format!("{client_id}:{client_secret}"));
     let form = [
         ("grant_type", "authorization_code"),
         ("code", code),
@@ -452,15 +467,12 @@ async fn exchange_code_for_tokens(
         .await
         .map_err(|e| format!("POST {TOKEN_ENDPOINT}: {e}"))?;
     let status = resp.status();
-    let text = resp
-        .text()
-        .await
-        .map_err(|e| format!("read body: {e}"))?;
+    let text = resp.text().await.map_err(|e| format!("read body: {e}"))?;
     if !status.is_success() {
         return Err(format!("token endpoint {status}: {text}"));
     }
-    let parsed: TokenResponse = serde_json::from_str(&text)
-        .map_err(|e| format!("parse token response: {e}: {text}"))?;
+    let parsed: TokenResponse =
+        serde_json::from_str(&text).map_err(|e| format!("parse token response: {e}: {text}"))?;
     let now = Utc::now();
     Ok(Tokens {
         access_token: parsed.access_token,
@@ -474,19 +486,18 @@ async fn exchange_code_for_tokens(
 // =================================================================
 // X-App credential lookup (from the db)
 // =================================================================
-async fn read_x_app_creds(
-    handle: &AppHandle<Wry>,
-) -> Result<(String, String, String), String> {
+async fn read_x_app_creds(handle: &AppHandle<Wry>) -> Result<(String, String, String), String> {
     use psychological_operations_sdk::browser::x_app_credentials::OAuthPopup;
 
-    let state_dir = handle.state::<Args>().state_dir.clone();
     let db = handle.state::<Db>();
 
-    // The OAuth popup snapshot is keyed by the X-App's signed-in twid.
-    let x_app_twid = signed_in_x_user_id(&state_dir, &Mode::XApp.cache_subdir())
+    // The OAuth popup snapshot is keyed by the active X-App's twid,
+    // resolved from the DB (`x_app_html`), not cookies.
+    let x_app_twid = db
+        .x_app_twid_active()
         .await
-        .map_err(|e| format!("x-app cookies probe: {e}"))?
-        .ok_or_else(|| "no X-App account signed in".to_string())?;
+        .map_err(|e| format!("x-app twid lookup: {e}"))?
+        .ok_or_else(|| "no X-App account set up".to_string())?;
 
     let popup = OAuthPopup::from_db(db.inner(), &x_app_twid)
         .await

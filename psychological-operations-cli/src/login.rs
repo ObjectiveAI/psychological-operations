@@ -26,9 +26,7 @@
 //! 4. Spawn the embedded browser in `PsyopAuthorize` /
 //!    `AgentAuthorize` mode and wait for it to exit.
 
-use psychological_operations_db::signed_in_x_user_id;
 use psychological_operations_sdk::browser::auth_json::PersonaKind;
-use psychological_operations_sdk::browser::mode::Mode;
 use psychological_operations_sdk::browser::output::Output;
 use psychological_operations_sdk::browser::reset;
 use psychological_operations_sdk::browser::x_app_credentials::{OAuthPopup, PostCreateDialog};
@@ -62,36 +60,19 @@ async fn run_inner(
 
     let state_dir = ctx.config.state_dir();
 
-    // === Pre-flight: X-App ===
-    let x_app_twid = check_x_app(ctx).await?;
+    // === Pre-flight: X-App must be set up ===
+    check_x_app(ctx).await?;
 
-    // === Pre-flight: persona ===
-    let persona_twid = signed_in_x_user_id(&state_dir, &cookie_mode(kind, name).cache_subdir())
-        .await
-        .map_err(|e| Error::Other(format!("persona cookies probe: {e}")))?;
-    let persona_has_auth = match persona_twid.as_deref() {
-        Some(twid) => ctx
-            .db
-            .auth_get(kind.db_kind(), name, twid, &x_app_twid)
-            .await?
-            .is_some(),
-        None => false,
-    };
-    // `--dangerously-reset` always wipes (tokens + CEF profile) for a clean
-    // re-login. Otherwise we only refuse when the persona ALREADY HAS tokens
-    // for the current X-App — being merely signed in to X.com (persistent
-    // cookies) is the normal pre-consent state and must proceed so the
-    // authorize flow can detect the sign-in and fire the OAuth consent.
+    // `--dangerously-reset` forgets the persona's account mapping + wipes
+    // its CEF profile for a clean re-login (e.g. to switch to a different X
+    // account). Otherwise login always opens the browser: once the operator
+    // signs in, the authorize flow establishes the persona→twid mapping and
+    // either mints a token or — if that account already has one — skips the
+    // OAuth consent and closes.
     if dangerously_reset {
         reset::wipe_persona(&ctx.db, &state_dir, kind, name)
             .await
             .map_err(Error::Other)?;
-    } else if persona_has_auth {
-        return Err(Error::Other(format!(
-            "{kind_label} '{name}' already has stored tokens for the current X-App \
-             — pass --dangerously-reset to wipe and re-login",
-            kind_label = kind_label(kind),
-        )));
     }
 
     // === Spawn browser in <kind>Authorize mode ===
@@ -161,16 +142,17 @@ async fn run_inner(
     outcome.map(|()| CliOutput::Ok).map_err(Error::Other)
 }
 
-const X_APP_NOT_READY: &str = "X-App account is not signed in or not set up with an X OAuth app — \
+const X_APP_NOT_READY: &str = "X-App account is not set up with an X OAuth app — \
      complete `psychological-operations x-app setup` first";
 
-/// Resolve the X-App's twid via cookies + verify the credentials
-/// (x_app config + both captured HTML snapshots) are present + complete.
-async fn check_x_app(ctx: &crate::context::Context) -> Result<String, Error> {
-    let state_dir = ctx.config.state_dir();
-    let x_app_twid = signed_in_x_user_id(&state_dir, &Mode::XApp.cache_subdir())
-        .await
-        .map_err(|e| Error::Other(format!("x-app cookies probe: {e}")))?
+/// Verify an X-App is set up: the active twid (from `x_app_html`) resolves
+/// and both captured HTML snapshots are present + complete. Reads the DB,
+/// not cookies.
+async fn check_x_app(ctx: &crate::context::Context) -> Result<(), Error> {
+    let x_app_twid = ctx
+        .db
+        .x_app_twid_active()
+        .await?
         .ok_or_else(|| Error::Other(X_APP_NOT_READY.into()))?;
 
     let post = PostCreateDialog::from_db(&ctx.db, &x_app_twid).await?;
@@ -181,23 +163,5 @@ async fn check_x_app(ctx: &crate::context::Context) -> Result<String, Error> {
         return Err(Error::Other(X_APP_NOT_READY.into()));
     }
 
-    Ok(x_app_twid)
-}
-
-fn cookie_mode(kind: PersonaKind, name: &str) -> Mode {
-    match kind {
-        PersonaKind::Psyop => Mode::PsyopAuthorize {
-            name: name.to_string(),
-        },
-        PersonaKind::Agent => Mode::AgentAuthorize {
-            name: name.to_string(),
-        },
-    }
-}
-
-fn kind_label(kind: PersonaKind) -> &'static str {
-    match kind {
-        PersonaKind::Psyop => "psyop",
-        PersonaKind::Agent => "agent",
-    }
+    Ok(())
 }

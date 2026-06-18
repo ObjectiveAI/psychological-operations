@@ -129,14 +129,51 @@ CREATE TABLE IF NOT EXISTS x_app_html (
     PRIMARY KEY (handle, kind)
 );
 
--- ── per-persona OAuth tokens (was browser/.../auth.json) ─────────────
+-- ── persona identity: persona (agent/psyop) → the X account it operates ──
+--
+-- Established by the login browser once it observes the signed-in `twid`
+-- cookie. Every runtime auth decision reads this instead of the cookie, so
+-- nothing outside the browser touches the CEF cookie store.
 
-CREATE TABLE IF NOT EXISTS auth_tokens (
+CREATE TABLE IF NOT EXISTS persona_twids (
     kind          TEXT NOT NULL,  -- 'psyop' | 'agent'
     name          TEXT NOT NULL,
     persona_twid  TEXT NOT NULL,
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (kind, name)
+);
+
+-- ── account auth: X account twid → OAuth token ──────────────────────────
+--
+-- Keyed by `persona_twid` alone — an X-App reset wipes the whole table, so
+-- only one X-App's tokens ever exist at a time and the twid is unique.
+-- `x_app_twid` rides along for token refresh + provenance.
+
+CREATE TABLE IF NOT EXISTS account_auth (
+    persona_twid  TEXT PRIMARY KEY,
     x_app_twid    TEXT NOT NULL,
     tokens        JSONB NOT NULL,
-    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-    PRIMARY KEY (kind, name, persona_twid, x_app_twid)
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- ── one-time migration from the legacy 4-tuple `auth_tokens` table ───────
+--
+-- Idempotent: the column guard makes it a no-op on fresh DBs and after the
+-- first successful run (the legacy table is dropped at the end).
+
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+             WHERE table_schema = current_schema()
+               AND table_name = 'auth_tokens' AND column_name = 'kind') THEN
+    INSERT INTO persona_twids (kind, name, persona_twid, updated_at)
+      SELECT DISTINCT ON (kind, name) kind, name, persona_twid, updated_at
+        FROM auth_tokens ORDER BY kind, name, updated_at DESC
+      ON CONFLICT (kind, name) DO NOTHING;
+    INSERT INTO account_auth (persona_twid, x_app_twid, tokens, updated_at)
+      SELECT DISTINCT ON (persona_twid) persona_twid, x_app_twid, tokens, updated_at
+        FROM auth_tokens ORDER BY persona_twid, updated_at DESC
+      ON CONFLICT (persona_twid) DO NOTHING;
+    DROP TABLE auth_tokens;
+  END IF;
+END $$;

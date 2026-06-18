@@ -30,13 +30,12 @@ use reqwest::{Client as ReqwestClient, Method, StatusCode};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
-use psychological_operations_db::{signed_in_x_user_id, Db};
+use psychological_operations_db::Db;
 
 use super::auth::{self, AuthLock, PersonaKey};
 use super::cache::{request_key, request_key_auth_scoped};
 use super::{AuthError, Error};
 use crate::browser::auth_json::{self, PersonaKind, Tokens};
-use crate::browser::mode::Mode;
 use crate::browser::x_app_credentials::{OAuthPopup, PostCreateDialog};
 use crate::x::types::Problem;
 
@@ -194,12 +193,7 @@ impl Client {
     async fn read_auth_at(&self, persona: &PersonaKey) -> Result<Option<Tokens>, AuthError> {
         let value = self
             .db
-            .auth_get(
-                persona.kind.db_kind(),
-                &persona.name,
-                &persona.persona_twid,
-                &persona.x_app_twid,
-            )
+            .account_auth_get(&persona.persona_twid)
             .await
             .map_err(AuthError::Store)?;
         match value {
@@ -237,13 +231,7 @@ impl Client {
         let value =
             serde_json::to_value(new_data).map_err(|e| AuthError::TokenSerde(e.to_string()))?;
         self.db
-            .auth_set(
-                persona.kind.db_kind(),
-                &persona.name,
-                &persona.persona_twid,
-                &persona.x_app_twid,
-                &value,
-            )
+            .account_auth_set(&persona.persona_twid, &persona.x_app_twid, &value)
             .await
             .map_err(AuthError::Store)?;
         lock.guard.release().await;
@@ -284,22 +272,23 @@ impl Client {
     /// varies by authed user (today: `/2/users/me`).
     pub(crate) async fn current_twid(&self, auth: &AuthMode) -> Result<String, AuthError> {
         match auth {
-            AuthMode::XApp => {
-                signed_in_x_user_id(self.state_dir.as_ref(), &Mode::XApp.cache_subdir())
-                    .await
-                    .map_err(|e| AuthError::Cookie(format!("x-app twid: {e}")))?
-                    .ok_or_else(|| AuthError::NotSignedIn("X-App account".into()))
-            }
+            AuthMode::XApp => self
+                .db
+                .x_app_twid_active()
+                .await
+                .map_err(AuthError::Store)?
+                .ok_or_else(|| AuthError::NotSignedIn("X-App account".into())),
             AuthMode::Psyop(_) | AuthMode::Agent(_) => {
                 Ok(self.resolve_persona(auth).await?.persona_twid)
             }
         }
     }
 
-    /// Resolve the persona from `auth` + cookies. Errors for
-    /// `AuthMode::XApp` and when no persona / X-App is signed in to the
-    /// matching CEF profile. Reused by `read_auth`, `lock_auth`, and
-    /// `persona_bearer`.
+    /// Resolve the persona from `auth` via the DB mapping tables. Errors
+    /// for `AuthMode::XApp` and when the persona has no established
+    /// `persona_twids` mapping (never logged in) or no X-App is set up.
+    /// Reads no cookies — the login browser populates the mapping. Reused
+    /// by `read_auth`, `lock_auth`, and `persona_bearer`.
     async fn resolve_persona(&self, auth: &AuthMode) -> Result<PersonaKey, AuthError> {
         let (kind, name) = match auth {
             AuthMode::XApp => {
@@ -312,17 +301,17 @@ impl Client {
             AuthMode::Psyop(name) => (PersonaKind::Psyop, name.clone()),
             AuthMode::Agent(name) => (PersonaKind::Agent, name.clone()),
         };
-        let cookie_mode = match kind {
-            PersonaKind::Psyop => Mode::PsyopAuthorize { name: name.clone() },
-            PersonaKind::Agent => Mode::AgentAuthorize { name: name.clone() },
-        };
-        let persona_twid = signed_in_x_user_id(&self.state_dir, &cookie_mode.cache_subdir())
+        let persona_twid = self
+            .db
+            .persona_twid_get(kind.db_kind(), &name)
             .await
-            .map_err(|e| AuthError::Cookie(format!("persona: {e}")))?
+            .map_err(AuthError::Store)?
             .ok_or_else(|| AuthError::NotSignedIn(format!("{kind:?} '{name}'")))?;
-        let x_app_twid = signed_in_x_user_id(&self.state_dir, &Mode::XApp.cache_subdir())
+        let x_app_twid = self
+            .db
+            .x_app_twid_active()
             .await
-            .map_err(|e| AuthError::Cookie(format!("x-app: {e}")))?
+            .map_err(AuthError::Store)?
             .ok_or_else(|| AuthError::NotSignedIn("X-App account".into()))?;
         Ok(PersonaKey {
             kind,

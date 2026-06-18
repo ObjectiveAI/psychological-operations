@@ -48,6 +48,18 @@ impl Db {
         Ok(())
     }
 
+    /// The active X-App's twid — the single `handle` present in
+    /// `x_app_html` (written at `x-app setup`, cleared on x-app reset).
+    /// Lets runtime code resolve the active X-App without reading cookies.
+    /// `None` when no X-App is set up.
+    pub async fn x_app_twid_active(&self) -> Result<Option<String>, Error> {
+        let handle: Option<String> =
+            sqlx::query_scalar("SELECT handle FROM x_app_html ORDER BY saved_at DESC LIMIT 1")
+                .fetch_optional(&self.pool)
+                .await?;
+        Ok(handle)
+    }
+
     /// Presence check for a snapshot — the `state` derivation's
     /// green-dot signal.
     pub async fn x_app_html_present(&self, handle: &str, kind: &str) -> Result<bool, Error> {

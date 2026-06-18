@@ -20,8 +20,6 @@
 //! stdin + stdout, watches for `Output::XAppSetupSucceeded`,
 //! sends `Request::Shutdown`, then waits.
 
-use psychological_operations_db::signed_in_x_user_id;
-use psychological_operations_sdk::browser::mode::Mode;
 use psychological_operations_sdk::browser::output::Output;
 use psychological_operations_sdk::browser::reset;
 use psychological_operations_sdk::browser::x_app_credentials::{OAuthPopup, PostCreateDialog};
@@ -59,10 +57,9 @@ async fn run_inner(
         ));
     }
     if dangerously_reset {
+        // wipe_x_app now also clears every account's tokens (a new X-App
+        // orphans them), so no separate persona-auth wipe is needed.
         reset::wipe_x_app(&ctx.db, &state_dir)
-            .await
-            .map_err(Error::Other)?;
-        reset::wipe_all_persona_auth(&ctx.db)
             .await
             .map_err(Error::Other)?;
     }
@@ -111,15 +108,12 @@ async fn run_inner(
     outcome.map(|()| CliOutput::Ok).map_err(Error::Other)
 }
 
-/// `true` iff the X-App is signed in (cookies) AND both captured HTML
-/// snapshots parse to complete structs. Same condition the browser-side
-/// panel uses to land on `PanelState::Hidden`.
+/// `true` iff a captured X-App is present (the active twid from
+/// `x_app_html`) AND both captured HTML snapshots parse to complete
+/// structs. Reads the DB, not cookies — same end condition the
+/// browser-side panel uses to land on `PanelState::Hidden`.
 async fn is_fully_set_up(ctx: &crate::context::Context) -> Result<bool, Error> {
-    let state_dir = ctx.config.state_dir();
-    let Some(x_app_twid) = signed_in_x_user_id(&state_dir, &Mode::XApp.cache_subdir())
-        .await
-        .map_err(|e| Error::Other(format!("x-app cookies probe: {e}")))?
-    else {
+    let Some(x_app_twid) = ctx.db.x_app_twid_active().await? else {
         return Ok(false);
     };
 

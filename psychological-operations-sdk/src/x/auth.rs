@@ -55,22 +55,14 @@ impl AuthLock {
     }
 }
 
-/// `SHA-256("auth\0" ‖ kind_byte ‖ \0 ‖ name ‖ \0 ‖ persona_twid ‖ \0 ‖ x_app_twid)`.
-/// Namespace-prefixed with `"auth\0"` so it can share the `locks`
-/// table with the response cache (whose keys start with `"cache\0"`).
+/// `SHA-256("auth\0" ‖ persona_twid)`. The token row (`account_auth`) is
+/// keyed by `persona_twid` alone, so the write lock is too — personas
+/// sharing an X account serialize on the same account row. Namespace-
+/// prefixed with `"auth\0"` so it can share the `locks` table with the
+/// response cache (whose keys start with `"cache\0"`).
 pub(crate) fn auth_lock_key(p: &PersonaKey) -> [u8; 32] {
-    let kind_byte: u8 = match p.kind {
-        PersonaKind::Psyop => b'p',
-        PersonaKind::Agent => b'a',
-    };
     let mut h = Sha256::new();
     h.update(b"auth\0");
-    h.update([kind_byte]);
-    h.update(b"\0");
-    h.update(p.name.as_bytes());
-    h.update(b"\0");
     h.update(p.persona_twid.as_bytes());
-    h.update(b"\0");
-    h.update(p.x_app_twid.as_bytes());
     h.finalize().into()
 }
