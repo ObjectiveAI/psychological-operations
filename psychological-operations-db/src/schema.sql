@@ -124,6 +124,23 @@ CREATE TABLE IF NOT EXISTS tool_invocations (
 CREATE INDEX IF NOT EXISTS tool_invocations_account_time
     ON tool_invocations(account, at);
 
+-- ── time-bounded additive quota grants ───────────────────────────────
+-- A grant gives one account a flat boost to its read/write available
+-- quota while in effect (`granted_at <= now < expires_at`). Append-only,
+-- so multiple active grants stack (sum). The MCP adds the active total to
+-- the per-direction limit at enforcement time.
+
+CREATE TABLE IF NOT EXISTS quota_grants (
+    id          BIGSERIAL PRIMARY KEY,
+    account     TEXT   NOT NULL,  -- the agent tag (the quota-ledger key)
+    direction   TEXT   NOT NULL,  -- 'read' | 'write'
+    amount      BIGINT NOT NULL,  -- flat boost added to the limit while in effect
+    granted_at  BIGINT NOT NULL,  -- unix seconds
+    expires_at  BIGINT NOT NULL   -- granted_at + duration, unix seconds
+);
+CREATE INDEX IF NOT EXISTS quota_grants_account_dir_exp
+    ON quota_grants(account, direction, expires_at);
+
 -- ── psyops (was git repos + psyop.json) ──────────────────────────────
 
 CREATE TABLE IF NOT EXISTS psyops (

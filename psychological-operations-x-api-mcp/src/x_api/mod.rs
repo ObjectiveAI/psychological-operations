@@ -200,26 +200,20 @@ impl PsychologicalOperationsXApiMcp {
         tool: ToolName,
     ) -> Result<Option<CallToolResult>, ErrorData> {
         let dir = tool.direction();
-        let (limit, interval) = match dir {
-            Direction::Read => (state.quota_read, state.quota_interval),
-            Direction::Write => (state.quota_write, state.quota_interval),
-        };
-        // Deny only when usage is already at/above the limit. The call's
-        // own cost doesn't gate it — a single call may push usage past
-        // the limit (which then blocks the *next* same-direction call),
-        // so an expensive tool stays usable as long as there's any
-        // headroom left.
-        let usage = self
-            .quota_used(&state.tag, dir, interval, &state.quota_tool_costs)
-            .await?;
-        if usage >= limit {
+        let (used, limit) = self.quota_status(state, dir).await?;
+        // Deny only when usage is already at/above the (grant-boosted)
+        // limit. The call's own cost doesn't gate it — a single call may
+        // push usage past the limit (which then blocks the *next* same-
+        // direction call), so an expensive tool stays usable as long as
+        // there's any headroom left.
+        if used >= limit {
             let label = match dir {
                 Direction::Read => "Read Quota Denial",
                 Direction::Write => "Write Quota Denial",
             };
-            let available = limit.saturating_sub(usage);
+            let available = limit.saturating_sub(used);
             return Ok(Some(CallToolResult::error(vec![Content::text(format!(
-                "[{label}] {usage} used, {available} available"
+                "[{label}] {used} used, {available} available"
             ))])));
         }
         self.db
@@ -229,35 +223,37 @@ impl PsychologicalOperationsXApiMcp {
         Ok(None)
     }
 
-    /// Windowed usage for one direction: Σ (count × per-tool cost) over
-    /// the account's same-direction invocations newer than
-    /// `now - interval_secs`. Unknown tool names (drift / renamed tools)
-    /// are ignored.
-    async fn quota_used(
+    /// Windowed usage + grant-boosted limit for one direction, fetched in
+    /// one place. The usage ledger read and the active-grants read are
+    /// independent, so they run **concurrently** (`tokio::join!`).
+    ///
+    /// - usage = Σ (count × per-tool cost) over same-direction invocations
+    ///   newer than `now - interval` (unknown tool names ignored).
+    /// - limit = the session's per-direction base + the total of all grants
+    ///   for `(tag, direction)` in effect right now.
+    async fn quota_status(
         &self,
-        tag: &str,
+        state: &SessionState,
         dir: Direction,
-        interval_secs: u64,
-        tool_costs: &std::collections::HashMap<ToolName, u64>,
-    ) -> Result<u64, ErrorData> {
-        let cutoff = unix_now() - interval_secs as i64;
-        let counts = self
-            .db
-            .tool_invocation_counts_since(tag, cutoff)
-            .await
-            .map_err(quota_db_err)?;
-        let mut usage: u64 = 0;
-        for (t, n) in counts {
-            let Some(tn) = ToolName::from_name(&t) else {
-                continue;
-            };
-            if tn.direction() != dir {
-                continue;
-            }
-            let c = tool_costs.get(&tn).copied().unwrap_or(DEFAULT_TOOL_COST);
-            usage = usage.saturating_add(n.saturating_mul(c));
-        }
-        Ok(usage)
+    ) -> Result<(u64, u64), ErrorData> {
+        let base = match dir {
+            Direction::Read => state.quota_read,
+            Direction::Write => state.quota_write,
+        };
+        let dir_str = match dir {
+            Direction::Read => "read",
+            Direction::Write => "write",
+        };
+        let now = unix_now();
+        let cutoff = now - state.quota_interval as i64;
+        let (counts, grants) = tokio::join!(
+            self.db.tool_invocation_counts_since(&state.tag, cutoff),
+            self.db.active_quota_grants(&state.tag, dir_str, now),
+        );
+        let counts = counts.map_err(quota_db_err)?;
+        let grants = grants.map_err(quota_db_err)?.max(0) as u64;
+        let used = sum_usage(counts, dir, &state.quota_tool_costs);
+        Ok((used, base.saturating_add(grants)))
     }
 
     /// One-line quota summary for the direction the just-run tool charged
@@ -267,14 +263,7 @@ impl PsychologicalOperationsXApiMcp {
     /// response simply omits the header rather than failing an
     /// otherwise-successful tool call.
     async fn quota_header(&self, state: &SessionState, dir: Direction) -> Option<Content> {
-        let (limit, interval) = match dir {
-            Direction::Read => (state.quota_read, state.quota_interval),
-            Direction::Write => (state.quota_write, state.quota_interval),
-        };
-        let used = self
-            .quota_used(&state.tag, dir, interval, &state.quota_tool_costs)
-            .await
-            .ok()?;
+        let (used, limit) = self.quota_status(state, dir).await.ok()?;
         let available = limit.saturating_sub(used);
         let label = match dir {
             Direction::Read => "Read Quota",
@@ -284,6 +273,27 @@ impl PsychologicalOperationsXApiMcp {
             "[{label}] {used} used, {available} available\n\n"
         )))
     }
+}
+
+/// Σ (count × per-tool cost) over the account's same-direction
+/// invocations. Unknown tool names (drift / renamed tools) are ignored.
+fn sum_usage(
+    counts: Vec<(String, u64)>,
+    dir: Direction,
+    tool_costs: &std::collections::HashMap<ToolName, u64>,
+) -> u64 {
+    let mut usage: u64 = 0;
+    for (t, n) in counts {
+        let Some(tn) = ToolName::from_name(&t) else {
+            continue;
+        };
+        if tn.direction() != dir {
+            continue;
+        }
+        let c = tool_costs.get(&tn).copied().unwrap_or(DEFAULT_TOOL_COST);
+        usage = usage.saturating_add(n.saturating_mul(c));
+    }
+    usage
 }
 
 /// Map a db-layer error into an rmcp `internal_error` for the quota path.

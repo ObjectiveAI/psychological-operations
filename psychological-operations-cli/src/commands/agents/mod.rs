@@ -18,6 +18,7 @@ use clap::Subcommand;
 mod agent_ref;
 pub mod enqueue;
 pub mod notify;
+pub mod quota;
 
 use agent_ref::AgentRef;
 
@@ -66,6 +67,12 @@ pub enum Commands {
         #[arg(long)]
         message: String,
     },
+    /// Quota management for an agent (`grant`).
+    #[command(name = "quota")]
+    Quota {
+        #[command(subcommand)]
+        command: quota::Commands,
+    },
 }
 
 impl Commands {
@@ -98,6 +105,7 @@ impl Commands {
                 tweet_id,
                 message,
             } => enqueue::run(&agent_tag, &tweet_id, &message, ctx).await,
+            Commands::Quota { command } => command.handle(ctx).await,
         }
     }
 }
