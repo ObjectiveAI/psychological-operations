@@ -12,11 +12,8 @@
 #
 #   - .logs/             (build/test log capture — keep history)
 #   - .git/              (obviously)
-#   - psychological-operations-chromium/embed/
-#                        (staged upstream chromium snapshot — multi-hundred-MB
-#                        download from commondatastorage; reproducible but slow.
-#                        build.sh's fingerprint short-circuits when sources are
-#                        unchanged, so re-runs are cheap anyway.)
+#   - .objectiveai/      (the integration sandbox — host + plugin install +
+#                        pg-bin; managed by test-integration.sh, NOT a cache)
 #   - Source, lockfiles (Cargo.lock), config (objectiveai.json,
 #                        .gitignore, *.pem)
 #
@@ -55,34 +52,10 @@ wipe_path() {
 freed_before=$(df -k "$REPO_ROOT" | awk 'NR==2 {print $4}')
 
 # ---------------------------------------------------------------------------
-# Cargo build outputs. Two roots: the workspace `target/` and the
-# integration test harness's per-process `tests/.target-binaries/` (where
-# `psyops_binary()` builds a release psyops binary into the `psyops/`
-# subdir and `objectiveai_binary()` caches the downloaded host release
-# into `objectiveai-release/`).
+# Cargo build output — the workspace `target/`. (The .objectiveai sandbox is
+# deliberately left alone; reset it with test-integration.sh.)
 # ---------------------------------------------------------------------------
-RUST_TARGETS=(
-  target
-  psychological-operations-cli/tests/.target-binaries
-)
-
-for t in "${RUST_TARGETS[@]}"; do
-  wipe_path "$t"
-done
-
-# ---------------------------------------------------------------------------
-# Stale shared state from previous test runs. Each `cargo test` run wipes
-# its own per-test `.t-<name>/` dirs under the OS temp dir, but the
-# legacy `tests/.objectiveai/` may linger from older runs where the
-# harness installed the host CLI into the tree.
-# ---------------------------------------------------------------------------
-STALE_TEST_STATE=(
-  psychological-operations-cli/tests/.objectiveai
-)
-
-for d in "${STALE_TEST_STATE[@]}"; do
-  wipe_path "$d"
-done
+wipe_path target
 
 # ---------------------------------------------------------------------------
 # Viewer build outputs — node_modules + dist + the zipped release asset.
