@@ -9,6 +9,9 @@
 #      Everything else goes: host binaries, other dirs, and zips nested inside
 #      those removed dirs.
 #   3. Delete the state folder (.objectiveai/state) entirely.
+#   4. (Re)install the objectiveai host via the upstream curl installer,
+#      pointed at our .objectiveai (--objectiveai-dir) and told not to touch
+#      PATH / shell rc (--no-export-path).
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -46,5 +49,11 @@ fi
 
 # 3. Delete the state folder entirely.
 rm -rf "$OAI_DIR/state"
+
+# 4. (Re)install the objectiveai host into our .objectiveai dir, without
+#    touching PATH / shell rc.
+echo "==> installing objectiveai host into $OAI_DIR"
+curl -fsSL https://raw.githubusercontent.com/ObjectiveAI/objectiveai/main/install.sh \
+  | bash -s -- --no-export-path --objectiveai-dir "$OAI_DIR"
 
 echo "==> test-integration.sh: sandbox reset"
