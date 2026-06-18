@@ -11,10 +11,12 @@
 //!    must parse to a complete struct. Any failure → single
 //!    error pointing the operator at `x-app setup`.
 //!
-//! 2. **Persona preconditions.** The persona must NOT be signed
-//!    in already AND must NOT already have an `auth.json` under
-//!    the current X-App's twid. Either being set → error
-//!    requiring `--dangerously-reset`.
+//! 2. **Persona preconditions.** Refuse only if the persona already
+//!    has stored tokens for the current X-App's twid. Being merely
+//!    signed in to X.com (persistent cookies) is the normal
+//!    pre-consent state and proceeds — that's when the authorize flow
+//!    detects the sign-in and fires. `--dangerously-reset` wipes the
+//!    persona (tokens + CEF profile) and re-logs in regardless.
 //!
 //! 3. **`--dangerously-reset`** wipes the persona's browser
 //!    folder (auth dir + CEF profile) via
@@ -75,19 +77,21 @@ async fn run_inner(
             .is_some(),
         None => false,
     };
-    let persona_signed_in = persona_twid.is_some();
-
-    if persona_signed_in || persona_has_auth {
-        if !dangerously_reset {
-            return Err(Error::Other(format!(
-                "{kind_label} '{name}' is already signed in or already has stored tokens \
-                 for the current X-App — pass --dangerously-reset to wipe and re-login",
-                kind_label = kind_label(kind),
-            )));
-        }
+    // `--dangerously-reset` always wipes (tokens + CEF profile) for a clean
+    // re-login. Otherwise we only refuse when the persona ALREADY HAS tokens
+    // for the current X-App — being merely signed in to X.com (persistent
+    // cookies) is the normal pre-consent state and must proceed so the
+    // authorize flow can detect the sign-in and fire the OAuth consent.
+    if dangerously_reset {
         reset::wipe_persona(&ctx.db, &state_dir, kind, name)
             .await
             .map_err(Error::Other)?;
+    } else if persona_has_auth {
+        return Err(Error::Other(format!(
+            "{kind_label} '{name}' already has stored tokens for the current X-App \
+             — pass --dangerously-reset to wipe and re-login",
+            kind_label = kind_label(kind),
+        )));
     }
 
     // === Spawn browser in <kind>Authorize mode ===
