@@ -256,10 +256,10 @@ mod tests {
     // FIXTURE_* placeholders; structure is byte-identical otherwise.
     // Regenerate by pasting raw HTML from devtools (Elements panel
     // → right-click <html> → Copy outerHTML) into
-    // `tests/fixtures/post_create_dialog.html`, then re-run the
+    // `src/browser/fixtures/post_create_dialog.html`, then re-run the
     // redaction step described in the fixture-add commit message.
     const POST_CREATE_DIALOG_FIXTURE: &str =
-        include_str!("../../tests/fixtures/post_create_dialog.html");
+        include_str!("fixtures/post_create_dialog.html");
 
     #[test]
     fn extracts_all_three_credentials_from_real_markup() {

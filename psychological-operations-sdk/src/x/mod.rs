@@ -19,6 +19,9 @@ pub mod params;
 pub mod serde_helpers;
 pub mod types;
 
+#[cfg(test)]
+mod types_tests;
+
 pub mod oauth;
 
 pub use error::{AuthError, Error};
