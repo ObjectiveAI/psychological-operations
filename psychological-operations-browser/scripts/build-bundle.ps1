@@ -88,13 +88,14 @@ if ($NoZip) {
 if (Test-Path $Staging) { Remove-Item -Recurse -Force $Staging }
 New-Item -ItemType Directory -Force -Path $Staging | Out-Null
 
-# Files to copy: the browser exe + the lib it loads + every CEF
-# runtime file the cef-dll-sys build dropped next to it. The list
-# is exhaustive on purpose — anything missing makes libcef.dll
-# refuse to initialize at runtime.
+# Files to copy: the browser exe + every CEF runtime file the
+# cef-dll-sys build dropped next to it. The list is exhaustive on
+# purpose — anything missing makes libcef.dll refuse to initialize
+# at runtime. (The crate's own _lib is linked into the exe as an
+# rlib by `tauri build`, so there's no separate _lib.dll to ship —
+# the cdylib is only emitted by a bare `cargo build -p`.)
 $RuntimeFiles = @(
     "psychological-operations-browser.exe",
-    "psychological_operations_browser_lib.dll",
     "psychological_operations_browser_helper.exe",
     "bootstrap.exe",
     "bootstrapc.exe",

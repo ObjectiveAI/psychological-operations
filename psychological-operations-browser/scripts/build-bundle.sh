@@ -63,9 +63,12 @@ mkdir -p "$EMBED_DIR"
 rm -rf "$STAGING"
 mkdir -p "$STAGING"
 
-# Files to copy: browser exe + lib + CEF runtime. Per-OS extensions
+# Files to copy: browser exe + CEF runtime. Per-OS extensions
 # differ; on Windows the script .ps1 sibling has the authoritative
-# Windows list. Linux/macOS lists below.
+# Windows list. Linux/macOS lists below. (The crate's own _lib is
+# linked into the exe as an rlib by `tauri build`, so there's no
+# separate shared _lib to ship — the cdylib is only emitted by a
+# bare `cargo build -p`.)
 case "$TARGET" in
     *windows*)
         echo "this is the POSIX sibling — use scripts/build-bundle.ps1 for Windows targets" >&2
@@ -74,7 +77,6 @@ case "$TARGET" in
     *linux*)
         FILES=(
             "psychological-operations-browser"
-            "libpsychological_operations_browser_lib.so"
             "libcef.so"
             "chrome-sandbox"
             "icudtl.dat"
