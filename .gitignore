@@ -18,3 +18,4 @@ embed/
 psychological-operations-cli/tests/.psychological-operations-*/
 psychological-operations-cli/tests/.objectiveai/
 psychological-operations-cli/tests/.target-binaries/
+.objectiveai/
