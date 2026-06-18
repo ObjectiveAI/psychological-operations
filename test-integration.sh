@@ -17,9 +17,11 @@
 #      install.sh (the zips are already present, so it just unpacks in place).
 #   6. Apply the global API config the integration run needs (mcp timeout,
 #      backoff) via the freshly-installed host.
-#   7. Run the integration suite (cargo nextest -p psychological-operations-
-#      tests) with all output captured to a timestamped log under .logs/test/,
-#      then `objectiveai kill-all`, then exit 0/1 on the nextest result.
+#   7. Prebuild the integration test binaries (logged under .logs/build/, the
+#      same shape as the unit-test prebuild), then run the suite (cargo nextest
+#      -p psychological-operations-tests) with all output captured to a
+#      timestamped log under .logs/test/, then `objectiveai kill-all`, then
+#      exit 0/1 on the nextest result.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -78,10 +80,20 @@ echo "==> objectiveai api config (global)"
 "$HOST" api config mcp-timeout-ms set 300000 --global
 "$HOST" api config backoff-max-elapsed-time-ms set 0 --global
 
-# 7. Run the integration suite, capturing ALL output to a timestamped log.
-#    Then stop the host's servers and exit 0/1 on the nextest result.
-mkdir -p "$REPO_ROOT/.logs/test"
-LOG="$REPO_ROOT/.logs/test/psychological-operations-tests-$(date +%Y%m%d-%H%M%S).txt"
+# 7. Prebuild the test binaries first (logged to .logs/build, same shape as the
+#    unit-test prebuild) so the run only executes; then run the suite, capturing
+#    ALL output to a timestamped log. Then stop the host's servers and exit 0/1.
+ts="$(date +%Y%m%d-%H%M%S)"
+mkdir -p "$REPO_ROOT/.logs/build" "$REPO_ROOT/.logs/test"
+BUILD_LOG="$REPO_ROOT/.logs/build/psychological-operations-tests-nextest-$ts.txt"
+echo "==> prebuild psychological-operations-tests  (log: $BUILD_LOG)"
+if ! cargo nextest run --no-run -p psychological-operations-tests > "$BUILD_LOG" 2>&1; then
+  echo "==> test-integration.sh: test build failed (see $BUILD_LOG)" >&2
+  "$HOST" kill-all || true
+  exit 1
+fi
+
+LOG="$REPO_ROOT/.logs/test/psychological-operations-tests-$ts.txt"
 echo "==> nextest run -p psychological-operations-tests  (log: $LOG)"
 rc=0
 cargo nextest run -p psychological-operations-tests > "$LOG" 2>&1 || rc=$?

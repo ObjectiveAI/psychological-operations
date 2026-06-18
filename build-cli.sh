@@ -83,10 +83,27 @@ else
 fi
 export PATH="$BIN_DIR:$PATH"
 
-echo "==> build-cli.sh ($PROFILE)"
+# Per-artifact build logs (same shape as the test logs): the CLI crate and the
+# browser are captured separately so a failure is diagnosable at a glance.
+# build.sh exports a shared BUILD_TS so a run's logs sort together; standalone
+# runs get their own.
+BUILD_LOG_DIR="$REPO_ROOT/.logs/build"
+mkdir -p "$BUILD_LOG_DIR"
+BUILD_TS="${BUILD_TS:-$(date +%Y%m%d-%H%M%S)}"
+CLI_LOG="$BUILD_LOG_DIR/psychological-operations-cli-$BUILD_TS.txt"
+BROWSER_LOG="$BUILD_LOG_DIR/psychological-operations-browser-$BUILD_TS.txt"
+cli_failed=0
 
 # The CLI binary.
-cargo build $REL -p psychological-operations-cli
+echo "==> build-cli.sh: psychological-operations-cli ($PROFILE)  (log: $CLI_LOG)"
+rc=0
+cargo build $REL -p psychological-operations-cli > "$CLI_LOG" 2>&1 || rc=$?
+if [ "$rc" -eq 0 ]; then
+  echo "    SUCCESS psychological-operations-cli"
+else
+  echo "    ERROR psychological-operations-cli (see $CLI_LOG)" >&2
+  cli_failed=1
+fi
 
 # The browser is a Tauri app — build it with `tauri build` so its frontend is
 # built (the beforeBuildCommand) and the CEF runtime is produced. macOS needs
@@ -98,16 +115,33 @@ if [ "$PROFILE" = "debug" ]; then TAURI_DEBUG="--debug"; fi
 # macOS: build only the .app (CEF needs the bundle layout) — no .dmg installer.
 # Other platforms: --no-bundle — just the exe + loose runtime, no installer.
 if [ "$PLATFORM" = "macos" ]; then TAURI_BUNDLE="--bundles app"; else TAURI_BUNDLE="--no-bundle"; fi
-( cd psychological-operations-browser && yarn install --immutable )
-( cd psychological-operations-browser && yarn tauri build --target "$TARGET" $TAURI_DEBUG $TAURI_BUNDLE )
+echo "==> build-cli.sh: psychological-operations-browser ($PROFILE)  (log: $BROWSER_LOG)"
+rc=0
+(
+  # Explicit set -e so the chain fails fast inside this redirected subshell
+  # (the outer || would otherwise suppress -e for the whole group).
+  set -e
+  ( cd psychological-operations-browser && yarn install --immutable )
+  ( cd psychological-operations-browser && yarn tauri build --target "$TARGET" $TAURI_DEBUG $TAURI_BUNDLE )
+  case "$PLATFORM" in
+    windows)
+      ( cd psychological-operations-browser/scripts \
+          && powershell.exe -NoProfile -ExecutionPolicy Bypass -File build-bundle.ps1 -SkipBuild -NoZip ${REL:+-Release} )
+      ;;
+    *)
+      bash psychological-operations-browser/scripts/build-bundle.sh --skip-build --no-zip $REL
+      ;;
+  esac
+) > "$BROWSER_LOG" 2>&1 || rc=$?
+if [ "$rc" -eq 0 ]; then
+  echo "    SUCCESS psychological-operations-browser"
+else
+  echo "    ERROR psychological-operations-browser (see $BROWSER_LOG)" >&2
+  cli_failed=1
+fi
 
-case "$PLATFORM" in
-  windows)
-    ( cd psychological-operations-browser/scripts \
-        && powershell.exe -NoProfile -ExecutionPolicy Bypass -File build-bundle.ps1 -SkipBuild -NoZip ${REL:+-Release} )
-    ;;
-  *)
-    bash psychological-operations-browser/scripts/build-bundle.sh --skip-build --no-zip $REL
-    ;;
-esac
+if [ "$cli_failed" -ne 0 ]; then
+  echo "==> build-cli.sh: FAILED ($PROFILE) — see .logs/build" >&2
+  exit 1
+fi
 echo "==> build-cli.sh done ($PROFILE)"

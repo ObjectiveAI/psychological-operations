@@ -57,6 +57,13 @@ if [ "$NO_CLI" = "1" ] && [ "$NO_VIEWER" = "1" ]; then
   exit 0
 fi
 
+# Shared timestamp for this run's per-artifact build logs (.logs/build/
+# <artifact>-<BUILD_TS>.txt) — exported so the legs inherit it and a run's logs
+# sort together, the same shape as the test logs.
+export BUILD_TS="$(date +%Y%m%d-%H%M%S)"
+LOG_DIR="$REPO_ROOT/.logs/build"
+mkdir -p "$LOG_DIR"
+
 # ── build legs (parallel; each provisions its own deps) ──────────────
 echo "==> build.sh ($PROFILE)"
 cli_pid=""
@@ -83,6 +90,10 @@ mkdir -p "$PLUGIN_DIR"
 # The plugin manifest sits at the head, above cli/ + viewer/.
 cp "$REPO_ROOT/objectiveai.json" "$PLUGIN_DIR/objectiveai.json"
 
+# The packaging (zip) step's output is captured too — same .logs/build shape.
+PKG_LOG="$LOG_DIR/package-$BUILD_TS.txt"
+echo "==> build.sh: packaging  (log: $PKG_LOG)"
+
 if [ "$NO_CLI" = "0" ]; then
   # cli/ zip = the staged browser runtime (build-cli.sh left it in embed/, the
   # CEF files or the .app) + the CLI binary, flat at the zip root.
@@ -91,18 +102,20 @@ if [ "$NO_CLI" = "0" ]; then
   [ -d "$BUNDLE_DIR" ] || { echo "browser runtime not staged: $BUNDLE_DIR" >&2; exit 1; }
   CLI_BIN="$REPO_ROOT/target/$PROFILE/psychological-operations$EXE"
   [ -f "$CLI_BIN" ] || { echo "CLI binary not found: $CLI_BIN" >&2; exit 1; }
-  case "$PLATFORM" in
-    windows)
-      powershell.exe -NoProfile -Command \
-        "Compress-Archive -Path '$(cygpath -w "$BUNDLE_DIR")\*' -DestinationPath '$(cygpath -w "$CLI_ZIP")' -Force"
-      powershell.exe -NoProfile -Command \
-        "Compress-Archive -Update -Path '$(cygpath -w "$CLI_BIN")' -DestinationPath '$(cygpath -w "$CLI_ZIP")'"
-      ;;
-    *)
-      ( cd "$BUNDLE_DIR" && zip -qr "$CLI_ZIP" . )
-      zip -j "$CLI_ZIP" "$CLI_BIN"
-      ;;
-  esac
+  {
+    case "$PLATFORM" in
+      windows)
+        powershell.exe -NoProfile -Command \
+          "Compress-Archive -Path '$(cygpath -w "$BUNDLE_DIR")\*' -DestinationPath '$(cygpath -w "$CLI_ZIP")' -Force"
+        powershell.exe -NoProfile -Command \
+          "Compress-Archive -Update -Path '$(cygpath -w "$CLI_BIN")' -DestinationPath '$(cygpath -w "$CLI_ZIP")'"
+        ;;
+      *)
+        ( cd "$BUNDLE_DIR" && zip -qr "$CLI_ZIP" . )
+        zip -j "$CLI_ZIP" "$CLI_BIN"
+        ;;
+    esac
+  } >> "$PKG_LOG" 2>&1
   echo "      cli/$(basename "$CLI_ZIP")"
 fi
 
@@ -110,8 +123,10 @@ if [ "$NO_VIEWER" = "0" ]; then
   # viewer/ zip via the viewer's canonical zipper (dist/ -> flat zip at the repo
   # root), then move it in.
   rm -rf "$VIEWER_DIR"; mkdir -p "$VIEWER_DIR"
-  ( cd psychological-operations-viewer && node scripts/zip.mjs )
-  mv -f "$REPO_ROOT/psychological-operations-viewer.zip" "$VIEWER_ZIP"
+  {
+    ( cd psychological-operations-viewer && node scripts/zip.mjs )
+    mv -f "$REPO_ROOT/psychological-operations-viewer.zip" "$VIEWER_ZIP"
+  } >> "$PKG_LOG" 2>&1
   echo "      viewer/$(basename "$VIEWER_ZIP")"
 fi
 

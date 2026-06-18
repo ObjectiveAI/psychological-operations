@@ -1,9 +1,17 @@
 #!/usr/bin/env bash
 # test-unit.sh — run the unit tests of every workspace crate EXCEPT the
-# integration-test crate (psychological-operations-tests), via nextest. Each
-# crate's full output goes to .logs/test/<crate>-<timestamp>.txt. Exits 0 only
-# if every crate passed (each is run + judged independently).
-set -euo pipefail
+# integration-test crate (psychological-operations-tests), via nextest.
+#
+# Two phases (mirroring objectiveai's):
+#   1. PREBUILD each crate's test binaries ONE AT A TIME via `nextest --no-run`,
+#      capturing per-crate output to .logs/build/<crate>-nextest-<ts>.txt — so
+#      the run phase doesn't rebuild concurrently against the shared target dir
+#      (which would oversubscribe it). Every crate is attempted; any build
+#      failure aborts before the run phase.
+#   2. RUN the now build-free suites in PARALLEL, each crate's output to
+#      .logs/test/<crate>-<ts>.txt.
+# Exits 0 only if every crate passed.
+set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$REPO_ROOT"
@@ -20,19 +28,44 @@ CRATES=(
   psychological-operations-browser
 )
 
-mkdir -p "$REPO_ROOT/.logs/test"
+# One timestamp for the whole run, so a run's logs sort together.
 ts="$(date +%Y%m%d-%H%M%S)"
+BUILD_LOG_DIR="$REPO_ROOT/.logs/build"
+TEST_LOG_DIR="$REPO_ROOT/.logs/test"
+mkdir -p "$BUILD_LOG_DIR" "$TEST_LOG_DIR"
+
+# ── Phase 1: prebuild the test binaries, one crate at a time ─────────
+prebuild_failed=0
+for crate in "${CRATES[@]}"; do
+  log="$BUILD_LOG_DIR/$crate-nextest-$ts.txt"
+  echo "==> prebuild $crate  (log: $log)"
+  if ! cargo nextest run --no-run -p "$crate" > "$log" 2>&1; then
+    echo "    BUILD FAILED $crate (see .logs/build/$crate-nextest-$ts.txt)" >&2
+    prebuild_failed=1
+  fi
+done
+if [ "$prebuild_failed" -ne 0 ]; then
+  echo "==> test-unit.sh: one or more test builds failed; aborting" >&2
+  exit 1
+fi
+
+# ── Phase 2: run each crate's suite, all in parallel (build-free now) ─
+pids=()
+pid_crates=()
+for crate in "${CRATES[@]}"; do
+  log="$TEST_LOG_DIR/$crate-$ts.txt"
+  echo "==> nextest run -p $crate  (log: $log)"
+  cargo nextest run --no-tests=pass -p "$crate" > "$log" 2>&1 &
+  pids+=("$!")
+  pid_crates+=("$crate")
+done
 
 overall=0
-for crate in "${CRATES[@]}"; do
-  log="$REPO_ROOT/.logs/test/$crate-$ts.txt"
-  echo "==> nextest run -p $crate  (log: $log)"
-  rc=0
-  cargo nextest run -p "$crate" --no-tests=pass > "$log" 2>&1 || rc=$?
-  if [ "$rc" -eq 0 ]; then
-    echo "    PASS $crate"
+for i in "${!pids[@]}"; do
+  if wait "${pids[$i]}"; then
+    echo "    PASS ${pid_crates[$i]}"
   else
-    echo "    FAIL $crate (rc=$rc)"
+    echo "    FAIL ${pid_crates[$i]}"
     overall=1
   fi
 done
