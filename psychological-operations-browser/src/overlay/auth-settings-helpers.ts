@@ -6,7 +6,7 @@
 //   1. App permissions    → "Read and write and Direct message"
 //   2. Type of App        → "Web App"
 //   3. Website URL        → github repo (copy button)
-//   4. Callback URI       → http://127.0.0.1/callback (copy button)
+//   4. Callback URI       → http://127.0.0.1:14978/psychological-operations/callback (copy button)
 //   5. Save Changes       → red+✕ until 1–4 green, then gray
 //
 // Same TOS posture as onboarding-helpers: read-only DOM
@@ -29,7 +29,7 @@ import { isPanelCondition } from "./panel-state";
 // =================================================================
 const WEBSITE_URL_COPY =
   "https://github.com/ObjectiveAI/psychological-operations";
-const CALLBACK_URI_COPY = "http://127.0.0.1/psychological-operations/callback";
+const CALLBACK_URI_COPY = "http://127.0.0.1:14978/psychological-operations/callback";
 const REQUIRED_PERMISSIONS = "Read and write and Direct message";
 // X actually consolidates "Web App", "Automated App", and "Bot" into
 // a single option labeled "Web App, Automated App or Bot" — the

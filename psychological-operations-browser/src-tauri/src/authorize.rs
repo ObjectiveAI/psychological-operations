@@ -58,6 +58,13 @@ const SCOPES: &str = concat!(
 const AUTHORIZE_BASE: &str = "https://x.com/i/oauth2/authorize";
 const TOKEN_ENDPOINT: &str = "https://api.x.com/2/oauth2/token";
 const CALLBACK_TIMEOUT: Duration = Duration::from_secs(300);
+/// Fixed loopback port for the OAuth callback server. MUST stay in sync with
+/// the redirect_uri registered in the X App — the overlay's `CALLBACK_URI_COPY`
+/// in `auth-settings-helpers.ts`. X requires an EXACT redirect_uri match (it
+/// does NOT honor RFC 8252 loopback port-wildcarding), so an ephemeral port
+/// could never line up with a pre-registered callback — that mismatch is why
+/// the consent failed with "Something went wrong".
+const CALLBACK_PORT: u16 = 14978;
 
 // =================================================================
 // One-shot flag — prevents kicking the flow twice for the same twid
@@ -333,9 +340,9 @@ async fn bind_callback_server(
     timeout: Duration,
 ) -> Result<(u16, impl std::future::Future<Output = Result<Callback, String>>), String>
 {
-    let listener = TcpListener::bind("127.0.0.1:0")
+    let listener = TcpListener::bind(("127.0.0.1", CALLBACK_PORT))
         .await
-        .map_err(|e| format!("bind 127.0.0.1:0: {e}"))?;
+        .map_err(|e| format!("bind 127.0.0.1:{CALLBACK_PORT}: {e}"))?;
     let port = listener
         .local_addr()
         .map_err(|e| format!("local_addr: {e}"))?
