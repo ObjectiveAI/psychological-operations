@@ -16,6 +16,7 @@
 use clap::Subcommand;
 
 mod agent_ref;
+pub mod deliver;
 pub mod enqueue;
 pub mod notify;
 pub mod quota;
@@ -73,6 +74,10 @@ pub enum Commands {
         #[command(subcommand)]
         command: quota::Commands,
     },
+    /// Deliver pending reply/quote queue entries via the browser,
+    /// removing each row as the browser confirms it.
+    #[command(name = "deliver")]
+    Deliver,
 }
 
 impl Commands {
@@ -106,6 +111,7 @@ impl Commands {
                 message,
             } => enqueue::run(&agent_tag, &tweet_id, &message, ctx).await,
             Commands::Quota { command } => command.handle(ctx).await,
+            Commands::Deliver => deliver::run(ctx).await,
         }
     }
 }

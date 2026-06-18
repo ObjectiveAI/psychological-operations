@@ -20,7 +20,7 @@ use psychological_operations_sdk::browser::mode::Mode;
 #[derive(Debug, Parser)]
 #[command(name = "psychological-operations-browser")]
 #[command(about = "Tauri+CEF webview shell for psychological-operations sessions.")]
-#[command(group = ArgGroup::new("mode").required(true).multiple(false).args(["x_app", "psyop_read", "psyop_authorize", "agent_authorize", "psyop_browser", "agent_browser"]))]
+#[command(group = ArgGroup::new("mode").required(true).multiple(false).args(["x_app", "psyop_read", "psyop_authorize", "agent_authorize", "psyop_browser", "agent_browser", "deliver"]))]
 pub struct Args {
     /// Base directory for psych-ops state. Mode-specific CEF session
     /// data (cookies, IndexedDB, cache, ...) lives under
@@ -81,6 +81,16 @@ pub struct Args {
     /// under the agent's CEF profile.
     #[arg(long, group = "mode", value_name = "NAME")]
     pub agent_browser: Option<String>,
+
+    /// Launch in reply/quote **delivery** mode. The value is an inline
+    /// JSON array of
+    /// [`psychological_operations_sdk::browser::deliver::DeliverItem`].
+    /// The browser fulfills each item (as its `agent`) and streams one
+    /// `Output::Delivered` per success, then self-exits. NOT persona-
+    /// scoped (the batch spans agents), so this is a separate invocation
+    /// handled before the `Mode` system. (Handler not implemented yet.)
+    #[arg(long, group = "mode", value_name = "JSON")]
+    pub deliver: Option<String>,
 
     /// Bytes — SQLite response-cache size budget passed to
     /// `Client::new` when the browser needs to interact with

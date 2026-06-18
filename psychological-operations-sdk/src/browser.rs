@@ -15,6 +15,7 @@
 
 pub mod auth_json;
 pub mod console;
+pub mod deliver;
 pub mod mode;
 pub mod output;
 pub mod panel;

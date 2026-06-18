@@ -85,6 +85,14 @@ pub enum Event {
         name: Option<String>,
         status: Option<i32>,
     },
+    /// One queued reply/quote was delivered by the browser (in
+    /// `agents deliver`); the matching `reply_quote_queue` row has been
+    /// removed. Informational per-item progress.
+    Delivered {
+        tweet_id: String,
+        agent: String,
+        kind: String,
+    },
 
     // ── error-flavored variants (routed through emit_error) ──
     ObjectiveaiTaskErrors {

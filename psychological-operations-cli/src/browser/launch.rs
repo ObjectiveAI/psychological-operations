@@ -15,11 +15,26 @@ use crate::error::Error;
 /// flag spellings and we mirror it.
 pub enum Mode {
     XApp,
-    PsyopRead { name: String },
-    PsyopAuthorize { name: String },
-    AgentAuthorize { name: String },
-    PsyopBrowser { name: String },
-    AgentBrowser { name: String },
+    PsyopRead {
+        name: String,
+    },
+    PsyopAuthorize {
+        name: String,
+    },
+    AgentAuthorize {
+        name: String,
+    },
+    PsyopBrowser {
+        name: String,
+    },
+    AgentBrowser {
+        name: String,
+    },
+    /// Reply/quote delivery: `json` is an inline JSON array of
+    /// [`psychological_operations_sdk::browser::deliver::DeliverItem`].
+    Deliver {
+        json: String,
+    },
 }
 
 impl Mode {
@@ -31,6 +46,7 @@ impl Mode {
             Mode::AgentAuthorize { name } => vec!["--agent-authorize".into(), name.clone()],
             Mode::PsyopBrowser { name } => vec!["--psyop-browser".into(), name.clone()],
             Mode::AgentBrowser { name } => vec!["--agent-browser".into(), name.clone()],
+            Mode::Deliver { json } => vec!["--deliver".into(), json.clone()],
         }
     }
 }

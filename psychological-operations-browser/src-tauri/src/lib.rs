@@ -1,21 +1,21 @@
 mod args;
+mod authorize;
 pub mod cef;
 mod cef_scheme;
 mod cef_v8;
 mod cookies_watcher;
 mod credentials;
-mod authorize;
 mod psyop_read;
 mod state;
 mod stdio;
 mod webview;
 
+use std::sync::mpsc;
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::sync::mpsc;
 
-use clap::Parser;
 use clap::error::ErrorKind;
+use clap::Parser;
 use psychological_operations_sdk::browser::mode;
 use psychological_operations_sdk::browser::output::Output;
 use tauri::Manager;
@@ -68,14 +68,34 @@ pub fn run() {
     let args = match args::Args::try_parse() {
         Ok(a) => a,
         Err(e) if is_informational(&e) => {
-            let _ = Output::Help { text: e.to_string() }.emit();
+            let _ = Output::Help {
+                text: e.to_string(),
+            }
+            .emit();
             std::process::exit(0);
         }
         Err(e) => {
-            let _ = Output::Error { error: e.to_string() }.emit();
+            let _ = Output::Error {
+                error: e.to_string(),
+            }
+            .emit();
             std::process::exit(e.exit_code());
         }
     };
+
+    // Reply/quote delivery (`--deliver <json>`) is a separate invocation,
+    // NOT a persona `Mode` — handled here, before `initial_mode()` / the
+    // Tauri app, so the rest of the Mode machinery is untouched.
+    //
+    // STAGE 1 STUB: the invocation is recognized but the actual per-item
+    // posting + `Output::Delivered` streaming is a later stage. Exit cleanly
+    // so the CLI driver sees EOF and finishes (it deletes nothing this
+    // stage, leaving the queue rows for the real handler).
+    if args.deliver.is_some() {
+        // TODO(deliver): parse the inline JSON array of `DeliverItem`,
+        // fulfill each as its agent, and emit `Output::Delivered` per success.
+        std::process::exit(0);
+    }
 
     // The CLI mode flag is required (clap's ArgGroup enforces it).
     // Lock the SDK mode static once for the lifetime of the
@@ -86,12 +106,15 @@ pub fn run() {
     // Connect the persistence layer up front (credential-HTML + token
     // storage). Uses tauri's global async runtime since the builder
     // hasn't started yet. Fatal on failure.
-    let db = match tauri::async_runtime::block_on(
-        psychological_operations_db::Db::connect(&args.postgres_url),
-    ) {
+    let db = match tauri::async_runtime::block_on(psychological_operations_db::Db::connect(
+        &args.postgres_url,
+    )) {
         Ok(db) => db,
         Err(e) => {
-            let _ = Output::Error { error: format!("db connect: {e}") }.emit();
+            let _ = Output::Error {
+                error: format!("db connect: {e}"),
+            }
+            .emit();
             std::process::exit(1);
         }
     };

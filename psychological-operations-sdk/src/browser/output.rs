@@ -76,6 +76,16 @@ pub enum Output {
     /// zero.
     TweetId { id: String },
 
+    /// One delivered reply/quote, streamed by the browser (in
+    /// `--deliver-file` mode) as each lands — `content` is omitted from
+    /// the response. The CLI's `agents deliver` driver removes the matching
+    /// `reply_quote_queue` row on receipt.
+    Delivered {
+        tweet_id: String,
+        agent: String,
+        kind: String,
+    },
+
     /// Sole terminating signal on the OAuth-success path
     /// ([`crate::browser::mode::Mode::PsyopAuthorize`] /
     /// [`crate::browser::mode::Mode::AgentAuthorize`]). Emitted

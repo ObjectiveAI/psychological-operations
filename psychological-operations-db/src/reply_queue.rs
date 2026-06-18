@@ -17,6 +17,7 @@
 //! argument set for both tools.
 
 use serde::{Deserialize, Serialize};
+use sqlx::Row;
 
 use crate::{Db, Error};
 
@@ -71,5 +72,46 @@ impl Db {
         .fetch_one(&self.pool)
         .await?;
         Ok(exists)
+    }
+
+    /// Every pending reply/quote, oldest first — the full batch the
+    /// `agents deliver` driver hands to the browser.
+    pub async fn reply_quote_list(&self) -> Result<Vec<ReplyQuoteEntry>, Error> {
+        let rows = sqlx::query(
+            "SELECT agent_tag, kind, target_tweet_id, text, queued_at \
+             FROM reply_quote_queue ORDER BY queued_at ASC",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|row| ReplyQuoteEntry {
+                agent_tag: row.get("agent_tag"),
+                kind: row.get("kind"),
+                target_tweet_id: row.get("target_tweet_id"),
+                text: row.get("text"),
+                queued_at: row.get("queued_at"),
+            })
+            .collect())
+    }
+
+    /// Remove one delivered entry by its primary key. Called as the
+    /// browser confirms each delivery.
+    pub async fn reply_quote_delete(
+        &self,
+        agent_tag: &str,
+        kind: &str,
+        target_tweet_id: &str,
+    ) -> Result<(), Error> {
+        sqlx::query(
+            "DELETE FROM reply_quote_queue \
+             WHERE agent_tag = $1 AND kind = $2 AND target_tweet_id = $3",
+        )
+        .bind(agent_tag)
+        .bind(kind)
+        .bind(target_tweet_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
     }
 }
