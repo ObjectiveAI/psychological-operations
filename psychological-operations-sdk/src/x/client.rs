@@ -159,6 +159,34 @@ impl Client {
             .map_err(Error::Authorization)
     }
 
+    /// Like [`Self::lock_auth`] but for callers that ALREADY hold the
+    /// resolved persona identity, skipping [`Self::resolve_persona`]'s
+    /// cookie probe. The browser's authorize flow needs this: it runs
+    /// inside the CEF process that holds an exclusive OS lock on the
+    /// persona's cookie SQLite, so the probe would fail with
+    /// `SQLITE_CANTOPEN` — and it's redundant there, since the flow
+    /// already knows both twids.
+    pub async fn lock_auth_for(
+        &self,
+        kind: PersonaKind,
+        name: String,
+        persona_twid: String,
+        x_app_twid: String,
+    ) -> Result<AuthLock, Error> {
+        if self.mock {
+            return Err(Error::Other("lock_auth not supported in mock mode".into()));
+        }
+        let persona = PersonaKey {
+            kind,
+            name,
+            persona_twid,
+            x_app_twid,
+        };
+        self.lock_auth_at(&persona)
+            .await
+            .map_err(Error::Authorization)
+    }
+
     /// Crate-internal — explicit persona for code paths that
     /// already resolved one (e.g. `persona_bearer` reusing the
     /// persona it just resolved instead of re-running the cookies

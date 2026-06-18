@@ -196,7 +196,7 @@ async fn run_flow(
     persona_name: String,
     persona_twid: String,
 ) -> Result<(), String> {
-    let (client_id, client_secret) = read_x_app_creds(&handle).await?;
+    let (client_id, client_secret, x_app_twid) = read_x_app_creds(&handle).await?;
     let pkce = pkce_generate();
     let state_nonce = random_state();
     let (port, callback_fut) = bind_callback_server(CALLBACK_TIMEOUT)
@@ -248,14 +248,6 @@ async fn run_flow(
     let cache_max_size = args.cache_max_size;
     let cache_ttl = std::time::Duration::from_secs(args.cache_ttl);
     let db = handle.state::<Db>().inner().clone();
-    // Persona to act as when writing the tokens, under the advisory
-    // lock — single seam for cross-process write coordination.
-    let auth = match kind {
-        PersonaKind::Psyop =>
-            psychological_operations_sdk::x::client::AuthMode::Psyop(persona_name.clone()),
-        PersonaKind::Agent =>
-            psychological_operations_sdk::x::client::AuthMode::Agent(persona_name.clone()),
-    };
     let client = psychological_operations_sdk::x::client::Client::new(
         reqwest::Client::new(),
         false,
@@ -264,17 +256,20 @@ async fn run_flow(
         state_dir,
         db,
     );
-    // The Client resolves the persona (and the `auth_tokens` row) from
-    // `auth` + the CEF cookies it consults under the hood — no
-    // `PersonaKey` argument needed.
+    // Pass the persona identity EXPLICITLY. We already know the persona
+    // twid (resolved via the cookie watcher / current_user_id) and the
+    // X-App twid (from read_x_app_creds above), so we use the probe-free
+    // lock: the Client's normal cookie probe can't run here — this is the
+    // browser process, which holds an exclusive OS lock on the persona's
+    // cookie SQLite (it would fail with SQLITE_CANTOPEN).
     let lock = client
-        .lock_auth(&auth)
+        .lock_auth_for(kind, persona_name.clone(), persona_twid.clone(), x_app_twid)
         .await
-        .map_err(|e| format!("lock auth.json: {e}"))?;
+        .map_err(|e| format!("lock auth row: {e}"))?;
     client
         .write_auth(lock, &tokens)
         .await
-        .map_err(|e| format!("write auth.json: {e}"))?;
+        .map_err(|e| format!("write auth row: {e}"))?;
     let _ = Output::Log {
         message: format!(
             "authorize: wrote auth.json for {persona_twid} (expires_at={:?})",
@@ -481,7 +476,7 @@ async fn exchange_code_for_tokens(
 // =================================================================
 async fn read_x_app_creds(
     handle: &AppHandle<Wry>,
-) -> Result<(String, String), String> {
+) -> Result<(String, String, String), String> {
     use psychological_operations_sdk::browser::x_app_credentials::OAuthPopup;
 
     let state_dir = handle.state::<Args>().state_dir.clone();
@@ -506,7 +501,7 @@ async fn read_x_app_creds(
     if client_id.is_empty() || client_secret.is_empty() {
         return Err("client_id or client_secret is empty".into());
     }
-    Ok((client_id, client_secret))
+    Ok((client_id, client_secret, x_app_twid))
 }
 
 // Tokens are written via `Client::write_auth` from the SDK (into the
