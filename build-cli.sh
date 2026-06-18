@@ -4,11 +4,11 @@
 # release build.
 #
 # Self-contained: it provisions its own build prerequisites — ninja (for the
-# browser's CEF/CMake build) into ./bin, and on macOS the browser's yarn
-# deps. It does NOT zip anything; the root build.sh zips these outputs:
+# browser's CEF/CMake build) into ./bin, and the browser's yarn deps. It does
+# NOT zip anything; the root build.sh zips these outputs:
 #   target/<profile>/psychological-operations[.exe]
-#   psychological-operations-browser/embed/<triple>/<profile>/  (the staged
-#     browser runtime — the loose CEF files, or the .app on macOS)
+#   psychological-operations-browser/embed/  (the staged browser runtime —
+#     the loose CEF files, or the .app on macOS)
 set -euo pipefail
 
 REL=""
@@ -84,29 +84,30 @@ fi
 export PATH="$BIN_DIR:$PATH"
 
 echo "==> build-cli.sh ($PROFILE)"
+
+# The CLI binary.
+cargo build $REL -p psychological-operations-cli
+
+# The browser is a Tauri app — build it with `tauri build` so its frontend is
+# built (the beforeBuildCommand) and the CEF runtime is produced. macOS needs
+# the .app bundle (CEF only runs from one); the other platforms just need the
+# exe + loose runtime, so --no-bundle skips the installer packaging. Then
+# build-bundle stages the runtime (--skip-build: tauri already built it).
+TAURI_DEBUG=""
+if [ "$PROFILE" = "debug" ]; then TAURI_DEBUG="--debug"; fi
+# macOS: build only the .app (CEF needs the bundle layout) — no .dmg installer.
+# Other platforms: --no-bundle — just the exe + loose runtime, no installer.
+if [ "$PLATFORM" = "macos" ]; then TAURI_BUNDLE="--bundles app"; else TAURI_BUNDLE="--no-bundle"; fi
+( cd psychological-operations-browser && yarn install --immutable )
+( cd psychological-operations-browser && yarn tauri build --target "$TARGET" $TAURI_DEBUG $TAURI_BUNDLE )
+
 case "$PLATFORM" in
-  macos)
-    # CEF on macOS only runs from a .app bundle (the tauri bundler builds it;
-    # plain `cargo build` makes the exe but not the .app). Install the
-    # browser's node deps, build the CLI, then the browser .app via its
-    # yarn/tauri toolchain (the beforeBuildCommand builds the frontend), then
-    # stage it with build-bundle (--skip-build: package the bundle, no cargo
-    # rebuild).
-    ( cd psychological-operations-browser && yarn install --immutable )
-    cargo build $REL -p psychological-operations-cli
-    TAURI_DEBUG=""
-    if [ "$PROFILE" = "debug" ]; then TAURI_DEBUG="--debug"; fi
-    ( cd psychological-operations-browser && yarn tauri build --target "$TARGET" $TAURI_DEBUG )
-    bash psychological-operations-browser/scripts/build-bundle.sh --skip-build --no-zip $REL
-    ;;
   windows)
-    cargo build $REL -p psychological-operations-cli -p psychological-operations-browser
     ( cd psychological-operations-browser/scripts \
-        && powershell.exe -NoProfile -ExecutionPolicy Bypass -File build-bundle.ps1 ${REL:+-Release} -NoZip )
+        && powershell.exe -NoProfile -ExecutionPolicy Bypass -File build-bundle.ps1 -SkipBuild -NoZip ${REL:+-Release} )
     ;;
   *)
-    cargo build $REL -p psychological-operations-cli -p psychological-operations-browser
-    bash psychological-operations-browser/scripts/build-bundle.sh --no-zip $REL
+    bash psychological-operations-browser/scripts/build-bundle.sh --skip-build --no-zip $REL
     ;;
 esac
 echo "==> build-cli.sh done ($PROFILE)"

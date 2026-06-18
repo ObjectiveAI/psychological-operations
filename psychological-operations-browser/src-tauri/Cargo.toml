@@ -4,6 +4,9 @@ version = "0.1.0"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
+# The crate has two bins (the app + the CEF `_helper`); tell cargo/tauri which
+# is the app so `tauri build` can find the main binary to bundle.
+default-run = "psychological-operations-browser"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

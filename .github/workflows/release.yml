@@ -43,6 +43,19 @@ jobs:
       - name: Enable corepack (yarn — the browser frontend)
         shell: bash
         run: corepack enable
+      - name: Install Linux tauri deps (webkit2gtk etc. for `tauri build`)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libjavascriptcoregtk-4.1-dev \
+            libsoup-3.0-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev
       - name: Build the cli_zip
         shell: bash
         run: bash build.sh --release --no-viewer
