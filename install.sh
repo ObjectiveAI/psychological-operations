@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
-# install.sh — install the built psychological-operations plugin into an
-# objectiveai dir. Assumes build.sh has already run: it reads the release zips
-# build.sh produced under the repo's .objectiveai/ and unpacks them into the
-# target dir's plugin tree, exactly like the host's `plugins install` would.
+# install.sh — install the psychological-operations plugin into an objectiveai
+# dir (default $HOME/.objectiveai), the way the host's `plugins install` works.
 #
-#   <dir>/bin/plugins/ObjectiveAI/psychological-operations/<version>/
-#     objectiveai.json
-#     cli/      <- unpacked cli_zip   (CLI binary + browser CEF runtime)
-#     viewer/   <- unpacked viewer_zip
+# For each of cli/ and viewer/ under the plugin's version dir:
+#   1. Use the release zip already sitting in that folder if present (e.g. one
+#      build.sh produced); otherwise download it from the GitHub release into
+#      the folder.
+#   2. Delete everything ELSE in the folder (any prior unpack) — the zip stays.
+#   3. Unpack the zip in place.
+#
+# Our integration flow builds first, so the zips are already present and it
+# never downloads.
 #
 # Usage:
 #   bash install.sh [--dir <objectiveai-dir>]   # --dir defaults to ~/.objectiveai
@@ -23,6 +26,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO="ObjectiveAI/psychological-operations"
 
 # platform / arch — the cli_zip is per host.
 case "$(uname -s)" in
@@ -40,35 +44,46 @@ esac
 VERSION="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$REPO_ROOT/objectiveai.json" | head -1)"
 [ -n "$VERSION" ] || { echo "ERROR: could not read version from objectiveai.json" >&2; exit 1; }
 
-PLUGIN_REL="bin/plugins/ObjectiveAI/psychological-operations/$VERSION"
-SRC="$REPO_ROOT/.objectiveai/$PLUGIN_REL"
-DEST="$DIR/$PLUGIN_REL"
-CLI_ZIP="$SRC/cli/psychological-operations-$PLATFORM-$ARCH.zip"
-VIEWER_ZIP="$SRC/viewer/psychological-operations-viewer.zip"
-[ -f "$CLI_ZIP" ]    || { echo "cli_zip not found: $CLI_ZIP (run build.sh first)" >&2; exit 1; }
-[ -f "$VIEWER_ZIP" ] || { echo "viewer_zip not found: $VIEWER_ZIP (run build.sh first)" >&2; exit 1; }
+PLUGIN_DIR="$DIR/bin/plugins/ObjectiveAI/psychological-operations/$VERSION"
 
-echo "==> installing v$VERSION ($PLATFORM-$ARCH) into $DEST"
+# install_part <folder> <zip-name>
+#   Ensure <folder>/<zip-name> is present (use the local zip, else download it
+#   from the GitHub release into the folder); delete everything ELSE in the
+#   folder; then unpack the zip in place.
+install_part() {
+  local dir="$1" zipname="$2"
+  mkdir -p "$dir"
+  local zip="$dir/$zipname"
+  if [ ! -f "$zip" ]; then
+    local url="https://github.com/$REPO/releases/download/v$VERSION/$zipname"
+    echo "==> fetching $zipname"
+    if command -v curl >/dev/null 2>&1; then
+      curl -fSL --progress-bar "$url" -o "$zip"
+    elif command -v wget >/dev/null 2>&1; then
+      wget -O "$zip" "$url"
+    else
+      echo "need curl or wget to download $zipname" >&2; return 1
+    fi
+  fi
+  # Delete everything in the folder except the .zip(s) — i.e. a prior unpack.
+  find "$dir" -mindepth 1 -maxdepth 1 -not -name '*.zip' -exec rm -rf {} +
+  echo "==> unpacking $zipname into $dir"
+  case "$PLATFORM" in
+    windows)
+      powershell.exe -NoProfile -Command \
+        "Expand-Archive -Force -LiteralPath '$(cygpath -w "$zip")' -DestinationPath '$(cygpath -w "$dir")'"
+      ;;
+    *)
+      unzip -o -q "$zip" -d "$dir"
+      ;;
+  esac
+}
 
-# Clear the existing cli/ + viewer/ folders first, then recreate.
-rm -rf "$DEST/cli" "$DEST/viewer"
-mkdir -p "$DEST/cli" "$DEST/viewer"
+echo "==> installing v$VERSION ($PLATFORM-$ARCH) into $PLUGIN_DIR"
+install_part "$PLUGIN_DIR/cli"    "psychological-operations-$PLATFORM-$ARCH.zip"
+install_part "$PLUGIN_DIR/viewer" "psychological-operations-viewer.zip"
 
 # The plugin manifest sits at the head, above cli/ + viewer/.
-cp "$REPO_ROOT/objectiveai.json" "$DEST/objectiveai.json"
+cp "$REPO_ROOT/objectiveai.json" "$PLUGIN_DIR/objectiveai.json"
 
-# Unpack each zip into its folder.
-case "$PLATFORM" in
-  windows)
-    powershell.exe -NoProfile -Command \
-      "Expand-Archive -Force -LiteralPath '$(cygpath -w "$CLI_ZIP")' -DestinationPath '$(cygpath -w "$DEST/cli")'"
-    powershell.exe -NoProfile -Command \
-      "Expand-Archive -Force -LiteralPath '$(cygpath -w "$VIEWER_ZIP")' -DestinationPath '$(cygpath -w "$DEST/viewer")'"
-    ;;
-  *)
-    unzip -o -q "$CLI_ZIP"    -d "$DEST/cli"
-    unzip -o -q "$VIEWER_ZIP" -d "$DEST/viewer"
-    ;;
-esac
-
-echo "==> installed -> $DEST"
+echo "==> installed -> $PLUGIN_DIR"
