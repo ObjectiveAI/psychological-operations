@@ -136,9 +136,15 @@ pub fn create_x_app(handle: &AppHandle<Wry>, mode: &Mode) -> tauri::Result<()> {
             // 5s is generous for a cookie flush (typically
             // milliseconds); the bound is here so a hung CEF
             // can't pin the window open forever.
-            let close_rx = cef_embed::install_close_signal();
-            cef_embed::close_browser_async();
-            let _ = close_rx.recv_timeout(std::time::Duration::from_secs(5));
+            // Guard: if the browser is already gone (e.g. a
+            // `Request::Shutdown` already closed + flushed it), skip —
+            // otherwise we'd block the full timeout waiting on an
+            // `on_before_close` that will never fire.
+            if cef_embed::has_browser() {
+                let close_rx = cef_embed::install_close_signal();
+                cef_embed::close_browser_async();
+                let _ = close_rx.recv_timeout(std::time::Duration::from_secs(5));
+            }
         }
         _ => {}
     });

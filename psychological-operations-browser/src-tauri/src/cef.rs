@@ -36,6 +36,7 @@
 //! flaky we'll route through `post_task(ThreadId::UI, ...)`.
 
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{SyncSender, sync_channel};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
@@ -497,6 +498,35 @@ fn close_signal_slot() -> &'static Mutex<Option<SyncSender<()>>> {
     CLOSE_SIGNAL.get_or_init(|| Mutex::new(None))
 }
 
+/// Tracks whether the current browser's cookie store has been flushed
+/// to disk yet, so `do_close` only kicks off one async flush per close
+/// (it re-enters once the flush completes). Reset to `false` in
+/// `on_after_created` for each new browser.
+static COOKIES_FLUSHED: AtomicBool = AtomicBool::new(false);
+
+wrap_completion_callback! {
+    struct FlushDone {}
+
+    impl CompletionCallback {
+        fn on_complete(&self) {
+            // The per-context cookie store is now on disk. Mark it
+            // flushed and re-issue the close we cancelled in `do_close`
+            // — this time it re-enters with the flag set and proceeds,
+            // firing `on_before_close` (which the window-close handler
+            // and mode-switch both block on).
+            COOKIES_FLUSHED.store(true, Ordering::SeqCst);
+            if let Some(host) = browser_slot()
+                .lock()
+                .ok()
+                .and_then(|s| s.as_ref().cloned())
+                .and_then(|b| b.host())
+            {
+                host.close_browser(0);
+            }
+        }
+    }
+}
+
 /// Install a fresh one-shot channel that fires when the next
 /// `on_before_close` lands. Caller invokes this BEFORE
 /// [`close_browser_async`] and `recv_timeout`s the returned
@@ -522,6 +552,8 @@ wrap_life_span_handler! {
 
     impl LifeSpanHandler {
         fn on_after_created(&self, browser: Option<&mut Browser>) {
+            // New browser → its cookie store hasn't been flushed yet.
+            COOKIES_FLUSHED.store(false, Ordering::SeqCst);
             let Some(b) = browser else { return };
             // Capture child HWND/NSView/X11Window for reflow.
             if let Some(host) = b.host() {
@@ -540,9 +572,40 @@ wrap_life_span_handler! {
         }
 
         fn do_close(&self, _browser: Option<&mut Browser>) -> i32 {
-            // 0 = allow the close to proceed normally. We have no
-            // pre-close UI work to interleave.
-            0
+            // Flush the per-context cookie store to disk BEFORE the
+            // browser tears down, so the persona's x.com session
+            // (auth_token / twid) survives the close — whether the host
+            // asked (Shutdown) or the user clicked the window's X. CEF
+            // writes cookies lazily, so a plain close routinely drops
+            // recently-set cookies and the next launch starts signed-out.
+            //
+            // The first call kicks off an async `flush_store` and CANCELS
+            // this close (return 1); the completion callback flips
+            // COOKIES_FLUSHED and re-issues the close, which re-enters
+            // here with the flag set and is allowed through (return 0).
+            if COOKIES_FLUSHED.load(Ordering::SeqCst) {
+                return 0;
+            }
+            let manager = browser_slot()
+                .lock()
+                .ok()
+                .and_then(|s| s.as_ref().cloned())
+                .and_then(|b| b.host())
+                .and_then(|h| h.request_context())
+                .and_then(|rc| rc.cookie_manager(None));
+            let Some(manager) = manager else {
+                // Nothing to flush (browser already torn down) — allow.
+                COOKIES_FLUSHED.store(true, Ordering::SeqCst);
+                return 0;
+            };
+            let mut cb = FlushDone::new();
+            if manager.flush_store(Some(&mut cb)) == 1 {
+                1 // accepted — wait for on_complete to re-close
+            } else {
+                // Flush rejected — don't hang the close.
+                COOKIES_FLUSHED.store(true, Ordering::SeqCst);
+                0
+            }
         }
 
         fn on_before_close(&self, _browser: Option<&mut Browser>) {

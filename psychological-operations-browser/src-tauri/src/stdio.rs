@@ -110,6 +110,18 @@ fn dispatch_request(handle: &AppHandle<Wry>, req: Request) {
     // host (CLI's `login` command) sends this after seeing
     // `AuthorizeSucceeded` / `AuthorizeFailed`.
     if matches!(req, Request::Shutdown) {
+        // Close the browser through CEF first so `do_close` flushes the
+        // cookie store to disk before we exit — otherwise a login's fresh
+        // x.com session can be lost and a later `browse` starts
+        // signed-out. Block on `on_before_close` (fires post-flush).
+        // Guarded by `has_browser` so we don't wait on nothing; the
+        // window-close handler is guarded the same way, so whichever
+        // runs second is a no-op rather than a 5s stall.
+        if cef::has_browser() {
+            let close_rx = cef::install_close_signal();
+            cef::close_browser_async();
+            let _ = close_rx.recv_timeout(std::time::Duration::from_secs(5));
+        }
         handle.exit(0);
         return;
     }
