@@ -95,7 +95,7 @@ esac
 
 # 6. Global API config for the integration run.
 echo "==> objectiveai api config (global)"
-"$HOST" api config mcp-timeout-ms set 600000 --global
+"$HOST" api config mcp-timeout-ms set 300000 --global
 "$HOST" api config backoff-max-elapsed-time-ms set 0 --global
 
 # 7. Run the integration suite, capturing ALL output to a timestamped log.
