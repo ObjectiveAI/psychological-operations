@@ -72,19 +72,21 @@ VIEWER_ZIP="$VIEWER_DIR/psychological-operations-viewer.zip"
 rm -rf "$CLI_DIR" "$VIEWER_DIR"
 mkdir -p "$CLI_DIR" "$VIEWER_DIR"
 
-# cli/ zip = the browser bundle (flat) + the CLI binary appended — no
-# unzip/rezip of the ~190 MB runtime.
-BUNDLE_ZIP="$REPO_ROOT/psychological-operations-browser/embed/$TARGET/$PROFILE/browser-bundle.zip"
-[ -f "$BUNDLE_ZIP" ] || { echo "browser bundle not found: $BUNDLE_ZIP" >&2; exit 1; }
+# cli/ zip = the staged browser runtime (build-cli.sh left it in embed/, the
+# CEF files or the .app) + the CLI binary, flat at the zip root.
+BUNDLE_DIR="$REPO_ROOT/psychological-operations-browser/embed"
+[ -d "$BUNDLE_DIR" ] || { echo "browser runtime not staged: $BUNDLE_DIR" >&2; exit 1; }
 CLI_BIN="$REPO_ROOT/target/$PROFILE/psychological-operations$EXE"
 [ -f "$CLI_BIN" ] || { echo "CLI binary not found: $CLI_BIN" >&2; exit 1; }
-cp "$BUNDLE_ZIP" "$CLI_ZIP"
 case "$PLATFORM" in
   windows)
+    powershell.exe -NoProfile -Command \
+      "Compress-Archive -Path '$(cygpath -w "$BUNDLE_DIR")\*' -DestinationPath '$(cygpath -w "$CLI_ZIP")' -Force"
     powershell.exe -NoProfile -Command \
       "Compress-Archive -Update -Path '$(cygpath -w "$CLI_BIN")' -DestinationPath '$(cygpath -w "$CLI_ZIP")'"
     ;;
   *)
+    ( cd "$BUNDLE_DIR" && zip -qr "$CLI_ZIP" . )
     zip -j "$CLI_ZIP" "$CLI_BIN"
     ;;
 esac

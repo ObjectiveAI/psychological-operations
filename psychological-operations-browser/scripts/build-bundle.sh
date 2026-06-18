@@ -13,11 +13,13 @@ set -euo pipefail
 RELEASE=0
 TARGET=""
 SKIP_BUILD=0
+NOZIP=0
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --release) RELEASE=1; shift ;;
         --target)  TARGET="$2"; shift 2 ;;
         --skip-build) SKIP_BUILD=1; shift ;;
+        --no-zip) NOZIP=1; shift ;;
         *) echo "unknown arg: $1" >&2; exit 1 ;;
     esac
 done
@@ -45,8 +47,16 @@ if [[ $SKIP_BUILD -eq 0 ]]; then
 fi
 
 TARGET_DIR="$WORKSPACE_ROOT/target/$TARGET/$PROFILE"
-EMBED_DIR="$BROWSER_ROOT/embed/$TARGET/$PROFILE"
-STAGING="$EMBED_DIR/staging"
+# --no-zip stages the runtime straight into embed/ (the caller zips it); zip
+# mode keeps the per-target embed/<triple>/<profile>/staging/ layout (its zip
+# lands in embed/<triple>/<profile>/).
+if [[ $NOZIP -eq 1 ]]; then
+  EMBED_DIR="$BROWSER_ROOT/embed"
+  STAGING="$EMBED_DIR"
+else
+  EMBED_DIR="$BROWSER_ROOT/embed/$TARGET/$PROFILE"
+  STAGING="$EMBED_DIR/staging"
+fi
 
 [[ -d "$TARGET_DIR" ]] || { echo "target dir not found: $TARGET_DIR" >&2; exit 1; }
 mkdir -p "$EMBED_DIR"
@@ -105,13 +115,17 @@ if [[ "$TARGET" == *linux* ]]; then
     cp -R "$TARGET_DIR/locales" "$STAGING/locales"
 fi
 
-BUNDLE_ZIP="$EMBED_DIR/browser-bundle.zip"
-rm -f "$BUNDLE_ZIP"
-echo "==> compressing $BUNDLE_ZIP"
-( cd "$STAGING" && zip -qr "$BUNDLE_ZIP" . )
+echo "==> staged $STAGING"
 
-printf "%s" "$ENTRY" > "$EMBED_DIR/browser-entry.txt"
-
-BUNDLE_BYTES="$(stat -c%s "$BUNDLE_ZIP" 2>/dev/null || stat -f%z "$BUNDLE_ZIP")"
-echo "==> wrote $BUNDLE_ZIP ($BUNDLE_BYTES bytes)"
-echo "==> wrote $EMBED_DIR/browser-entry.txt"
+# Zip the staging dir flat — unless --no-zip, in which case the staging dir
+# (embed/<triple>/<profile>/) IS the output and the caller zips it directly.
+if [[ $NOZIP -eq 0 ]]; then
+  printf "%s" "$ENTRY" > "$EMBED_DIR/browser-entry.txt"
+  BUNDLE_ZIP="$EMBED_DIR/browser-bundle.zip"
+  rm -f "$BUNDLE_ZIP"
+  echo "==> compressing $BUNDLE_ZIP"
+  ( cd "$STAGING" && zip -qr "$BUNDLE_ZIP" . )
+  BUNDLE_BYTES="$(stat -c%s "$BUNDLE_ZIP" 2>/dev/null || stat -f%z "$BUNDLE_ZIP")"
+  echo "==> wrote $BUNDLE_ZIP ($BUNDLE_BYTES bytes)"
+  echo "==> wrote $EMBED_DIR/browser-entry.txt"
+fi

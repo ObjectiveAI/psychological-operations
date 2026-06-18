@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # build-cli.sh — build the CLI plugin's binaries: the CLI release binary +
-# the browser CEF bundle (browser-bundle.zip). Debug by default; --release
-# for a release build.
+# the browser CEF runtime, staged in place. Debug by default; --release for a
+# release build.
 #
 # Self-contained: it provisions its own build prerequisites — ninja (for the
 # browser's CEF/CMake build) into ./bin, and on macOS the browser's yarn
-# deps. The root build.sh is what zips these outputs. Outputs:
+# deps. It does NOT zip anything; the root build.sh zips these outputs:
 #   target/<profile>/psychological-operations[.exe]
-#   psychological-operations-browser/embed/<triple>/<profile>/browser-bundle.zip
+#   psychological-operations-browser/embed/<triple>/<profile>/  (the staged
+#     browser runtime — the loose CEF files, or the .app on macOS)
 set -euo pipefail
 
 REL=""
@@ -96,16 +97,16 @@ case "$PLATFORM" in
     TAURI_DEBUG=""
     if [ "$PROFILE" = "debug" ]; then TAURI_DEBUG="--debug"; fi
     ( cd psychological-operations-browser && yarn tauri build --target "$TARGET" $TAURI_DEBUG )
-    bash psychological-operations-browser/scripts/build-bundle.sh --skip-build $REL
+    bash psychological-operations-browser/scripts/build-bundle.sh --skip-build --no-zip $REL
     ;;
   windows)
     cargo build $REL -p psychological-operations-cli -p psychological-operations-browser
     ( cd psychological-operations-browser/scripts \
-        && powershell.exe -NoProfile -ExecutionPolicy Bypass -File build-bundle.ps1 ${REL:+-Release} )
+        && powershell.exe -NoProfile -ExecutionPolicy Bypass -File build-bundle.ps1 ${REL:+-Release} -NoZip )
     ;;
   *)
     cargo build $REL -p psychological-operations-cli -p psychological-operations-browser
-    bash psychological-operations-browser/scripts/build-bundle.sh $REL
+    bash psychological-operations-browser/scripts/build-bundle.sh --no-zip $REL
     ;;
 esac
 echo "==> build-cli.sh done ($PROFILE)"

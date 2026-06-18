@@ -15,7 +15,8 @@
 param(
     [switch]$Release,
     [string]$Target = "",
-    [switch]$SkipBuild
+    [switch]$SkipBuild,
+    [switch]$NoZip
 )
 
 $ErrorActionPreference = "Stop"
@@ -75,7 +76,15 @@ if (-not $TargetDir) {
 }
 Write-Host "==> staging from $TargetDir"
 
-$Staging = Join-Path $BrowserRoot "embed" | Join-Path -ChildPath $Target | Join-Path -ChildPath $Profile | Join-Path -ChildPath "staging"
+# -NoZip stages straight into embed/ (the caller zips it); zip mode keeps the
+# per-target embed/<triple>/<profile>/staging/ layout.
+if ($NoZip) {
+    $EmbedDir = Join-Path $BrowserRoot "embed"
+    $Staging = $EmbedDir
+} else {
+    $EmbedDir = Join-Path $BrowserRoot "embed" | Join-Path -ChildPath $Target | Join-Path -ChildPath $Profile
+    $Staging = Join-Path $EmbedDir "staging"
+}
 if (Test-Path $Staging) { Remove-Item -Recurse -Force $Staging }
 New-Item -ItemType Directory -Force -Path $Staging | Out-Null
 
@@ -121,20 +130,18 @@ $LocalesSrc = Join-Path $TargetDir "locales"
 if (-not (Test-Path $LocalesSrc)) { throw "missing CEF locales dir: $LocalesSrc" }
 Copy-Item -Recurse -Path $LocalesSrc -Destination (Join-Path $Staging "locales")
 
-# 3. Zip the staging dir flat (no top-level dir) so extraction lands
-#    next to the entry exe.
-$EmbedDir = Join-Path $BrowserRoot "embed" | Join-Path -ChildPath $Target | Join-Path -ChildPath $Profile
-$BundleZip = Join-Path $EmbedDir "browser-bundle.zip"
-if (Test-Path $BundleZip) { Remove-Item -Force $BundleZip }
-
-Write-Host "==> compressing $BundleZip"
-Compress-Archive -Path (Join-Path $Staging "*") -DestinationPath $BundleZip -CompressionLevel Optimal
-
-# 4. browser-entry.txt — the exe path relative to the extracted root.
-$EntryFile = Join-Path $EmbedDir "browser-entry.txt"
-"psychological-operations-browser.exe" | Out-File -FilePath $EntryFile -Encoding ascii -NoNewline
-
-# 5. Sanity report.
-$BundleBytes = (Get-Item $BundleZip).Length
-Write-Host ("==> wrote {0} ({1:N0} bytes)" -f $BundleZip, $BundleBytes)
-Write-Host ("==> wrote {0}" -f $EntryFile)
+# 3. browser-entry.txt + zip the staging dir flat — unless -NoZip, in which
+#    case the staging dir (embed/<triple>/<profile>/) IS the output and the
+#    caller (build.sh) zips it.
+Write-Host ("==> staged {0}" -f $Staging)
+if (-not $NoZip) {
+    $EntryFile = Join-Path $EmbedDir "browser-entry.txt"
+    "psychological-operations-browser.exe" | Out-File -FilePath $EntryFile -Encoding ascii -NoNewline
+    $BundleZip = Join-Path $EmbedDir "browser-bundle.zip"
+    if (Test-Path $BundleZip) { Remove-Item -Force $BundleZip }
+    Write-Host "==> compressing $BundleZip"
+    Compress-Archive -Path (Join-Path $Staging "*") -DestinationPath $BundleZip -CompressionLevel Optimal
+    $BundleBytes = (Get-Item $BundleZip).Length
+    Write-Host ("==> wrote {0} ({1:N0} bytes)" -f $BundleZip, $BundleBytes)
+    Write-Host ("==> wrote {0}" -f $EntryFile)
+}
