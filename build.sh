@@ -51,8 +51,6 @@ case "$(uname -m)" in
   *) echo "unsupported architecture: $(uname -m)" >&2; exit 1 ;;
 esac
 if [ "$PLATFORM" = "windows" ]; then EXE=".exe"; else EXE=""; fi
-TARGET="$(rustc -vV | sed -n 's/^host: //p')"
-[ -n "$TARGET" ] || { echo "ERROR: could not determine host target triple" >&2; exit 1; }
 
 if [ "$NO_CLI" = "1" ] && [ "$NO_VIEWER" = "1" ]; then
   echo "==> build.sh: --no-cli + --no-viewer — nothing to build."

@@ -1,10 +1,8 @@
 name: release
 
-# Manual-only for now (`workflow_dispatch`). When you're ready for the
-# release to cut automatically on a version bump, uncomment the `push`
-# block below — it fires when version.sh's CLI-version bump lands on main,
-# exactly like mundus-animarum. (Left off so a routine push doesn't cut a
-# release before we're ready.)
+# Manual-only for now (`workflow_dispatch`). When you're ready for releases to
+# cut automatically on a version bump, uncomment the `push` block — it fires
+# when the CLI version bump lands on main.
 on:
   workflow_dispatch:
   # push:
@@ -14,124 +12,54 @@ on:
 permissions:
   contents: write
 
+# Seven completely independent releasers — one per OS/arch (the cli_zip) plus
+# the viewer. Each runs build.sh with the appropriate flag and uploads the zip
+# build.sh produced, as-is. There is no shared/gating job: each leg ensures the
+# vN release exists (`gh release create … || true`) before uploading, and
+# fail-fast:false keeps one leg's failure from cancelling the others.
 jobs:
-  prepare:
-    runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.v.outputs.version }}
-      should_release: ${{ steps.v.outputs.should_release }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: Resolve version, verify sync, create release if new
-        id: v
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          # The CLI's package version is the release source of truth.
-          VERSION=$(cargo metadata --no-deps --format-version 1 --manifest-path psychological-operations-cli/Cargo.toml \
-            | jq -r '.packages[] | select(.name == "psychological-operations-cli") | .version')
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "CLI version: $VERSION"
-
-          # `objectiveai plugins install` downloads releases/download/v<manifest
-          # version>/…, and the viewer bundle ships under the same tag. If the
-          # manifest or viewer drift from the CLI version the host fetches the
-          # wrong release — fail loud before any build leg burns CI time.
-          MANIFEST_VER=$(jq -r .version objectiveai.json)
-          VIEWER_VER=$(jq -r .version psychological-operations-viewer/package.json)
-          echo "Manifest: $MANIFEST_VER   Viewer: $VIEWER_VER"
-          if [ "$VERSION" != "$MANIFEST_VER" ] || [ "$VERSION" != "$VIEWER_VER" ]; then
-            echo "::error::version drift — CLI $VERSION / manifest $MANIFEST_VER / viewer $VIEWER_VER. Run \`bash version.sh $VERSION\` to resync."
-            exit 1
-          fi
-
-          if gh release view "v$VERSION" --repo "${{ github.repository }}" >/dev/null 2>&1; then
-            echo "Release v$VERSION already exists — nothing to do."
-            echo "should_release=false" >> "$GITHUB_OUTPUT"
-          else
-            # Not a draft, so each build leg's asset is visible the moment it
-            # uploads. Notes are auto-generated from the commits/PRs since the
-            # last tag (no shell interpolation of commit messages).
-            gh release create "v$VERSION" \
-              --repo "${{ github.repository }}" \
-              --target "$GITHUB_SHA" \
-              --title "v$VERSION" \
-              --generate-notes
-            echo "should_release=true" >> "$GITHUB_OUTPUT"
-          fi
-
-  build-cli:
-    name: CLI (${{ matrix.zip }})
-    needs: prepare
-    if: needs.prepare.outputs.should_release == 'true'
+  cli:
+    name: cli ${{ matrix.os }}-${{ matrix.arch }}
     strategy:
       fail-fast: false
       matrix:
-        # The six platforms enumerated by objectiveai.json::cli_zip
-        # (3 OS × 2 arch). NATIVE runners, NOT cross-compile: each zip
-        # bundles the platform's CEF browser runtime (built per-OS by
-        # build-bundle.{ps1,sh}), so each target must build on its own
-        # OS + arch.
+        # Native runners (matching objectiveai's), NOT cross-compile: each zip
+        # bundles that platform's CEF browser runtime, so it must build on its
+        # own OS + arch.
         include:
-          - { runner: ubuntu-22.04,     zip: psychological-operations-linux-x86_64.zip,    bin: psychological-operations }
-          - { runner: ubuntu-22.04-arm, zip: psychological-operations-linux-aarch64.zip,   bin: psychological-operations }
-          - { runner: macos-15-intel,   zip: psychological-operations-macos-x86_64.zip,    bin: psychological-operations }
-          - { runner: macos-14,         zip: psychological-operations-macos-aarch64.zip,   bin: psychological-operations }
-          - { runner: windows-latest,   zip: psychological-operations-windows-x86_64.zip,  bin: psychological-operations.exe }
-          - { runner: windows-11-arm,   zip: psychological-operations-windows-aarch64.zip, bin: psychological-operations.exe }
+          - { os: linux,   arch: x86_64,  runner: ubuntu-22.04 }
+          - { os: linux,   arch: aarch64, runner: ubuntu-24.04-arm }
+          - { os: macos,   arch: x86_64,  runner: macos-15-intel }
+          - { os: macos,   arch: aarch64, runner: macos-14 }
+          - { os: windows, arch: x86_64,  runner: windows-latest }
+          - { os: windows, arch: aarch64, runner: windows-11-arm }
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
-      - name: Build browser bundle (CEF runtime + browser exe)
-        # Produces psychological-operations-browser/embed/<triple>/release/
-        # browser-bundle.zip (CEF runtime + browser exe, flat). The CLI no
-        # longer embeds it — it ships beside the CLI in the release zip and
-        # the host runs it from OBJECTIVEAI_BIN_DIR.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Enable corepack (yarn — the browser frontend)
         shell: bash
-        run: |
-          set -euo pipefail
-          case "$RUNNER_OS" in
-            Windows) powershell -NoProfile -ExecutionPolicy Bypass -File psychological-operations-browser/scripts/build-bundle.ps1 -Release ;;
-            *)       bash psychological-operations-browser/scripts/build-bundle.sh --release ;;
-          esac
-      - name: Build CLI (release)
+        run: corepack enable
+      - name: Build the cli_zip
         shell: bash
-        run: cargo build --release -p psychological-operations-cli
-      - name: Package zip (CLI + browser bundle)
-        # The host extracts this zip into the plugin's cli/ dir and points
-        # OBJECTIVEAI_BIN_DIR at it; the CLI runs the browser straight from
-        # there. So the zip holds the CLI binary + the CEF bundle contents,
-        # flat at the zip root.
-        shell: bash
-        run: |
-          set -euo pipefail
-          TARGET="$(rustc -vV | sed -n 's/^host: //p')"
-          BUNDLE="psychological-operations-browser/embed/$TARGET/release/browser-bundle.zip"
-          [ -f "$BUNDLE" ] || { echo "missing browser bundle: $BUNDLE" >&2; exit 1; }
-          rm -rf stage && mkdir -p stage
-          cp "target/release/${{ matrix.bin }}" "stage/${{ matrix.bin }}"
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            powershell -NoProfile -Command "Expand-Archive -Force -LiteralPath '$(cygpath -w "$PWD/$BUNDLE")' -DestinationPath '$(cygpath -w "$PWD/stage")'"
-            powershell -NoProfile -Command "Compress-Archive -Path 'stage/*' -DestinationPath '${{ matrix.zip }}' -Force"
-          else
-            unzip -o -q "$BUNDLE" -d stage
-            ( cd stage && zip -qr "../${{ matrix.zip }}" . )
-          fi
-      - name: Upload to release
-        # Each leg appends its asset the moment it finishes, so fast platforms
-        # aren't gated on the slowest. `--clobber` keeps re-runs idempotent.
+        run: bash build.sh --release --no-viewer
+      - name: Upload the cli_zip
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
-        run: gh release upload "v${{ needs.prepare.outputs.version }}" "${{ matrix.zip }}" --repo "${{ github.repository }}" --clobber
+        run: |
+          set -euo pipefail
+          VERSION="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' objectiveai.json | head -1)"
+          ZIP=".objectiveai/bin/plugins/ObjectiveAI/psychological-operations/$VERSION/cli/psychological-operations-${{ matrix.os }}-${{ matrix.arch }}.zip"
+          [ -f "$ZIP" ] || { echo "missing cli_zip: $ZIP" >&2; exit 1; }
+          gh release create "v$VERSION" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "v$VERSION" --generate-notes || true
+          gh release upload "v$VERSION" "$ZIP" --repo "$GITHUB_REPOSITORY" --clobber
 
-  build-viewer:
-    name: Viewer (psychological-operations-viewer.zip)
-    needs: prepare
-    if: needs.prepare.outputs.should_release == 'true'
+  viewer:
+    name: viewer
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -143,11 +71,17 @@ jobs:
           node-version: 22
           cache: pnpm
           cache-dependency-path: psychological-operations-viewer/pnpm-lock.yaml
-      - name: Build viewer bundle
-        # Produces psychological-operations-viewer.zip at the repo root —
-        # the filename objectiveai.json::viewer_zip references.
-        run: bash psychological-operations-viewer/build.sh
-      - name: Upload to release
+      - name: Build the viewer_zip
+        shell: bash
+        run: bash build.sh --release --no-cli
+      - name: Upload the viewer_zip
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "v${{ needs.prepare.outputs.version }}" psychological-operations-viewer.zip --repo "${{ github.repository }}" --clobber
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' objectiveai.json | head -1)"
+          ZIP=".objectiveai/bin/plugins/ObjectiveAI/psychological-operations/$VERSION/viewer/psychological-operations-viewer.zip"
+          [ -f "$ZIP" ] || { echo "missing viewer_zip: $ZIP" >&2; exit 1; }
+          gh release create "v$VERSION" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "v$VERSION" --generate-notes || true
+          gh release upload "v$VERSION" "$ZIP" --repo "$GITHUB_REPOSITORY" --clobber
