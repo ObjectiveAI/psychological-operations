@@ -14,6 +14,8 @@
 #      PATH / shell rc (--no-export-path).
 #   5. Unpack this host's freshly-built cli_zip (correct os/arch/version) in
 #      place — into its own cli/ folder — overwriting whatever's there.
+#   6. Apply the global API config the integration run needs (mcp timeout,
+#      backoff) via the freshly-installed host.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -86,5 +88,10 @@ case "$PLATFORM" in
     unzip -o -q "$CLI_ZIP" -d "$CLI_DEST"
     ;;
 esac
+
+# 6. Global API config for the integration run.
+echo "==> objectiveai api config (global)"
+"$HOST" api config mcp-timeout-ms set 600000 --global
+"$HOST" api config backoff-max-elapsed-time-ms set 0 --global
 
 echo "==> test-integration.sh: sandbox reset"
