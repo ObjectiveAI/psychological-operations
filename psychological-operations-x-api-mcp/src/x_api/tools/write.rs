@@ -11,9 +11,11 @@
 //! rejections (e.g. a 403 for replying to a replies-disabled tweet)
 //! surface as `is_error` tool results the agent can act on.
 
+use psychological_operations_db::{ReplyQuoteEntry, unix_now};
+use psychological_operations_sdk::x::Error as XError;
 use psychological_operations_sdk::x::client::AuthMode;
 use psychological_operations_sdk::x::types::{
-    BookmarkAddRequest, TweetCreateRequest, TweetCreateRequestReply, TweetId, TweetText,
+    BookmarkAddRequest, Problem, TweetCreateRequest, TweetCreateRequestReply, TweetId, TweetText,
     UserIdMatchesAuthenticatedUser, UsersLikesCreateRequest, UsersRetweetsCreateRequest,
 };
 use psychological_operations_sdk::x::users::id::bookmarks as users_id_bookmarks;
@@ -24,7 +26,7 @@ use rmcp::{ErrorData, handler::server::wrapper::Parameters, schemars, tool, tool
 
 use super::super::PsychologicalOperationsXApiMcp;
 use super::super::builders::{empty_tweet_create_request, resolve_self_user_id, send_create_tweet};
-use super::super::tool_error::finish;
+use super::super::tool_error::{ToolError, finish};
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct PostRequest {
@@ -101,8 +103,12 @@ impl PsychologicalOperationsXApiMcp {
         finish(
             async move {
                 let http = self.build_client();
-                let auth = AuthMode::Agent(tag);
+                let auth = AuthMode::Agent(tag.clone());
 
+                // Capture the args before they move into the request, in
+                // case we need to queue the attempt below.
+                let target_tweet_id = req.in_reply_to_tweet_id.clone();
+                let text = req.text.clone();
                 let body = TweetCreateRequest {
                     text: Some(TweetText(req.text)),
                     reply: Some(TweetCreateRequestReply {
@@ -112,8 +118,33 @@ impl PsychologicalOperationsXApiMcp {
                     }),
                     ..empty_tweet_create_request()
                 };
-                let result = send_create_tweet(&http, &auth, body).await?;
-                Ok(CallToolResult::success(vec![Content::text(result)]))
+                match send_create_tweet(&http, &auth, body).await {
+                    Ok(result) => Ok(CallToolResult::success(vec![Content::text(result)])),
+                    // X refuses replies to threads this account can't engage.
+                    // Queue the attempt instead of failing it.
+                    Err(XError::Problem { code, ref problem })
+                        if code.as_u16() == 403 && is_conversation_forbidden(problem) =>
+                    {
+                        self.db
+                            .reply_quote_enqueue(&ReplyQuoteEntry {
+                                agent_tag: tag,
+                                kind: "reply".into(),
+                                target_tweet_id,
+                                text,
+                                queued_at: unix_now(),
+                            })
+                            .await
+                            .map_err(|e| {
+                                ToolError::System(ErrorData::internal_error(e.to_string(), None))
+                            })?;
+                        Ok(CallToolResult::success(vec![Content::text(
+                            "This conversation isn't accepting replies right now — your \
+                             reply has been queued and will be delivered later."
+                                .to_string(),
+                        )]))
+                    }
+                    Err(e) => Err(ToolError::from(e)),
+                }
             }
             .await,
         )
@@ -129,15 +160,44 @@ impl PsychologicalOperationsXApiMcp {
         finish(
             async move {
                 let http = self.build_client();
-                let auth = AuthMode::Agent(tag);
+                let auth = AuthMode::Agent(tag.clone());
 
+                // Capture the args before they move into the request, in
+                // case we need to queue the attempt below.
+                let target_tweet_id = req.quote_tweet_id.clone();
+                let text = req.text.clone();
                 let body = TweetCreateRequest {
                     text: Some(TweetText(req.text)),
                     quote_tweet_id: Some(TweetId(req.quote_tweet_id)),
                     ..empty_tweet_create_request()
                 };
-                let result = send_create_tweet(&http, &auth, body).await?;
-                Ok(CallToolResult::success(vec![Content::text(result)]))
+                match send_create_tweet(&http, &auth, body).await {
+                    Ok(result) => Ok(CallToolResult::success(vec![Content::text(result)])),
+                    // X refuses quotes of threads this account can't engage.
+                    // Queue the attempt instead of failing it.
+                    Err(XError::Problem { code, ref problem })
+                        if code.as_u16() == 403 && is_conversation_forbidden(problem) =>
+                    {
+                        self.db
+                            .reply_quote_enqueue(&ReplyQuoteEntry {
+                                agent_tag: tag,
+                                kind: "quote".into(),
+                                target_tweet_id,
+                                text,
+                                queued_at: unix_now(),
+                            })
+                            .await
+                            .map_err(|e| {
+                                ToolError::System(ErrorData::internal_error(e.to_string(), None))
+                            })?;
+                        Ok(CallToolResult::success(vec![Content::text(
+                            "This conversation isn't accepting quotes right now — your \
+                             quote has been queued and will be delivered later."
+                                .to_string(),
+                        )]))
+                    }
+                    Err(e) => Err(ToolError::from(e)),
+                }
             }
             .await,
         )
@@ -223,4 +283,16 @@ impl PsychologicalOperationsXApiMcp {
             .await,
         )
     }
+}
+
+/// True for the X 403 "conversation restriction" problem — the account
+/// isn't allowed to reply to / quote that thread ("…not allowed because
+/// you have not been mentioned or are not part of the conversation
+/// thread…"). Scoped by the substring so unrelated 403s (auth,
+/// suspension) still surface as errors rather than being silently queued.
+fn is_conversation_forbidden(problem: &Problem) -> bool {
+    problem
+        .detail
+        .as_deref()
+        .is_some_and(|d| d.contains("not allowed because"))
 }

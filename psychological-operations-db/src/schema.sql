@@ -91,6 +91,21 @@ CREATE TABLE IF NOT EXISTS queue (
     PRIMARY KEY (agent_tag, tweet_id)
 );
 
+-- ── deferred reply/quote queue ───────────────────────────────────────
+--
+-- When X refuses a reply/quote with the conversation-restriction 403, the
+-- x-api MCP captures the attempt here (one pending reply + one pending
+-- quote per agent per tweet) instead of failing it. Delivery is separate.
+
+CREATE TABLE IF NOT EXISTS reply_quote_queue (
+    agent_tag        TEXT   NOT NULL,
+    kind             TEXT   NOT NULL,  -- 'reply' | 'quote'
+    target_tweet_id  TEXT   NOT NULL,  -- in_reply_to_tweet_id / quote_tweet_id
+    text             TEXT   NOT NULL,  -- the reply/quote body
+    queued_at        BIGINT NOT NULL,
+    PRIMARY KEY (agent_tag, kind, target_tweet_id)
+);
+
 -- ── MCP per-account, per-tool-call quota ledger ──────────────────────
 -- Metering is on MCP TOOL CALLS, not X-API HTTP requests, keyed by the
 -- `account` (agent name) a tool acts as. The ledger is intentionally

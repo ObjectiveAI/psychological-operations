@@ -27,12 +27,14 @@ pub mod posts;
 pub mod psyops;
 pub mod queue;
 pub mod quota;
+pub mod reply_queue;
 pub mod x_app;
 
 pub use cookies::{parse_twid, signed_in_x_user_id, CookiesError};
 pub use locker::LockGuard;
 pub use posts::{MediaUrl, Origin, Post, PostRow};
 pub use queue::QueueEntry;
+pub use reply_queue::ReplyQuoteEntry;
 
 /// The embedded schema, applied idempotently on [`Db::connect`].
 const SCHEMA: &str = include_str!("schema.sql");

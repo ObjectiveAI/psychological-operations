@@ -4,6 +4,7 @@
 //! `send_create_tweet` helper centralizes the
 //! `tweets POST` plumbing the post / reply / quote tools share.
 
+use psychological_operations_sdk::x::Error as XError;
 use psychological_operations_sdk::x::client::{AuthMode, Client};
 use psychological_operations_sdk::x::params;
 use psychological_operations_sdk::x::tweets as tweets_root;
@@ -102,14 +103,19 @@ pub(super) fn empty_tweet_create_request() -> TweetCreateRequest {
 /// Shared `POST /2/tweets` plumbing for post / reply / quote.
 /// Returns the serialized `data` block on success (the agent gets
 /// the new tweet id + text back).
+///
+/// Returns the TYPED [`psychological_operations_sdk::x::Error`] (not
+/// `ToolError`) so the reply/quote tools can inspect the X 403 problem
+/// and queue the attempt instead of failing; `post` just `?`-converts it
+/// to `ToolError` via the existing `From` impl.
 pub(super) async fn send_create_tweet(
     http: &Client,
     auth: &AuthMode,
     body: TweetCreateRequest,
-) -> Result<String, ToolError> {
+) -> Result<String, XError> {
     let req = tweets_root::post::Request { body };
     let resp = tweets_root::http::post(http, auth, &req).await?;
-    Ok(serde_json::to_string(&resp.data)?)
+    serde_json::to_string(&resp.data).map_err(|e| XError::Other(e.to_string()))
 }
 
 /// Resolve the authenticated user's numeric id via `/users/me`.

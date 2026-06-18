@@ -71,6 +71,19 @@ fn is_hidden_for(mode: Mode, tool_name: &str) -> bool {
     matches!(mode, Mode::Readonly) && FULL_ONLY_TOOLS.contains(&tool_name)
 }
 
+/// For a `reply` / `quote` call, pull `(kind, target_tweet_id)` out of the
+/// raw arguments so the pending-duplicate pre-check can run in `call_tool`
+/// before quota is charged. `None` for any other tool.
+fn reply_quote_target(request: &CallToolRequestParams) -> Option<(&'static str, String)> {
+    let (kind, arg) = match request.name.as_ref() {
+        "reply" => ("reply", "in_reply_to_tweet_id"),
+        "quote" => ("quote", "quote_tweet_id"),
+        _ => return None,
+    };
+    let target = request.arguments.as_ref()?.get(arg)?.as_str()?.to_string();
+    Some((kind, target))
+}
+
 #[derive(Clone)]
 pub struct PsychologicalOperationsXApiMcp {
     pub tool_router: ToolRouter<Self>,
@@ -336,6 +349,24 @@ impl ServerHandler for PsychologicalOperationsXApiMcp {
                 format!("tool '{}' is not available in readonly mode", request.name),
                 None,
             ));
+        }
+        // Reply/quote: refuse a duplicate while one is already pending
+        // delivery (a reply blocks only a reply, a quote only a quote).
+        // MUST run BEFORE enforce_quota so a pending-block never consumes
+        // quota. A successful queue (in the tool body, on the 403) happens
+        // after quota was charged, so that path keeps charging.
+        if let Some((kind, target)) = reply_quote_target(&request) {
+            if self
+                .db
+                .reply_quote_pending_exists(&state.tag, kind, &target)
+                .await
+                .unwrap_or(false)
+            {
+                return Ok(CallToolResult::error(vec![Content::text(format!(
+                    "A {kind} for tweet {target} is already pending delivery — \
+                     not submitting another."
+                ))]));
+            }
         }
         // Metered tools (those in `ToolName`) are charged against the
         // session's account before they run; `read_queue` + `mark_handled`
