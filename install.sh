@@ -8,19 +8,28 @@
 # downloaded from the GitHub release. Then each folder is stripped of
 # everything but its zip and the zip is unpacked in place.
 #
-# Our integration flow builds first (build.sh writes all three), so it re-uses
-# and never downloads.
+# --from-source / --from-source-release (mutually exclusive): a pre-step that
+# first builds locally (build.sh, debug / --release respectively) and copies
+# the resulting manifest + zips into the target — so the install then proceeds
+# from that fresh build instead of a download.
 #
 # Usage:
-#   bash install.sh [--dir <objectiveai-dir>]   # --dir defaults to ~/.objectiveai
+#   bash install.sh [--dir <dir>] [--from-source | --from-source-release]
 set -euo pipefail
 
 DIR="$HOME/.objectiveai"
+FROM_SOURCE=""   # "" | debug | release
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --dir)   DIR="$2"; shift 2 ;;
     --dir=*) DIR="${1#--dir=}"; shift ;;
-    *) echo "install.sh: unknown arg: $1 (usage: install.sh [--dir <dir>])" >&2; exit 1 ;;
+    --from-source)
+      [ -z "$FROM_SOURCE" ] || { echo "install.sh: --from-source and --from-source-release are mutually exclusive" >&2; exit 1; }
+      FROM_SOURCE="debug"; shift ;;
+    --from-source-release)
+      [ -z "$FROM_SOURCE" ] || { echo "install.sh: --from-source and --from-source-release are mutually exclusive" >&2; exit 1; }
+      FROM_SOURCE="release"; shift ;;
+    *) echo "install.sh: unknown arg: $1 (usage: install.sh [--dir <dir>] [--from-source|--from-source-release])" >&2; exit 1 ;;
   esac
 done
 
@@ -42,7 +51,8 @@ esac
 VERSION="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$REPO_ROOT/objectiveai.json" | head -1)"
 [ -n "$VERSION" ] || { echo "ERROR: could not read version from objectiveai.json" >&2; exit 1; }
 
-PLUGIN_DIR="$DIR/bin/plugins/ObjectiveAI/psychological-operations/$VERSION"
+PLUGIN_REL="bin/plugins/ObjectiveAI/psychological-operations/$VERSION"
+PLUGIN_DIR="$DIR/$PLUGIN_REL"
 CLI_DIR="$PLUGIN_DIR/cli"
 VIEWER_DIR="$PLUGIN_DIR/viewer"
 CLI_ZIP_NAME="psychological-operations-$PLATFORM-$ARCH.zip"
@@ -59,6 +69,24 @@ download() {  # download <url> <dest>
     echo "need curl or wget to download $(basename "$2")" >&2; return 1
   fi
 }
+
+# Pre-step: --from-source[-release] builds locally and seeds the target with
+# the fresh manifest + zips (so the reuse check below passes — no download).
+if [ -n "$FROM_SOURCE" ]; then
+  REL_FLAG=""
+  if [ "$FROM_SOURCE" = "release" ]; then REL_FLAG="--release"; fi
+  echo "==> building from source ($FROM_SOURCE)"
+  bash "$REPO_ROOT/build.sh" $REL_FLAG
+  SRC="$REPO_ROOT/.objectiveai/$PLUGIN_REL"
+  mkdir -p "$CLI_DIR" "$VIEWER_DIR"
+  # Skip the copy if the target IS the build output dir (already there).
+  if [ "$(cd "$SRC" && pwd -P)" != "$(cd "$PLUGIN_DIR" && pwd -P)" ]; then
+    echo "==> copying built artifacts into $PLUGIN_DIR"
+    cp "$SRC/cli/$CLI_ZIP_NAME"       "$CLI_DIR/$CLI_ZIP_NAME"
+    cp "$SRC/viewer/$VIEWER_ZIP_NAME" "$VIEWER_DIR/$VIEWER_ZIP_NAME"
+    cp "$SRC/objectiveai.json"        "$PLUGIN_DIR/objectiveai.json"
+  fi
+fi
 
 # Re-use the existing artifacts only if ALL THREE are present (both zips + the
 # manifest); otherwise fetch all three from the release.
