@@ -155,25 +155,3 @@ CREATE TABLE IF NOT EXISTS account_auth (
     tokens        JSONB NOT NULL,
     updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-
--- ── one-time migration from the legacy 4-tuple `auth_tokens` table ───────
---
--- Idempotent: the column guard makes it a no-op on fresh DBs and after the
--- first successful run (the legacy table is dropped at the end).
-
-DO $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM information_schema.columns
-             WHERE table_schema = current_schema()
-               AND table_name = 'auth_tokens' AND column_name = 'kind') THEN
-    INSERT INTO persona_twids (kind, name, persona_twid, updated_at)
-      SELECT DISTINCT ON (kind, name) kind, name, persona_twid, updated_at
-        FROM auth_tokens ORDER BY kind, name, updated_at DESC
-      ON CONFLICT (kind, name) DO NOTHING;
-    INSERT INTO account_auth (persona_twid, x_app_twid, tokens, updated_at)
-      SELECT DISTINCT ON (persona_twid) persona_twid, x_app_twid, tokens, updated_at
-        FROM auth_tokens ORDER BY persona_twid, updated_at DESC
-      ON CONFLICT (persona_twid) DO NOTHING;
-    DROP TABLE auth_tokens;
-  END IF;
-END $$;
