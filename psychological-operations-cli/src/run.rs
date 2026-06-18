@@ -154,7 +154,7 @@ pub struct Config {
     /// stamped on `agents enqueue` rows.
     pub objectiveai_agent_instance_hierarchy: String,
     /// Process-wide mock switch (env `PSYCHOLOGICAL_OPERATIONS_MOCK`,
-    /// default `false`). The `login`, `browser`, and `x_app setup`
+    /// default `false`). The `login`, `browser`, and `x-app setup`
     /// flows refuse to run when this is set — none of them support mock
     /// mode (they drive the real embedded browser + cookie jar).
     pub mock: bool,

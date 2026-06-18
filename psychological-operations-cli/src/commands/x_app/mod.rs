@@ -1,4 +1,5 @@
-//! `x_app` subcommand surface.
+//! `x-app` subcommand surface (the Rust module stays `x_app` — clap
+//! renames the CLI command to the kebab-case `x-app`).
 
 use clap::Subcommand;
 

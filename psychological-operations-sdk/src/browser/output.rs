@@ -99,7 +99,7 @@ pub enum Output {
     /// parsed to a complete struct — i.e. when the panel
     /// derivation lands on
     /// [`crate::browser::panel::PanelState::Hidden`]. The CLI's
-    /// `x_app setup` command reads this to know setup
+    /// `x-app setup` command reads this to know setup
     /// finished cleanly and sends a `Request::Shutdown` back.
     XAppSetupSucceeded,
 }

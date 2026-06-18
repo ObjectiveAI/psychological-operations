@@ -1,5 +1,5 @@
 //! Shared stream-and-shutdown plumbing for browser spawn-and-wait
-//! flows. Both `login` (psyops/agents) and `x_app setup` do the
+//! flows. Both `login` (psyops/agents) and `x-app setup` do the
 //! same dance:
 //!
 //!   1. Spawn the browser with stdin + stdout piped.

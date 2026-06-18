@@ -34,7 +34,7 @@ pub enum AuthError {
     NoRefreshToken,
 
     /// The X-App OAuth client isn't configured (`client_id` /
-    /// `client_secret` / `bearer_token` missing) — run `x_app setup`.
+    /// `client_secret` / `bearer_token` missing) — run `x-app setup`.
     #[error("X-App not configured: {0}")]
     XAppNotConfigured(String),
 

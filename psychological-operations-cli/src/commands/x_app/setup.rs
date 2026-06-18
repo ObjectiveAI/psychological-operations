@@ -42,7 +42,7 @@ async fn run_inner(
     // nothing to mock. Refuse outright in mock mode.
     if ctx.config.mock {
         return Err(Error::Other(
-            "x_app setup is not supported in mock mode (PSYCHOLOGICAL_OPERATIONS_MOCK)".into(),
+            "x-app setup is not supported in mock mode (PSYCHOLOGICAL_OPERATIONS_MOCK)".into(),
         ));
     }
 

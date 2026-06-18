@@ -699,7 +699,7 @@ pub fn recompute_and_publish(handle: &AppHandle<Wry>) {
     // 1b. X-App setup terminator. Once per process, in `Mode::XApp`
     //     only, when the panel lands on `Hidden` (i.e. both
     //     `credentials_complete` and `oauth_client_complete` are
-    //     `Some(true)`). Read by the CLI's `x_app setup` to know
+    //     `Some(true)`). Read by the CLI's `x-app setup` to know
     //     when to send `Request::Shutdown`.
     if matches!(
         psychological_operations_sdk::browser::mode::get(),

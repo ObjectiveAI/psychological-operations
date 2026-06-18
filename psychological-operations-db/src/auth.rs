@@ -104,7 +104,7 @@ impl Db {
     }
 
     /// Delete every token row across all personas. Used by
-    /// `x_app setup --dangerously-reset` (a new X-App orphans every
+    /// `x-app setup --dangerously-reset` (a new X-App orphans every
     /// persona's tokens).
     pub async fn auth_delete_all(&self) -> Result<(), Error> {
         sqlx::query("DELETE FROM auth_tokens")

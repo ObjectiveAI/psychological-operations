@@ -9,7 +9,7 @@
 //!    in (cookies), `x_app.json` must be complete, and BOTH the
 //!    `post_create_dialog.html` + `oauth_popup.html` snapshots
 //!    must parse to a complete struct. Any failure → single
-//!    error pointing the operator at `x_app setup`.
+//!    error pointing the operator at `x-app setup`.
 //!
 //! 2. **Persona preconditions.** The persona must NOT be signed
 //!    in already AND must NOT already have an `auth.json` under
@@ -158,7 +158,7 @@ async fn run_inner(
 }
 
 const X_APP_NOT_READY: &str = "X-App account is not signed in or not set up with an X OAuth app — \
-     complete `psychological-operations x_app setup` first";
+     complete `psychological-operations x-app setup` first";
 
 /// Resolve the X-App's twid via cookies + verify the credentials
 /// (x_app config + both captured HTML snapshots) are present + complete.

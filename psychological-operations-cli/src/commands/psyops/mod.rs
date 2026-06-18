@@ -55,7 +55,7 @@ pub enum Commands {
         seed: Option<i64>,
     },
     /// Sign in a psyop's X account. Requires the master X-App to
-    /// already be signed in + fully set up (`x_app setup`). Opens
+    /// already be signed in + fully set up (`x-app setup`). Opens
     /// the embedded browser scoped to `psyop/<name>/`; on sign-in
     /// the browser drives the OAuth 2.0 PKCE consent screen,
     /// exchanges the code, and writes auth.json under the psyop's

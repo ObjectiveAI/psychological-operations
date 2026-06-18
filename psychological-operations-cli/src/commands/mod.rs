@@ -40,7 +40,7 @@ enum Commands {
         command: agents::Commands,
     },
     /// Master X dev-account / X-App credentials setup.
-    #[command(name = "x_app")]
+    #[command(name = "x-app")]
     XApp {
         #[command(subcommand)]
         command: x_app::Commands,

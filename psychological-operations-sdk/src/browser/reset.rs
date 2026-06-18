@@ -2,7 +2,7 @@
 //! and captured HTML now live in postgres, so a wipe spans both the db
 //! (token / snapshot rows) and the filesystem (the per-context CEF
 //! profile under `cef-root/`, which is still on disk). Used by the
-//! CLI's `--dangerously-reset` login + `x_app setup` paths.
+//! CLI's `--dangerously-reset` login + `x-app setup` paths.
 //!
 //! `NotFound` on the CEF dir is swallowed (the persona never opened a
 //! browser here); other I/O errors bubble up so the caller can refuse
@@ -85,7 +85,7 @@ fn rm_rf_optional(path: &Path) -> std::io::Result<()> {
 /// * recursively delete the X-App CEF profile at
 ///   `<state_dir>/browser/cef-root/x-app/`.
 ///
-/// Used by `x_app setup --dangerously-reset` before relaunching, which
+/// Used by `x-app setup --dangerously-reset` before relaunching, which
 /// recaptures fresh snapshots.
 pub async fn wipe_x_app(db: &Db, state_dir: &Path) -> Result<(), String> {
     db.x_app_html_clear()
@@ -100,7 +100,7 @@ pub async fn wipe_x_app(db: &Db, state_dir: &Path) -> Result<(), String> {
 /// are intentionally PRESERVED — wiping the X-App orphans each persona's
 /// prior tokens (minted under the old `x_app_twid`), but their X.com
 /// sessions are still valid and can be re-OAuthed against the new X-App
-/// without re-signing-in. Used by `x_app setup --dangerously-reset`.
+/// without re-signing-in. Used by `x-app setup --dangerously-reset`.
 pub async fn wipe_all_persona_auth(db: &Db) -> Result<(), String> {
     db.auth_delete_all()
         .await

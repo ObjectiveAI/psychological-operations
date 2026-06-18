@@ -240,7 +240,7 @@ impl Client {
                     .map_err(|e| AuthError::XAppNotConfigured(e.to_string()))?;
                 dialog.and_then(|d| d.bearer_token).ok_or_else(|| {
                     AuthError::XAppNotConfigured(
-                        "no Bearer Token captured — re-run `psychological-operations x_app setup`"
+                        "no Bearer Token captured — re-run `psychological-operations x-app setup`"
                             .into(),
                     )
                 })
@@ -343,7 +343,7 @@ impl Client {
             .filter(|p| p.is_complete())
             .ok_or_else(|| {
                 AuthError::XAppNotConfigured(
-                    "client_id/client_secret not captured — run `x_app setup`".into(),
+                    "client_id/client_secret not captured — run `x-app setup`".into(),
                 )
             })?;
         let client_id = popup.client_id.expect("is_complete guarantees client_id");

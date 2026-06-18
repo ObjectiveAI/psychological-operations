@@ -4,7 +4,7 @@
 //! locales/, …) ship alongside the CLI in the plugin's binaries dir
 //! (`OBJECTIVEAI_BIN_DIR` — the release zip's contents, which the host
 //! extracts into `<plugin>/cli/`). On `psyops browse` / `psyops login` /
-//! `agents login` / `x_app setup` the browser exe is spawned straight
+//! `agents login` / `x-app setup` the browser exe is spawned straight
 //! from there with the right mode flag + `--state-dir <state_dir>` — no
 //! compile-time embedding, no runtime extraction, no temp dir.
 

@@ -40,7 +40,7 @@ impl Db {
     }
 
     /// Delete every captured HTML snapshot. Used by
-    /// `x_app setup --dangerously-reset` before recapturing.
+    /// `x-app setup --dangerously-reset` before recapturing.
     pub async fn x_app_html_clear(&self) -> Result<(), Error> {
         sqlx::query("DELETE FROM x_app_html")
             .execute(&self.pool)
