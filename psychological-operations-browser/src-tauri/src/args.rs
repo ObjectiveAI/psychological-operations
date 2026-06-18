@@ -43,7 +43,7 @@ pub struct Args {
 
     /// Launch in Psyop **read** mode, scoped to the given psyop
     /// name. The CEF browser loads `https://x.com/` with a
-    /// `RequestContext` whose cache lives at `cef-root/psyop/<name>/`.
+    /// `RequestContext` whose cache lives at `cef-root/psyop-<name>/`.
     /// The overlay streams page HTML to Rust as the persona
     /// browses; Rust dedups and emits new tweet IDs to stdout.
     #[arg(long, group = "mode", value_name = "NAME")]

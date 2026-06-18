@@ -58,9 +58,9 @@ pub fn cef_root_cache_dir(handle: &AppHandle<Wry>) -> std::path::PathBuf {
 
 /// Per-mode CEF cache subdirectory (relative to the cache root). Single
 /// source of truth is [`Mode::cache_subdir`] — the db crate's cookie
-/// probe keys off the same mapping, so they must not drift. A persona
-/// name containing `/` nests into real directories under `cef-root`
-/// (alloy persists any descendant of `root_cache_path` on disk).
+/// probe keys off the same mapping, so they must not drift. Each persona
+/// is ONE flat dir directly under `cef-root` (Chrome's runtime only
+/// accepts a profile whose cache_path is an immediate child of the root).
 fn cache_subdir_for(mode: &Mode) -> String {
     mode.cache_subdir()
 }

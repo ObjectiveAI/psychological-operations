@@ -58,54 +58,40 @@ pub enum Mode {
     AgentBrowser { name: String },
 }
 
-/// Directory interspersed between agent-instance-hierarchy levels in the
-/// CEF cache layout (and the credential data dir). For AIH
-/// `foo/bar/buzz` the path becomes `foo/agents/bar/agents/buzz`, so:
-///   * each persona's own Chromium profile artifacts (`Network/`,
-///     `Cache/`, …) live directly in its node dir, while its descendant
-///     personas live under the node's `agents/` child — disjoint
-///     namespaces, so a child AIH segment can never collide with a
-///     parent's profile artifact (e.g. an agent `foo/Cache` lands at
-///     `…/foo/agents/Cache`, not `…/foo/Cache`); and
-///   * `--dangerously-reset` can wipe a persona's own profile while
-///     sparing this folder, leaving every descendant persona intact
-///     (see `reset::wipe_persona`).
-/// `agents` is never a Chromium profile artifact name, so sparing it on
-/// reset never spares the persona's own data.
-pub const SUBAGENT_DIR: &str = "agents";
-
-/// Intersperse [`SUBAGENT_DIR`] between the '/'-separated levels of an
-/// AIH: `a/b/c` → `a/agents/b/agents/c`. A slashless name is returned
-/// unchanged.
-fn intersperse_subagents(aih: &str) -> String {
-    aih.split('/')
-        .collect::<Vec<_>>()
-        .join(&format!("/{SUBAGENT_DIR}/"))
+/// Reduce a persona name to a SINGLE filesystem path segment for use as
+/// its CEF profile directory name. Agent names are always tags and psyop
+/// names are flat, so in practice there is nothing to change — but any
+/// stray path separator is collapsed to `-` regardless: CEF's Chrome
+/// runtime refuses to create a profile whose `cache_path` is not a
+/// *direct* child of the cache root ("Cannot create profile at path"),
+/// so the per-persona dir must never contain a separator. (An earlier
+/// nested `<kind>/<name>` layout hit exactly that.)
+fn flat_segment(name: &str) -> String {
+    name.replace(['/', '\\'], "-")
 }
 
 impl Mode {
-    /// The CEF per-context cache subdirectory this mode uses under
-    /// `browser/cef-root/`. Single source of truth for the mapping —
-    /// the browser's webview profile setup, the db crate's cookie probe,
-    /// and `reset` all key off this.
+    /// The CEF per-context cache subdirectory this mode uses, a DIRECT
+    /// child of `browser/cef-root/`. Single source of truth for the
+    /// mapping — the browser's webview profile setup, the db crate's
+    /// cookie probe, and `reset` all key off this.
     ///
-    /// Agent personas use the full agent-instance-hierarchy with
-    /// [`SUBAGENT_DIR`] interspersed between levels (see its docs), so a
-    /// hierarchy nests into real directories whose layout is
-    /// reset-safe and collision-free. CEF (alloy runtime) accepts any
-    /// descendant of `root_cache_path` as a persistent on-disk profile —
-    /// depth doesn't matter — and the consumers normalize `/`→`\` on
-    /// Windows before handing the path to CEF (`cef::path_to_cef_string`).
+    /// Each persona gets ONE flat directory, `<kind>-<name>`. CEF's
+    /// Chrome runtime (the default) only accepts a profile whose
+    /// `cache_path` is an *immediate* child of `root_cache_path`; a
+    /// nested path makes `ProfileManager` refuse with "Cannot create
+    /// profile at path", leaving the persona with no on-disk cookie
+    /// store (so its sign-in never persists). Names are flat — agent
+    /// tags / psyop names — and [`flat_segment`] collapses any stray
+    /// separator as a safety net.
     pub fn cache_subdir(&self) -> String {
         match self {
             Mode::XApp => "x-app".to_string(),
-            // Psyop names are flat (a single `psyops publish --name`), so
-            // there's nothing to intersperse.
             Mode::PsyopRead { name }
             | Mode::PsyopAuthorize { name }
-            | Mode::PsyopBrowser { name } => format!("psyop/{name}"),
+            | Mode::PsyopBrowser { name } => format!("psyop-{}", flat_segment(name)),
             Mode::AgentAuthorize { name } | Mode::AgentBrowser { name } => {
-                format!("agent/{}", intersperse_subagents(name))
+                format!("agent-{}", flat_segment(name))
             }
         }
     }
@@ -140,44 +126,37 @@ mod tests {
     }
 
     #[test]
-    fn psyop_is_flat() {
+    fn psyop_is_a_single_flat_dir() {
         let m = Mode::PsyopAuthorize {
             name: "my-psyop".into(),
         };
-        assert_eq!(m.cache_subdir(), "psyop/my-psyop");
+        assert_eq!(m.cache_subdir(), "psyop-my-psyop");
+        assert!(!m.cache_subdir().contains('/'));
     }
 
     #[test]
-    fn single_segment_agent_has_no_separator() {
-        let m = Mode::AgentAuthorize { name: "foo".into() };
-        assert_eq!(m.cache_subdir(), "agent/foo");
-    }
-
-    #[test]
-    fn nested_aih_intersperses_agents() {
+    fn agent_is_a_single_flat_dir() {
         let m = Mode::AgentAuthorize {
-            name: "foo/bar/buzz".into(),
+            name: "light-yagami".into(),
         };
-        assert_eq!(m.cache_subdir(), "agent/foo/agents/bar/agents/buzz");
-        // Same persona across its browse/authorize sub-modes shares one
-        // profile dir.
-        let b = Mode::AgentBrowser {
-            name: "foo/bar/buzz".into(),
-        };
-        assert_eq!(b.cache_subdir(), m.cache_subdir());
+        assert_eq!(m.cache_subdir(), "agent-light-yagami");
+        assert!(!m.cache_subdir().contains('/'));
     }
 
     #[test]
-    fn child_segment_named_like_a_chromium_artifact_lands_under_agents() {
-        // `foo`'s own Cache is `agent/foo/Cache`; the child `foo/Cache`
-        // lands under the `agents/` folder — no collision.
-        let parent = Mode::AgentAuthorize { name: "foo".into() }.cache_subdir();
-        let child = Mode::AgentAuthorize {
-            name: "foo/Cache".into(),
-        }
-        .cache_subdir();
-        assert_eq!(parent, "agent/foo");
-        assert_eq!(child, "agent/foo/agents/Cache");
-        assert!(child.starts_with(&format!("{parent}/{SUBAGENT_DIR}/")));
+    fn same_persona_shares_one_profile_across_submodes() {
+        let a = Mode::AgentAuthorize { name: "foo".into() }.cache_subdir();
+        let b = Mode::AgentBrowser { name: "foo".into() }.cache_subdir();
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn stray_separator_never_nests() {
+        // Names are flat tags; this is a safety net — a separator must
+        // never produce a nested profile dir (Chrome runtime rejects a
+        // profile whose cache_path isn't a direct child of the root).
+        let m = Mode::AgentAuthorize { name: "a/b".into() };
+        assert!(!m.cache_subdir().contains('/'));
+        assert!(!m.cache_subdir().contains('\\'));
     }
 }

@@ -17,16 +17,13 @@ use super::auth_json::PersonaKind;
 /// Wipe one persona's state:
 ///
 /// * delete its `auth_tokens` rows (every persona_twid × x_app_twid),
-/// * delete its **own** CEF profile artifacts at
-///   `<state_dir>/browser/cef-root/<cache_subdir>/`, while **sparing**
-///   the [`SUBAGENT_DIR`] (`agents/`) child — that subtree holds the CEF
-///   profiles of descendant personas, which must survive the parent's
-///   reset.
+/// * recursively delete its CEF profile at
+///   `<state_dir>/browser/cef-root/<cache_subdir>/`.
 ///
 /// The CEF subdir comes from [`Mode::cache_subdir`] (via
 /// [`PersonaKind::to_mode`]) so it matches exactly what the browser
-/// wrote — including the interspersed `agents/` directories of a
-/// slash-bearing AIH.
+/// wrote. Each persona has its own flat profile dir (a direct child of
+/// `cef-root`), so removing it can never touch another persona.
 pub async fn wipe_persona(
     db: &Db,
     state_dir: &Path,
@@ -38,34 +35,7 @@ pub async fn wipe_persona(
         .map_err(|e| format!("delete persona tokens: {e}"))?;
     let cef_subdir = kind.to_mode(name).cache_subdir();
     let profile = state_dir.join("browser").join("cef-root").join(&cef_subdir);
-    wipe_profile_keep_subagents(&profile).map_err(|e| format!("wipe persona CEF profile: {e}"))?;
-    Ok(())
-}
-
-/// Delete every entry directly inside `profile` EXCEPT a child directory
-/// named [`SUBAGENT_DIR`]. This clears the persona's own Chromium
-/// profile (cookies/cache/storage) but leaves the `agents/` subtree —
-/// the descendant personas' profiles — untouched. `agents` is never a
-/// Chromium artifact name, so nothing of the persona's own is spared.
-/// A missing `profile` dir is a no-op.
-fn wipe_profile_keep_subagents(profile: &Path) -> std::io::Result<()> {
-    let entries = match std::fs::read_dir(profile) {
-        Ok(e) => e,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(e) => return Err(e),
-    };
-    for entry in entries {
-        let entry = entry?;
-        if entry.file_name().to_str() == Some(super::mode::SUBAGENT_DIR) {
-            continue; // preserve descendant personas
-        }
-        let path = entry.path();
-        if entry.file_type()?.is_dir() {
-            std::fs::remove_dir_all(&path)?;
-        } else {
-            std::fs::remove_file(&path)?;
-        }
-    }
+    rm_rf_optional(&profile).map_err(|e| format!("wipe persona CEF profile: {e}"))?;
     Ok(())
 }
 

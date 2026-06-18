@@ -11,8 +11,8 @@
 //! unless `--dangerously-reset` is passed. The reset clears the
 //! X-App's captured HTML + CEF profile AND every persona's stored
 //! OAuth tokens (`auth_tokens` rows) — orphaned by the new X-App's
-//! twid. CEF cookies for personas (under `cef-root/<kind>/<name>/`,
-//! nested when the AIH contains '/') are intentionally preserved so
+//! twid. CEF cookies for personas (under `cef-root/<kind>-<name>/`, one
+//! flat dir per persona) are intentionally preserved so
 //! personas don't have to re-sign-in to X.com; they just re-run
 //! `psyops login` / `agents login` against the new X-App.
 //!

@@ -1,12 +1,14 @@
 //! Shared agent selector for `agents {login,browser,enqueue}`.
 //!
-//! Exactly one of `--agent-tag` / `--me` / `--agent-instance` is
-//! required; `--parent-agent-instance-hierarchy` is only valid alongside
+//! In the current model agents are addressed by **tag** (`--agent-tag`);
+//! the legacy `--me` / `--agent-instance` AIH selectors remain for
+//! compatibility. Exactly one is required;
+//! `--parent-agent-instance-hierarchy` is only valid alongside
 //! `--agent-instance`. The selector resolves to a single agent string
-//! via [`AgentRef::resolve_raw`], used **verbatim** everywhere — the
-//! queue stores it raw, and the browser uses it as its CEF profile path
-//! (an agent-instance-hierarchy with '/' nests into directories). No
-//! name modification: '/' is never collapsed and is allowed in tags.
+//! via [`AgentRef::resolve_raw`], used **verbatim** — the queue stores
+//! it raw, and the browser maps it to ONE flat CEF profile dir per
+//! persona (`Mode::cache_subdir` collapses any separator, so the profile
+//! is always a direct child of `cef-root`).
 
 use clap::{ArgGroup, Args};
 
@@ -40,7 +42,8 @@ impl AgentRef {
     /// The resolved agent string, used **verbatim** by every `agents`
     /// subcommand — the tag as-is; `--me` / `--agent-instance` keep their
     /// '/' separators. The queue stores it raw; `agents login` / `browser`
-    /// use it as the persona name (and hence the nested CEF profile path).
+    /// use it as the persona name, which maps to a single flat CEF profile
+    /// dir (separators collapsed — see `Mode::cache_subdir`).
     /// The clap `agent_ref` group guarantees exactly one selector is set;
     /// the final `unreachable!` mirrors `browser::args::Args::initial_mode`.
     pub fn resolve_raw(&self, cfg: &crate::run::Config) -> String {
