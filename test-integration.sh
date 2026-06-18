@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# test-integration.sh — reset the local .objectiveai integration sandbox to a
-# clean slate, keeping the expensive-to-rebuild bits.
+# test-integration.sh — reset the local .objectiveai integration sandbox
+# (keeping the expensive-to-rebuild bits), reinstall the host + the freshly
+# built plugin, then run the integration suite.
 #
 #   1. If the objectiveai host binary is present, run `kill-all` so it stops
 #      any servers it left running (they'd otherwise hold files open).
@@ -16,6 +17,9 @@
 #      place — into its own cli/ folder — overwriting whatever's there.
 #   6. Apply the global API config the integration run needs (mcp timeout,
 #      backoff) via the freshly-installed host.
+#   7. Run the integration suite (cargo nextest -p psychological-operations-
+#      tests) with all output captured to a timestamped log under .logs/test/,
+#      then `objectiveai kill-all`, then exit 0/1 on the nextest result.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -94,4 +98,16 @@ echo "==> objectiveai api config (global)"
 "$HOST" api config mcp-timeout-ms set 600000 --global
 "$HOST" api config backoff-max-elapsed-time-ms set 0 --global
 
-echo "==> test-integration.sh: sandbox reset"
+# 7. Run the integration suite, capturing ALL output to a timestamped log.
+#    Then stop the host's servers and exit 0/1 on the nextest result.
+mkdir -p "$REPO_ROOT/.logs/test"
+LOG="$REPO_ROOT/.logs/test/psychological-operations-tests-$(date +%Y%m%d-%H%M%S).txt"
+echo "==> nextest run -p psychological-operations-tests  (log: $LOG)"
+rc=0
+cargo nextest run -p psychological-operations-tests > "$LOG" 2>&1 || rc=$?
+
+echo "==> objectiveai kill-all"
+"$HOST" kill-all || true
+
+echo "==> test-integration.sh: done (nextest rc=$rc)"
+if [ "$rc" -eq 0 ]; then exit 0; else exit 1; fi
