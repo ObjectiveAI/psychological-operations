@@ -87,10 +87,7 @@ jobs:
       - name: Build the viewer_zip
         shell: bash
         run: bash build.sh --release --no-cli
-      - name: Upload the viewer_zip + manifest
-        # The viewer leg also publishes objectiveai.json (the plugin manifest)
-        # — it's platform-independent, and install.sh fetches it alongside the
-        # zips when installing from a release.
+      - name: Upload the viewer_zip
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -100,4 +97,4 @@ jobs:
           ZIP=".objectiveai/bin/plugins/ObjectiveAI/psychological-operations/$VERSION/viewer/psychological-operations-viewer.zip"
           [ -f "$ZIP" ] || { echo "missing viewer_zip: $ZIP" >&2; exit 1; }
           gh release create "v$VERSION" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "v$VERSION" --generate-notes || true
-          gh release upload "v$VERSION" "$ZIP" objectiveai.json --repo "$GITHUB_REPOSITORY" --clobber
+          gh release upload "v$VERSION" "$ZIP" --repo "$GITHUB_REPOSITORY" --clobber

@@ -4,9 +4,10 @@
 #
 # Re-uses what's already in the plugin's version dir ONLY if all three
 # artifacts are present — the cli_zip (in cli/), the viewer_zip (in viewer/),
-# and objectiveai.json (at the head). If ANY is missing, all three are
-# downloaded from the GitHub release. Then each folder is stripped of
-# everything but its zip and the zip is unpacked in place.
+# and objectiveai.json (at the head). If ANY is missing, the two zips are
+# downloaded from the GitHub release and the manifest from the version tag
+# (raw.githubusercontent). Then each folder is stripped of everything but its
+# zip and the zip is unpacked in place.
 #
 # --from-source / --from-source-release (mutually exclusive): a pre-step that
 # first builds locally (build.sh, debug / --release respectively) and copies
@@ -58,6 +59,7 @@ VIEWER_DIR="$PLUGIN_DIR/viewer"
 CLI_ZIP_NAME="psychological-operations-$PLATFORM-$ARCH.zip"
 VIEWER_ZIP_NAME="psychological-operations-viewer.zip"
 RELEASE_URL="https://github.com/$REPO/releases/download/v$VERSION"
+RAW_URL="https://raw.githubusercontent.com/$REPO/v$VERSION"
 
 download() {  # download <url> <dest>
   echo "==> fetching $(basename "$2")"
@@ -99,7 +101,7 @@ else
   mkdir -p "$CLI_DIR" "$VIEWER_DIR"
   download "$RELEASE_URL/$CLI_ZIP_NAME"    "$CLI_DIR/$CLI_ZIP_NAME"
   download "$RELEASE_URL/$VIEWER_ZIP_NAME" "$VIEWER_DIR/$VIEWER_ZIP_NAME"
-  download "$RELEASE_URL/objectiveai.json" "$PLUGIN_DIR/objectiveai.json"
+  download "$RAW_URL/objectiveai.json" "$PLUGIN_DIR/objectiveai.json"
 fi
 
 # Per folder: delete everything but the zip(s), then unpack the zip in place.
