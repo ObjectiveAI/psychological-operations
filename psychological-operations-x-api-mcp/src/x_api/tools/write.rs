@@ -138,9 +138,7 @@ impl PsychologicalOperationsXApiMcp {
                                 ToolError::System(ErrorData::internal_error(e.to_string(), None))
                             })?;
                         Ok(CallToolResult::success(vec![Content::text(
-                            "This conversation isn't accepting replies right now — your \
-                             reply has been queued and will be delivered later."
-                                .to_string(),
+                            "Your reply has been queued and will be delivered later.".to_string(),
                         )]))
                     }
                     Err(e) => Err(ToolError::from(e)),
@@ -191,9 +189,7 @@ impl PsychologicalOperationsXApiMcp {
                                 ToolError::System(ErrorData::internal_error(e.to_string(), None))
                             })?;
                         Ok(CallToolResult::success(vec![Content::text(
-                            "This conversation isn't accepting quotes right now — your \
-                             quote has been queued and will be delivered later."
-                                .to_string(),
+                            "Your quote has been queued and will be delivered later.".to_string(),
                         )]))
                     }
                     Err(e) => Err(ToolError::from(e)),
