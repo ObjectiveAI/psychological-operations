@@ -120,17 +120,20 @@ fn snapshot_sync(auth_url: &Url) -> CookieSnapshot {
 }
 
 /// Push every fact from a fresh snapshot into the [`crate::state`]
-/// store, then kick the PsyopAuthorize OAuth dance. Both halves
-/// are independent disk-touching async work — `tokio::join!` runs
-/// them concurrently. `apply_cookie_facts` lands `auth_token` +
-/// `user_id` atomically inside its own lock so no intermediate
-/// `PanelState` leaks out between them. `maybe_start_flow` no-ops
-/// outside PsyopAuthorize mode.
+/// store, THEN kick the authorize OAuth flow. These run SEQUENTIALLY,
+/// not concurrently, and the order is load-bearing: `maybe_start_flow`
+/// reads `state::current_user_id` (i.e. `Facts::user_id`), which
+/// `apply_cookie_facts` only writes AFTER its disk/db await. Under the
+/// old `tokio::join!`, `maybe_start_flow` was polled while
+/// `apply_cookie_facts` was still suspended on that await, so it
+/// observed `user_id == None` and bailed — on the one snapshot where
+/// sign-in flips empty→twid (the dedup in `maybe_apply` then never
+/// retried it), so the OAuth consent never fired. Applying facts first
+/// guarantees `user_id` is set before the flow checks it.
+/// `maybe_start_flow` no-ops outside the Psyop/Agent authorize modes.
 async fn apply_snapshot(handle: &AppHandle<Wry>, snap: &CookieSnapshot) {
-    tokio::join!(
-        state::apply_cookie_facts(handle, snap.auth_token.clone(), snap.user_id.clone()),
-        crate::authorize::maybe_start_flow(handle),
-    );
+    state::apply_cookie_facts(handle, snap.auth_token.clone(), snap.user_id.clone()).await;
+    crate::authorize::maybe_start_flow(handle).await;
 }
 
 async fn run_watcher(
