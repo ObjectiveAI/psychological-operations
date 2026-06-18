@@ -4,11 +4,10 @@
 # CEF bundle) and build-viewer.sh (viewer web bundle), each of which
 # provisions its own deps — then zips their outputs into the plugin tree under
 #   .objectiveai/bin/plugins/ObjectiveAI/psychological-operations/<version>/
-# as the two RELEASE-NAMED zips plus their extracted contents:
+# as the two RELEASE-NAMED zips, each in its own folder (NOT extracted):
 #
-#   psychological-operations-<os>-<arch>.zip  + cli/      cli_zip (CLI binary
-#                                                         + browser CEF bundle)
-#   psychological-operations-viewer.zip       + viewer/   the viewer web bundle
+#   cli/psychological-operations-<os>-<arch>.zip   CLI binary + browser CEF runtime
+#   viewer/psychological-operations-viewer.zip     the viewer web bundle
 #
 # The zip filenames match the GitHub release assets. Debug by default; pass
 # --release for a release build.
@@ -68,9 +67,12 @@ VIEWER_DIR="$PLUGIN_DIR/viewer"
 CLI_ZIP="$CLI_DIR/psychological-operations-$PLATFORM-$ARCH.zip"
 VIEWER_ZIP="$VIEWER_DIR/psychological-operations-viewer.zip"
 
-# Clean slate: wipe cli/ + viewer/ recursively, then recreate.
-rm -rf "$CLI_DIR" "$VIEWER_DIR"
+# Clean slate: wipe the whole version dir recursively, then recreate.
+rm -rf "$PLUGIN_DIR"
 mkdir -p "$CLI_DIR" "$VIEWER_DIR"
+
+# The plugin manifest sits at the head, above cli/ + viewer/.
+cp "$REPO_ROOT/objectiveai.json" "$PLUGIN_DIR/objectiveai.json"
 
 # cli/ zip = the staged browser runtime (build-cli.sh left it in embed/, the
 # CEF files or the .app) + the CLI binary, flat at the zip root.
@@ -96,19 +98,5 @@ esac
 ( cd psychological-operations-viewer && node scripts/zip.mjs )
 mv -f "$REPO_ROOT/psychological-operations-viewer.zip" "$VIEWER_ZIP"
 
-# Embed each zip into its own folder (extract alongside the zip).
-case "$PLATFORM" in
-  windows)
-    powershell.exe -NoProfile -Command \
-      "Expand-Archive -Force -LiteralPath '$(cygpath -w "$CLI_ZIP")' -DestinationPath '$(cygpath -w "$CLI_DIR")'"
-    powershell.exe -NoProfile -Command \
-      "Expand-Archive -Force -LiteralPath '$(cygpath -w "$VIEWER_ZIP")' -DestinationPath '$(cygpath -w "$VIEWER_DIR")'"
-    ;;
-  *)
-    unzip -o -q "$CLI_ZIP" -d "$CLI_DIR"
-    unzip -o -q "$VIEWER_ZIP" -d "$VIEWER_DIR"
-    ;;
-esac
-
 echo "==> done ($PROFILE) -> $PLUGIN_DIR"
-echo "      cli/$(basename "$CLI_ZIP") + viewer/$(basename "$VIEWER_ZIP") (+ extracted)"
+echo "      cli/$(basename "$CLI_ZIP") + viewer/$(basename "$VIEWER_ZIP")"
