@@ -15,6 +15,3 @@ members = [
 # Ninja generator.
 [workspace.metadata.tools]
 ninja = "1.13.1"
-# cargo-nextest runs the integration suite (test.sh). Installed into ./bin
-# via `cargo install --root` — same source objectiveai's build-bin.sh uses.
-cargo-nextest = "0.9.137"

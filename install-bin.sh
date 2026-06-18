@@ -1,17 +1,15 @@
 #!/usr/bin/env bash
-# Installs build tools into ./bin/ using versions pinned in
-# [workspace.metadata.tools] in Cargo.toml — same pattern as
-# objectiveai's build-bin.sh, except ninja isn't a cargo crate, so we
-# download the prebuilt single-binary release from GitHub (the
-# install.sh download pattern) instead of `cargo install`.
+# Installs the ninja build tool into ./bin/ using the version pinned in
+# [workspace.metadata.tools] in Cargo.toml — same pattern as objectiveai's
+# build-bin.sh, except ninja isn't a cargo crate, so we download the prebuilt
+# single-binary release from GitHub instead of `cargo install`.
 #
-# Currently installs:
-#   ninja — required by cef-dll-sys: the browser crate's CEF C++
-#   wrapper (libcef_dll_wrapper) builds via CMake's Ninja generator.
-#   CMake itself is found via Visual Studio's bundled copy on Windows.
-#   cargo-nextest — runs the integration suite (test.sh). Installed via
-#   `cargo install --root` into ./bin (NOT the host ~/.cargo/bin), same
-#   source objectiveai's build-bin.sh uses.
+# ninja is required by cef-dll-sys: the browser crate's CEF C++ wrapper
+# (libcef_dll_wrapper) builds via CMake's Ninja generator. CMake itself is
+# found via Visual Studio's bundled copy on Windows.
+#
+# (cargo-nextest is NOT installed here — the integration suite presumes
+# `cargo nextest` is already present on the host.)
 #
 # Usage:
 #   bash install-bin.sh
@@ -24,11 +22,9 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
 BIN_DIR="$REPO_ROOT/bin"
 
-# ── Pinned versions from [workspace.metadata.tools] ──────────────────
+# ── Pinned version from [workspace.metadata.tools] ──────────────────
 NINJA_VERSION=$(sed -n 's/^ninja *= *"\(.*\)"/\1/p' "$REPO_ROOT/Cargo.toml")
 [ -n "$NINJA_VERSION" ] || { echo "ERROR: Could not read ninja version from Cargo.toml" >&2; exit 1; }
-CARGO_NEXTEST_VERSION=$(sed -n 's/^cargo-nextest *= *"\(.*\)"/\1/p' "$REPO_ROOT/Cargo.toml")
-[ -n "$CARGO_NEXTEST_VERSION" ] || { echo "ERROR: Could not read cargo-nextest version from Cargo.toml" >&2; exit 1; }
 
 # ── Detect platform → release asset name ─────────────────────────────
 case "$(uname -s)" in
@@ -122,32 +118,7 @@ install_ninja() {
 
 install_ninja
 
-# ── cargo-nextest ─────────────────────────────────────────────────────
-# `cargo install --root "$REPO_ROOT"` lands the binary at
-# "$BIN_DIR/cargo-nextest" (cargo appends `bin/` to --root). Invoke it as
-# `"$BIN_DIR/cargo-nextest" nextest run …` (or via PATH). NOT installed to
-# the host ~/.cargo/bin.
-install_cargo_nextest() {
-  local bin="$BIN_DIR/cargo-nextest$EXE_SUFFIX"
-
-  # Idempotent: skip when the installed version already matches the pin.
-  if [ -x "$bin" ]; then
-    local installed
-    installed=$("$bin" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
-    if [ "$installed" = "$CARGO_NEXTEST_VERSION" ]; then
-      echo "cargo-nextest $CARGO_NEXTEST_VERSION already installed, skipping."
-      return
-    fi
-  fi
-
-  echo "Installing cargo-nextest $CARGO_NEXTEST_VERSION (cargo install --root)..."
-  cargo install cargo-nextest --version "$CARGO_NEXTEST_VERSION" --locked --root "$REPO_ROOT"
-  echo "Installed $bin ($("$bin" --version 2>/dev/null | head -1))"
-}
-
-install_cargo_nextest
-
 echo ""
-echo "Done. Tools at $BIN_DIR/"
+echo "Done. ninja at $BIN_DIR/"
 echo "Add it to PATH (e.g. \`export PATH=\"$BIN_DIR:\$PATH\"\`) so the"
-echo "browser crate's CEF build can find ninja and \`cargo nextest\` resolves."
+echo "browser crate's CEF build can find ninja."
