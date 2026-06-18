@@ -1,17 +1,11 @@
 *.exe
 *.zip
 node_modules/
-# Repo-local ninja installed by install-bin.sh.
+# Repo-local ninja provisioned by build-cli.sh.
 /bin/
 dist/
 .claude/
 target/
 embed/
 .logs/
-
-# Integration tests: per-test runtime dirs, shared objectiveai state,
-# and per-process binary build dirs. Mutations stay out of git.
-psychological-operations-cli/tests/.psychological-operations-*/
-psychological-operations-cli/tests/.objectiveai/
-psychological-operations-cli/tests/.target-binaries/
 .objectiveai/
