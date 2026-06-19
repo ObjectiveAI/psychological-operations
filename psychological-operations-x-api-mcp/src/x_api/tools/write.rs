@@ -98,6 +98,7 @@ impl PsychologicalOperationsXApiMcp {
                 let http = self.build_client();
                 let auth = AuthMode::Agent(tag);
 
+                check_tweet_length(&req.text)?;
                 let body = TweetCreateRequest {
                     text: Some(TweetText(req.text)),
                     ..empty_tweet_create_request()
@@ -123,6 +124,7 @@ impl PsychologicalOperationsXApiMcp {
 
                 // Capture the args before they move into the request, in
                 // case we need to queue the attempt below.
+                check_tweet_length(&req.text)?;
                 let target_tweet_id = req.in_reply_to_tweet_id.clone();
                 let text = req.text.clone();
                 let body = TweetCreateRequest {
@@ -178,6 +180,7 @@ impl PsychologicalOperationsXApiMcp {
 
                 // Capture the args before they move into the request, in
                 // case we need to queue the attempt below.
+                check_tweet_length(&req.text)?;
                 let target_tweet_id = req.quote_tweet_id.clone();
                 let text = req.text.clone();
                 let body = TweetCreateRequest {
@@ -367,6 +370,25 @@ async fn resolve_handle_user_id(
     resp.data
         .map(|u| u.id)
         .ok_or_else(|| ToolError::agent(format!("no X user found for handle @{handle}")))
+}
+
+/// X's standard tweet character limit. Posts/replies/quotes over this are
+/// rejected by X; we reject proactively with an agent-visible message so the
+/// agent shortens its text instead of erroring (or silently queuing) later.
+const TWEET_CHAR_LIMIT: usize = 280;
+
+/// Reject body text that exceeds the tweet character limit. Counts Unicode
+/// scalar values — accurate for the plain prose agents write (X's weighted
+/// count only diverges for URLs / emoji / CJK). Surfaces as an agent-visible
+/// error result so the model can shorten and retry.
+fn check_tweet_length(text: &str) -> Result<(), ToolError> {
+    let n = text.chars().count();
+    if n > TWEET_CHAR_LIMIT {
+        return Err(ToolError::agent(format!(
+            "text is {n} characters, over the {TWEET_CHAR_LIMIT}-character limit — shorten it and try again."
+        )));
+    }
+    Ok(())
 }
 
 /// True for the X 403 "conversation restriction" problem — the account
