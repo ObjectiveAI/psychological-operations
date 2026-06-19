@@ -3,8 +3,8 @@ use serde::{Deserialize, Serialize};
 
 use starlark::syntax::{AstModule, Dialect};
 
-/// Tiebreak order applied across the deduped candidate union when
-/// truncating to `PsyOp.max_posts`.
+/// Tiebreak order applied to query tweets within a priority bucket
+/// (for_you tweets interweave by arrival instead).
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SortBy {

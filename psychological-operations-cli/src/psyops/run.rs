@@ -11,10 +11,9 @@
 //!   order) is shared by every psyop referencing that agent.
 //! * **Phase B — score + deliver per psyop (parallel):** each psyop builds
 //!   its candidate set from its for_you agents (+ its queries, scraped as
-//!   `AuthMode::Agent`, run only if for_you is short and the cost policy
-//!   allows), filters, sorts (for_you interwoven across agents, ahead of
-//!   query tweets), trims, scores, and delivers survivors to its
-//!   `agent_tags`.
+//!   `AuthMode::Agent`, run per the `query_when_for_you_queued` cost
+//!   policy), filters, sorts (for_you interwoven across agents, ahead of
+//!   query tweets), scores, and delivers survivors to its `agent_tags`.
 //!
 //! NOTHING about the candidate pipeline is persisted — posts, sources,
 //! hydration, scores all live in memory for the lifetime of this call.
@@ -164,9 +163,9 @@ async fn run_all_inner(
     }
 
     // Hydrate the union of collected IDs once (each tweet fetched a single
-    // time even if several agents' feeds surfaced it). `XApp` auth — the
-    // collection browser already proved the agent's session; hydration is
-    // a plain by-id read.
+    // time even if several agents' feeds surfaced it), as the agent whose
+    // feed surfaced it — the first agent (in collection order) to carry the
+    // id does the fetch under its own auth.
     let mut hydrated: HashMap<String, Option<Post>> = HashMap::new();
     for agent in &for_you_agents {
         let Some(ids) = agent_ids.get(agent) else {
@@ -177,11 +176,12 @@ async fn run_all_inner(
             count: ids.len(),
         })
         .emit();
+        let auth = AuthMode::Agent(agent.clone());
         for id in ids {
             if hydrated.contains_key(id) {
                 continue;
             }
-            match fetch_tweet(&http, &AuthMode::XApp, id).await {
+            match fetch_tweet(&http, &auth, id).await {
                 Ok(Some(post)) => {
                     hydrated.insert(id.clone(), Some(post));
                 }
@@ -320,30 +320,16 @@ async fn run_scored(
     }
     let had_for_you = !cands.is_empty();
 
-    // 2. Filter.
-    let mut accepted = filter_with_priority(psyop, &cands)?;
-
-    // 3. Eligibility — run queries (as each query's agent) if we're short
-    //    and the cost policy permits.
-    if (accepted.len() as u64) < psyop.min_posts {
-        let queries_allowed = psyop.query_when_for_you_queued || !had_for_you;
-        if !queries_allowed {
-            return Err(Error::Other(format!(
-                "psyop \"{name}\": only {} accepted; queries skipped because for_you was \
-                 non-empty and query_when_for_you_queued = false",
-                accepted.len(),
-            )));
-        }
+    // 2. Run queries (each as its own agent) per the cost policy: queries
+    //    run unless `query_when_for_you_queued` is false AND for_you already
+    //    produced candidates. No min/max bounds — we score whatever the
+    //    sources yield.
+    if psyop.query_when_for_you_queued || !had_for_you {
         run_queries_into(psyop, &http, name, &mut cands).await?;
-        accepted = filter_with_priority(psyop, &cands)?;
-        if (accepted.len() as u64) < psyop.min_posts {
-            return Err(Error::Other(format!(
-                "psyop \"{name}\": only {} accepted after running queries; min_posts is {}",
-                accepted.len(),
-                psyop.min_posts,
-            )));
-        }
     }
+
+    // 3. Filter.
+    let accepted = filter_with_priority(psyop, &cands)?;
 
     // 4. Priority-bucket sort (for_you interwoven, ahead of query tweets).
     let ordered = bucket_sort(psyop, accepted)?;

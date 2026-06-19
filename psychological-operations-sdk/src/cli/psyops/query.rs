@@ -14,9 +14,10 @@ pub struct Query {
     pub agent_tag: String,
     #[serde(default)]
     pub endpoint: SearchEndpoint,
-    /// Higher = preferred when the deduped union is truncated by
-    /// `PsyOp.max_posts`. `None` ranks below every `Some(_)`,
-    /// regardless of the `Some` value.
+    /// Priority bucket for ordering the candidate union: smaller numbers
+    /// come first; `None` ranks below every `Some(_)`. Within a bucket,
+    /// for_you tweets interweave by arrival ahead of query tweets (which
+    /// fall back to `sort`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub priority: Option<u64>,
     /// Per-tweet eligibility filter. `None` means accept every tweet

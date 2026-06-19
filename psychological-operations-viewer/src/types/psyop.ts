@@ -25,7 +25,6 @@ export interface PsyopEntry {
 export interface Psyop {
   queries?: Query[];
   for_you?: ForYou[];
-  min_posts: number;
   max_posts: number;
   sort: SortBy;
   query_when_for_you_queued: boolean;

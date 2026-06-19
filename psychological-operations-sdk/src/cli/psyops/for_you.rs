@@ -15,9 +15,9 @@ pub struct ForYou {
     /// `ForYou` entries (one per agent) collect into the same psyop;
     /// entries sharing a `priority` are round-robin interwoven at sort.
     pub agent_tag: String,
-    /// Higher = preferred when the deduped union is truncated by
-    /// `PsyOp.max_posts`. `None` ranks below every `Some(_)`,
-    /// regardless of the `Some` value.
+    /// Priority bucket for ordering the candidate union: smaller numbers
+    /// come first; `None` ranks below every `Some(_)`. for_you entries
+    /// sharing a priority are round-robin interwoven across agents.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub priority: Option<u64>,
     /// Per-tweet eligibility filter. `None` means accept every tweet

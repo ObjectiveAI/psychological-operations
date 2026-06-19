@@ -32,13 +32,9 @@ pub struct PsyOp {
     /// publish time via [`humantime::parse_duration`]; must be > 0.
     pub interval: String,
 
-    /// Minimum total deduped candidates required before the psyop will
-    /// run scoring. If the union of `queries` + `for_you` falls below
-    /// this, the psyop is skipped.
-    pub min_posts: u64,
-    /// Hard cap on candidates sent to the scoring function. After
-    /// dedup, the candidate set is ordered by `(priority, sort)` and
-    /// truncated to `max_posts`.
+    /// Hard cap on candidates sent to the scoring function. After the
+    /// candidate union is ordered by `(priority, sort/interweave)` it is
+    /// truncated to `max_posts` before scoring. Must be > 0.
     pub max_posts: u64,
 
     /// Tiebreak ordering applied across the deduped candidate union.
@@ -128,14 +124,6 @@ impl PsyOp {
         }
         if self.max_posts == 0 {
             return Err("max_posts must be > 0".into());
-        }
-        if self.min_posts < 2 {
-            return Err(
-                "min_posts must be >= 2 (objectiveai cannot score fewer than 2 inputs)".into(),
-            );
-        }
-        if self.min_posts > self.max_posts {
-            return Err("min_posts must be <= max_posts".into());
         }
 
         if let Some(qs) = &self.queries {
