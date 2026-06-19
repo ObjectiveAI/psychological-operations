@@ -13,14 +13,18 @@
 
 use psychological_operations_db::{ReplyQuoteEntry, unix_now};
 use psychological_operations_sdk::x::Error as XError;
-use psychological_operations_sdk::x::client::AuthMode;
+use psychological_operations_sdk::x::client::{AuthMode, Client};
 use psychological_operations_sdk::x::types::{
     BookmarkAddRequest, Problem, TweetCreateRequest, TweetCreateRequestReply, TweetId, TweetText,
-    UserIdMatchesAuthenticatedUser, UsersLikesCreateRequest, UsersRetweetsCreateRequest,
+    UserId, UserIdMatchesAuthenticatedUser, UsersFollowingCreateRequest, UsersLikesCreateRequest,
+    UsersRetweetsCreateRequest,
 };
+use psychological_operations_sdk::x::users::by::username::username as users_by_username;
 use psychological_operations_sdk::x::users::id::bookmarks as users_id_bookmarks;
+use psychological_operations_sdk::x::users::id::following as users_id_following;
 use psychological_operations_sdk::x::users::id::likes as users_id_likes;
 use psychological_operations_sdk::x::users::id::retweets as users_id_retweets;
+use psychological_operations_sdk::x::users::source_user_id::following::target_user_id as users_unfollow;
 use rmcp::model::{CallToolResult, Content, Extensions};
 use rmcp::{ErrorData, handler::server::wrapper::Parameters, schemars, tool, tool_router};
 
@@ -66,6 +70,18 @@ pub struct RetweetRequest {
 pub struct BookmarkRequest {
     #[schemars(description = "Numeric ID of the tweet to bookmark.")]
     pub tweet_id: String,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct FollowRequest {
+    #[schemars(description = "Handle (username, no leading @) of the user to follow.")]
+    pub handle: String,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct UnfollowRequest {
+    #[schemars(description = "Handle (username, no leading @) of the user to unfollow.")]
+    pub handle: String,
 }
 
 #[tool_router(router = write_tools, vis = "pub")]
@@ -279,6 +295,78 @@ impl PsychologicalOperationsXApiMcp {
             .await,
         )
     }
+
+    #[tool(name = "follow", description = "Follow an X user by handle.")]
+    async fn follow(
+        &self,
+        Parameters(req): Parameters<FollowRequest>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, ErrorData> {
+        let tag = self.resolve_session(&extensions).await?.tag.clone();
+        finish(
+            async move {
+                let http = self.build_client();
+                let auth = AuthMode::Agent(tag);
+
+                let target_user_id = resolve_handle_user_id(&http, &auth, req.handle).await?;
+                let user_id = resolve_self_user_id(&http, &auth).await?;
+                let creq = users_id_following::post::Request {
+                    id: UserIdMatchesAuthenticatedUser(user_id),
+                    body: Some(UsersFollowingCreateRequest { target_user_id }),
+                };
+                let resp = users_id_following::http::post(&http, &auth, &creq).await?;
+                let body = serde_json::to_string(&resp.data)?;
+                Ok(CallToolResult::success(vec![Content::text(body)]))
+            }
+            .await,
+        )
+    }
+
+    #[tool(name = "unfollow", description = "Unfollow an X user by handle.")]
+    async fn unfollow(
+        &self,
+        Parameters(req): Parameters<UnfollowRequest>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, ErrorData> {
+        let tag = self.resolve_session(&extensions).await?.tag.clone();
+        finish(
+            async move {
+                let http = self.build_client();
+                let auth = AuthMode::Agent(tag);
+
+                let target_user_id = resolve_handle_user_id(&http, &auth, req.handle).await?;
+                let user_id = resolve_self_user_id(&http, &auth).await?;
+                let creq = users_unfollow::delete::Request {
+                    source_user_id: UserIdMatchesAuthenticatedUser(user_id),
+                    target_user_id,
+                };
+                let resp = users_unfollow::http::delete(&http, &auth, &creq).await?;
+                let body = serde_json::to_string(&resp.data)?;
+                Ok(CallToolResult::success(vec![Content::text(body)]))
+            }
+            .await,
+        )
+    }
+}
+
+/// Resolve a handle (username) to its X user id, acting as the session.
+/// A handle X doesn't know surfaces as an agent-visible error result so the
+/// agent can correct it.
+async fn resolve_handle_user_id(
+    http: &Client,
+    auth: &AuthMode,
+    handle: String,
+) -> Result<UserId, ToolError> {
+    let creq = users_by_username::get::Request {
+        username: handle.clone(),
+        user_fields: None,
+        expansions: None,
+        tweet_fields: None,
+    };
+    let resp = users_by_username::http::get(http, auth, &creq).await?;
+    resp.data
+        .map(|u| u.id)
+        .ok_or_else(|| ToolError::agent(format!("no X user found for handle @{handle}")))
 }
 
 /// True for the X 403 "conversation restriction" problem — the account

@@ -34,11 +34,13 @@ pub enum ToolName {
     Like,
     Retweet,
     Bookmark,
+    Follow,
+    Unfollow,
 }
 
 impl ToolName {
     /// Every metered tool, in a stable order (clap value list + tests).
-    pub const ALL: [ToolName; 14] = [
+    pub const ALL: [ToolName; 16] = [
         ToolName::GetReplies,
         ToolName::GetBio,
         ToolName::GetProfilePicture,
@@ -53,6 +55,8 @@ impl ToolName {
         ToolName::Like,
         ToolName::Retweet,
         ToolName::Bookmark,
+        ToolName::Follow,
+        ToolName::Unfollow,
     ];
 
     /// The MCP tool name, matching its `#[tool(name = …)]`.
@@ -73,6 +77,8 @@ impl ToolName {
             Like => "like",
             Retweet => "retweet",
             Bookmark => "bookmark",
+            Follow => "follow",
+            Unfollow => "unfollow",
         }
     }
 
@@ -88,7 +94,9 @@ impl ToolName {
         match self {
             GetReplies | GetBio | GetProfilePicture | GetTweet | OpenAttachment | RunQuery
             | Whoami | GetBookmarks => Direction::Read,
-            Post | Reply | Quote | Like | Retweet | Bookmark => Direction::Write,
+            Post | Reply | Quote | Like | Retweet | Bookmark | Follow | Unfollow => {
+                Direction::Write
+            }
         }
     }
 }

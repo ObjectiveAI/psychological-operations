@@ -63,6 +63,8 @@ const FULL_ONLY_TOOLS: &[&str] = &[
     "like",
     "retweet",
     "bookmark",
+    "follow",
+    "unfollow",
     "read_queue",
     "mark_handled",
 ];
