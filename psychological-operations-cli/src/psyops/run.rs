@@ -37,7 +37,6 @@ use psychological_operations_sdk::x::params::user_fields_parameter::UserFields;
 use psychological_operations_sdk::x::types::TweetId;
 
 use super::{PsyOp, Query};
-use crate::psyops::SearchEndpoint;
 
 /// CLI entrypoint for `psyops::Commands::Run`.
 pub async fn run_all(names: Vec<String>, seed: Option<i64>, ctx: &crate::context::Context) -> bool {
@@ -576,15 +575,6 @@ async fn run_queries_into(
         _ => return Ok(()),
     };
     for q in queries {
-        if !matches!(q.endpoint, SearchEndpoint::Recent) {
-            crate::output::OutputResult::from(crate::events::Event::QuerySkipped {
-                psyop: name.to_string(),
-                query: q.query.clone(),
-                reason: "endpoint_not_recent".to_string(),
-            })
-            .emit();
-            continue;
-        }
         let auth = AuthMode::Agent(q.agent_tag.clone());
         match search_recent(http, &auth, &q.query).await {
             Ok(posts) => {

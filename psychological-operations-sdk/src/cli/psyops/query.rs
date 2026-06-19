@@ -3,7 +3,8 @@ use serde::{Deserialize, Serialize};
 
 use super::filter::Filter;
 
-/// One live X v2 search-query input on a psyop.
+/// One live X v2 search-query input on a psyop. Always hits the
+/// `/2/tweets/search/recent` endpoint (last 7 days, all access tiers).
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
 pub struct Query {
     /// X v2 search-operator string (e.g. `"from:user has:media -is:retweet"`).
@@ -12,8 +13,6 @@ pub struct Query {
     /// search call to X acts as this agent (`AuthMode::Agent`), and the
     /// run-time pre-flight refuses the psyop if the agent isn't authed.
     pub agent_tag: String,
-    #[serde(default)]
-    pub endpoint: SearchEndpoint,
     /// Priority bucket for ordering the candidate union: smaller numbers
     /// come first; `None` ranks below every `Some(_)`. Within a bucket,
     /// for_you tweets interweave by arrival ahead of query tweets (which
@@ -41,21 +40,5 @@ impl Query {
             f.validate().map_err(|e| format!("filter: {e}"))?;
         }
         Ok(())
-    }
-}
-
-/// Which X v2 search endpoint a `Query` should hit.
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum SearchEndpoint {
-    /// `/2/tweets/search/recent` — last 7 days, all access tiers.
-    Recent,
-    /// `/2/tweets/search/all` — full archive (Pro / Enterprise tiers).
-    All,
-}
-
-impl Default for SearchEndpoint {
-    fn default() -> Self {
-        Self::Recent
     }
 }

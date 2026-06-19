@@ -36,12 +36,9 @@ export interface Query {
   query: string;
   // The agent whose auth this query is scraped as.
   agent_tag: string;
-  endpoint: SearchEndpoint;
   priority?: number;
   filter?: Filter;
 }
-
-export type SearchEndpoint = "recent" | "all";
 
 // psychological-operations-cli/src/psyops/for_you.rs
 export interface ForYou {

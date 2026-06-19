@@ -42,7 +42,7 @@ use objectiveai_sdk::functions::{
 };
 use psychological_operations_sdk::cli::Output;
 use psychological_operations_sdk::cli::psyops::{
-    PsyOp, PsyopEntry, PublishedPsyop, Query, SearchEndpoint, SortBy, Stage, StageBase,
+    PsyOp, PsyopEntry, PublishedPsyop, Query, SortBy, Stage, StageBase,
 };
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -436,7 +436,6 @@ pub fn query_psyop(query: &str, stages: Vec<Stage>) -> PsyOp {
         queries: Some(vec![Query {
             query: query.to_string(),
             agent_tag: "test-agent".to_string(),
-            endpoint: SearchEndpoint::Recent,
             priority: None,
             filter: None,
         }]),

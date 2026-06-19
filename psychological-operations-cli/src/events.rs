@@ -49,11 +49,6 @@ pub enum Event {
     },
 
     // ── query / ingest ───────────────────────────────────────
-    QuerySkipped {
-        psyop: String,
-        query: String,
-        reason: String,
-    },
     QueryComplete {
         psyop: String,
         query: String,

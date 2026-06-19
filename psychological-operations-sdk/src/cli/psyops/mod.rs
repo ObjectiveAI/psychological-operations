@@ -16,7 +16,7 @@ pub mod stage;
 pub use filter::Filter;
 pub use for_you::ForYou;
 pub use psyop::PsyOp;
-pub use query::{Query, SearchEndpoint};
+pub use query::Query;
 pub use sort_by::SortBy;
 pub use stage::{is_vector_function, parse_output_top, OutputTop, Stage, StageBase};
 
