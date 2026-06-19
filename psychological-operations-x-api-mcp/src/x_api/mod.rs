@@ -71,17 +71,76 @@ fn is_hidden_for(mode: Mode, tool_name: &str) -> bool {
     matches!(mode, Mode::Readonly) && FULL_ONLY_TOOLS.contains(&tool_name)
 }
 
-/// For a `reply` / `quote` call, pull `(kind, target_tweet_id)` out of the
-/// raw arguments so the pending-duplicate pre-check can run in `call_tool`
-/// before quota is charged. `None` for any other tool.
-fn reply_quote_target(request: &CallToolRequestParams) -> Option<(&'static str, String)> {
-    let (kind, arg) = match request.name.as_ref() {
-        "reply" => ("reply", "in_reply_to_tweet_id"),
-        "quote" => ("quote", "quote_tweet_id"),
+/// A tool call's dedup intent: which action it records, against which
+/// target, what already-taken actions block it, and whether it instead
+/// CLEARS a prior record (unfollow). `None` for tools that aren't deduped
+/// (post, bookmark, every read tool).
+struct DedupAction {
+    /// The row's `action` name — `"follow"` for `unfollow` too, since
+    /// unfollow clears the follow record.
+    action: &'static str,
+    /// Tweet ID, or the normalized handle for follow/unfollow.
+    target: String,
+    /// Actions whose presence blocks this one. EMPTY = no pre-check
+    /// (unfollow is always allowed). `["quote", "retweet"]` expresses the
+    /// quote/retweet mutual exclusion.
+    conflicts: &'static [&'static str],
+    /// unfollow: delete the follow row instead of recording.
+    remove: bool,
+}
+
+/// Normalize a handle for dedup: strip a leading `@`, lowercase, trim, so
+/// `@X` / `x` / `X` all key the same follow row.
+fn normalize_handle(h: &str) -> String {
+    h.trim().trim_start_matches('@').to_ascii_lowercase()
+}
+
+/// Map a tool call to its [`DedupAction`], or `None` if the tool isn't
+/// subject to per-target dedup. The target is read from the raw arguments
+/// so the pre-check can run in `call_tool` before quota is charged.
+fn dedup_action(request: &CallToolRequestParams) -> Option<DedupAction> {
+    let args = request.arguments.as_ref()?;
+    let tweet = |k: &str| args.get(k).and_then(|v| v.as_str()).map(str::to_string);
+    let handle = || args.get("handle").and_then(|v| v.as_str()).map(normalize_handle);
+    Some(match request.name.as_ref() {
+        "like" => DedupAction {
+            action: "like",
+            target: tweet("tweet_id")?,
+            conflicts: &["like"],
+            remove: false,
+        },
+        "reply" => DedupAction {
+            action: "reply",
+            target: tweet("in_reply_to_tweet_id")?,
+            conflicts: &["reply"],
+            remove: false,
+        },
+        "quote" => DedupAction {
+            action: "quote",
+            target: tweet("quote_tweet_id")?,
+            conflicts: &["quote", "retweet"],
+            remove: false,
+        },
+        "retweet" => DedupAction {
+            action: "retweet",
+            target: tweet("tweet_id")?,
+            conflicts: &["retweet", "quote"],
+            remove: false,
+        },
+        "follow" => DedupAction {
+            action: "follow",
+            target: handle()?,
+            conflicts: &["follow"],
+            remove: false,
+        },
+        "unfollow" => DedupAction {
+            action: "follow",
+            target: handle()?,
+            conflicts: &[],
+            remove: true,
+        },
         _ => return None,
-    };
-    let target = request.arguments.as_ref()?.get(arg)?.as_str()?.to_string();
-    Some((kind, target))
+    })
 }
 
 #[derive(Clone)]
@@ -360,22 +419,32 @@ impl ServerHandler for PsychologicalOperationsXApiMcp {
                 None,
             ));
         }
-        // Reply/quote: refuse a duplicate while one is already pending
-        // delivery (a reply blocks only a reply, a quote only a quote).
-        // MUST run BEFORE enforce_quota so a pending-block never consumes
-        // quota. A successful queue (in the tool body, on the 403) happens
-        // after quota was charged, so that path keeps charging.
-        if let Some((kind, target)) = reply_quote_target(&request) {
-            if self
-                .db
-                .reply_quote_pending_exists(&state.tag, kind, &target)
-                .await
-                .unwrap_or(false)
+        // Per-target dedup: refuse a repeat of like/retweet/quote/reply/
+        // follow against the same target (quote and retweet are mutually
+        // exclusive). MUST run BEFORE enforce_quota so a blocked duplicate
+        // never consumes quota. Recorded after a successful dispatch below.
+        let dedup = dedup_action(&request);
+        if let Some(d) = &dedup {
+            if !d.conflicts.is_empty()
+                && self
+                    .db
+                    .action_taken(&state.tag, d.conflicts, &d.target)
+                    .await
+                    .unwrap_or(false)
             {
-                return Ok(CallToolResult::error(vec![Content::text(format!(
-                    "A {kind} for tweet {target} is already pending delivery — \
-                     not submitting another."
-                ))]));
+                let msg = match d.action {
+                    "follow" => format!("Already following @{} — not following again.", d.target),
+                    "reply" => {
+                        format!("Already replied to tweet {} — not replying again.", d.target)
+                    }
+                    _ if d.conflicts.len() > 1 => format!(
+                        "Already quoted or reposted tweet {} — quote and repost are \
+                         mutually exclusive.",
+                        d.target
+                    ),
+                    a => format!("Already {a}d tweet {} — not repeating.", d.target),
+                };
+                return Ok(CallToolResult::error(vec![Content::text(msg)]));
             }
         }
         // Metered tools (those in `ToolName`) are charged against the
@@ -400,6 +469,18 @@ impl ServerHandler for PsychologicalOperationsXApiMcp {
         if let Some(dir) = metered {
             if let Some(header) = self.quota_header(&state, dir).await {
                 result.content.insert(0, header);
+            }
+        }
+        // Record (or, for unfollow, clear) dedup state — only on success.
+        // A failed/errored call recorded nothing; a reply/quote that
+        // 403-queued returns a SUCCESS result, so it counts as done once.
+        if result.is_error != Some(true) {
+            if let Some(d) = dedup {
+                let _ = if d.remove {
+                    self.db.remove_action(&state.tag, d.action, &d.target).await
+                } else {
+                    self.db.record_action(&state.tag, d.action, &d.target).await
+                };
             }
         }
         Ok(result)

@@ -7,10 +7,10 @@
 //! separately).
 //!
 //! Rows are keyed by `(agent_tag, kind, target_tweet_id)` so there is at
-//! most one pending reply AND one pending quote per agent per tweet. That
-//! key is also what the MCP server's pending pre-check reads: a new reply
-//! is refused only while a reply is pending for the same tweet, a quote
-//! only while a quote is pending — never cross-blocking.
+//! most one pending reply AND one pending quote per agent per tweet.
+//! Duplicate-reply/quote refusal lives elsewhere now — the x-api MCP's
+//! per-target `actions` dedup (see `actions.rs`) blocks a second reply or
+//! quote permanently, not just while one is queued here.
 //!
 //! `target_tweet_id` (the `in_reply_to_tweet_id` / `quote_tweet_id`) links
 //! back to the tweet; `text` is the body. Together they are the complete
@@ -33,7 +33,7 @@ pub struct ReplyQuoteEntry {
 
 impl Db {
     /// Upsert by `(agent_tag, kind, target_tweet_id)`. In practice the
-    /// MCP pending pre-check means this is always an insert, but the
+    /// MCP per-target dedup means this is always an insert, but the
     /// upsert keeps it idempotent against races.
     pub async fn reply_quote_enqueue(&self, entry: &ReplyQuoteEntry) -> Result<(), Error> {
         sqlx::query(
@@ -52,26 +52,6 @@ impl Db {
         .execute(&self.pool)
         .await?;
         Ok(())
-    }
-
-    /// Whether a `kind` (`"reply"` / `"quote"`) is already pending for this
-    /// `(agent_tag, target_tweet_id)` — the MCP server's duplicate guard.
-    pub async fn reply_quote_pending_exists(
-        &self,
-        agent_tag: &str,
-        kind: &str,
-        target_tweet_id: &str,
-    ) -> Result<bool, Error> {
-        let exists: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM reply_quote_queue \
-             WHERE agent_tag = $1 AND kind = $2 AND target_tweet_id = $3)",
-        )
-        .bind(agent_tag)
-        .bind(kind)
-        .bind(target_tweet_id)
-        .fetch_one(&self.pool)
-        .await?;
-        Ok(exists)
     }
 
     /// Every pending reply/quote, oldest first — the full batch the

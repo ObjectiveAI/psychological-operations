@@ -19,6 +19,7 @@ use std::sync::Arc;
 use dashmap::DashMap;
 use sqlx::postgres::{PgPool, PgPoolOptions};
 
+pub mod actions;
 pub mod auth;
 pub mod cache;
 pub mod cookies;

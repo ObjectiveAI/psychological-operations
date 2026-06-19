@@ -106,6 +106,20 @@ CREATE TABLE IF NOT EXISTS reply_quote_queue (
     PRIMARY KEY (agent_tag, kind, target_tweet_id)
 );
 
+-- ── per-agent per-target action dedup (idempotency) ──────────────────
+-- At most one of each action per (account, target). tweet-ID target for
+-- like/retweet/quote/reply; normalized handle for follow. quote<->retweet
+-- are mutually exclusive (the pre-check scans both). unfollow DELETEs the
+-- matching follow row so a later follow is allowed again.
+
+CREATE TABLE IF NOT EXISTS actions (
+    account TEXT   NOT NULL,  -- agent tag (same key as the quota ledger)
+    action  TEXT   NOT NULL,  -- 'like' | 'retweet' | 'quote' | 'reply' | 'follow'
+    target  TEXT   NOT NULL,  -- tweet_id, or normalized handle for follow
+    at      BIGINT NOT NULL,  -- unix seconds
+    PRIMARY KEY (account, action, target)
+);
+
 -- ── MCP per-account, per-tool-call quota ledger ──────────────────────
 -- Metering is on MCP TOOL CALLS, not X-API HTTP requests, keyed by the
 -- `account` (agent name) a tool acts as. The ledger is intentionally
