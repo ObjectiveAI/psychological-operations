@@ -13,12 +13,16 @@ pub enum SortBy {
     Replies,
     Newest,
     Oldest,
-    /// Starlark expression. Receives one global, `tweets` — a list
-    /// of dicts mirroring `Tweet` (keys: `id`, `handle`, `created`,
-    /// `age`, `likes`, `retweets`, `replies`, `impressions`). Must
-    /// evaluate to a list whose length matches `tweets` and whose
-    /// elements are either dicts (with `id`) or strings (the id).
-    /// The returned ordering is the new `Vec<Tweet>` order.
+    /// Starlark expression. Receives one global, `tweets` — a list of
+    /// dicts mirroring `Tweet` (keys: `id`, `handle`, `created`, `age`,
+    /// `likes`, `retweets`, `replies`, `impressions`), in candidate order.
+    /// Must evaluate to a list of **sort values** positionally aligned to
+    /// `tweets`: element `i` is tweet `i`'s value. Tweets sort **ascending**
+    /// by value (equal values keep original order — negate for descending).
+    /// An element of `None`, or a position past the end of a short list,
+    /// **drops** that tweet; extra elements are ignored. Each element must
+    /// be a number or `None`.
+    /// Example: `[t['likes'] if t['likes'] > 5 else None for t in tweets]`.
     Custom(String),
 }
 

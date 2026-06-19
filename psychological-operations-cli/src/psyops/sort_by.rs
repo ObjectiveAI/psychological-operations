@@ -1,57 +1,73 @@
-//! Runtime sort over a `Vec<Tweet>`. The `SortBy` enum +
-//! publish-time `validate` live in
-//! `psychological_operations_sdk::cli::psyops::sort_by`; this
-//! file is purely the evaluator (uses Starlark to run the
-//! operator's `Custom` expression against a tweet list).
-
-use std::collections::HashMap;
+//! Runtime sort over the query candidates in a bucket. The `SortBy`
+//! enum + publish-time `validate` live in
+//! `psychological_operations_sdk::cli::psyops::sort_by`; this file is
+//! purely the evaluator. It sorts the items themselves (a projection
+//! gives each item's `Tweet`), so there is no tweet-ID round-trip — built-in
+//! sorts touch no ID at all, and de-duplication is irrelevant: identical
+//! items just sort adjacently.
+//!
+//! The `Custom` variant runs the operator's Starlark expression, which
+//! returns a list of **sort values** positionally aligned to `tweets`:
+//! element `i` is the value for tweet `i`. Items sort ascending by value
+//! (equal = original order; negate for descending). A `None` value — or a
+//! position past the end of a short list — drops that item; extra elements
+//! are ignored.
 
 use starlark::environment::{Globals, Module};
 use starlark::eval::Evaluator;
-use starlark::values::Value;
-use starlark::values::ValueLike;
-use starlark::values::dict::DictRef;
+use starlark::values::float::StarlarkFloat;
 use starlark::values::list::ListRef;
+use starlark::values::{UnpackValue, Value, ValueLike};
 
-use psychological_operations_sdk::cli::psyops::sort_by::{SortBy, parse_custom};
+use psychological_operations_sdk::cli::psyops::sort_by::{parse_custom, SortBy};
 
-use crate::tweet::{Tweet, alloc_dict};
+use crate::tweet::{alloc_dict, Tweet};
 
-/// Reorder `tweets` per the variant's rule. Built-ins use a
-/// stable sort; Custom runs the user's Starlark expression and
-/// reorders by the resulting id list.
-pub fn evaluate(s: &SortBy, mut tweets: Vec<Tweet>) -> Result<Vec<Tweet>, String> {
+/// Reorder `items` per the variant's rule, sorting the items themselves
+/// (`tweet_of` projects each to the `Tweet` the rule reads). Built-ins are
+/// a stable sort over all items. `Custom` sorts by the operator's
+/// per-tweet sort values and may also drop items, so its output can be
+/// shorter than the input.
+pub fn evaluate<T>(
+    s: &SortBy,
+    mut items: Vec<T>,
+    tweet_of: impl Fn(&T) -> &Tweet,
+) -> Result<Vec<T>, String> {
     match s {
         SortBy::Likes => {
-            tweets.sort_by(|a, b| b.likes.cmp(&a.likes));
-            Ok(tweets)
+            items.sort_by(|a, b| tweet_of(b).likes.cmp(&tweet_of(a).likes));
+            Ok(items)
         }
         SortBy::Retweets => {
-            tweets.sort_by(|a, b| b.retweets.cmp(&a.retweets));
-            Ok(tweets)
+            items.sort_by(|a, b| tweet_of(b).retweets.cmp(&tweet_of(a).retweets));
+            Ok(items)
         }
         SortBy::Replies => {
-            tweets.sort_by(|a, b| b.replies.cmp(&a.replies));
-            Ok(tweets)
+            items.sort_by(|a, b| tweet_of(b).replies.cmp(&tweet_of(a).replies));
+            Ok(items)
         }
         SortBy::Newest => {
-            tweets.sort_by(|a, b| b.created.cmp(&a.created));
-            Ok(tweets)
+            items.sort_by(|a, b| tweet_of(b).created.cmp(&tweet_of(a).created));
+            Ok(items)
         }
         SortBy::Oldest => {
-            tweets.sort_by(|a, b| a.created.cmp(&b.created));
-            Ok(tweets)
+            items.sort_by(|a, b| tweet_of(a).created.cmp(&tweet_of(b).created));
+            Ok(items)
         }
-        SortBy::Custom(src) => evaluate_custom(src, tweets),
+        SortBy::Custom(src) => evaluate_custom(src, items, tweet_of),
     }
 }
 
-fn evaluate_custom(src: &str, tweets: Vec<Tweet>) -> Result<Vec<Tweet>, String> {
+fn evaluate_custom<T>(
+    src: &str,
+    items: Vec<T>,
+    tweet_of: impl Fn(&T) -> &Tweet,
+) -> Result<Vec<T>, String> {
     let ast = parse_custom(src)?;
     let module = Module::new();
     {
         let heap = module.heap();
-        let dicts: Vec<Value> = tweets.iter().map(|t| alloc_dict(t, heap)).collect();
+        let dicts: Vec<Value> = items.iter().map(|t| alloc_dict(tweet_of(t), heap)).collect();
         module.set("tweets", heap.alloc(dicts));
     }
     let globals = Globals::standard();
@@ -63,55 +79,45 @@ fn evaluate_custom(src: &str, tweets: Vec<Tweet>) -> Result<Vec<Tweet>, String> 
         .get("result")
         .ok_or_else(|| "custom sort produced no result".to_string())?;
     let result = result_owned.to_value();
-
     let list =
         ListRef::from_value(result).ok_or_else(|| "custom sort must return a list".to_string())?;
 
-    if list.len() != tweets.len() {
-        return Err(format!(
-            "custom sort returned {} items but input had {}",
-            list.len(),
-            tweets.len(),
-        ));
-    }
-
-    // Build id -> tweet lookup by consuming the input vec exactly
-    // once. Duplicate ids in the input would shouldn't happen — the
-    // runtime dedupes before calling — but cheap to guard.
-    let mut by_id: HashMap<String, Tweet> = HashMap::with_capacity(tweets.len());
-    for t in tweets {
-        if by_id.insert(t.id.clone(), t).is_some() {
-            return Err("duplicate id in input to custom sort".into());
+    // The returned list holds one sort value per tweet, positionally
+    // aligned: element i is tweet i's value. Element `None`, or a position
+    // past a short list, drops that item; extra elements are ignored.
+    let values: Vec<Value> = list.iter().collect();
+    let mut keyed: Vec<(f64, T)> = Vec::with_capacity(items.len());
+    for (i, item) in items.into_iter().enumerate() {
+        let value = match values.get(i) {
+            Some(v) => extract_sort_value(*v)?,
+            None => None, // returned list too short — drop the tail
+        };
+        if let Some(v) = value {
+            keyed.push((v, item));
         }
     }
-
-    let mut out = Vec::with_capacity(list.len());
-    for (i, item) in list.iter().enumerate() {
-        let id = extract_id(item).ok_or_else(|| {
-            format!(
-                "custom sort returned element [{i}] that is neither a dict with `id` nor a string",
-            )
-        })?;
-        let tweet = by_id.remove(&id).ok_or_else(|| {
-            format!("custom sort returned id `{id}` which was not in the input or was used twice")
-        })?;
-        out.push(tweet);
-    }
-    Ok(out)
+    // Ascending; equal values keep original order (stable sort + we built
+    // `keyed` in input order).
+    keyed.sort_by(|a, b| a.0.total_cmp(&b.0));
+    Ok(keyed.into_iter().map(|(_, it)| it).collect())
 }
 
-fn extract_id(v: Value<'_>) -> Option<String> {
-    if let Some(s) = v.unpack_str() {
-        return Some(s.to_string());
+/// A custom-sort element: a number → its `f64` sort value; `None` → drop
+/// this item. Anything else is an error.
+fn extract_sort_value(v: Value<'_>) -> Result<Option<f64>, String> {
+    if v.is_none() {
+        return Ok(None);
     }
-    if let Some(dict) = DictRef::from_value(v) {
-        for (k, val) in dict.iter() {
-            if k.unpack_str() == Some("id") {
-                return val.unpack_str().map(|s| s.to_string());
-            }
-        }
+    if let Ok(Some(i)) = i64::unpack_value(v) {
+        return Ok(Some(i as f64));
     }
-    None
+    if let Some(f) = StarlarkFloat::unpack_value_opt(v) {
+        return Ok(Some(f.0));
+    }
+    Err(format!(
+        "custom sort values must be a number or None, got {}",
+        v.get_type(),
+    ))
 }
 
 #[cfg(test)]
@@ -130,10 +136,14 @@ mod tests {
         ts.iter().map(|t| t.id.as_str()).collect()
     }
 
+    fn sort(s: &SortBy, v: Vec<Tweet>) -> Result<Vec<Tweet>, String> {
+        evaluate(s, v, |t| t)
+    }
+
     #[test]
     fn likes_descending() {
         let v = vec![tw("a", 1), tw("b", 5), tw("c", 3)];
-        let out = evaluate(&SortBy::Likes, v).unwrap();
+        let out = sort(&SortBy::Likes, v).unwrap();
         assert_eq!(ids(&out), vec!["b", "c", "a"]);
     }
 
@@ -146,41 +156,73 @@ mod tests {
         let mut c = tw_default("c");
         c.created = "2026-03-01T00:00:00Z".into();
         let v = vec![a.clone(), b.clone(), c.clone()];
-        let newest = evaluate(&SortBy::Newest, v.clone()).unwrap();
+        let newest = sort(&SortBy::Newest, v.clone()).unwrap();
         assert_eq!(ids(&newest), vec!["b", "c", "a"]);
-        let oldest = evaluate(&SortBy::Oldest, v).unwrap();
+        let oldest = sort(&SortBy::Oldest, v).unwrap();
         assert_eq!(ids(&oldest), vec!["a", "c", "b"]);
     }
 
     #[test]
-    fn custom_sorted_by_likes_matches_builtin() {
+    fn custom_values_ascending() {
         let v = vec![tw("a", 1), tw("b", 5), tw("c", 3)];
-        let custom =
-            SortBy::Custom("sorted(tweets, key=lambda t: t['likes'], reverse=True)".into());
-        let out = evaluate(&custom, v).unwrap();
-        assert_eq!(ids(&out), vec!["b", "c", "a"]);
-    }
-
-    #[test]
-    fn custom_returning_ids_works() {
-        let v = vec![tw("a", 1), tw("b", 5), tw("c", 3)];
-        let custom =
-            SortBy::Custom("[t['id'] for t in sorted(tweets, key=lambda t: t['likes'])]".into());
-        let out = evaluate(&custom, v).unwrap();
+        let custom = SortBy::Custom("[t['likes'] for t in tweets]".into());
+        let out = sort(&custom, v).unwrap();
         assert_eq!(ids(&out), vec!["a", "c", "b"]);
     }
 
     #[test]
-    fn custom_length_mismatch_errors() {
+    fn custom_negate_for_descending() {
         let v = vec![tw("a", 1), tw("b", 5), tw("c", 3)];
-        let custom = SortBy::Custom("[t for t in tweets if t['likes'] > 2]".into());
-        assert!(evaluate(&custom, v).is_err());
+        let custom = SortBy::Custom("[-t['likes'] for t in tweets]".into());
+        let out = sort(&custom, v).unwrap();
+        assert_eq!(ids(&out), vec!["b", "c", "a"]);
     }
 
     #[test]
-    fn custom_unknown_id_errors() {
+    fn custom_none_drops() {
+        let v = vec![tw("a", 1), tw("b", 5), tw("c", 3)];
+        let custom =
+            SortBy::Custom("[t['likes'] if t['likes'] > 2 else None for t in tweets]".into());
+        let out = sort(&custom, v).unwrap();
+        assert_eq!(ids(&out), vec!["c", "b"]); // a (1) dropped; ascending by likes
+    }
+
+    #[test]
+    fn custom_too_short_drops_tail() {
+        let v = vec![tw("a", 1), tw("b", 5), tw("c", 3)];
+        // Only one value returned → tweets 1 and 2 drop.
+        let custom = SortBy::Custom("[t['likes'] for t in tweets][:1]".into());
+        let out = sort(&custom, v).unwrap();
+        assert_eq!(ids(&out), vec!["a"]);
+    }
+
+    #[test]
+    fn custom_too_long_ignores_extras() {
+        let v = vec![tw("a", 1), tw("b", 5), tw("c", 3)];
+        let custom = SortBy::Custom("[t['likes'] for t in tweets] + [99, 99]".into());
+        let out = sort(&custom, v).unwrap();
+        assert_eq!(ids(&out), vec!["a", "c", "b"]);
+    }
+
+    #[test]
+    fn custom_equal_values_keep_original_order() {
+        let v = vec![tw("a", 1), tw("b", 5), tw("c", 3)];
+        let custom = SortBy::Custom("[0 for t in tweets]".into());
+        let out = sort(&custom, v).unwrap();
+        assert_eq!(ids(&out), vec!["a", "b", "c"]);
+    }
+
+    #[test]
+    fn custom_non_number_errors() {
         let v = vec![tw("a", 1), tw("b", 5)];
-        let custom = SortBy::Custom("[\"a\", \"missing\"]".into());
-        assert!(evaluate(&custom, v).is_err());
+        let custom = SortBy::Custom("[t['id'] for t in tweets]".into());
+        assert!(sort(&custom, v).is_err());
+    }
+
+    #[test]
+    fn custom_not_a_list_errors() {
+        let v = vec![tw("a", 1)];
+        let custom = SortBy::Custom("42".into());
+        assert!(sort(&custom, v).is_err());
     }
 }
