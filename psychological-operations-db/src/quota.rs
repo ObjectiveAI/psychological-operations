@@ -84,8 +84,12 @@ impl Db {
         direction: &str,
         now: i64,
     ) -> Result<i64, Error> {
+        // `SUM(bigint)` yields NUMERIC in postgres; cast back to BIGINT so
+        // `query_scalar` can decode it as `i64` (otherwise: "mismatched
+        // types; Rust type i64 (INT8) is not compatible with SQL type
+        // NUMERIC" on every quota-checked tool call once any grant exists).
         let total: i64 = sqlx::query_scalar(
-            "SELECT COALESCE(SUM(amount), 0) FROM quota_grants \
+            "SELECT COALESCE(SUM(amount), 0)::bigint FROM quota_grants \
              WHERE account = $1 AND direction = $2 \
                AND granted_at <= $3 AND expires_at > $3",
         )
