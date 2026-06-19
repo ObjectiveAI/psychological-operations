@@ -13,7 +13,8 @@
 //!   its candidate set from its for_you agents (+ its queries, scraped as
 //!   `AuthMode::Agent`, run per the `query_when_for_you_queued` cost
 //!   policy), filters, sorts (for_you interwoven across agents, ahead of
-//!   query tweets), scores, and delivers survivors to its `agent_tags`.
+//!   query tweets), de-duplicates (keep first occurrence of each tweet),
+//!   scores, and delivers survivors to its `agent_tags`.
 //!
 //! NOTHING about the candidate pipeline is persisted — posts, sources,
 //! hydration, scores all live in memory for the lifetime of this call.
@@ -330,17 +331,22 @@ async fn run_scored(
     // 4. Priority-bucket sort (for_you interwoven, ahead of query tweets).
     let ordered = bucket_sort(psyop, accepted)?;
 
-    // 5. Trim to max_posts; carry the Posts into scoring.
+    // 5. Trim to max_posts; carry the Posts forward.
     let trimmed: Vec<Post> = ordered
         .into_iter()
         .take(psyop.max_posts as usize)
         .map(|a| a.post)
         .collect();
 
-    // 6. Score.
-    let result = score_pipeline(psyop, name, trimmed, seed, ctx).await?;
+    // 6. De-duplicate before stages (runs even with no stages, so delivery
+    //    is duplicate-free): keep the first occurrence of each tweet ID —
+    //    its best-ranked position — and drop every later copy.
+    let deduped = dedup_keep_first(trimmed);
 
-    // 7. Deliver survivors to each configured agent (in parallel).
+    // 7. Score.
+    let result = score_pipeline(psyop, name, deduped, seed, ctx).await?;
+
+    // 8. Deliver survivors to each configured agent (in parallel).
     if !result.survivors.is_empty() && !psyop.agent_tags.is_empty() {
         let now = chrono::Utc::now().timestamp();
         let survivors: Vec<(String, f64)> = result
@@ -557,6 +563,13 @@ fn tweet_from_post(p: &Post, now: &chrono::DateTime<chrono::Utc>) -> Tweet {
         replies: p.replies,
         impressions: p.impressions,
     }
+}
+
+/// Drop duplicate tweets, keeping the first occurrence of each ID (its
+/// best-ranked position in the ordered list) and removing every later copy.
+fn dedup_keep_first(posts: Vec<Post>) -> Vec<Post> {
+    let mut seen: HashSet<String> = HashSet::new();
+    posts.into_iter().filter(|p| seen.insert(p.id.clone())).collect()
 }
 
 // -- queries --------------------------------------------------------------
