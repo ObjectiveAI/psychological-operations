@@ -137,10 +137,14 @@ pub fn run() {
     // mode switches replace the sender via `ReadyTx` mutate.
     let (ready_tx, ready_rx) = mpsc::channel::<()>();
     let ready_rx = Mutex::new(Some(ready_rx));
+    // Whether this process is a delivery run — drives the `RunEvent`
+    // exit guard below (a per-agent browser close must not tear the app
+    // down mid-batch).
+    let is_deliver = deliver_items.is_some();
     // Moved into the setup closure; `take()`-n there to pick the path.
     let deliver_items = Mutex::new(deliver_items);
 
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(args)
         .manage(db)
@@ -190,8 +194,22 @@ pub fn run() {
             }
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    app.run(move |_handle, event| {
+        // In delivery mode the driver opens AND closes one CEF browser per
+        // agent inside a single window; closing a browser between agents
+        // otherwise lets Tauri's default "last surface gone → exit" tear
+        // the whole process down after the first agent. Hold off the exit
+        // until the driver flags itself finished — its own `handle.exit(0)`
+        // (after `deliver::mark_finished`) is then the sole terminator.
+        if is_deliver && !deliver::is_finished() {
+            if let tauri::RunEvent::ExitRequested { api, .. } = &event {
+                api.prevent_exit();
+            }
+        }
+    });
 
     // CEF teardown after Tauri's event loop returns. Browsers
     // should already be closed (the window-close handler asks CEF

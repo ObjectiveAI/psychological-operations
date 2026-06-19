@@ -1,14 +1,15 @@
 //! `agents deliver` — drive the browser to fulfill the reply/quote queue.
 //!
-//! Reads every pending `reply_quote_queue` entry, hands the batch to the
-//! browser as an inline `--deliver <json>` invocation, and removes each
-//! row as the browser streams back its `delivered` confirmation. Waits for
-//! the browser to self-exit (no `Shutdown` sent — it exits on its own).
-//!
-//! Stage 1: the browser handler is a stub that exits without delivering,
-//! so today this spawns, gets immediate EOF, removes nothing, and returns
-//! `ok`. The CLI plumbing + wire types are in place for the real handler.
+//! Reads every pending `reply_quote_queue` entry, groups them by agent, and
+//! spawns **one browser process per agent** (sequentially) with that
+//! agent's items as an inline `--deliver <json>` invocation, removing each
+//! row as the browser streams back its `delivered` confirmation. One
+//! process per agent keeps each invocation on the proven single-agent path
+//! — a single process can't reliably create a second CEF browser after
+//! closing the first, so juggling all agents in one process drops everyone
+//! after the first.
 
+use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader};
 
 use psychological_operations_sdk::browser::deliver::DeliverItem;
@@ -42,22 +43,40 @@ async fn run_inner(ctx: &crate::context::Context) -> Result<CliOutput, Error> {
         return Ok(CliOutput::Ok);
     }
 
-    let items: Vec<DeliverItem> = entries
-        .into_iter()
-        .map(|e| DeliverItem {
+    // Group by agent (BTreeMap → stable, sorted). One browser process per
+    // agent: each runs the proven single-agent path.
+    let mut by_agent: BTreeMap<String, Vec<DeliverItem>> = BTreeMap::new();
+    for e in entries {
+        by_agent.entry(e.agent_tag.clone()).or_default().push(DeliverItem {
             tweet_id: e.target_tweet_id,
             agent: e.agent_tag,
             content: e.text,
             kind: e.kind,
-        })
-        .collect();
-    let json = serde_json::to_string(&items)
-        .map_err(|e| Error::Other(format!("serialize deliver items: {e}")))?;
+        });
+    }
 
     let state_dir = ctx.config.state_dir();
+    for (agent, items) in by_agent {
+        deliver_agent(ctx, &state_dir, &agent, &items).await?;
+    }
+
+    Ok(CliOutput::Ok)
+}
+
+/// Spawn one browser scoped to `agent`'s items, stream its confirmations,
+/// and remove each delivered row. Returns when the browser self-exits.
+async fn deliver_agent(
+    ctx: &crate::context::Context,
+    state_dir: &std::path::Path,
+    agent: &str,
+    items: &[DeliverItem],
+) -> Result<(), Error> {
+    let json = serde_json::to_string(items)
+        .map_err(|e| Error::Other(format!("serialize deliver items: {e}")))?;
+
     let mut child = launch::spawn(
         &browser_binary(&ctx.config),
-        &state_dir,
+        state_dir,
         launch::Mode::Deliver { json },
         /* pipe_stdin  = */ false,
         /* pipe_stdout = */ true,
@@ -65,13 +84,13 @@ async fn run_inner(ctx: &crate::context::Context) -> Result<CliOutput, Error> {
 
     OutputResult::from(Event::BrowserSpawned {
         kind: "deliver".into(),
-        name: None,
+        name: Some(agent.to_string()),
         pid: child.id(),
     })
     .emit();
 
-    // Stream the browser's confirmations, removing each delivered row as it
-    // lands. Loop to EOF — the browser self-exits when the batch is done.
+    // Stream this agent's confirmations, removing each delivered row as it
+    // lands. Loop to EOF — the browser self-exits when its batch is done.
     let child_stdout = child.stdout.take().expect("piped");
     let reader = BufReader::new(child_stdout);
     for line in reader.lines() {
@@ -108,10 +127,10 @@ async fn run_inner(ctx: &crate::context::Context) -> Result<CliOutput, Error> {
         .map_err(|e| Error::Other(format!("waiting for browser failed: {e}")))?;
     OutputResult::from(Event::BrowserExit {
         kind: "deliver".into(),
-        name: None,
+        name: Some(agent.to_string()),
         status: status.code(),
     })
     .emit();
 
-    Ok(CliOutput::Ok)
+    Ok(())
 }

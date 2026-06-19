@@ -14,6 +14,7 @@
 //! is the orchestration framework.
 
 use std::collections::{BTreeMap, HashMap};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
@@ -50,11 +51,23 @@ pub fn report(tweet_id: &str, kind: &str, status: &str) {
     }
 }
 
+/// Set once the driver has walked every agent and is about to exit, so the
+/// `RunEvent::ExitRequested` guard in `lib.rs` stops holding the app open
+/// and lets the final `handle.exit(0)` through.
+static FINISHED: AtomicBool = AtomicBool::new(false);
+
+/// True once the delivery batch is fully done (all agents walked).
+pub fn is_finished() -> bool {
+    FINISHED.load(Ordering::SeqCst)
+}
+
 /// Spawn the delivery driver task: run each agent session sequentially,
 /// then exit the app so the CLI driver sees stdout EOF.
 pub fn start(handle: AppHandle<Wry>, items: Vec<DeliverItem>) {
     tauri::async_runtime::spawn(async move {
         run(&handle, items).await;
+        // Release the exit guard, then terminate so the CLI sees EOF.
+        FINISHED.store(true, Ordering::SeqCst);
         handle.exit(0);
     });
 }
