@@ -23,9 +23,6 @@ use psychological_operations_sdk::browser::output::Output;
 use tauri::{AppHandle, Wry};
 use tokio::sync::oneshot;
 
-/// How long to wait for one reply/quote to complete before skipping it.
-/// Generous — the operator drives each step by hand. (Iteration point.)
-const ITEM_TIMEOUT: Duration = Duration::from_secs(180);
 /// Settle delay after navigating before pushing the copy widget, giving
 /// the page + overlay time to load. (Iteration point — replace with a real
 /// overlay-ready signal once the detection logic matures.)
@@ -112,13 +109,17 @@ async fn deliver_one(item: &DeliverItem) {
     }
     push_item(item);
 
-    let outcome = tokio::time::timeout(ITEM_TIMEOUT, rx).await;
-    // Drop the waiter if still registered (timeout path).
+    // Wait indefinitely — delivery is operator-actuated; there is no
+    // wall-clock timeout. The overlay resolves with `true` (posted) or
+    // `false` (operator clicked "Skip"); an `Err` means the overlay went
+    // away (navigation/teardown) without reporting.
+    let outcome = rx.await;
+    // Drop the waiter if still registered (e.g. the Err path).
     if let Ok(mut map) = pending().lock() {
         map.remove(&key);
     }
     match outcome {
-        Ok(Ok(true)) => {
+        Ok(true) => {
             let _ = Output::Delivered {
                 tweet_id: item.tweet_id.clone(),
                 agent: item.agent.clone(),
@@ -127,7 +128,7 @@ async fn deliver_one(item: &DeliverItem) {
             .emit();
         }
         _ => {
-            // skip / timeout / unrecognized — leave the queue row, move on.
+            // skip / overlay gone — leave the queue row, move on.
             let _ = Output::Log {
                 message: format!(
                     "deliver: skipped {} {} for {}",

@@ -67,10 +67,10 @@ const POST_BUTTON =
   '[data-testid="tweetButton"],[data-testid="tweetButtonInline"]';
 // ----------------------------------------------------------------------
 
-// Report `skip` a touch before the Rust ITEM_TIMEOUT (180s) so a clean
-// outcome arrives rather than racing the Rust-side timeout.
-const DETECT_TIMEOUT_MS = 170_000;
-
+// No wall-clock timeout: delivery is operator-actuated, so the flow waits
+// indefinitely for the operator to post (auto-resolve) or skip. A timer
+// would only punish a human for taking their time.
+//
 // ===================================================================
 // Per-item flow state
 // ===================================================================
@@ -82,16 +82,22 @@ let onCompose = false;
 // Latched at the moment the Post button is clicked: true iff the body
 // matched at that instant. The URL-leave then resolves iff this is set.
 let armed = false;
+// Set once the 3-check resolution fires (post detected as sent). We do NOT
+// report "done" yet — the bottom button becomes "Continue" and the operator
+// confirms X actually posted (its "Post sent!" toast can lag) before we
+// advance. Continue -> report("done").
+let sent = false;
 
 let urlUnsub: (() => void) | null = null;
 let rafId: number | null = null;
-let detectTimer: ReturnType<typeof setTimeout> | null = null;
 
 // DOM
 let rootEl: HTMLDivElement | null = null;
 let clickAction: HelperWidget | null = null; // State A "Click here"
 let copyBody: HelperWidget | null = null; // State B "Paste here"
 let clickPost: HelperWidget | null = null; // State B "Click here" (Post)
+// Bottom button: "Skip this one" before send, "Continue" after.
+let bottomBtn: HTMLButtonElement | null = null;
 
 // ===================================================================
 // URL predicate
@@ -169,6 +175,24 @@ function anchorRightOf(w: HelperWidget, target: HTMLElement | null) {
   el.style.transform = "translateY(-50%)";
 }
 
+function anchorLeftOf(w: HelperWidget, target: HTMLElement | null) {
+  const el = w.element;
+  if (!target) {
+    // Unrecognized state — park top-center so the operator still sees it.
+    el.style.display = "";
+    el.style.top = "16px";
+    el.style.left = "50%";
+    el.style.transform = "translateX(-50%)";
+    return;
+  }
+  const rect = target.getBoundingClientRect();
+  el.style.display = "";
+  el.style.top = `${rect.top + rect.height / 2}px`;
+  // Right edge of the badge sits 8px left of the target's left edge.
+  el.style.left = `${rect.left - 8}px`;
+  el.style.transform = "translate(-100%, -50%)";
+}
+
 function hide(w: HelperWidget | null) {
   if (w) w.element.style.display = "none";
 }
@@ -194,18 +218,47 @@ function mount() {
   shadow.appendChild(style);
 
   const verb = current?.kind === "quote" ? "quote" : "reply";
+  // State A badge anchors to the RIGHT of the reply/quote button (arrow
+  // points left at it). State B badges anchor to the LEFT of the composer
+  // body + Post button (arrow points right at them).
   clickAction = createHelperWidget({ text: "Click here", arrow: "left" });
   copyBody = createHelperWidget({
     text: "Paste here",
     copyText: current?.content ?? "",
     copyButtonLabel: `Copy ${verb}`,
-    arrow: "left",
+    arrow: "right",
   });
-  clickPost = createHelperWidget({ text: "Click here", arrow: "left" });
+  clickPost = createHelperWidget({ text: "Click here", arrow: "right" });
   for (const w of [clickAction, copyBody, clickPost]) {
     w.element.style.display = "none";
     shadow.appendChild(w.element);
   }
+
+  // Always-visible bottom-center button. Before send it's "Skip this one"
+  // (the only skip path — there is no timeout); after a detected send it
+  // becomes "Continue" (operator confirms the post landed, then advances).
+  bottomBtn = document.createElement("button");
+  bottomBtn.type = "button";
+  bottomBtn.textContent = "Skip this one";
+  Object.assign(bottomBtn.style, {
+    position: "fixed",
+    bottom: "16px",
+    left: "50%",
+    transform: "translateX(-50%)",
+    padding: "8px 16px",
+    background: "rgba(20, 25, 35, 0.95)",
+    color: "#fff",
+    font: '13px/1.2 system-ui, -apple-system, "Segoe UI", sans-serif',
+    border: "1.5px solid rgba(255, 130, 130, 0.6)",
+    borderRadius: "8px",
+    boxShadow: "0 4px 12px rgba(0, 0, 0, 0.35)",
+    cursor: "pointer",
+    pointerEvents: "auto",
+  } satisfies Partial<CSSStyleDeclaration>);
+  // One handler, dispatched on `sent`: skip before send, advance after.
+  bottomBtn.addEventListener("click", () => report(sent ? "done" : "skip"));
+  shadow.appendChild(bottomBtn);
+
   document.body.appendChild(rootEl);
 }
 
@@ -213,10 +266,6 @@ function teardown() {
   if (rafId !== null) {
     cancelAnimationFrame(rafId);
     rafId = null;
-  }
-  if (detectTimer !== null) {
-    clearTimeout(detectTimer);
-    detectTimer = null;
   }
   if (urlUnsub) {
     urlUnsub();
@@ -226,6 +275,7 @@ function teardown() {
   rootEl?.remove();
   rootEl = null;
   clickAction = copyBody = clickPost = null;
+  bottomBtn = null;
   current = null;
 }
 
@@ -246,7 +296,7 @@ function report(status: "done" | "skip") {
 // Signal 1+2: Post clicked while green → arm.
 // ===================================================================
 function onPostClick(e: MouseEvent) {
-  if (!current || reported || !onCompose) return;
+  if (!current || reported || sent || !onCompose) return;
   const target = e.target as Element | null;
   if (target && target.closest && target.closest(POST_BUTTON)) {
     // Recompute green LIVE at click time — the click only counts if the
@@ -259,13 +309,14 @@ function onPostClick(e: MouseEvent) {
 // Signal 3: URL transitions to / from /compose/post.
 // ===================================================================
 function onUrl(url: string) {
-  if (!current || reported) return;
+  if (!current || reported || sent) return;
   const nowCompose = isComposeUrl(url);
   if (onCompose && !nowCompose) {
-    // Left the composer. Resolve iff a green Post click armed us.
+    // Left the composer. The 3 checks are met iff a green Post click armed
+    // us. Don't report yet — mark sent and let the operator confirm via
+    // "Continue" (X's "Post sent!" toast can lag).
     if (armed) {
-      clickPost?.setState("complete");
-      report("done");
+      markSent();
       return;
     }
     // Recover: never clicked, clicked-not-green, or cancelled-while-green.
@@ -278,13 +329,32 @@ function onUrl(url: string) {
   onCompose = nowCompose;
 }
 
+/// Post detected as sent. Swap the bottom button Skip -> Continue and
+/// freeze the UI in a confirmed (green) state; the operator advances when
+/// they've verified the post landed.
+function markSent() {
+  sent = true;
+  if (bottomBtn) {
+    bottomBtn.textContent = "Continue";
+    bottomBtn.style.borderColor = "rgba(120, 220, 150, 0.6)";
+  }
+}
+
 // ===================================================================
 // Render tick
 // ===================================================================
 function tick() {
   if (!current || reported) return;
 
-  if (!onCompose) {
+  if (sent) {
+    // ---- Sent: awaiting the operator's "Continue" ----
+    // Hide the anchored badges (post is in; don't re-prompt State A on the
+    // status page we landed back on). The bottom button now reads
+    // "Continue".
+    hide(clickAction);
+    hide(copyBody);
+    hide(clickPost);
+  } else if (!onCompose) {
     // ---- State A: tweet page ----
     hide(copyBody);
     hide(clickPost);
@@ -302,12 +372,12 @@ function tick() {
 
     if (copyBody) {
       copyBody.setState(matched ? "complete" : "incomplete");
-      anchorRightOf(copyBody, document.querySelector<HTMLElement>(COMPOSER));
+      anchorLeftOf(copyBody, document.querySelector<HTMLElement>(COMPOSER));
     }
     if (clickPost) {
       // RED (blocked) until the body matches, then GREEN (complete).
       clickPost.setState(matched ? "complete" : "blocked");
-      anchorRightOf(
+      anchorLeftOf(
         clickPost,
         document.querySelector<HTMLElement>(POST_BUTTON),
       );
@@ -322,20 +392,53 @@ function tick() {
 // ===================================================================
 function deliver(item: DeliverItem) {
   // Clear any half-finished previous flow first.
-  if (rootEl || urlUnsub || rafId !== null || detectTimer !== null) {
+  if (rootEl || urlUnsub || rafId !== null) {
     teardown();
   }
   current = item;
   reported = false;
   onCompose = false;
   armed = false;
+  sent = false;
 
   mount();
   document.addEventListener("click", onPostClick, true);
   // subscribeUrl fires immediately with the current URL, seeding onCompose.
   urlUnsub = subscribeUrl(onUrl);
-  detectTimer = setTimeout(() => report("skip"), DETECT_TIMEOUT_MS);
   rafId = requestAnimationFrame(tick);
+}
+
+/**
+ * Suppress x.com's `beforeunload` "Leave site? Changes you made may not be
+ * saved." dialog. The driver navigates between target tweets and force-
+ * closes the browser at the end of a batch; x.com registers a
+ * `beforeunload` handler (compose-draft guard) that otherwise pops a native
+ * confirm on every such navigation/close, blocking the flow.
+ *
+ * We register in the CAPTURE phase. The overlay bundle runs at
+ * `on_load_start` — before any page script — so this listener is first in
+ * the capture order on `window`; `stopImmediatePropagation` then prevents
+ * x.com's own `beforeunload` listeners from running, so none of them set
+ * `returnValue` and the browser shows no dialog. (Delivery is a controlled
+ * tool — there is no operator "work" to protect; the post is already
+ * submitted before any navigation.)
+ */
+function suppressBeforeUnload(): void {
+  window.addEventListener(
+    "beforeunload",
+    (e) => {
+      // Stop x.com's own beforeunload listeners from running — we're first
+      // in the capture order (overlay loads at on_load_start), so they
+      // never get to set `returnValue` and no dialog is shown.
+      //
+      // Do NOT touch `e.returnValue` here: it's a DOMString attribute, so
+      // assigning anything (even `undefined`, which coerces to the string
+      // "undefined") is a non-empty value that itself triggers the prompt.
+      // Leaving it at its default "" is what keeps the dialog away.
+      e.stopImmediatePropagation();
+    },
+    true,
+  );
 }
 
 /**
@@ -343,6 +446,7 @@ function deliver(item: DeliverItem) {
  * which the Rust driver calls (via `execute_overlay_js`) once per item.
  */
 export function installDeliverHelpers(): void {
+  suppressBeforeUnload();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (window as any).__psyops_deliver = (item: DeliverItem) => {
     try {

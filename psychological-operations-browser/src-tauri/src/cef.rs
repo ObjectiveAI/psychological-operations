@@ -521,7 +521,9 @@ wrap_completion_callback! {
                 .and_then(|s| s.as_ref().cloned())
                 .and_then(|b| b.host())
             {
-                host.close_browser(0);
+                // Force (1) — match the initial close; skip beforeunload on
+                // the re-issued close too (cookies are already flushed).
+                host.close_browser(1);
             }
         }
     }
@@ -971,7 +973,11 @@ wrap_task! {
                 .and_then(|s| s.as_ref().cloned());
             let Some(b) = browser else { return };
             let Some(host) = b.host() else { return };
-            host.close_browser(0); // 0 = graceful (fires onbeforeunload)
+            // 1 = force close: skip the page's `beforeunload` handlers so
+            // x.com's compose-draft "Leave this page?" dialog never blocks
+            // teardown. `do_close` (cookie flush) still runs regardless of
+            // force, so the persona's session survives the close.
+            host.close_browser(1);
         }
     }
 }
