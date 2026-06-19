@@ -536,14 +536,19 @@ fn sort_bucket(psyop: &PsyOp, bucket: Vec<Accepted>) -> Result<Vec<Accepted>, Er
         }
     }
 
-    // query-only: SortBy::evaluate over the tweets, then map back.
+    // query-only: SortBy::evaluate over the tweets, then map back. Duplicate
+    // tweet IDs are interchangeable (same content), so keep a queue per ID
+    // and pop one Accepted per sorted occurrence — every duplicate survives
+    // the sort rather than collapsing.
     let q_tweets: Vec<Tweet> = qs.iter().map(|a| a.tweet.clone()).collect();
     let sorted = crate::psyops::sort_by::evaluate(&psyop.sort, q_tweets).map_err(Error::Other)?;
-    let mut by_id: HashMap<String, Accepted> =
-        qs.into_iter().map(|a| (a.tweet.id.clone(), a)).collect();
+    let mut by_id: HashMap<String, VecDeque<Accepted>> = HashMap::new();
+    for a in qs {
+        by_id.entry(a.tweet.id.clone()).or_default().push_back(a);
+    }
     let q_ordered: Vec<Accepted> = sorted
         .into_iter()
-        .filter_map(|t| by_id.remove(&t.id))
+        .filter_map(|t| by_id.get_mut(&t.id).and_then(|v| v.pop_front()))
         .collect();
 
     let mut out = fy_ordered;
