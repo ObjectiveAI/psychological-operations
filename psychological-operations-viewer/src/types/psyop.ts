@@ -24,17 +24,19 @@ export interface PsyopEntry {
 // `psyops get <name>` payload — psychological-operations-cli/src/psyops/psyop.rs:10-49
 export interface Psyop {
   queries?: Query[];
-  for_you: ForYou;
+  for_you?: ForYou[];
   min_posts: number;
   max_posts: number;
   sort: SortBy;
   query_when_for_you_queued: boolean;
-  stages: Stage[];
+  stages?: Stage[];
 }
 
-// psychological-operations-cli/src/psyops/query.rs:7-21
+// psychological-operations-cli/src/psyops/query.rs
 export interface Query {
   query: string;
+  // The agent whose auth this query is scraped as.
+  agent_tag: string;
   endpoint: SearchEndpoint;
   priority?: number;
   filter?: Filter;
@@ -42,8 +44,10 @@ export interface Query {
 
 export type SearchEndpoint = "recent" | "all";
 
-// psychological-operations-cli/src/psyops/for_you.rs:10-20
+// psychological-operations-cli/src/psyops/for_you.rs
 export interface ForYou {
+  // The agent whose For You feed this entry collects.
+  agent_tag: string;
   priority?: number;
   filter?: Filter;
 }

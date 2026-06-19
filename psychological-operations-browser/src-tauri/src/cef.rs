@@ -652,10 +652,7 @@ wrap_load_handler! {
             // that's a separate webview unaffected by this gate.
             if matches!(
                 psychological_operations_sdk::browser::mode::get(),
-                Some(
-                    psychological_operations_sdk::browser::mode::Mode::PsyopBrowser { .. }
-                    | psychological_operations_sdk::browser::mode::Mode::AgentBrowser { .. }
-                ),
+                Some(psychological_operations_sdk::browser::mode::Mode::AgentBrowser { .. }),
             ) {
                 return;
             }

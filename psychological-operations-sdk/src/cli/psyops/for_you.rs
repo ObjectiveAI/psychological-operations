@@ -9,6 +9,12 @@ use super::filter::Filter;
 /// timeline `/2/users/{id}/timelines/reverse_chronological`.
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
 pub struct ForYou {
+    /// The agent whose For You feed this entry collects. Required — the
+    /// browser opens this agent's profile to scrape, and the run-time
+    /// pre-flight refuses the psyop if the agent isn't authed. Multiple
+    /// `ForYou` entries (one per agent) collect into the same psyop;
+    /// entries sharing a `priority` are round-robin interwoven at sort.
+    pub agent_tag: String,
     /// Higher = preferred when the deduped union is truncated by
     /// `PsyOp.max_posts`. `None` ranks below every `Some(_)`,
     /// regardless of the `Some` value.
@@ -24,6 +30,9 @@ impl ForYou {
     /// Publish-time validation: the filter (if present) must be
     /// internally consistent.
     pub fn validate(&self) -> Result<(), String> {
+        if self.agent_tag.trim().is_empty() {
+            return Err("agent_tag must not be empty".into());
+        }
         if let Some(f) = &self.filter {
             f.validate().map_err(|e| format!("filter: {e}"))?;
         }

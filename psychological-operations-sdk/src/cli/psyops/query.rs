@@ -8,6 +8,10 @@ use super::filter::Filter;
 pub struct Query {
     /// X v2 search-operator string (e.g. `"from:user has:media -is:retweet"`).
     pub query: String,
+    /// The agent whose auth this query is scraped as. Required — the
+    /// search call to X acts as this agent (`AuthMode::Agent`), and the
+    /// run-time pre-flight refuses the psyop if the agent isn't authed.
+    pub agent_tag: String,
     #[serde(default)]
     pub endpoint: SearchEndpoint,
     /// Higher = preferred when the deduped union is truncated by
@@ -28,6 +32,9 @@ impl Query {
     pub fn validate(&self) -> Result<(), String> {
         if self.query.trim().is_empty() {
             return Err("query string must not be empty".into());
+        }
+        if self.agent_tag.trim().is_empty() {
+            return Err("agent_tag must not be empty".into());
         }
         if let Some(f) = &self.filter {
             f.validate().map_err(|e| format!("filter: {e}"))?;

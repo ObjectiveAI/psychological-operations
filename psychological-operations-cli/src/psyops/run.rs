@@ -1,41 +1,32 @@
-//! `psyops run` — execute one or more psyops end-to-end.
+//! `psyops run` — execute one or more psyops end-to-end, fully in memory.
 //!
 //! `run_all` resolves which psyops to run (an explicit `--name` list, or
-//! every enabled psyop), drops any whose `interval` hasn't elapsed, runs
-//! the interactive `for_you` browser collection **sequentially**, then
-//! runs each psyop's scoring/delivery (`run_scored`) **in parallel**.
+//! every enabled psyop), drops any that fail validation / interval / agent
+//! auth, then:
 //!
-//! Per-psyop flow (`run_scored`):
-//! 1. Drain the for_you_queue, hydrating each id via X v2 `/2/tweets/{id}`
-//!    and persisting via `Db::insert_post(_, _, _, Origin::ForYou)`.
-//! 2. Read every unscored tweet for `(psyop, commit)` with its origins.
-//! 3. Filter — accept iff at least one origin's filter accepts; the
-//!    tweet's effective priority is the smallest priority across
-//!    accepting origins.
-//! 4. If filtered count < `min_posts` and queries haven't run yet
-//!    (and the for_you_queued policy allows), run the psyop's queries
-//!    via X v2 `/2/tweets/search/recent`, persist results, loop back
-//!    to step 1.
-//! 5. Bucket-sort accepted tweets by effective priority (smallest
-//!    first; `None` last); each bucket is sorted via `SortBy::evaluate`;
-//!    buckets concatenate in priority order.
-//! 6. Trim to `max_posts`.
-//! 7. Run multi-stage scoring (objectiveai), capturing every scored
-//!    post + the final survivors.
-//! 8. Persist scores via `Db::set_scores`.
-//! 9. Reap `contents` for every post under (psyop, commit) so storage
-//!    doesn't accumulate (`Db::drop_psyop_contents`).
-//! 10. Deliver survivors to the psyop's `agent_tags` (in parallel):
-//!     write each survivor into every listed agent's queue, then
-//!     notify the agent of its new pending count. Empty `agent_tags`
-//!     ⇒ score-only, no delivery.
+//! * **Phase A — collect + hydrate for_you (sequential):** each *unique*
+//!   for_you agent across the runnable set has its For You feed scraped
+//!   ONCE (embedded browser, `AgentRead`), and each collected tweet ID is
+//!   hydrated via the X API ONCE. The result (`agent → Vec<Post>`, arrival
+//!   order) is shared by every psyop referencing that agent.
+//! * **Phase B — score + deliver per psyop (parallel):** each psyop builds
+//!   its candidate set from its for_you agents (+ its queries, scraped as
+//!   `AuthMode::Agent`, run only if for_you is short and the cost policy
+//!   allows), filters, sorts (for_you interwoven across agents, ahead of
+//!   query tweets), trims, scores, and delivers survivors to its
+//!   `agent_tags`.
+//!
+//! NOTHING about the candidate pipeline is persisted — posts, sources,
+//! hydration, scores all live in memory for the lifetime of this call.
+//! Only the per-psyop interval stamp (`psyop_runs`) and the delivered
+//! survivors (agent `queue`) are durable.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 
 use futures::StreamExt;
 use futures::stream::FuturesUnordered;
 
-use crate::db::{Db, Origin, Post};
+use crate::db::{Origin, Post};
 use crate::error::Error;
 use crate::score::{self, ScoredPost};
 use crate::tweet::Tweet;
@@ -50,15 +41,6 @@ use super::{PsyOp, Query};
 use crate::psyops::SearchEndpoint;
 
 /// CLI entrypoint for `psyops::Commands::Run`.
-///
-/// `names` selects which psyops to run: a non-empty list runs exactly
-/// those; an empty list runs every enabled psyop. Either way a psyop only
-/// runs if its `interval` has elapsed since its last successful run.
-///
-/// Two phases: the interactive `for_you` browser collection runs
-/// **sequentially** (one CEF browser at a time), then — once every
-/// selected psyop has collected — the scoring/delivery runs **in
-/// parallel**.
 pub async fn run_all(names: Vec<String>, seed: Option<i64>, ctx: &crate::context::Context) -> bool {
     crate::output::emit_result(run_all_inner(names, seed, ctx).await)
 }
@@ -70,15 +52,9 @@ async fn run_all_inner(
 ) -> Result<Output, Error> {
     let db = &ctx.db;
 
-    // Load the (name, PsyOp) pairs, and decide whether an interval skip
-    // is announced:
-    //
-    // * Names given → load each named psyop DIRECTLY and in parallel —
-    //   exact name matches only. An interval-blocked named psyop still
-    //   emits `PsyopSkippedInterval`: you asked for it by name, so you
-    //   hear that it isn't due yet.
-    // * No names → fetch every enabled psyop in one shot. Psyops outside
-    //   their interval are skipped SILENTLY — "run whatever can run".
+    // Load (name, PsyOp) pairs. Names given → load each by name (an
+    // interval-blocked named psyop still announces the skip). No names →
+    // every enabled psyop, interval-skipped silently.
     let (loaded, announce_interval): (Vec<(String, PsyOp)>, bool) = if names.is_empty() {
         let mut loaded = Vec::new();
         for (name, def, _disabled) in db
@@ -111,16 +87,12 @@ async fn run_all_inner(
         (loaded, true)
     };
 
-    // Resolve the runnable set: validate + interval gate. Each
-    // non-runnable psyop emits its own event (except a silent interval
-    // skip in the no-names case) and is dropped; only db errors abort
-    // the batch. No X-App preflight — a missing/un-set-up X-App simply
-    // surfaces as an error from the first real X-API call, handled
-    // per-psyop like any other run failure.
+    // Resolve the runnable set: validate + interval gate + agent-auth gate.
+    // Each non-runnable psyop emits its own event and is dropped; only db
+    // errors abort the batch.
     let mut runnable: Vec<(String, PsyOp)> = Vec::new();
     for (name, psyop) in loaded {
         if let Err(reason) = psyop.validate() {
-            // Invalid psyop at run-time → skip + warn, not a failure.
             crate::output::OutputResult::from(crate::events::Event::PsyopInvalidAtRun {
                 psyop: name.clone(),
                 reason,
@@ -128,9 +100,6 @@ async fn run_all_inner(
             .emit();
             continue;
         }
-        // Interval gate — applies to explicitly-named psyops too: naming
-        // a psyop never bypasses its throttle. validate() guarantees the
-        // parse. The skip is announced only when names were given.
         let interval = psyop.interval_duration().expect("validated interval");
         if let Some(last_run) = db.get_last_run(&name).await? {
             let elapsed = (chrono::Utc::now().timestamp() - last_run).max(0) as u64;
@@ -146,34 +115,128 @@ async fn run_all_inner(
                 continue;
             }
         }
-        runnable.push((name, psyop));
-    }
-
-    // Phase A — `for_you` collection, strictly SEQUENTIAL: it drives the
-    // single CEF browser and blocks on the operator closing each window.
-    // A collect failure drops that psyop from the run set (per-psyop,
-    // non-fatal).
-    let mut ready: Vec<(String, PsyOp)> = Vec::with_capacity(runnable.len());
-    for (name, psyop) in runnable {
-        if psyop.for_you.is_some() {
-            if let Err(e) = super::collect::collect_for_you(db, &name, ctx).await {
-                emit_run_failed(&name, &e.to_string());
+        // Every agent referenced by queries / for_you must be authed.
+        // Skipped in mock mode — there's no real X auth to check, and the
+        // mock X path needs none.
+        if !ctx.config.mock {
+            if let Some(agent_tag) = missing_agent_auth(db, &psyop).await? {
+                crate::output::OutputResult::from(crate::events::Event::PsyopAgentNotAuthed {
+                    psyop: name.clone(),
+                    agent_tag,
+                })
+                .emit();
                 continue;
             }
         }
-        ready.push((name, psyop));
+        runnable.push((name, psyop));
     }
 
-    // Phase B — every collected psyop scores + delivers CONCURRENTLY;
-    // surface each hard failure as it completes without aborting the
-    // others.
-    let mut inflight: FuturesUnordered<_> =
-        ready
-            .iter()
-            .map(|(name, psyop)| async move {
-                (name.as_str(), run_scored(psyop, name, seed, ctx).await)
-            })
-            .collect();
+    // ── Phase A — collect + hydrate for_you, once per unique agent ──────
+    // Distinct for_you agents across the runnable set, in first-seen order.
+    let mut for_you_agents: Vec<String> = Vec::new();
+    for (_, psyop) in &runnable {
+        for fy in psyop.for_you.iter().flatten() {
+            if !for_you_agents.contains(&fy.agent_tag) {
+                for_you_agents.push(fy.agent_tag.clone());
+            }
+        }
+    }
+
+    let http = make_http_client(ctx);
+    // Collect each agent's For You feed once (sequential browser). A failed
+    // collection marks the agent so every psyop referencing it is dropped.
+    let mut agent_ids: HashMap<String, Vec<String>> = HashMap::new();
+    let mut failed_agents: HashSet<String> = HashSet::new();
+    for agent in &for_you_agents {
+        match super::collect::collect_for_you(agent, ctx).await {
+            Ok(ids) => {
+                agent_ids.insert(agent.clone(), ids);
+            }
+            Err(e) => {
+                failed_agents.insert(agent.clone());
+                for (name, psyop) in &runnable {
+                    if psyop.for_you.iter().flatten().any(|fy| &fy.agent_tag == agent) {
+                        emit_run_failed(name, &format!("for_you collection ({agent}): {e}"));
+                    }
+                }
+            }
+        }
+    }
+
+    // Hydrate the union of collected IDs once (each tweet fetched a single
+    // time even if several agents' feeds surfaced it). `XApp` auth — the
+    // collection browser already proved the agent's session; hydration is
+    // a plain by-id read.
+    let mut hydrated: HashMap<String, Option<Post>> = HashMap::new();
+    for agent in &for_you_agents {
+        let Some(ids) = agent_ids.get(agent) else {
+            continue;
+        };
+        crate::output::OutputResult::from(crate::events::Event::HydratingQueue {
+            agent: agent.clone(),
+            count: ids.len(),
+        })
+        .emit();
+        for id in ids {
+            if hydrated.contains_key(id) {
+                continue;
+            }
+            match fetch_tweet(&http, &AuthMode::XApp, id).await {
+                Ok(Some(post)) => {
+                    hydrated.insert(id.clone(), Some(post));
+                }
+                Ok(None) => {
+                    crate::output::OutputResult::from(crate::events::Event::TweetNotFound {
+                        agent: agent.clone(),
+                        tweet_id: id.clone(),
+                    })
+                    .emit();
+                    hydrated.insert(id.clone(), None);
+                }
+                Err(e) => {
+                    crate::output::OutputResult::from(crate::events::Event::TweetFetchFailed {
+                        agent: agent.clone(),
+                        tweet_id: id.clone(),
+                        error: e.to_string(),
+                    })
+                    .emit();
+                    hydrated.insert(id.clone(), None);
+                }
+            }
+        }
+    }
+    // agent → Vec<Post> in arrival order (drop not-found / failed fetches).
+    let agent_posts: HashMap<String, Vec<Post>> = agent_ids
+        .iter()
+        .map(|(agent, ids)| {
+            let posts = ids
+                .iter()
+                .filter_map(|id| hydrated.get(id).and_then(|o| o.clone()))
+                .collect();
+            (agent.clone(), posts)
+        })
+        .collect();
+
+    // Drop psyops whose for_you collection failed; the rest proceed.
+    let ready: Vec<(String, PsyOp)> = runnable
+        .into_iter()
+        .filter(|(_, psyop)| {
+            !psyop
+                .for_you
+                .iter()
+                .flatten()
+                .any(|fy| failed_agents.contains(&fy.agent_tag))
+        })
+        .collect();
+
+    // ── Phase B — score + deliver, concurrently ───────────────────────
+    let mut inflight: FuturesUnordered<_> = ready
+        .iter()
+        .map(|(name, psyop)| {
+            let agent_posts = &agent_posts;
+            async move { (name.as_str(), run_scored(psyop, name, agent_posts, seed, ctx).await) }
+        })
+        .collect();
     while let Some((name, result)) = inflight.next().await {
         if let Err(e) = result {
             emit_run_failed(name, &e.to_string());
@@ -181,6 +244,38 @@ async fn run_all_inner(
     }
 
     Ok(Output::Ok)
+}
+
+/// The first `agent_tag` referenced by `psyop`'s queries / for_you that
+/// lacks valid auth (never logged in, or no tokens), or `None` if all are
+/// authed. Distinct tags only.
+async fn missing_agent_auth(
+    db: &crate::db::Db,
+    psyop: &PsyOp,
+) -> Result<Option<String>, Error> {
+    let mut tags: Vec<&str> = Vec::new();
+    for q in psyop.queries.iter().flatten() {
+        if !tags.contains(&q.agent_tag.as_str()) {
+            tags.push(&q.agent_tag);
+        }
+    }
+    for fy in psyop.for_you.iter().flatten() {
+        if !tags.contains(&fy.agent_tag.as_str()) {
+            tags.push(&fy.agent_tag);
+        }
+    }
+    for tag in tags {
+        // Persona kind is always "agent" now (accounts are agent-only).
+        match db.persona_twid_get("agent", tag).await? {
+            None => return Ok(Some(tag.to_string())),
+            Some(twid) => {
+                if db.account_auth_get(&twid).await?.is_none() {
+                    return Ok(Some(tag.to_string()));
+                }
+            }
+        }
+    }
+    Ok(None)
 }
 
 /// Emit a non-fatal per-psyop failure event (the batch keeps running).
@@ -192,134 +287,114 @@ fn emit_run_failed(psyop: &str, error: &str) {
     .emit();
 }
 
-/// Run one already-collected, interval-cleared psyop: hydrate → filter →
-/// (queries if short) → sort → score → persist → enqueue → deliver, then
-/// stamp the interval throttle on success. This is the parallel unit of
-/// `psyops run` (Phase B).
+/// Run one psyop: assemble candidates (for_you + conditional queries),
+/// filter → sort → trim → score → deliver, then stamp the interval on
+/// success. Pure in-memory; `agent_posts` is the shared, already-hydrated
+/// for_you data.
 async fn run_scored(
     psyop: &PsyOp,
     name: &str,
+    agent_posts: &HashMap<String, Vec<Post>>,
     seed: Option<i64>,
     ctx: &crate::context::Context,
 ) -> Result<Output, Error> {
-    let db = &ctx.db;
     let http = make_http_client(ctx);
-    // Every X API call in this pipeline acts as the master X-App.
-    let auth = AuthMode::XApp;
 
-    // Capture whether the for_you_queue was non-empty at run start —
-    // the `query_when_for_you_queued` policy reads this on the
-    // re-loop iteration to decide whether queries are allowed.
-    // When `for_you` is unconfigured, there's no queue to check
-    // and the policy becomes a no-op.
-    let had_for_you_queued_at_start = match &psyop.for_you {
-        Some(_) => !db.for_you_queue(name).await?.is_empty(),
-        None => false,
-    };
-    let mut queries_already_ran = false;
-
-    loop {
-        // 1. Hydrate the for-you queue (drains everything currently
-        //    in it). Skipped entirely when `for_you` is unconfigured.
-        if psyop.for_you.is_some() {
-            hydrate_for_you(db, &http, &auth, name).await?;
-        }
-
-        // 2. Read unscored tweets for this psyop, mapping each row to
-        //    the runtime `Tweet` (computing `age` against `now`).
-        let now = chrono::Utc::now();
-        let rows = db.list_unscored_with_origins(name).await?;
-        let entries: Vec<(Tweet, Vec<Origin>, i64)> = rows
-            .into_iter()
-            .map(|(row, origins)| {
-                let tweet = Tweet {
-                    id: row.id,
-                    handle: row.handle,
-                    age: crate::db::compute_age(&row.created, &now),
-                    created: row.created,
-                    likes: row.likes,
-                    retweets: row.retweets,
-                    replies: row.replies,
-                    impressions: row.impressions,
-                };
-                (tweet, origins, row.seq)
-            })
-            .collect();
-
-        // 3. Filter with priority resolution.
-        let accepted = filter_with_priority(psyop, entries)?;
-
-        // 4. Eligibility — run queries if we're short.
-        if (accepted.len() as u64) < psyop.min_posts {
-            if queries_already_ran {
-                return Err(Error::Other(format!(
-                    "psyop \"{name}\": only {} accepted after running queries; min_posts is {}",
-                    accepted.len(),
-                    psyop.min_posts,
-                )));
-            }
-            if !psyop.query_when_for_you_queued && had_for_you_queued_at_start {
-                return Err(Error::Other(format!(
-                    "psyop \"{name}\": only {} accepted; queries skipped because for_you queue was non-empty at start and query_when_for_you_queued = false",
-                    accepted.len(),
-                )));
-            }
-            run_queries(psyop, db, &http, &auth, name).await?;
-            queries_already_ran = true;
+    // 1. Candidates from this psyop's for_you agents (config order). A
+    //    tweet seen in several agents' feeds collapses to one candidate
+    //    carrying every for_you origin + each agent's arrival index.
+    let mut cands: HashMap<String, Cand> = HashMap::new();
+    for fy in psyop.for_you.iter().flatten() {
+        let Some(posts) = agent_posts.get(&fy.agent_tag) else {
             continue;
+        };
+        for (idx, post) in posts.iter().enumerate() {
+            let c = cands.entry(post.id.clone()).or_insert_with(|| Cand {
+                post: post.clone(),
+                origins: Vec::new(),
+                fy_arrival: HashMap::new(),
+            });
+            c.origins.push(Origin::ForYou(fy.agent_tag.clone()));
+            c.fy_arrival.entry(fy.agent_tag.clone()).or_insert(idx);
         }
-
-        // 5. Priority-bucket sort.
-        let final_list = bucket_sort(psyop, accepted)?;
-
-        // 6. Trim to max_posts.
-        let trimmed: Vec<Tweet> = final_list
-            .into_iter()
-            .take(psyop.max_posts as usize)
-            .collect();
-
-        // 7. Hydrate Tweet -> Post by joining with the `contents`
-        //    table, then run the multi-stage scoring pipeline.
-        let result = score_pipeline(db, psyop, name, trimmed, seed, ctx).await?;
-
-        // 8. Persist scores for every scored post.
-        if !result.last_scores.is_empty() {
-            let ids: Vec<String> = result.last_scores.keys().cloned().collect();
-            let scores: Vec<f64> = ids.iter().map(|id| result.last_scores[id]).collect();
-            db.set_scores(&ids, &scores).await?;
-        }
-
-        // 9. Reap content for every post under `name`, scored or not.
-        let _dropped = db.drop_psyop_contents(name).await?;
-
-        // 10. Deliver survivors to each configured agent (in parallel):
-        //     write each survivor into the agent's queue, then notify the
-        //     agent of its new pending count.
-        if !result.survivors.is_empty() && !psyop.agent_tags.is_empty() {
-            let now = chrono::Utc::now().timestamp();
-            let survivors: Vec<(String, f64)> = result
-                .survivors
-                .iter()
-                .map(|s| (s.post.id.clone(), s.score))
-                .collect();
-            let deliveries = psyop
-                .agent_tags
-                .iter()
-                .map(|agent_tag| deliver_to_agent(ctx, name, agent_tag, &survivors, now));
-            futures::future::try_join_all(deliveries).await?;
-        }
-
-        // Stamp the interval throttle only on success — a failed
-        // run bails via `?` above and stays immediately retryable.
-        db.set_last_run(name, chrono::Utc::now().timestamp())
-            .await?;
-
-        return Ok(Output::Ok);
     }
+    let had_for_you = !cands.is_empty();
+
+    // 2. Filter.
+    let mut accepted = filter_with_priority(psyop, &cands)?;
+
+    // 3. Eligibility — run queries (as each query's agent) if we're short
+    //    and the cost policy permits.
+    if (accepted.len() as u64) < psyop.min_posts {
+        let queries_allowed = psyop.query_when_for_you_queued || !had_for_you;
+        if !queries_allowed {
+            return Err(Error::Other(format!(
+                "psyop \"{name}\": only {} accepted; queries skipped because for_you was \
+                 non-empty and query_when_for_you_queued = false",
+                accepted.len(),
+            )));
+        }
+        run_queries_into(psyop, &http, name, &mut cands).await?;
+        accepted = filter_with_priority(psyop, &cands)?;
+        if (accepted.len() as u64) < psyop.min_posts {
+            return Err(Error::Other(format!(
+                "psyop \"{name}\": only {} accepted after running queries; min_posts is {}",
+                accepted.len(),
+                psyop.min_posts,
+            )));
+        }
+    }
+
+    // 4. Priority-bucket sort (for_you interwoven, ahead of query tweets).
+    let ordered = bucket_sort(psyop, accepted)?;
+
+    // 5. Trim to max_posts; carry the Posts into scoring.
+    let trimmed: Vec<Post> = ordered
+        .into_iter()
+        .take(psyop.max_posts as usize)
+        .map(|a| a.post)
+        .collect();
+
+    // 6. Score.
+    let result = score_pipeline(psyop, name, trimmed, seed, ctx).await?;
+
+    // 7. Deliver survivors to each configured agent (in parallel).
+    if !result.survivors.is_empty() && !psyop.agent_tags.is_empty() {
+        let now = chrono::Utc::now().timestamp();
+        let survivors: Vec<(String, f64)> = result
+            .survivors
+            .iter()
+            .map(|s| (s.post.id.clone(), s.score))
+            .collect();
+        let deliveries = psyop
+            .agent_tags
+            .iter()
+            .map(|agent_tag| deliver_to_agent(ctx, name, agent_tag, &survivors, now));
+        futures::future::try_join_all(deliveries).await?;
+    }
+
+    // Stamp the interval throttle only on success.
+    db_set_last_run(ctx, name).await?;
+    Ok(Output::Ok)
 }
 
-/// Queue every survivor into one agent's queue, then notify the agent of
-/// its new pending count. Run per-agent (in parallel) by `run_scored`.
+async fn db_set_last_run(ctx: &crate::context::Context, name: &str) -> Result<(), Error> {
+    ctx.db
+        .set_last_run(name, chrono::Utc::now().timestamp())
+        .await
+        .map_err(|e| Error::Other(format!("set_last_run: {e}")))
+}
+
+/// An in-memory candidate tweet for one psyop run.
+struct Cand {
+    post: Post,
+    /// Every origin (for_you per agent, and/or query) that surfaced it.
+    origins: Vec<Origin>,
+    /// agent_tag → arrival index in that agent's For You feed.
+    fy_arrival: HashMap<String, usize>,
+}
+
+/// Queue every survivor into one agent's queue, then notify the agent.
 async fn deliver_to_agent(
     ctx: &crate::context::Context,
     psyop: &str,
@@ -344,56 +419,262 @@ async fn deliver_to_agent(
     crate::commands::agents::notify::notify_agent(ctx, agent_tag).await
 }
 
+// -- filter ---------------------------------------------------------------
+
+/// An accepted candidate, ready to sort.
+struct Accepted {
+    tweet: Tweet,
+    post: Post,
+    /// Smallest `Some(_)` priority across accepting origins; `None` if no
+    /// accepting origin had a priority.
+    priority: Option<u64>,
+    /// `(agent, arrival_index)` of the min-priority accepting for_you
+    /// origin (ties → config order). `None` ⇒ accepted only via queries —
+    /// sorts after for_you tweets in its bucket via `SortBy`.
+    for_you: Option<(String, usize)>,
+}
+
+fn filter_with_priority(psyop: &PsyOp, cands: &HashMap<String, Cand>) -> Result<Vec<Accepted>, Error> {
+    let now = chrono::Utc::now();
+    let mut out = Vec::new();
+    for cand in cands.values() {
+        let tweet = tweet_from_post(&cand.post, &now);
+        let mut effective: Option<u64> = None;
+        let mut best_fy: Option<(String, usize, u64)> = None; // (agent, arrival, rank)
+        let mut accepted_any = false;
+        for origin in &cand.origins {
+            let (filter, priority) = match origin_lookup(psyop, origin) {
+                Some(p) => p,
+                None => continue, // origin no longer present in psyop config
+            };
+            let passes = match filter {
+                Some(f) => crate::psyops::filter::evaluate(f, &tweet).map_err(Error::Other)?,
+                None => true,
+            };
+            if !passes {
+                continue;
+            }
+            accepted_any = true;
+            if let Some(p) = priority {
+                effective = Some(match effective {
+                    None => p,
+                    Some(curr) => curr.min(p),
+                });
+            }
+            if let Origin::ForYou(agent) = origin {
+                let arrival = *cand.fy_arrival.get(agent).unwrap_or(&usize::MAX);
+                let rank = priority.unwrap_or(u64::MAX);
+                let better = match &best_fy {
+                    None => true,
+                    Some((_, _, br)) => rank < *br,
+                };
+                if better {
+                    best_fy = Some((agent.clone(), arrival, rank));
+                }
+            }
+        }
+        if !accepted_any {
+            continue;
+        }
+        out.push(Accepted {
+            tweet,
+            post: cand.post.clone(),
+            priority: effective,
+            for_you: best_fy.map(|(a, i, _)| (a, i)),
+        });
+    }
+    Ok(out)
+}
+
+fn origin_lookup<'a>(
+    psyop: &'a PsyOp,
+    origin: &Origin,
+) -> Option<(Option<&'a crate::psyops::Filter>, Option<u64>)> {
+    match origin {
+        Origin::ForYou(agent) => {
+            let fy = psyop
+                .for_you
+                .iter()
+                .flatten()
+                .find(|fy| &fy.agent_tag == agent)?;
+            Some((fy.filter.as_ref(), fy.priority))
+        }
+        Origin::Query(q) => {
+            let qs = psyop.queries.as_ref()?;
+            let matched: &Query = qs.iter().find(|qq| qq.query == *q)?;
+            Some((matched.filter.as_ref(), matched.priority))
+        }
+    }
+}
+
+// -- sort -----------------------------------------------------------------
+
+fn bucket_sort(psyop: &PsyOp, accepted: Vec<Accepted>) -> Result<Vec<Accepted>, Error> {
+    let mut buckets: BTreeMap<u64, Vec<Accepted>> = BTreeMap::new();
+    let mut none_bucket: Vec<Accepted> = Vec::new();
+    for a in accepted {
+        match a.priority {
+            Some(p) => buckets.entry(p).or_default().push(a),
+            None => none_bucket.push(a),
+        }
+    }
+    let mut out = Vec::new();
+    for (_p, bucket) in buckets {
+        out.extend(sort_bucket(psyop, bucket)?);
+    }
+    out.extend(sort_bucket(psyop, none_bucket)?);
+    Ok(out)
+}
+
+/// Within one priority bucket: for_you tweets first (interwoven across
+/// agents), then query-only tweets ordered by the psyop's `SortBy`.
+fn sort_bucket(psyop: &PsyOp, bucket: Vec<Accepted>) -> Result<Vec<Accepted>, Error> {
+    let (fy, qs): (Vec<Accepted>, Vec<Accepted>) =
+        bucket.into_iter().partition(|a| a.for_you.is_some());
+
+    // for_you: group by collecting agent (config order), each group in
+    // arrival order, then round-robin merge (a₁,b₁,c₁,a₂,…).
+    let agent_order: Vec<String> = {
+        let mut order = Vec::new();
+        for fent in psyop.for_you.iter().flatten() {
+            if !order.contains(&fent.agent_tag) {
+                order.push(fent.agent_tag.clone());
+            }
+        }
+        order
+    };
+    let mut groups: HashMap<String, Vec<Accepted>> = HashMap::new();
+    for a in fy {
+        let agent = a.for_you.as_ref().map(|(ag, _)| ag.clone()).unwrap_or_default();
+        groups.entry(agent).or_default().push(a);
+    }
+    let mut queues: Vec<VecDeque<Accepted>> = agent_order
+        .iter()
+        .filter_map(|agent| groups.remove(agent))
+        .map(|mut g| {
+            g.sort_by_key(|a| a.for_you.as_ref().map(|(_, i)| *i).unwrap_or(usize::MAX));
+            VecDeque::from(g)
+        })
+        .collect();
+    let mut fy_ordered = Vec::new();
+    loop {
+        let mut progressed = false;
+        for q in queues.iter_mut() {
+            if let Some(a) = q.pop_front() {
+                fy_ordered.push(a);
+                progressed = true;
+            }
+        }
+        if !progressed {
+            break;
+        }
+    }
+
+    // query-only: SortBy::evaluate over the tweets, then map back.
+    let q_tweets: Vec<Tweet> = qs.iter().map(|a| a.tweet.clone()).collect();
+    let sorted = crate::psyops::sort_by::evaluate(&psyop.sort, q_tweets).map_err(Error::Other)?;
+    let mut by_id: HashMap<String, Accepted> =
+        qs.into_iter().map(|a| (a.tweet.id.clone(), a)).collect();
+    let q_ordered: Vec<Accepted> = sorted
+        .into_iter()
+        .filter_map(|t| by_id.remove(&t.id))
+        .collect();
+
+    let mut out = fy_ordered;
+    out.extend(q_ordered);
+    Ok(out)
+}
+
+fn tweet_from_post(p: &Post, now: &chrono::DateTime<chrono::Utc>) -> Tweet {
+    Tweet {
+        id: p.id.clone(),
+        handle: p.handle.clone(),
+        age: crate::db::compute_age(&p.created, now),
+        created: p.created.clone(),
+        likes: p.likes,
+        retweets: p.retweets,
+        replies: p.replies,
+        impressions: p.impressions,
+    }
+}
+
+// -- queries --------------------------------------------------------------
+
+/// Run each of `psyop`'s queries (as its own agent) and merge the results
+/// into `cands` with a `Query` origin. Endpoints other than `recent` are
+/// skipped with a notice.
+async fn run_queries_into(
+    psyop: &PsyOp,
+    http: &Client,
+    name: &str,
+    cands: &mut HashMap<String, Cand>,
+) -> Result<(), Error> {
+    let queries = match &psyop.queries {
+        Some(qs) if !qs.is_empty() => qs,
+        _ => return Ok(()),
+    };
+    for q in queries {
+        if !matches!(q.endpoint, SearchEndpoint::Recent) {
+            crate::output::OutputResult::from(crate::events::Event::QuerySkipped {
+                psyop: name.to_string(),
+                query: q.query.clone(),
+                reason: "endpoint_not_recent".to_string(),
+            })
+            .emit();
+            continue;
+        }
+        let auth = AuthMode::Agent(q.agent_tag.clone());
+        match search_recent(http, &auth, &q.query).await {
+            Ok(posts) => {
+                crate::output::OutputResult::from(crate::events::Event::QueryComplete {
+                    psyop: name.to_string(),
+                    query: q.query.clone(),
+                    count: posts.len(),
+                })
+                .emit();
+                for p in posts {
+                    let c = cands.entry(p.id.clone()).or_insert_with(|| Cand {
+                        post: p.clone(),
+                        origins: Vec::new(),
+                        fy_arrival: HashMap::new(),
+                    });
+                    c.origins.push(Origin::Query(q.query.clone()));
+                }
+            }
+            Err(e) => {
+                crate::output::OutputResult::from(crate::events::Event::QueryFailed {
+                    psyop: name.to_string(),
+                    query: q.query.clone(),
+                    error: e.to_string(),
+                })
+                .emit();
+            }
+        }
+    }
+    Ok(())
+}
+
+// -- score pipeline -------------------------------------------------------
+
 /// Output of `score_pipeline` — every post that got a score, plus the
-/// final survivors of all stages (which are what targets fire against).
+/// final survivors of all stages.
 struct ScoreResult {
-    last_scores: HashMap<String, f64>,
     survivors: Vec<ScoredPost>,
 }
 
-// -- step 7: score pipeline -----------------------------------------------
-
 async fn score_pipeline(
-    db: &Db,
     psyop: &PsyOp,
     name: &str,
-    trimmed: Vec<Tweet>,
+    posts: Vec<Post>,
     seed: Option<i64>,
     ctx: &crate::context::Context,
 ) -> Result<ScoreResult, Error> {
-    // Hydrate Tweet -> Post via contents lookup. Tweets whose
-    // contents row is absent are filtered out — by contract those
-    // posts don't exist for our purposes.
-    let ids: Vec<String> = trimmed.iter().map(|t| t.id.clone()).collect();
-    let contents = db.fetch_contents(&ids).await?;
-    let mut current: Vec<Post> = trimmed
-        .into_iter()
-        .filter_map(|t| {
-            let (text, images, videos) = contents.get(&t.id)?.clone();
-            Some(Post {
-                id: t.id,
-                handle: t.handle,
-                text,
-                images,
-                videos,
-                created: t.created,
-                likes: t.likes,
-                retweets: t.retweets,
-                replies: t.replies,
-                impressions: t.impressions,
-            })
-        })
-        .collect();
+    let mut current: Vec<Post> = posts;
 
     // No scoring stages → every survivor gets max score (1.0).
-    // No StageBegin/StageEnd events fire; the delivery path sees
-    // a clean Vec<ScoredPost> exactly as if a single perfect
-    // stage had run.
     let stages: &[crate::psyops::Stage] = psyop.stages.as_deref().unwrap_or(&[]);
     if stages.is_empty() {
         const MAX_SCORE: f64 = 1.0;
-        let last_scores: HashMap<String, f64> =
-            current.iter().map(|p| (p.id.clone(), MAX_SCORE)).collect();
         let survivors: Vec<ScoredPost> = current
             .into_iter()
             .map(|post| ScoredPost {
@@ -401,18 +682,10 @@ async fn score_pipeline(
                 score: MAX_SCORE,
             })
             .collect();
-        return Ok(ScoreResult {
-            last_scores,
-            survivors,
-        });
+        return Ok(ScoreResult { survivors });
     }
 
-    // Each post's score = the LAST stage that scored it. Survivors
-    // of every stage end up with the final stage's score; posts
-    // dropped at stage K end up with stage K's score.
-    let mut last_scores: HashMap<String, f64> = HashMap::new();
     let mut survivors: Vec<ScoredPost> = Vec::new();
-
     for (i, stage) in stages.iter().enumerate() {
         if current.is_empty() {
             crate::output::OutputResult::from(crate::events::Event::StageEmpty {
@@ -423,20 +696,9 @@ async fn score_pipeline(
             break;
         }
 
-        // Bracket each stage with marker notifications so consumers
-        // can see exactly where one stage ends and the next begins in
-        // the JSONL stream. Snapshot wire shape (after host re-wrap):
-        //   {"type":"notification","value":{"event":"stage_begin","stage":N}}
-        //   …per-stage scoring notifications…
-        //   {"type":"notification","value":{"event":"stage_end","stage":N}}
         crate::output::OutputResult::from(crate::events::Event::StageBegin { stage: i }).emit();
 
-        // Variant-specific scoring + per-variant narrowing.
-        // `Stage::Bare` skips both objectiveai and threshold —
-        // every post is a flat 1.0, then `output_top` (if set)
-        // applies. `Stage::Function` does the full
-        // function-call → threshold → top dance.
-        let (scored, after_threshold) = match stage {
+        let (_scored, after_threshold) = match stage {
             crate::psyops::Stage::Bare { .. } => {
                 let scored: Vec<ScoredPost> = current
                     .into_iter()
@@ -459,7 +721,6 @@ async fn score_pipeline(
                     function, profile, strategy, *invert, *images, *videos, current, seed, ctx,
                 )
                 .await?;
-                // output_threshold: drop scores < threshold.
                 let after_threshold: Vec<ScoredPost> = match output_threshold {
                     Some(t) => scored.iter().cloned().filter(|s| s.score >= *t).collect(),
                     None => scored.clone(),
@@ -467,13 +728,7 @@ async fn score_pipeline(
                 (scored, after_threshold)
             }
         };
-        for s in &scored {
-            last_scores.insert(s.post.id.clone(), s.score);
-        }
 
-        // output_top: keep top N (Fixed) or top ceil(N · pct)
-        // (Fraction). Lives on the shared StageBase, so it's
-        // applied for both variants.
         let after_top: Vec<ScoredPost> = match &stage.base().output_top {
             Some(crate::psyops::OutputTop::Fraction(p)) if !after_threshold.is_empty() => {
                 let n = ((after_threshold.len() as f64) * *p).ceil() as usize;
@@ -496,229 +751,10 @@ async fn score_pipeline(
         crate::output::OutputResult::from(crate::events::Event::StageEnd { stage: i }).emit();
     }
 
-    Ok(ScoreResult {
-        last_scores,
-        survivors,
-    })
+    Ok(ScoreResult { survivors })
 }
 
-// -- step 1: hydrate -------------------------------------------------------
-
-async fn hydrate_for_you(db: &Db, http: &Client, auth: &AuthMode, name: &str) -> Result<(), Error> {
-    let queued = db.for_you_queue(name).await?;
-    if queued.is_empty() {
-        return Ok(());
-    }
-    crate::output::OutputResult::from(crate::events::Event::HydratingQueue {
-        psyop: name.to_string(),
-        count: queued.len(),
-    })
-    .emit();
-    let mut succeeded: Vec<String> = Vec::new();
-    for id in queued {
-        match fetch_tweet(http, auth, &id).await {
-            Ok(Some(post)) => {
-                db.insert_post(&post, name, &Origin::ForYou).await?;
-                succeeded.push(id);
-            }
-            Ok(None) => {
-                crate::output::OutputResult::from(crate::events::Event::TweetNotFound {
-                    psyop: name.to_string(),
-                    tweet_id: id.clone(),
-                })
-                .emit();
-                succeeded.push(id); // unrecoverable — don't keep retrying
-            }
-            Err(e) => {
-                crate::output::OutputResult::from(crate::events::Event::TweetFetchFailed {
-                    psyop: name.to_string(),
-                    tweet_id: id,
-                    error: e.to_string(),
-                })
-                .emit();
-                // leave in queue for next round
-            }
-        }
-    }
-    db.dequeue_for_you(name, &succeeded).await?;
-    Ok(())
-}
-
-// -- step 3: filter --------------------------------------------------------
-
-struct Accepted {
-    tweet: Tweet,
-    /// Smallest `Some(_)` priority across this tweet's accepting
-    /// origins; `None` if no accepting origin had a priority set.
-    priority: Option<u64>,
-    /// `posts.rowid` for this tweet. For for_you-origin tweets
-    /// `rowid` is monotonic with browser-arrival order via
-    /// `hydrate_for_you`'s queue-order traversal — that's what
-    /// `bucket_sort` uses to preserve the operator's click order.
-    rowid: i64,
-    /// True iff at least one accepted origin for this tweet is
-    /// `Origin::ForYou`. Determines which sort rule applies in
-    /// `bucket_sort`: arrival order for for_you, `sort_by` for
-    /// query-only.
-    for_you: bool,
-}
-
-fn filter_with_priority(
-    psyop: &PsyOp,
-    entries: Vec<(Tweet, Vec<Origin>, i64)>,
-) -> Result<Vec<Accepted>, Error> {
-    let mut out = Vec::new();
-    for (tweet, origins, rowid) in entries {
-        let mut accepted_some_priority: Vec<Option<u64>> = Vec::new();
-        let mut accepted_for_you = false;
-        for origin in &origins {
-            let (filter, priority) = match origin_lookup(psyop, origin) {
-                Some(p) => p,
-                None => continue, // origin no longer present in psyop config
-            };
-            let passes = match filter {
-                Some(f) => crate::psyops::filter::evaluate(f, &tweet).map_err(Error::Other)?,
-                None => true,
-            };
-            if passes {
-                accepted_some_priority.push(priority);
-                if matches!(origin, Origin::ForYou) {
-                    accepted_for_you = true;
-                }
-            }
-        }
-        if accepted_some_priority.is_empty() {
-            continue;
-        }
-        // Effective priority = smallest Some across all accepting
-        // origins; None only if every accepting origin had no priority.
-        let mut effective: Option<u64> = None;
-        for p in accepted_some_priority {
-            if let Some(p) = p {
-                effective = Some(match effective {
-                    None => p,
-                    Some(curr) => curr.min(p),
-                });
-            }
-        }
-        out.push(Accepted {
-            tweet,
-            priority: effective,
-            rowid,
-            for_you: accepted_for_you,
-        });
-    }
-    Ok(out)
-}
-
-fn origin_lookup<'a>(
-    psyop: &'a PsyOp,
-    origin: &Origin,
-) -> Option<(Option<&'a crate::psyops::Filter>, Option<u64>)> {
-    match origin {
-        Origin::ForYou => {
-            // None propagates out — a stale `Origin::ForYou` row
-            // from before `for_you` was removed gets dropped from
-            // the accepted set, same as an unknown query name.
-            let f = psyop.for_you.as_ref()?;
-            Some((f.filter.as_ref(), f.priority))
-        }
-        Origin::Query(q) => {
-            let qs = psyop.queries.as_ref()?;
-            let matched: &Query = qs.iter().find(|qq| qq.query == *q)?;
-            Some((matched.filter.as_ref(), matched.priority))
-        }
-    }
-}
-
-// -- step 5: bucket sort ---------------------------------------------------
-
-fn bucket_sort(psyop: &PsyOp, accepted: Vec<Accepted>) -> Result<Vec<Tweet>, Error> {
-    let mut buckets: BTreeMap<u64, Vec<Accepted>> = BTreeMap::new();
-    let mut none_bucket: Vec<Accepted> = Vec::new();
-    for a in accepted {
-        match a.priority {
-            Some(p) => buckets.entry(p).or_default().push(a),
-            None => none_bucket.push(a),
-        }
-    }
-    let mut final_list = Vec::new();
-    for (_p, bucket) in buckets {
-        final_list.extend(sort_bucket(psyop, bucket)?);
-    }
-    final_list.extend(sort_bucket(psyop, none_bucket)?);
-    Ok(final_list)
-}
-
-/// Within one priority bucket, for_you-origin tweets sort by
-/// browser-arrival order (rowid ASC) and come before
-/// query-origin tweets which sort by the psyop's `sort_by`.
-/// Mixed-origin tweets (both query AND for_you sources accepted)
-/// count as for_you — the operator's explicit pick outranks a
-/// query match.
-fn sort_bucket(psyop: &PsyOp, bucket: Vec<Accepted>) -> Result<Vec<Tweet>, Error> {
-    let (mut fy, qs): (Vec<Accepted>, Vec<Accepted>) = bucket.into_iter().partition(|a| a.for_you);
-    fy.sort_by_key(|a| a.rowid);
-    let fy_tweets: Vec<Tweet> = fy.into_iter().map(|a| a.tweet).collect();
-    let q_tweets: Vec<Tweet> = qs.into_iter().map(|a| a.tweet).collect();
-    let q_sorted = crate::psyops::sort_by::evaluate(&psyop.sort, q_tweets).map_err(Error::Other)?;
-    let mut out = fy_tweets;
-    out.extend(q_sorted);
-    Ok(out)
-}
-
-// -- step 4 helper: run queries -------------------------------------------
-
-async fn run_queries(
-    psyop: &PsyOp,
-    db: &Db,
-    http: &Client,
-    auth: &AuthMode,
-    name: &str,
-) -> Result<(), Error> {
-    let queries = match &psyop.queries {
-        Some(qs) if !qs.is_empty() => qs,
-        _ => return Ok(()),
-    };
-    for q in queries {
-        if !matches!(q.endpoint, SearchEndpoint::Recent) {
-            // `/2/tweets/search/all` is Pro/Enterprise only and not wired up
-            // yet — skip with a notice.
-            crate::output::OutputResult::from(crate::events::Event::QuerySkipped {
-                psyop: name.to_string(),
-                query: q.query.clone(),
-                reason: "endpoint_not_recent".to_string(),
-            })
-            .emit();
-            continue;
-        }
-        match search_recent(http, auth, &q.query).await {
-            Ok(posts) => {
-                crate::output::OutputResult::from(crate::events::Event::QueryComplete {
-                    psyop: name.to_string(),
-                    query: q.query.clone(),
-                    count: posts.len(),
-                })
-                .emit();
-                for p in posts {
-                    db.insert_post(&p, name, &Origin::Query(q.query.clone()))
-                        .await?;
-                }
-            }
-            Err(e) => {
-                crate::output::OutputResult::from(crate::events::Event::QueryFailed {
-                    psyop: name.to_string(),
-                    query: q.query.clone(),
-                    error: e.to_string(),
-                })
-                .emit();
-            }
-        }
-    }
-    Ok(())
-}
-
-// -- X API --------------------------------------------------------------------
+// -- X API ----------------------------------------------------------------
 
 fn make_http_client(ctx: &crate::context::Context) -> Client {
     Client::new(
@@ -801,7 +837,7 @@ fn tweet_to_post(
         id,
         handle,
         text,
-        images: Vec::new(), // media expansion is a follow-up commit
+        images: Vec::new(),
         videos: Vec::new(),
         created,
         likes,
@@ -830,7 +866,7 @@ fn lookup_handle(
         .unwrap_or_default()
 }
 
-// -- glue ---------------------------------------------------------------------
+// -- glue -----------------------------------------------------------------
 
 fn default_id_request() -> psychological_operations_sdk::x::tweets::id::get::Request {
     use psychological_operations_sdk::x::tweets::id::get::Request;

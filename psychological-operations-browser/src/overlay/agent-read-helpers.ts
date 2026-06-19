@@ -1,11 +1,11 @@
-// PsyopRead overlay helper — Save button.
+// AgentRead overlay helper — Save button.
 //
-// Installed by main.tsx when `current_mode().type === "psyop_read"`.
+// Installed by main.tsx when `current_mode().type === "agent_read"`.
 // Renders a fixed-position "Save" button near the bottom-center of
 // the page. Clicking it snapshots the current page HTML and ships
 // it to Rust via `invoke("process_read_html", { html })`. From
 // Rust's perspective the call lands at exactly the same handler
-// the prior rAF auto-poller used (`psyop_read::process_html`) —
+// the prior rAF auto-poller used (`agent_read::process_html`) —
 // only the trigger model changes.
 //
 // Visual feedback rotates the button label "Save" → "Saving…" →
@@ -13,9 +13,8 @@
 // the click did something.
 //
 // Gating: the click is a no-op when the panel is in
-// `sign_in_to_x` or `psyop_account_in_use` — those are the states
-// where ingesting HTML would either be impossible (no session) or
-// wrong (other psyop's account loaded).
+// `sign_in_to_x` — that's the state where ingesting HTML would be
+// impossible (no session).
 
 import { invoke } from "./ipc";
 import { isPanelCondition } from "./panel-state";
@@ -68,7 +67,7 @@ const ROOT_CSS = `
 }
 `.trim();
 
-export function installPsyopReadHelpers(): () => void {
+export function installAgentReadHelpers(): () => void {
   const container = document.createElement("div");
   container.style.cssText =
     "position:fixed;width:0;height:0;pointer-events:none;z-index:2147483600;left:0;top:0;";
@@ -90,9 +89,7 @@ export function installPsyopReadHelpers(): () => void {
   let resetTimer: number | null = null;
 
   const updateDisabled = () => {
-    const gated =
-      isPanelCondition("sign_in_to_x") ||
-      isPanelCondition("psyop_account_in_use");
+    const gated = isPanelCondition("sign_in_to_x");
     btn.disabled = gated || inFlight;
   };
 

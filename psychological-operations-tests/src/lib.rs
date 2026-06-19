@@ -435,6 +435,7 @@ pub fn query_psyop(query: &str, stages: Vec<Stage>) -> PsyOp {
     PsyOp {
         queries: Some(vec![Query {
             query: query.to_string(),
+            agent_tag: "test-agent".to_string(),
             endpoint: SearchEndpoint::Recent,
             priority: None,
             filter: None,

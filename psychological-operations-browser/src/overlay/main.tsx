@@ -23,7 +23,7 @@ import { installAppPageHelpers } from "./app-page-helpers";
 import { installAuthSettingsHelpers } from "./auth-settings-helpers";
 import { installCreateAppDialogHelpers } from "./create-app-dialog-helpers";
 import { installPostCreateDialogHelpers } from "./post-create-dialog-helpers";
-import { installPsyopReadHelpers } from "./psyop-read-helpers";
+import { installAgentReadHelpers } from "./agent-read-helpers";
 import { installDeliverHelpers } from "./deliver-helpers";
 // Side-effect: registers `window.__psyops_set_panel` so the first
 // Rust push lands. Imported before any helper module so the setter
@@ -41,9 +41,9 @@ type Request =
 // `cef::InjectOverlay::on_load_start` before this bundle runs.
 type Mode =
   | { type: "x_app" }
-  | { type: "psyop_read"; name: string }
-  | { type: "psyop_authorize"; name: string }
+  | { type: "agent_read"; name: string }
   | { type: "agent_authorize"; name: string }
+  | { type: "agent_browser"; name: string }
   | null;
 
 async function respondOk(response: unknown) {
@@ -131,12 +131,12 @@ async function handleRequest(payload: unknown) {
         installAuthSettingsHelpers();
         installCreateAppDialogHelpers();
         installPostCreateDialogHelpers();
-      } else if (mode.type === "psyop_read") {
-        installPsyopReadHelpers();
+      } else if (mode.type === "agent_read") {
+        installAgentReadHelpers();
       }
-      // psyop_authorize + agent_authorize install no helpers
-      // — Rust drives the OAuth navigation on its own; X's
-      // consent page is the affordance.
+      // agent_authorize installs no helpers — Rust drives the
+      // OAuth navigation on its own; X's consent page is the
+      // affordance.
       console.log("[psyops-overlay] helpers installed for mode", mode.type);
     } else {
       // No mode = reply/quote delivery (`--deliver`). The Rust driver

@@ -15,16 +15,10 @@ use crate::error::Error;
 /// flag spellings and we mirror it.
 pub enum Mode {
     XApp,
-    PsyopRead {
-        name: String,
-    },
-    PsyopAuthorize {
+    AgentRead {
         name: String,
     },
     AgentAuthorize {
-        name: String,
-    },
-    PsyopBrowser {
         name: String,
     },
     AgentBrowser {
@@ -41,10 +35,8 @@ impl Mode {
     fn args(&self) -> Vec<String> {
         match self {
             Mode::XApp => vec!["--x-app".into()],
-            Mode::PsyopRead { name } => vec!["--psyop-read".into(), name.clone()],
-            Mode::PsyopAuthorize { name } => vec!["--psyop-authorize".into(), name.clone()],
+            Mode::AgentRead { name } => vec!["--agent-read".into(), name.clone()],
             Mode::AgentAuthorize { name } => vec!["--agent-authorize".into(), name.clone()],
-            Mode::PsyopBrowser { name } => vec!["--psyop-browser".into(), name.clone()],
             Mode::AgentBrowser { name } => vec!["--agent-browser".into(), name.clone()],
             Mode::Deliver { json } => vec!["--deliver".into(), json.clone()],
         }

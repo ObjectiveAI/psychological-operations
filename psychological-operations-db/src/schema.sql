@@ -15,55 +15,11 @@
 --   * unix-seconds columns are BIGINT; audit timestamps are
 --     TIMESTAMPTZ DEFAULT now(); JSON payloads are JSONB; blobs BYTEA.
 
--- ── psyop pipeline (ported from cli/data.db, commit_sha removed) ──────
-
-CREATE TABLE IF NOT EXISTS posts (
-    -- Monotonic insertion order; postgres has no rowid. for_you-origin
-    -- tweets sort by this (browser-arrival order) in bucket_sort.
-    seq          BIGSERIAL,
-    id           TEXT   NOT NULL,
-    psyop        TEXT   NOT NULL,
-    handle       TEXT   NOT NULL,
-    created      TEXT   NOT NULL,
-    likes        BIGINT NOT NULL DEFAULT 0,
-    retweets     BIGINT NOT NULL DEFAULT 0,
-    replies      BIGINT NOT NULL DEFAULT 0,
-    impressions  BIGINT NOT NULL DEFAULT 0,
-    ingested_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-    PRIMARY KEY (id, psyop)
-);
-CREATE INDEX IF NOT EXISTS posts_by_psyop ON posts(psyop);
-
-CREATE TABLE IF NOT EXISTS sources (
-    post_id     TEXT NOT NULL,
-    for_you     BOOLEAN NOT NULL,
-    query       TEXT,
-    sourced_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-    CHECK ((for_you AND query IS NULL) OR (NOT for_you AND query IS NOT NULL))
-);
-CREATE UNIQUE INDEX IF NOT EXISTS sources_unique
-    ON sources(post_id, COALESCE(query, ''));
-
-CREATE TABLE IF NOT EXISTS contents (
-    post_id  TEXT PRIMARY KEY,
-    text     TEXT  NOT NULL,
-    images   JSONB NOT NULL DEFAULT '[]'::jsonb,
-    videos   JSONB NOT NULL DEFAULT '[]'::jsonb
-);
-
-CREATE TABLE IF NOT EXISTS scores (
-    post_id    TEXT PRIMARY KEY,
-    score      DOUBLE PRECISION NOT NULL,
-    scored_at  TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE TABLE IF NOT EXISTS for_you_queue (
-    post_id      TEXT NOT NULL,
-    psyop        TEXT NOT NULL,
-    ingested_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-    PRIMARY KEY (post_id, psyop)
-);
-CREATE INDEX IF NOT EXISTS for_you_queue_by_psyop ON for_you_queue(psyop);
+-- ── psyop run-interval stamp ─────────────────────────────────────────
+-- The psyop candidate pipeline (posts / sources / contents / scores /
+-- for_you_queue) is no longer persisted — it lives in memory for the
+-- duration of one `psyops run`. The only durable per-psyop run state is
+-- the last-successful-run timestamp used for interval gating.
 
 CREATE TABLE IF NOT EXISTS psyop_runs (
     psyop        TEXT   PRIMARY KEY,

@@ -1,33 +1,28 @@
 //! For-you collection phase of `psyops run`. Opens the embedded
-//! browser in `PsyopRead` mode for one (psyop, commit), streams
-//! `tweet_id` events from the browser's stdout, and enqueues
-//! each into `for_you_queue` (deduped per (psyop, commit) by the
-//! existing PRIMARY KEY). Returns when the operator closes the
-//! browser window.
+//! browser in `AgentRead` mode for one agent, streams `tweet_id`
+//! events from the browser's stdout, and returns the distinct IDs
+//! (in arrival order) **in memory** — nothing is persisted. Returns
+//! when the operator closes the browser window.
 //!
-//! Lifted from the old standalone `psyops browse` subcommand;
-//! the multi-psyop iteration / list_psyops / derive_commit /
-//! BrowseStarting / BrowseNoPsyops / BrowsePsyopList wrappers
-//! are gone — `psyops run` handles all of that at its own
-//! orchestration layer.
+//! Collection is per-agent (a For You feed belongs to an agent, not a
+//! psyop); the caller fans the returned IDs out to every psyop in the
+//! run that references this agent in its `for_you`.
 
+use std::collections::HashSet;
 use std::io::{BufRead, BufReader};
 
 use psychological_operations_sdk::browser::output::Output as BrowserOutput;
 
 use crate::browser::{browser_binary, launch};
-use crate::db::Db;
 use crate::error::Error;
 
-/// Materialize the browser, launch it in `PsyopRead` mode for
-/// (psyop, commit), stream stdout for `tweet_id` events, and
-/// enqueue each into `for_you_queue`. Returns when the operator
-/// closes the browser window.
+/// Materialize the browser, launch it in `AgentRead` mode for `agent_tag`,
+/// stream stdout for `tweet_id` events, and return the distinct IDs in
+/// arrival order. Returns when the operator closes the browser window.
 pub(crate) async fn collect_for_you(
-    db: &Db,
-    name: &str,
+    agent_tag: &str,
     ctx: &crate::context::Context,
-) -> Result<(), Error> {
+) -> Result<Vec<String>, Error> {
     let state_dir = ctx.config.state_dir();
 
     crate::output::OutputResult::from(crate::events::Event::BrowseBrowserMaterialized {
@@ -38,30 +33,30 @@ pub(crate) async fn collect_for_you(
     let mut child = launch::spawn(
         &browser_binary(&ctx.config),
         &state_dir,
-        launch::Mode::PsyopRead {
-            name: name.to_string(),
+        launch::Mode::AgentRead {
+            name: agent_tag.to_string(),
         },
         /* pipe_stdin  = */ false,
         /* pipe_stdout = */ true,
     )?;
 
     crate::output::OutputResult::from(crate::events::Event::BrowserSpawned {
-        kind: "psyop_read".into(),
-        name: Some(name.to_string()),
+        kind: "agent_read".into(),
+        name: Some(agent_tag.to_string()),
         pid: child.id(),
     })
     .emit();
 
-    // Stream the browser's stdout line-by-line. Each `tweet_id`
-    // event lands in the for_you queue; anything else is logged
-    // and dropped. Blocks until the operator closes the browser
-    // window (stdout closes, we hit EOF, the loop exits).
+    // Stream the browser's stdout line-by-line. Each `tweet_id` event is
+    // appended to the in-memory ordered set; anything else is dropped.
+    // Blocks until the operator closes the browser window (stdout closes,
+    // we hit EOF, the loop exits).
     let stdout = child
         .stdout
         .take()
         .ok_or_else(|| Error::Other("browser stdout pipe missing".into()))?;
-    let mut inserted: usize = 0;
-    let mut skipped: usize = 0;
+    let mut ids: Vec<String> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
     for line in BufReader::new(stdout).lines() {
         let Ok(line) = line else { break };
         let trimmed = line.trim();
@@ -69,34 +64,32 @@ pub(crate) async fn collect_for_you(
             continue;
         }
         match serde_json::from_str::<BrowserOutput>(trimmed) {
-            Ok(BrowserOutput::TweetId { id }) => match db.enqueue_for_you(&id, name).await {
-                Ok(true) => inserted += 1,
-                Ok(false) => skipped += 1,
-                Err(_) => skipped += 1,
-            },
-            // Other events are informational here — `Log`,
-            // `Url`, `SignedIn`, `Panel`, `Response`, `Help`,
-            // `Error`. Drop them; the browser's own stderr
-            // / its panel UI is already showing the operator
-            // what they need.
+            Ok(BrowserOutput::TweetId { id }) => {
+                if seen.insert(id.clone()) {
+                    ids.push(id);
+                }
+            }
+            // Other events are informational here — `Log`, `Url`,
+            // `SignedIn`, `Panel`, `Response`, `Help`, `Error`. Drop
+            // them; the browser's own stderr / panel UI shows the
+            // operator what they need.
             Ok(_) => {}
             Err(_) => {
-                // Browser shouldn't be emitting non-JSON on
-                // stdout, but be tolerant: skip and continue.
+                // Browser shouldn't emit non-JSON on stdout, but be
+                // tolerant: skip and continue.
             }
         }
     }
 
     let status = child
         .wait()
-        .map_err(|e| Error::Other(format!("waiting for browser ({name}) failed: {e}")))?;
+        .map_err(|e| Error::Other(format!("waiting for browser ({agent_tag}) failed: {e}")))?;
     crate::output::OutputResult::from(crate::events::Event::BrowseSessionEnded {
-        psyop: name.to_string(),
+        agent: agent_tag.to_string(),
         status: status.code(),
-        inserted,
-        skipped,
+        collected: ids.len(),
     })
     .emit();
 
-    Ok(())
+    Ok(ids)
 }

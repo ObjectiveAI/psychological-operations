@@ -1,13 +1,13 @@
-//! OAuth 2.0 PKCE driver for `Mode::PsyopAuthorize`.
+//! OAuth 2.0 PKCE driver for `Mode::AgentAuthorize`.
 //!
 //! Spawns a local callback server, navigates the CEF surface to
 //! X's authorize URL, awaits the redirect, exchanges the code
 //! for tokens, and persists them as
-//! `<psyop-data-dir>/handles/<persona-twid>/auth.json`.
+//! `<agent-data-dir>/handles/<persona-twid>/auth.json`.
 //!
 //! Idempotent — `maybe_start_flow` is safe to call from every
 //! cookies-watcher snapshot. It only fires when:
-//!   - mode is `Mode::PsyopAuthorize`
+//!   - mode is `Mode::AgentAuthorize`
 //!   - persona is signed in (`Facts::auth_token` + `Facts::user_id`)
 //!   - the auth.json doesn't already exist
 //!   - no flow is already in flight in this process
@@ -88,7 +88,6 @@ pub fn clear_in_flight_on_signout() {
 // =================================================================
 pub async fn maybe_start_flow(handle: &AppHandle<Wry>) {
     let (kind, persona_name) = match psychological_operations_sdk::browser::mode::get() {
-        Some(Mode::PsyopAuthorize { name }) => (PersonaKind::Psyop, name),
         Some(Mode::AgentAuthorize { name }) => (PersonaKind::Agent, name),
         _ => return,
     };
@@ -123,27 +122,8 @@ pub async fn maybe_start_flow(handle: &AppHandle<Wry>) {
         }
     };
 
-    // For psyops only, probe the cross-psyop conflict (the same twid
-    // already mapped to a different psyop). Agents skip it — the same X
-    // account can be operated by multiple agents (and psyops too). Checked
-    // BEFORE we write this persona's mapping.
-    let conflict = match kind {
-        PersonaKind::Psyop => db
-            .persona_twid_find_other_owner("psyop", &persona_twid, &persona_name)
-            .await
-            .ok()
-            .flatten(),
-        PersonaKind::Agent => None,
-    };
-    if let Some(other) = conflict {
-        let msg = format!("twid {persona_twid} belongs to PsyOp {other}; not starting flow");
-        let _ = Output::Log {
-            message: format!("authorize: {msg}"),
-        }
-        .emit();
-        let _ = Output::AuthorizeFailed { error: msg }.emit();
-        return;
-    }
+    // Agents don't conflict-guard — the same X account can be operated by
+    // multiple agents simultaneously without blocking.
 
     // Establish the persona → account-twid mapping — the source of truth
     // for every runtime auth lookup. Written even when consent is skipped

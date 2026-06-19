@@ -69,10 +69,10 @@ pub enum Output {
     Panel { state: PanelState },
 
     /// A newly-observed tweet ID. Emitted once per ID, in
-    /// observation order, by the [`crate::browser::mode::Mode::PsyopRead`]
+    /// observation order, by the [`crate::browser::mode::Mode::AgentRead`]
     /// HTML processor as it dedups against an in-memory ordered
     /// set. The set resets on every mode change (including
-    /// psyop swap) so a new session always starts emitting from
+    /// agent swap) so a new session always starts emitting from
     /// zero.
     TweetId { id: String },
 
@@ -87,8 +87,7 @@ pub enum Output {
     },
 
     /// Sole terminating signal on the OAuth-success path
-    /// ([`crate::browser::mode::Mode::PsyopAuthorize`] /
-    /// [`crate::browser::mode::Mode::AgentAuthorize`]). Emitted
+    /// ([`crate::browser::mode::Mode::AgentAuthorize`]). Emitted
     /// once `auth.json` is on disk for the persona; the host
     /// (CLI's `login` command) reads this to know the flow
     /// finished cleanly and sends a `Request::Shutdown` back.

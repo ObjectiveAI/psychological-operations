@@ -1,5 +1,4 @@
-//! Shared "just open the browser as this persona" flow for
-//! `psyops browser <name>` and `agents browser <name>`.
+//! "Just open the browser as this agent" flow for `agents browser <tag>`.
 //!
 //! The browser loads `https://x.com/` under the persona's CEF
 //! profile and waits for the operator to close the window. No
@@ -37,15 +36,11 @@ async fn run_inner(
 
     let state_dir = ctx.config.state_dir();
     let launch_mode = match kind {
-        PersonaKind::Psyop => launch::Mode::PsyopBrowser {
-            name: name.to_string(),
-        },
         PersonaKind::Agent => launch::Mode::AgentBrowser {
             name: name.to_string(),
         },
     };
     let event_kind = match kind {
-        PersonaKind::Psyop => "psyop_browser",
         PersonaKind::Agent => "agent_browser",
     };
 

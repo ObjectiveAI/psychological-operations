@@ -331,7 +331,7 @@ pub async fn dispatch_inner(
         }
         "process_read_html" => {
             let args = parse_body::<ProcessHtmlArgs>(body).map_err(DispatchError::BadRequest)?;
-            let count = crate::psyop_read::process_html(app, args.html);
+            let count = crate::agent_read::process_html(app, args.html);
             Ok(Value::from(count))
         }
         "deliver_report" => {

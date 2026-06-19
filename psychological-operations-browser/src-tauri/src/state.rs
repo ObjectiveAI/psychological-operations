@@ -28,11 +28,10 @@ use std::sync::{Mutex, OnceLock};
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
-use psychological_operations_db::Db;
 use psychological_operations_sdk::browser::mode::{self, Mode};
 use psychological_operations_sdk::browser::output::{Output, SignedInInfo};
 use psychological_operations_sdk::browser::panel::{PanelCondition, PanelState};
-use tauri::{AppHandle, Emitter, Manager, Url, Wry};
+use tauri::{AppHandle, Emitter, Url, Wry};
 
 use crate::webview;
 
@@ -89,15 +88,8 @@ pub struct Facts {
     /// already on disk — "no production app means restart".
     /// X-App-only.
     pub production_app_count: Option<u32>,
-    /// If the signed-in twid is already authorized to ANOTHER
-    /// psyop on disk (i.e. `psyop/<other>/handles/<twid>/auth.json`
-    /// exists), the conflicting psyop's name. `None` when no
-    /// conflict, no twid is known, or the current mode isn't
-    /// a psyop variant. Refreshed under the same lock as
-    /// `auth_token + user_id` in [`apply_cookie_facts`].
-    pub twid_conflict: Option<String>,
     /// Running count of unique tweet IDs the
-    /// [`crate::psyop_read`] dedup-emitter has observed
+    /// [`crate::agent_read`] dedup-emitter has observed
     /// during this session. `None` ⇒ counter not rendered
     /// (pre-first-HTML or non-Read mode). Driven by
     /// [`set_tweets_read_count`].
@@ -139,18 +131,6 @@ pub fn current_user_id() -> Option<String> {
         .clone()
 }
 
-/// `true` iff the current twid belongs to some other psyop.
-/// Cheap accessor for [`crate::psyop_read::process_html`] to
-/// gate "don't dedup the wrong account's timeline into our
-/// set" without taking a fact-store dependency.
-pub fn twid_conflict_present() -> bool {
-    facts_slot()
-        .lock()
-        .expect("facts slot poisoned")
-        .twid_conflict
-        .is_some()
-}
-
 // ---------------------------------------------------------------------
 // Setters (each triggers a recompute)
 // ---------------------------------------------------------------------
@@ -190,9 +170,9 @@ pub fn set_production_app_count(handle: &AppHandle<Wry>, count: Option<u32>) {
     recompute_and_publish(handle);
 }
 
-/// Update the running "tweets read" counter the PsyopRead
-/// panel surfaces. Called by [`crate::psyop_read::process_html`]
-/// every time the in-memory seen set grows. PsyopRead-only by
+/// Update the running "tweets read" counter the AgentRead
+/// panel surfaces. Called by [`crate::agent_read::process_html`]
+/// every time the in-memory seen set grows. AgentRead-only by
 /// convention — only the Save button's `process_read_html`
 /// route calls into it.
 pub fn set_tweets_read_count(handle: &AppHandle<Wry>, count: u32) {
@@ -259,7 +239,7 @@ pub async fn recheck_credentials(handle: &AppHandle<Wry>) {
 ///   1. Emits [`Output::SignedIn`].
 ///   2. If the new value is `Some(_)` (signed in), bounces the
 ///      CEF content surface to the mode's canonical home — X-App
-///      → `console.x.com/`, Psyop → `x.com/`. This lands the user
+///      → `console.x.com/`, agent → `x.com/`. This lands the user
 ///      on a stable page even if OAuth left them on an
 ///      in-between origin.
 ///
@@ -269,31 +249,18 @@ pub async fn apply_cookie_facts(
     auth_token: Option<String>,
     user_id: Option<String>,
 ) {
-    // Concurrent: presence-check both snapshot files + (if
-    // applicable) the cross-psyop conflict walk. All three are
+    // Concurrent: presence-check both snapshot files. Both are
     // disk-bound and independent — `tokio::join!` runs them in
     // parallel. Mode is locked at startup so it's safe to read
     // outside any lock.
-    let conflict_psyop = current_psyop_name();
-    let (creds_complete, oauth_complete, twid_conflict) = match user_id.as_deref() {
+    let (creds_complete, oauth_complete) = match user_id.as_deref() {
         Some(uid) => {
             let post_create_fut = crate::credentials::post_create_present(handle, uid);
             let oauth_fut = crate::credentials::oauth_popup_present(handle, uid);
-            let conflict_fut = async {
-                match (auth_token.as_ref(), conflict_psyop.as_deref()) {
-                    (Some(_), Some(name)) => handle
-                        .state::<Db>()
-                        .persona_twid_find_other_owner("psyop", uid, name)
-                        .await
-                        .ok()
-                        .flatten(),
-                    _ => None,
-                }
-            };
-            let (a, b, c) = tokio::join!(post_create_fut, oauth_fut, conflict_fut);
-            (Some(a), Some(b), c)
+            let (a, b) = tokio::join!(post_create_fut, oauth_fut);
+            (Some(a), Some(b))
         }
-        None => (None, None, None),
+        None => (None, None),
     };
 
     let token_changed_to: Option<Option<String>> = {
@@ -303,7 +270,6 @@ pub async fn apply_cookie_facts(
         facts.user_id = user_id;
         facts.credentials_complete = creds_complete;
         facts.oauth_client_complete = oauth_complete;
-        facts.twid_conflict = twid_conflict;
         if token_changed {
             Some(auth_token)
         } else {
@@ -327,7 +293,7 @@ pub async fn apply_cookie_facts(
                 crate::cef::navigate(url);
             }
         } else {
-            // Signed out — clear the psyop-authorize one-shot
+            // Signed out — clear the agent-authorize one-shot
             // so a future sign-in (potentially with a different
             // twid) re-engages the OAuth flow.
             crate::authorize::clear_in_flight_on_signout();
@@ -343,21 +309,9 @@ pub async fn apply_cookie_facts(
 fn home_url_for_current_mode() -> Option<&'static str> {
     match mode::get()? {
         Mode::XApp => Some("https://console.x.com/"),
-        Mode::PsyopRead { .. }
-        | Mode::PsyopAuthorize { .. }
-        | Mode::AgentAuthorize { .. }
-        | Mode::PsyopBrowser { .. }
-        | Mode::AgentBrowser { .. } => Some("https://x.com/"),
-    }
-}
-
-/// The current psyop's name, if any. Both psyop variants share
-/// the same on-disk dir and therefore the same conflict domain,
-/// so the variant tag doesn't matter — only the name does.
-fn current_psyop_name() -> Option<String> {
-    match mode::get()? {
-        Mode::PsyopRead { name } | Mode::PsyopAuthorize { name } => Some(name),
-        _ => None,
+        Mode::AgentRead { .. } | Mode::AgentAuthorize { .. } | Mode::AgentBrowser { .. } => {
+            Some("https://x.com/")
+        }
     }
 }
 
@@ -495,23 +449,14 @@ pub fn derive(facts: &Facts) -> PanelState {
                 }
             }
         }
-        Some(Mode::PsyopRead { .. }) => {
-            // PsyopRead: nag to sign in if not signed in;
-            // surface the twid-conflict guard ahead of any
-            // counter so the user fixes the wrong-account
-            // problem before they assume tweet IDs are
-            // being captured under the right persona;
+        Some(Mode::AgentRead { .. }) => {
+            // AgentRead: nag to sign in if not signed in;
             // otherwise show the running tweet counter the
-            // overlay+`psyop_read` module drives.
+            // overlay+`agent_read` module drives.
             if facts.auth_token.is_none() {
                 PanelState::Show {
                     condition: PanelCondition::SignInToX,
                     message: "Sign in to X.".into(),
-                }
-            } else if let Some(other) = &facts.twid_conflict {
-                PanelState::Show {
-                    condition: PanelCondition::PsyopAccountInUse,
-                    message: format!("Sign out. This account is already in use by PsyOp {other}."),
                 }
             } else {
                 PanelState::Show {
@@ -520,32 +465,10 @@ pub fn derive(facts: &Facts) -> PanelState {
                 }
             }
         }
-        Some(Mode::PsyopAuthorize { .. }) => {
-            // PsyopAuthorize: Rust auto-navigates to X's
-            // OAuth authorize page once the persona signs
-            // in, and X's own page is the affordance — no
-            // helper widget on top. The only panel surface
-            // is the sign-in nag and the twid-conflict
-            // guard.
-            if facts.auth_token.is_none() {
-                PanelState::Show {
-                    condition: PanelCondition::SignInToX,
-                    message: "Sign in to X.".into(),
-                }
-            } else if let Some(other) = &facts.twid_conflict {
-                PanelState::Show {
-                    condition: PanelCondition::PsyopAccountInUse,
-                    message: format!("Sign out. This account is already in use by PsyOp {other}."),
-                }
-            } else {
-                PanelState::Hidden
-            }
-        }
         Some(Mode::AgentAuthorize { .. }) => {
-            // AgentAuthorize: same shape as PsyopAuthorize —
-            // Rust auto-navigates to X's OAuth authorize page
-            // once the persona signs in. No twid-conflict
-            // guard for agents (per design: multiple agents
+            // AgentAuthorize: Rust auto-navigates to X's OAuth
+            // authorize page once the agent signs in. No
+            // twid-conflict guard for agents (multiple agents
             // can share the same X account).
             if facts.auth_token.is_none() {
                 PanelState::Show {
@@ -556,13 +479,13 @@ pub fn derive(facts: &Facts) -> PanelState {
                 PanelState::Hidden
             }
         }
-        Some(Mode::PsyopBrowser { .. }) | Some(Mode::AgentBrowser { .. }) => {
-            // Browser modes: just open the persona's browser at
+        Some(Mode::AgentBrowser { .. }) => {
+            // Browser mode: just open the agent's browser at
             // x.com and let the operator do whatever. Only nag
-            // for sign-in; otherwise hide the panel. No twid-
-            // conflict guard, no read-scrape counter, no OAuth
-            // flow. The overlay JS is gated out in cef.rs so
-            // nothing custom runs in the page either.
+            // for sign-in; otherwise hide the panel. No
+            // read-scrape counter, no OAuth flow. The overlay JS
+            // is gated out in cef.rs so nothing custom runs in
+            // the page either.
             if facts.auth_token.is_none() {
                 PanelState::Show {
                     condition: PanelCondition::SignInToX,

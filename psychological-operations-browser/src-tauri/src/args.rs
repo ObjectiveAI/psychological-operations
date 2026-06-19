@@ -4,8 +4,8 @@
 //! front — there's no "blank" CEF browser without a mode because
 //! the mode determines which `CefRequestContext` (and therefore
 //! which per-account cookie / cache directory) the browser uses.
-//! Exactly one of `--x-app`, `--psyop-read <NAME>`,
-//! `--psyop-authorize <NAME>`, or `--agent-authorize <NAME>`
+//! Exactly one of `--x-app`, `--agent-read <TAG>`,
+//! `--agent-authorize <TAG>`, or `--agent-browser <TAG>`
 //! must be set; multiple or none is a clap error.
 //!
 //! Mode is locked at process startup — there is no runtime
@@ -20,7 +20,7 @@ use psychological_operations_sdk::browser::mode::Mode;
 #[derive(Debug, Parser)]
 #[command(name = "psychological-operations-browser")]
 #[command(about = "Tauri+CEF webview shell for psychological-operations sessions.")]
-#[command(group = ArgGroup::new("mode").required(true).multiple(false).args(["x_app", "psyop_read", "psyop_authorize", "agent_authorize", "psyop_browser", "agent_browser", "deliver"]))]
+#[command(group = ArgGroup::new("mode").required(true).multiple(false).args(["x_app", "agent_read", "agent_authorize", "agent_browser", "deliver"]))]
 pub struct Args {
     /// Base directory for psych-ops state. Mode-specific CEF session
     /// data (cookies, IndexedDB, cache, ...) lives under
@@ -41,45 +41,30 @@ pub struct Args {
     #[arg(long, group = "mode")]
     pub x_app: bool,
 
-    /// Launch in Psyop **read** mode, scoped to the given psyop
-    /// name. The CEF browser loads `https://x.com/` with a
-    /// `RequestContext` whose cache lives at `cef-root/psyop-<name>/`.
-    /// The overlay streams page HTML to Rust as the persona
-    /// browses; Rust dedups and emits new tweet IDs to stdout.
-    #[arg(long, group = "mode", value_name = "NAME")]
-    pub psyop_read: Option<String>,
-
-    /// Launch in Psyop **authorize** mode, scoped to the given
-    /// psyop name. Same RequestContext as read, but after the
-    /// persona signs in Rust drives them through X's OAuth 2.0
-    /// PKCE consent screen and writes the resulting tokens to
-    /// `<psyop-data-dir>/handles/<persona-twid>/auth.json`.
-    #[arg(long, group = "mode", value_name = "NAME")]
-    pub psyop_authorize: Option<String>,
+    /// Launch in Agent **read** mode, scoped to the given agent
+    /// tag. The CEF browser loads `https://x.com/` with a
+    /// `RequestContext` whose cache lives at `cef-root/agent-<tag>/`.
+    /// The overlay streams page HTML to Rust as the agent browses
+    /// its For You feed; Rust dedups and emits new tweet IDs to
+    /// stdout. This is the for-you collection mode for `psyops run`.
+    #[arg(long, group = "mode", value_name = "TAG")]
+    pub agent_read: Option<String>,
 
     /// Launch in Agent **authorize** mode, scoped to the given
-    /// agent name. Operationally mirrors `--psyop-authorize`
-    /// (auto-fires the OAuth dance on sign-in, writes
-    /// `<agent-data-dir>/handles/<twid>/auth.json`) but uses
-    /// the `agent/` data root instead of `psyop/`, and the
-    /// twid-conflict guard never fires for agents.
-    #[arg(long, group = "mode", value_name = "NAME")]
+    /// agent tag. Same RequestContext as read, but after the
+    /// agent signs in Rust drives them through X's OAuth 2.0
+    /// PKCE consent screen and writes the resulting tokens to
+    /// `<agent-data-dir>/handles/<twid>/auth.json`.
+    #[arg(long, group = "mode", value_name = "TAG")]
     pub agent_authorize: Option<String>,
 
-    /// Launch in Psyop **browser** mode, scoped to the given
-    /// psyop name. Loads `https://x.com/` under the psyop's CEF
-    /// profile (shared with `--psyop-read` / `--psyop-authorize`).
-    /// Just opens the browser — no read-scrape, no OAuth flow,
-    /// no twid-conflict guard. The overlay JS is NOT injected.
-    /// Operator closes the window when done; the CLI's `psyops
-    /// browser <name>` blocks on that exit.
-    #[arg(long, group = "mode", value_name = "NAME")]
-    pub psyop_browser: Option<String>,
-
     /// Launch in Agent **browser** mode, scoped to the given
-    /// agent name. Same shape as `--psyop-browser` but rooted
-    /// under the agent's CEF profile.
-    #[arg(long, group = "mode", value_name = "NAME")]
+    /// agent tag. Loads `https://x.com/` under the agent's CEF
+    /// profile (shared with `--agent-read` / `--agent-authorize`).
+    /// Just opens the browser — no read-scrape, no OAuth flow.
+    /// The overlay JS is NOT injected. Operator closes the window
+    /// when done.
+    #[arg(long, group = "mode", value_name = "TAG")]
     pub agent_browser: Option<String>,
 
     /// Launch in reply/quote **delivery** mode. The value is an inline
@@ -95,7 +80,7 @@ pub struct Args {
     /// Bytes — SQLite response-cache size budget passed to
     /// `Client::new` when the browser needs to interact with
     /// the X v2 API (today: the OAuth-mint write under
-    /// `--psyop-authorize` / `--agent-authorize`). Default 256 MiB.
+    /// `--agent-authorize`). Default 256 MiB.
     #[arg(long, default_value_t = 256 * 1024 * 1024)]
     pub cache_max_size: u64,
 
@@ -115,14 +100,10 @@ impl Args {
     pub fn initial_mode(&self) -> Mode {
         if self.x_app {
             Mode::XApp
-        } else if let Some(name) = self.psyop_read.as_ref() {
-            Mode::PsyopRead { name: name.clone() }
-        } else if let Some(name) = self.psyop_authorize.as_ref() {
-            Mode::PsyopAuthorize { name: name.clone() }
+        } else if let Some(name) = self.agent_read.as_ref() {
+            Mode::AgentRead { name: name.clone() }
         } else if let Some(name) = self.agent_authorize.as_ref() {
             Mode::AgentAuthorize { name: name.clone() }
-        } else if let Some(name) = self.psyop_browser.as_ref() {
-            Mode::PsyopBrowser { name: name.clone() }
         } else if let Some(name) = self.agent_browser.as_ref() {
             Mode::AgentBrowser { name: name.clone() }
         } else {

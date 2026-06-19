@@ -54,31 +54,6 @@ pub enum Commands {
         #[arg(long)]
         seed: Option<i64>,
     },
-    /// Sign in a psyop's X account. Requires the master X-App to
-    /// already be signed in + fully set up (`x-app setup`). Opens
-    /// the embedded browser scoped to `psyop/<name>/`; on sign-in
-    /// the browser drives the OAuth 2.0 PKCE consent screen,
-    /// exchanges the code, and writes auth.json under the psyop's
-    /// data root. Refuses if the psyop is already signed in or
-    /// already has an auth.json for the current X-App — pass
-    /// `--dangerously-reset` to wipe its browser folder and re-login.
-    #[command(name = "login")]
-    Login {
-        name: String,
-        /// Wipe any existing browser state for this psyop before
-        /// signing in. Required when re-logging in for a psyop that
-        /// already has an active session or stored auth.json.
-        #[arg(long)]
-        dangerously_reset: bool,
-    },
-    /// Open the embedded browser as this psyop. Loads x.com under
-    /// the psyop's CEF profile (shared with `psyops browse` /
-    /// `psyops login`). No tweet-ID scraping, no OAuth, no
-    /// twid-conflict guard — just a clean browser. The operator
-    /// closes the window when done; the CLI blocks on that exit.
-    /// The only mode hint shown is "Sign in to X" if not signed in.
-    #[command(name = "browser")]
-    Browser { name: String },
 }
 
 impl Commands {
@@ -96,26 +71,6 @@ impl Commands {
             Commands::Disable { name } => psyops::set_disabled(&name, true, ctx).await,
             Commands::Publish { args } => psyops::publish(args, ctx).await,
             Commands::Run { name, seed } => psyops::run::run_all(name, seed, ctx).await,
-            Commands::Login {
-                name,
-                dangerously_reset,
-            } => {
-                crate::login::run(
-                    psychological_operations_sdk::browser::auth_json::PersonaKind::Psyop,
-                    &name,
-                    dangerously_reset,
-                    ctx,
-                )
-                .await
-            }
-            Commands::Browser { name } => {
-                crate::persona_browser::run(
-                    psychological_operations_sdk::browser::auth_json::PersonaKind::Psyop,
-                    &name,
-                    ctx,
-                )
-                .await
-            }
         }
     }
 }

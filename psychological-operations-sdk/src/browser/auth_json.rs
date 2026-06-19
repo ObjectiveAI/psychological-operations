@@ -6,7 +6,7 @@
 //! (keyed by `(kind, name, persona_twid, x_app_twid)`) and coordinated
 //! by the postgres advisory locker. This module owns only the shared
 //! types: the [`Tokens`] shape stored as the row's JSONB, the
-//! [`PersonaKind`] enum that splits psyops from agents, and the
+//! [`PersonaKind`] enum (accounts are agent-only), and the
 //! staleness buffer everyone agrees on.
 //!
 //! The X-App twid is the master X dev-account that minted the OAuth
@@ -22,22 +22,21 @@ use serde::{Deserialize, Serialize};
 
 use super::mode::Mode;
 
-/// Which family of named persona a set of OAuth tokens belongs
-/// to. Determines the on-disk root the auth-json APIs read from /
-/// write to: `<config>/.../browser/psyop/<name>/handles/<twid>/`
-/// vs `<config>/.../browser/agent/<name>/handles/<twid>/`.
+/// Which family of named persona a set of OAuth tokens belongs to.
+/// Accounts are agent-only now (psyops no longer have an X login), so
+/// this carries a single variant. Determines the on-disk root the
+/// auth-json APIs read from / write to:
+/// `<config>/.../browser/agent/<name>/handles/<twid>/`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PersonaKind {
-    Psyop,
     Agent,
 }
 
 impl PersonaKind {
     /// The TEXT form persisted in the `auth_tokens.kind` column
-    /// (and the `psyop`/`agent` discriminant the db crate keys on).
+    /// (and the `agent` discriminant the db crate keys on).
     pub fn db_kind(self) -> &'static str {
         match self {
-            PersonaKind::Psyop => "psyop",
             PersonaKind::Agent => "agent",
         }
     }
@@ -47,9 +46,6 @@ impl PersonaKind {
     /// CEF profile).
     pub fn to_mode(self, name: &str) -> Mode {
         match self {
-            PersonaKind::Psyop => Mode::PsyopAuthorize {
-                name: name.to_string(),
-            },
             PersonaKind::Agent => Mode::AgentAuthorize {
                 name: name.to_string(),
             },

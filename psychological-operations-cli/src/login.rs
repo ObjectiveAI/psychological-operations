@@ -77,15 +77,11 @@ async fn run_inner(
 
     // === Spawn browser in <kind>Authorize mode ===
     let launch_mode = match kind {
-        PersonaKind::Psyop => launch::Mode::PsyopAuthorize {
-            name: name.to_string(),
-        },
         PersonaKind::Agent => launch::Mode::AgentAuthorize {
             name: name.to_string(),
         },
     };
     let event_kind = match kind {
-        PersonaKind::Psyop => "psyop_login",
         PersonaKind::Agent => "agent_login",
     };
 

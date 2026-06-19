@@ -51,16 +51,13 @@ pub const DEFAULT_BASE_URL: &str = "https://api.x.com/2";
 ///
 /// * `XApp` — durable App-only Bearer from `x_app.json`. For
 ///   read-only endpoints; never refreshed.
-/// * `Psyop(name)` — per-persona OAuth tokens stored in
-///   `<config>/.../browser/psyop/<name>/handles/<persona_twid>/<x_app_twid>/auth.json`.
+/// * `Agent(name)` — per-agent OAuth tokens stored in
+///   `<config>/.../browser/agent/<name>/handles/<persona_twid>/<x_app_twid>/auth.json`.
 ///   Refreshed via X's token endpoint when expiring within
 ///   [`auth_json::FRESHNESS_BUFFER`].
-/// * `Agent(name)` — same shape, rooted under
-///   `browser/agent/<name>/`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum AuthMode {
     XApp,
-    Psyop(String),
     Agent(String),
 }
 
@@ -244,7 +241,7 @@ impl Client {
 
     /// Resolve the current Bearer for `auth` — reads the X-App config
     /// for `XApp`, runs the read/lock/double-check/refresh dance for
-    /// `Psyop`/`Agent`. All I/O happens here on every call.
+    /// `Agent`. All I/O happens here on every call.
     async fn current_bearer_token(&self, auth: &AuthMode) -> Result<String, AuthError> {
         match auth {
             AuthMode::XApp => {
@@ -261,13 +258,13 @@ impl Client {
                     )
                 })
             }
-            AuthMode::Psyop(_) | AuthMode::Agent(_) => self.persona_bearer(auth).await,
+            AuthMode::Agent(_) => self.persona_bearer(auth).await,
         }
     }
 
     /// The authenticated Twitter user-id (twid) for `auth`. For `XApp`
-    /// it's the X-App account's twid; for `Psyop` / `Agent` it's the
-    /// persona's twid resolved via [`resolve_persona`]. Used to fold an
+    /// it's the X-App account's twid; for `Agent` it's the agent's
+    /// persona twid resolved via [`resolve_persona`]. Used to fold an
     /// auth identity into the cache key for endpoints whose response
     /// varies by authed user (today: `/2/users/me`).
     pub(crate) async fn current_twid(&self, auth: &AuthMode) -> Result<String, AuthError> {
@@ -278,9 +275,7 @@ impl Client {
                 .await
                 .map_err(AuthError::Store)?
                 .ok_or_else(|| AuthError::NotSignedIn("X-App account".into())),
-            AuthMode::Psyop(_) | AuthMode::Agent(_) => {
-                Ok(self.resolve_persona(auth).await?.persona_twid)
-            }
+            AuthMode::Agent(_) => Ok(self.resolve_persona(auth).await?.persona_twid),
         }
     }
 
@@ -298,7 +293,6 @@ impl Client {
                         .into(),
                 ));
             }
-            AuthMode::Psyop(name) => (PersonaKind::Psyop, name.clone()),
             AuthMode::Agent(name) => (PersonaKind::Agent, name.clone()),
         };
         let persona_twid = self
@@ -322,8 +316,8 @@ impl Client {
     }
 
     /// Resolve persona, read auth.json, refresh through the two-
-    /// tier lock if stale. Shared by `Psyop` / `Agent` variants
-    /// of [`current_bearer_token`].
+    /// tier lock if stale. Used by the `Agent` variant of
+    /// [`current_bearer_token`].
     async fn persona_bearer(&self, auth: &AuthMode) -> Result<String, AuthError> {
         let persona = self.resolve_persona(auth).await?;
 

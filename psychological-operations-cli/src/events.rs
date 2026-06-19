@@ -37,8 +37,10 @@ pub enum Event {
     },
 
     // ── psyop run pipeline ───────────────────────────────────
+    /// Hydrating an agent's collected For You tweet IDs via the X API.
+    /// Per-agent (collection is shared across psyops), so keyed by agent.
     HydratingQueue {
-        psyop: String,
+        agent: String,
         count: usize,
     },
     StageEmpty {
@@ -62,16 +64,18 @@ pub enum Event {
     BrowseBrowserMaterialized {
         path: String,
     },
+    /// An agent's For You collection browser session ended. `collected`
+    /// is the count of distinct tweet IDs streamed before the operator
+    /// closed the window.
     BrowseSessionEnded {
-        psyop: String,
+        agent: String,
         status: Option<i32>,
-        inserted: usize,
-        skipped: usize,
+        collected: usize,
     },
     /// The embedded browser subprocess was launched. `kind` is one
-    /// of `"x_app"`, `"psyop_read"`, `"psyop_authorize"`,
-    /// `"agent_authorize"`. `name` carries the psyop/agent name
-    /// for everything but `x_app`.
+    /// of `"x_app"`, `"agent_read"`, `"agent_authorize"`,
+    /// `"agent_browser"`. `name` carries the agent tag for
+    /// everything but `x_app`.
     BrowserSpawned {
         kind: String,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -99,11 +103,11 @@ pub enum Event {
         count: usize,
     },
     TweetNotFound {
-        psyop: String,
+        agent: String,
         tweet_id: String,
     },
     TweetFetchFailed {
-        psyop: String,
+        agent: String,
         tweet_id: String,
         error: String,
     },
@@ -143,6 +147,14 @@ pub enum Event {
         psyop: String,
         error: String,
     },
+    /// `psyops run` found that an `agent_tag` referenced by a psyop's
+    /// queries / for_you has no valid auth (never logged in, or no
+    /// tokens). The psyop is skipped (exit code stays 0); the operator
+    /// must log the agent in.
+    PsyopAgentNotAuthed {
+        psyop: String,
+        agent_tag: String,
+    },
 }
 
 impl Event {
@@ -159,7 +171,8 @@ impl Event {
             | Event::BrowserError { .. }
             | Event::PsyopInvalidAtRun { .. }
             | Event::PsyopSkippedInterval { .. }
-            | Event::PsyopRunFailed { .. } => Some(Level::Warn),
+            | Event::PsyopRunFailed { .. }
+            | Event::PsyopAgentNotAuthed { .. } => Some(Level::Warn),
             _ => None,
         }
     }

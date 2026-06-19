@@ -15,14 +15,15 @@ pub struct PsyOp {
     /// "field absent" via `skip_queries`.
     #[serde(default, skip_serializing_if = "skip_queries")]
     pub queries: Option<Vec<Query>>,
-    /// Personalized "For You" timeline input. `None` means no
-    /// for-you ingestion for this psyop — the CLI runtime skips
-    /// the queue check, the `hydrate_for_you` step, and the
-    /// `query_when_for_you_queued` policy entirely. Publish-time
-    /// validation requires at least one of `queries` (non-empty)
-    /// or `for_you` to be present.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub for_you: Option<ForYou>,
+    /// Personalized "For You" timeline inputs, one per collecting agent.
+    /// `None` or `Some(empty)` means no for-you ingestion — the CLI
+    /// runtime skips collection, the queue check, the `hydrate_for_you`
+    /// step, and the `query_when_for_you_queued` policy entirely; both
+    /// round-trip out as "field absent" via `skip_for_you`. Publish-time
+    /// validation requires at least one of `queries` (non-empty) or
+    /// `for_you` (non-empty) to be present.
+    #[serde(default, skip_serializing_if = "skip_for_you")]
+    pub for_you: Option<Vec<ForYou>>,
 
     /// Minimum wall-clock time between runs, as a humantime duration
     /// string (e.g. `"1h 30m"`). `psyops run` records each psyop's
@@ -88,6 +89,16 @@ fn skip_queries(q: &Option<Vec<Query>>) -> bool {
     }
 }
 
+/// Skip-serializing predicate for `for_you`: omit the field when
+/// it's `None` OR `Some(empty)`. Both shapes mean "no for-you
+/// ingestion".
+fn skip_for_you(f: &Option<Vec<ForYou>>) -> bool {
+    match f {
+        None => true,
+        Some(v) => v.is_empty(),
+    }
+}
+
 /// Skip-serializing predicate for `stages`: omit the field when
 /// it's `None` OR `Some(empty)`. Both shapes mean "no scoring";
 /// the runtime synthesizes max-score survivors instead.
@@ -134,15 +145,17 @@ impl PsyOp {
         }
 
         // A psyop must have at least one input source — either a
-        // non-empty `queries` list, or `for_you` configured.
+        // non-empty `queries` list, or a non-empty `for_you` list.
         let has_queries = self.queries.as_ref().is_some_and(|qs| !qs.is_empty());
-        let has_for_you = self.for_you.is_some();
+        let has_for_you = self.for_you.as_ref().is_some_and(|fy| !fy.is_empty());
         if !has_queries && !has_for_you {
             return Err("psyop must have at least one query or for_you".into());
         }
 
-        if let Some(fy) = &self.for_you {
-            fy.validate().map_err(|e| format!("for_you: {e}"))?;
+        if let Some(fys) = &self.for_you {
+            for (i, fy) in fys.iter().enumerate() {
+                fy.validate().map_err(|e| format!("for_you[{i}]: {e}"))?;
+            }
         }
         self.sort.validate().map_err(|e| format!("sort: {e}"))?;
 

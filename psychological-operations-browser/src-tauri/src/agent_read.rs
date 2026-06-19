@@ -1,20 +1,17 @@
-//! In-memory deduper + emitter for [`Mode::PsyopRead`].
+//! In-memory deduper + emitter for [`Mode::AgentRead`].
 //!
-//! The overlay (see `src/overlay/psyop-read-helpers.ts`)
+//! The overlay (see `src/overlay/agent-read-helpers.ts`)
 //! periodically ships `document.documentElement.outerHTML` to
 //! Rust via the CEF custom-scheme `process_read_html` route.
 //! Each call lands here in [`process_html`], which:
 //!
-//!   1. Bails when the twid-conflict guard is active — we
-//!      don't want the wrong account's timeline polluting the
-//!      seen set.
-//!   2. Parses tweet IDs out of the HTML via
+//!   1. Parses tweet IDs out of the HTML via
 //!      [`parse_tweet_ids`] — walks
 //!      `article[data-testid="tweet"]` elements and picks
 //!      each one's first `/status/<digits>` descendant URL.
-//!   3. For each *new* ID, pushes onto the ordered list and
+//!   2. For each *new* ID, pushes onto the ordered list and
 //!      emits an `Output::TweetId { id }` line on stdout.
-//!   4. Updates [`crate::state::set_tweets_read_count`] so
+//!   3. Updates [`crate::state::set_tweets_read_count`] so
 //!      the panel's "Tweets read: X" counter advances.
 //!
 //! The seen set is in-memory only and lives in a
@@ -51,13 +48,6 @@ fn seen_slot() -> &'static Mutex<Seen> {
 /// signal (it just acks; the panel's `Output::Panel` carries
 /// the same count to any host process listening).
 pub fn process_html(handle: &AppHandle<Wry>, html: String) -> u32 {
-    // Don't ingest a wrong-account timeline into the seen set.
-    // The panel surfaces the conflict separately; we just
-    // skip until the user signs back in correctly.
-    if state::twid_conflict_present() {
-        return current_count();
-    }
-
     let parsed = parse_tweet_ids(&html);
     let new_count = {
         let mut seen = match seen_slot().lock() {

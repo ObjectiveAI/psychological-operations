@@ -71,7 +71,7 @@ impl Drop for Handle {
 }
 
 /// Start the cookies watcher for the given mode. Both X-App and
-/// Psyop watch the same x.com cookies (`auth_token`, `twid`) —
+/// agent modes watch the same x.com cookies (`auth_token`, `twid`) —
 /// per-mode isolation comes from each browser's own
 /// `RequestContext`, not from watching different URLs. Performs
 /// an initial synchronous read + dispatch before spawning the
@@ -130,7 +130,7 @@ fn snapshot_sync(auth_url: &Url) -> CookieSnapshot {
 /// sign-in flips empty→twid (the dedup in `maybe_apply` then never
 /// retried it), so the OAuth consent never fired. Applying facts first
 /// guarantees `user_id` is set before the flow checks it.
-/// `maybe_start_flow` no-ops outside the Psyop/Agent authorize modes.
+/// `maybe_start_flow` no-ops outside the Agent authorize mode.
 async fn apply_snapshot(handle: &AppHandle<Wry>, snap: &CookieSnapshot) {
     state::apply_cookie_facts(handle, snap.auth_token.clone(), snap.user_id.clone()).await;
     crate::authorize::maybe_start_flow(handle).await;

@@ -2,8 +2,8 @@
 //! lifetime.
 //!
 //! Mode is locked at startup by the browser binary's CLI flag
-//! (`--x-app` / `--psyop-read <name>` / `--psyop-authorize <name>`
-//! / `--agent-authorize <name>`) and held in a process-global
+//! (`--x-app` / `--agent-read <tag>` / `--agent-authorize <tag>`
+//! / `--agent-browser <tag>`) and held in a process-global
 //! [`OnceLock`] so anything that
 //! needs it can read it without a host-supplied parameter.
 //! There is no runtime way to change mode — to switch, kill the
@@ -23,38 +23,24 @@ pub enum Mode {
     /// `sso`-on-`.x.ai` setup — see the cookies watcher for the
     /// current set of names being probed.
     XApp,
-    /// Per-psyop session in "read" mode — the overlay streams
-    /// page HTML to Rust as the user browses, Rust dedups and
-    /// emits new tweet IDs to stdout, and the instruction
-    /// panel surfaces a running "Tweets read: X" counter.
-    PsyopRead { name: String },
-    /// Per-psyop session in "authorize" mode — Rust drives the
-    /// persona through X's OAuth 2.0 PKCE consent screen once
-    /// they sign in, captures the access/refresh token pair,
-    /// and writes it to
-    /// `<psyop-data-dir>/handles/<persona-twid>/auth.json`.
-    PsyopAuthorize { name: String },
-    /// Per-agent OAuth-authorize session. Mirrors
-    /// [`PsyopAuthorize`] operationally — Rust auto-fires X's
-    /// OAuth 2.0 PKCE consent on sign-in and writes the
-    /// resulting tokens to
-    /// `<agent-data-dir>/handles/<twid>/auth.json`. Unlike
-    /// psyops, agents don't participate in the twid-conflict
-    /// guard: the same X account can be signed into multiple
-    /// agents (and into psyops too) simultaneously without
-    /// the panel blocking.
+    /// Per-agent session in "read" mode — the overlay streams
+    /// page HTML to Rust as the user browses the agent's For You
+    /// feed, Rust dedups and emits new tweet IDs to stdout, and
+    /// the instruction panel surfaces a running "Tweets read: X"
+    /// counter. This is the for-you collection mode for `psyops run`.
+    AgentRead { name: String },
+    /// Per-agent OAuth-authorize session. Rust auto-fires X's
+    /// OAuth 2.0 PKCE consent on sign-in and writes the resulting
+    /// tokens to `<agent-data-dir>/handles/<twid>/auth.json`. The
+    /// same X account can be signed into multiple agents without
+    /// any twid-conflict guard.
     AgentAuthorize { name: String },
-    /// Per-psyop "just browse" session. The webview lands on
-    /// `https://x.com/` under the psyop's CEF profile; the
-    /// operator does whatever they want. No read-scrape, no
-    /// OAuth flow, no twid-conflict guard. The instruction
-    /// panel only ever shows `SignInToX` (if not signed in) or
-    /// hides entirely. The browser waits for the operator to
-    /// close the window; the CLI's `psyops browser <name>`
-    /// blocks on that exit.
-    PsyopBrowser { name: String },
-    /// Per-agent "just browse" session. Same shape as
-    /// [`PsyopBrowser`], rooted under the agent's CEF profile.
+    /// Per-agent "just browse" session. The webview lands on
+    /// `https://x.com/` under the agent's CEF profile; the
+    /// operator does whatever they want. No read-scrape, no OAuth
+    /// flow. The instruction panel only ever shows `SignInToX` (if
+    /// not signed in) or hides entirely. The browser waits for the
+    /// operator to close the window.
     AgentBrowser { name: String },
 }
 
@@ -87,12 +73,9 @@ impl Mode {
     pub fn cache_subdir(&self) -> String {
         match self {
             Mode::XApp => "x-app".to_string(),
-            Mode::PsyopRead { name }
-            | Mode::PsyopAuthorize { name }
-            | Mode::PsyopBrowser { name } => format!("psyop-{}", flat_segment(name)),
-            Mode::AgentAuthorize { name } | Mode::AgentBrowser { name } => {
-                format!("agent-{}", flat_segment(name))
-            }
+            Mode::AgentRead { name }
+            | Mode::AgentAuthorize { name }
+            | Mode::AgentBrowser { name } => format!("agent-{}", flat_segment(name)),
         }
     }
 }
@@ -126,11 +109,11 @@ mod tests {
     }
 
     #[test]
-    fn psyop_is_a_single_flat_dir() {
-        let m = Mode::PsyopAuthorize {
-            name: "my-psyop".into(),
+    fn agent_read_is_a_single_flat_dir() {
+        let m = Mode::AgentRead {
+            name: "light-yagami".into(),
         };
-        assert_eq!(m.cache_subdir(), "psyop-my-psyop");
+        assert_eq!(m.cache_subdir(), "agent-light-yagami");
         assert!(!m.cache_subdir().contains('/'));
     }
 
