@@ -249,11 +249,14 @@ function mount() {
     background: "rgba(20, 25, 35, 0.95)",
     color: "#fff",
     font: '13px/1.2 system-ui, -apple-system, "Segoe UI", sans-serif',
-    border: "1.5px solid rgba(255, 130, 130, 0.6)",
+    border: "1.5px solid rgba(91, 148, 255, 0.95)",
     borderRadius: "8px",
     boxShadow: "0 4px 12px rgba(0, 0, 0, 0.35)",
     cursor: "pointer",
     pointerEvents: "auto",
+    // Same "alive / awaiting input" border pulse the clicker badges +
+    // viewer header use (keyframes live in HELPER_CSS, same shadow root).
+    animation: "psyops-helper-pulse 3s linear infinite",
   } satisfies Partial<CSSStyleDeclaration>);
   // One handler, dispatched on `sent`: skip before send, advance after.
   bottomBtn.addEventListener("click", () => report(sent ? "done" : "skip"));
@@ -336,7 +339,9 @@ function markSent() {
   sent = true;
   if (bottomBtn) {
     bottomBtn.textContent = "Continue";
-    bottomBtn.style.borderColor = "rgba(120, 220, 150, 0.6)";
+    // Green tint so "Continue" reads as ready/go; the border keeps pulsing
+    // (animation overrides border-color) to draw the click.
+    bottomBtn.style.background = "rgba(34, 139, 60, 0.95)";
   }
 }
 
