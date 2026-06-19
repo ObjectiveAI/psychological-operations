@@ -65,8 +65,6 @@ const FULL_ONLY_TOOLS: &[&str] = &[
     "bookmark",
     "follow",
     "unfollow",
-    "read_queue",
-    "mark_handled",
 ];
 
 fn is_hidden_for(mode: Mode, tool_name: &str) -> bool {
