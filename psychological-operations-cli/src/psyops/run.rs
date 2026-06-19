@@ -300,22 +300,19 @@ async fn run_scored(
 ) -> Result<Output, Error> {
     let http = make_http_client(ctx);
 
-    // 1. Candidates from this psyop's for_you agents (config order). A
-    //    tweet seen in several agents' feeds collapses to one candidate
-    //    carrying every for_you origin + each agent's arrival index.
-    let mut cands: HashMap<String, Cand> = HashMap::new();
+    // 1. Candidates from this psyop's for_you agents (config order). No
+    //    de-dup: the same tweet in two agents' feeds becomes two candidates.
+    let mut cands: Vec<Cand> = Vec::new();
     for fy in psyop.for_you.iter().flatten() {
         let Some(posts) = agent_posts.get(&fy.agent_tag) else {
             continue;
         };
         for (idx, post) in posts.iter().enumerate() {
-            let c = cands.entry(post.id.clone()).or_insert_with(|| Cand {
+            cands.push(Cand {
                 post: post.clone(),
-                origins: Vec::new(),
-                fy_arrival: HashMap::new(),
+                origin: Origin::ForYou(fy.agent_tag.clone()),
+                arrival: idx,
             });
-            c.origins.push(Origin::ForYou(fy.agent_tag.clone()));
-            c.fy_arrival.entry(fy.agent_tag.clone()).or_insert(idx);
         }
     }
     let had_for_you = !cands.is_empty();
@@ -371,13 +368,17 @@ async fn db_set_last_run(ctx: &crate::context::Context, name: &str) -> Result<()
         .map_err(|e| Error::Other(format!("set_last_run: {e}")))
 }
 
-/// An in-memory candidate tweet for one psyop run.
+/// One in-memory candidate occurrence for a psyop run. NO de-duplication:
+/// a tweet surfaced by N sources (several agents' feeds and/or queries)
+/// produces N independent candidates, each carrying a single origin, and
+/// each flows through filter → sort → score → deliver on its own.
 struct Cand {
     post: Post,
-    /// Every origin (for_you per agent, and/or query) that surfaced it.
-    origins: Vec<Origin>,
-    /// agent_tag → arrival index in that agent's For You feed.
-    fy_arrival: HashMap<String, usize>,
+    /// The single source that surfaced this occurrence.
+    origin: Origin,
+    /// Arrival index in the agent's For You feed (for_you interweave);
+    /// unused for query origins.
+    arrival: usize,
 }
 
 /// Queue every survivor into one agent's queue, then notify the agent.
@@ -420,53 +421,32 @@ struct Accepted {
     for_you: Option<(String, usize)>,
 }
 
-fn filter_with_priority(psyop: &PsyOp, cands: &HashMap<String, Cand>) -> Result<Vec<Accepted>, Error> {
+fn filter_with_priority(psyop: &PsyOp, cands: &[Cand]) -> Result<Vec<Accepted>, Error> {
     let now = chrono::Utc::now();
     let mut out = Vec::new();
-    for cand in cands.values() {
+    for cand in cands {
+        // Each candidate carries exactly one origin (no de-dup).
+        let (filter, priority) = match origin_lookup(psyop, &cand.origin) {
+            Some(p) => p,
+            None => continue, // origin no longer present in psyop config
+        };
         let tweet = tweet_from_post(&cand.post, &now);
-        let mut effective: Option<u64> = None;
-        let mut best_fy: Option<(String, usize, u64)> = None; // (agent, arrival, rank)
-        let mut accepted_any = false;
-        for origin in &cand.origins {
-            let (filter, priority) = match origin_lookup(psyop, origin) {
-                Some(p) => p,
-                None => continue, // origin no longer present in psyop config
-            };
-            let passes = match filter {
-                Some(f) => crate::psyops::filter::evaluate(f, &tweet).map_err(Error::Other)?,
-                None => true,
-            };
-            if !passes {
-                continue;
-            }
-            accepted_any = true;
-            if let Some(p) = priority {
-                effective = Some(match effective {
-                    None => p,
-                    Some(curr) => curr.min(p),
-                });
-            }
-            if let Origin::ForYou(agent) = origin {
-                let arrival = *cand.fy_arrival.get(agent).unwrap_or(&usize::MAX);
-                let rank = priority.unwrap_or(u64::MAX);
-                let better = match &best_fy {
-                    None => true,
-                    Some((_, _, br)) => rank < *br,
-                };
-                if better {
-                    best_fy = Some((agent.clone(), arrival, rank));
-                }
-            }
-        }
-        if !accepted_any {
+        let passes = match filter {
+            Some(f) => crate::psyops::filter::evaluate(f, &tweet).map_err(Error::Other)?,
+            None => true,
+        };
+        if !passes {
             continue;
         }
+        let for_you = match &cand.origin {
+            Origin::ForYou(agent) => Some((agent.clone(), cand.arrival)),
+            Origin::Query(_) => None,
+        };
         out.push(Accepted {
             tweet,
             post: cand.post.clone(),
-            priority: effective,
-            for_you: best_fy.map(|(a, i, _)| (a, i)),
+            priority,
+            for_you,
         });
     }
     Ok(out)
@@ -593,7 +573,7 @@ async fn run_queries_into(
     psyop: &PsyOp,
     http: &Client,
     name: &str,
-    cands: &mut HashMap<String, Cand>,
+    cands: &mut Vec<Cand>,
 ) -> Result<(), Error> {
     let queries = match &psyop.queries {
         Some(qs) if !qs.is_empty() => qs,
@@ -619,12 +599,11 @@ async fn run_queries_into(
                 })
                 .emit();
                 for p in posts {
-                    let c = cands.entry(p.id.clone()).or_insert_with(|| Cand {
-                        post: p.clone(),
-                        origins: Vec::new(),
-                        fy_arrival: HashMap::new(),
+                    cands.push(Cand {
+                        post: p,
+                        origin: Origin::Query(q.query.clone()),
+                        arrival: 0,
                     });
-                    c.origins.push(Origin::Query(q.query.clone()));
                 }
             }
             Err(e) => {

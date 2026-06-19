@@ -8,7 +8,6 @@
 //! psyop); the caller fans the returned IDs out to every psyop in the
 //! run that references this agent in its `for_you`.
 
-use std::collections::HashSet;
 use std::io::{BufRead, BufReader};
 
 use psychological_operations_sdk::browser::output::Output as BrowserOutput;
@@ -48,15 +47,15 @@ pub(crate) async fn collect_for_you(
     .emit();
 
     // Stream the browser's stdout line-by-line. Each `tweet_id` event is
-    // appended to the in-memory ordered set; anything else is dropped.
-    // Blocks until the operator closes the browser window (stdout closes,
-    // we hit EOF, the loop exits).
+    // appended in arrival order; we do NOT de-duplicate here (the browser's
+    // own per-session dedup already collapses repeated HTML snapshots, so
+    // each tweet is emitted once per feed). Blocks until the operator closes
+    // the browser window (stdout closes, we hit EOF, the loop exits).
     let stdout = child
         .stdout
         .take()
         .ok_or_else(|| Error::Other("browser stdout pipe missing".into()))?;
     let mut ids: Vec<String> = Vec::new();
-    let mut seen: HashSet<String> = HashSet::new();
     for line in BufReader::new(stdout).lines() {
         let Ok(line) = line else { break };
         let trimmed = line.trim();
@@ -65,9 +64,7 @@ pub(crate) async fn collect_for_you(
         }
         match serde_json::from_str::<BrowserOutput>(trimmed) {
             Ok(BrowserOutput::TweetId { id }) => {
-                if seen.insert(id.clone()) {
-                    ids.push(id);
-                }
+                ids.push(id);
             }
             // Other events are informational here — `Log`, `Url`,
             // `SignedIn`, `Panel`, `Response`, `Help`, `Error`. Drop
