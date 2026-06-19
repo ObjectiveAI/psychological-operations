@@ -334,6 +334,11 @@ pub async fn dispatch_inner(
             let count = crate::psyop_read::process_html(app, args.html);
             Ok(Value::from(count))
         }
+        "deliver_report" => {
+            let args = parse_body::<DeliverReportArgs>(body).map_err(DispatchError::BadRequest)?;
+            crate::deliver::report(&args.tweet_id, &args.kind, &args.status);
+            Ok(Value::Null)
+        }
         _ => Err(DispatchError::NotFound(format!("unknown command: {cmd}"))),
     }
 }
@@ -395,4 +400,12 @@ struct SetCountArgs {
 #[derive(Deserialize)]
 struct ProcessHtmlArgs {
     html: String,
+}
+
+#[derive(Deserialize)]
+struct DeliverReportArgs {
+    tweet_id: String,
+    kind: String,
+    /// `"done"` or `"skip"`.
+    status: String,
 }

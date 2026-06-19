@@ -88,7 +88,7 @@ pub struct Args {
     /// The browser fulfills each item (as its `agent`) and streams one
     /// `Output::Delivered` per success, then self-exits. NOT persona-
     /// scoped (the batch spans agents), so this is a separate invocation
-    /// handled before the `Mode` system. (Handler not implemented yet.)
+    /// handled before the `Mode` system (see `lib.rs` + `deliver.rs`).
     #[arg(long, group = "mode", value_name = "JSON")]
     pub deliver: Option<String>,
 

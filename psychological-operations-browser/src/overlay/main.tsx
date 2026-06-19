@@ -24,6 +24,7 @@ import { installAuthSettingsHelpers } from "./auth-settings-helpers";
 import { installCreateAppDialogHelpers } from "./create-app-dialog-helpers";
 import { installPostCreateDialogHelpers } from "./post-create-dialog-helpers";
 import { installPsyopReadHelpers } from "./psyop-read-helpers";
+import { installDeliverHelpers } from "./deliver-helpers";
 // Side-effect: registers `window.__psyops_set_panel` so the first
 // Rust push lands. Imported before any helper module so the setter
 // is in place by the time anyone reads `getPanelState()`.
@@ -137,6 +138,14 @@ async function handleRequest(payload: unknown) {
       // — Rust drives the OAuth navigation on its own; X's
       // consent page is the affordance.
       console.log("[psyops-overlay] helpers installed for mode", mode.type);
+    } else {
+      // No mode = reply/quote delivery (`--deliver`). The Rust driver
+      // (deliver.rs) calls `window.__psyops_deliver(item)` per tweet; the
+      // SPA URL reporter keeps Rust's `current_url` fresh while it
+      // navigates between target tweets.
+      installSpaUrlReporter();
+      installDeliverHelpers();
+      console.log("[psyops-overlay] deliver helpers installed (no mode)");
     }
   } catch (e) {
     console.error("[psyops-overlay] mount failed:", (e as Error)?.message ?? String(e));

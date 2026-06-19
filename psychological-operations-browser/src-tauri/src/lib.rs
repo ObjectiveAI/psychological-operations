@@ -5,6 +5,7 @@ mod cef_scheme;
 mod cef_v8;
 mod cookies_watcher;
 mod credentials;
+mod deliver;
 mod psyop_read;
 mod state;
 mod stdio;
@@ -16,6 +17,7 @@ use std::sync::Mutex;
 
 use clap::error::ErrorKind;
 use clap::Parser;
+use psychological_operations_sdk::browser::deliver::DeliverItem;
 use psychological_operations_sdk::browser::mode;
 use psychological_operations_sdk::browser::output::Output;
 use tauri::Manager;
@@ -84,24 +86,33 @@ pub fn run() {
     };
 
     // Reply/quote delivery (`--deliver <json>`) is a separate invocation,
-    // NOT a persona `Mode` — handled here, before `initial_mode()` / the
-    // Tauri app, so the rest of the Mode machinery is untouched.
-    //
-    // STAGE 1 STUB: the invocation is recognized but the actual per-item
-    // posting + `Output::Delivered` streaming is a later stage. Exit cleanly
-    // so the CLI driver sees EOF and finishes (it deletes nothing this
-    // stage, leaving the queue rows for the real handler).
-    if args.deliver.is_some() {
-        // TODO(deliver): parse the inline JSON array of `DeliverItem`,
-        // fulfill each as its agent, and emit `Output::Delivered` per success.
-        std::process::exit(0);
-    }
+    // NOT a persona `Mode` — the batch spans agents, so it skips the Mode
+    // system and runs the delivery driver (per-agent CEF sessions) instead
+    // of the persona UI. Parse the inline item array up front.
+    let deliver_items: Option<Vec<DeliverItem>> = match args.deliver.as_ref() {
+        Some(json) => match serde_json::from_str::<Vec<DeliverItem>>(json) {
+            Ok(items) => Some(items),
+            Err(e) => {
+                let _ = Output::Error {
+                    error: format!("--deliver: invalid JSON: {e}"),
+                }
+                .emit();
+                std::process::exit(2);
+            }
+        },
+        None => None,
+    };
 
-    // The CLI mode flag is required (clap's ArgGroup enforces it).
-    // Lock the SDK mode static once for the lifetime of the
-    // process — there is no runtime mode switch.
-    let initial_mode = args.initial_mode();
-    mode::set(initial_mode.clone());
+    // The CLI mode flag is required (clap's ArgGroup enforces it). Lock the
+    // SDK mode static once — but only when NOT delivering (delivery has no
+    // persona mode; `mode::get()` stays `None`).
+    let initial_mode = if deliver_items.is_none() {
+        let m = args.initial_mode();
+        mode::set(m.clone());
+        Some(m)
+    } else {
+        None
+    };
 
     // Connect the persistence layer up front (credential-HTML + token
     // storage). Uses tauri's global async runtime since the builder
@@ -126,6 +137,8 @@ pub fn run() {
     // mode switches replace the sender via `ReadyTx` mutate.
     let (ready_tx, ready_rx) = mpsc::channel::<()>();
     let ready_rx = Mutex::new(Some(ready_rx));
+    // Moved into the setup closure; `take()`-n there to pick the path.
+    let deliver_items = Mutex::new(deliver_items);
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -142,27 +155,39 @@ pub fn run() {
         .setup(move |app| {
             let handle = app.handle();
 
-            // 1. Build the Tauri window + panel webview + CEF
-            //    browser scoped to the locked mode's RequestContext.
-            //    CEF's shared root cache is initialized inside
-            //    `webview::create_x_app`.
-            webview::create_x_app(handle, &initial_mode)?;
-
-            // 2. Start the cookies watcher for the locked mode.
-            let watcher_slot: tauri::State<CookiesWatcherSlot> = handle.state();
-            *watcher_slot.0.lock().expect("watcher slot poisoned") =
-                cookies_watcher::start(handle.clone(), &initial_mode);
-
-            // 3. Start the stdin reader. It blocks on
-            //    `ready_rx.recv()` before reading, so anything the
-            //    host writes during startup stays in the OS pipe
-            //    until the overlay's `frontend_ready` call.
+            // The stdin reader (started in both paths) blocks on
+            // `ready_rx.recv()` before reading, so host writes during
+            // startup stay buffered in the OS pipe until `frontend_ready`.
             let rx = ready_rx
                 .lock()
                 .expect("ready_rx lock poisoned")
                 .take()
                 .expect("ready_rx already consumed");
-            stdio::start(handle.clone(), rx);
+
+            let items = deliver_items
+                .lock()
+                .expect("deliver_items lock poisoned")
+                .take();
+
+            if let Some(items) = items {
+                // Delivery path: window shell (no per-mode browser — the
+                // driver opens one per agent), the stdin reader (so the dev
+                // bridge's Html/Eval introspection works), and the driver.
+                webview::create_deliver_window(handle)?;
+                stdio::start(handle.clone(), rx);
+                deliver::start(handle.clone(), items);
+            } else {
+                // Persona path: the window + the single mode-scoped CEF
+                // browser + the cookies watcher.
+                let mode = initial_mode
+                    .as_ref()
+                    .expect("initial_mode is set when not delivering");
+                webview::create_x_app(handle, mode)?;
+                let watcher_slot: tauri::State<CookiesWatcherSlot> = handle.state();
+                *watcher_slot.0.lock().expect("watcher slot poisoned") =
+                    cookies_watcher::start(handle.clone(), mode);
+                stdio::start(handle.clone(), rx);
+            }
             Ok(())
         })
         .run(tauri::generate_context!())

@@ -77,13 +77,14 @@ fn start_url_for(mode: &Mode) -> &'static str {
     }
 }
 
-/// Build the X-App window with its panel webview + the initial
-/// CEF content surface for `mode`. Idempotent on the window
-/// (re-creating is a no-op); the CEF surface is created exactly
-/// once here. Use [`recreate_cef_content`] to switch modes later.
-pub fn create_x_app(handle: &AppHandle<Wry>, mode: &Mode) -> tauri::Result<()> {
+/// Build the window shell — bare window + panel webview + CEF init +
+/// the resize/close-flush handler — WITHOUT a content browser. Shared by
+/// [`create_x_app`] (persona modes) and [`create_deliver_window`]
+/// (delivery). Returns `Some(window)` on first build, `None` if the
+/// window already exists (idempotent).
+fn build_shell(handle: &AppHandle<Wry>) -> tauri::Result<Option<Window<Wry>>> {
     if handle.get_window(X_APP_WINDOW).is_some() {
-        return Ok(());
+        return Ok(None);
     }
 
     // 1. Bare window — no auto-attached webview (we add the panel
@@ -94,52 +95,29 @@ pub fn create_x_app(handle: &AppHandle<Wry>, mode: &Mode) -> tauri::Result<()> {
         .build()?;
 
     // 2. Panel webview on top: local Vite-built page.
-    let panel = WebviewBuilder::new(
-        PANEL_LABEL,
-        WebviewUrl::App("panel.html".into()),
-    );
+    let panel = WebviewBuilder::new(PANEL_LABEL, WebviewUrl::App("panel.html".into()));
     window.add_child(
         panel,
         LogicalPosition::new(0.0, 0.0),
         LogicalSize::new(DEFAULT_WIDTH as f64, PANEL_HEIGHT as f64),
     )?;
 
-    // 3. CEF init: shared root cache. Per-mode RequestContexts
+    // 3. CEF init: shared root cache. Per-context RequestContexts
     //    branch out underneath at create_browser time.
     cef_embed::initialize(&cef_root_cache_dir(handle), handle.clone());
 
-    let raw_parent = raw_parent_handle(&window);
-
-    // 4. The single CEF browser for this process, scoped to the
-    //    CLI-locked mode.
-    let (x, y, w, h) = cef_bounds(&window);
-    cef_embed::create_browser(raw_parent, x, y, w, h, &cache_subdir_for(mode), start_url_for(mode));
-
-    // 5. On window resize, reflow the panel + reposition the CEF
+    // 4. On window resize, reflow the panel + reposition the CEF
     //    child surface. On close, ask CEF to close the browser BEFORE
-    //    Tauri tears the parent surface down.
+    //    Tauri tears the parent surface down (flush the cookie store).
     let window_for_event = window.clone();
     window.on_window_event(move |event| match event {
         WindowEvent::Resized(size) => {
             reflow_physical(&window_for_event, size.width, size.height);
         }
         WindowEvent::CloseRequested { .. } => {
-            // Block until CEF reports `on_before_close` (i.e.
-            // the in-memory cookie store has been flushed to
-            // `<cache>/Network/Cookies`). Fire-and-forget here
-            // races Tauri's window teardown against CEF's
-            // flush, and the persona's auth_token cookie
-            // routinely loses the race — the user clicks X,
-            // the window vanishes, but next launch starts
-            // signed-out.
-            //
-            // 5s is generous for a cookie flush (typically
-            // milliseconds); the bound is here so a hung CEF
-            // can't pin the window open forever.
-            // Guard: if the browser is already gone (e.g. a
-            // `Request::Shutdown` already closed + flushed it), skip —
-            // otherwise we'd block the full timeout waiting on an
-            // `on_before_close` that will never fire.
+            // Block until CEF reports `on_before_close` (the in-memory
+            // cookie store has been flushed to disk). Guard on
+            // `has_browser` so we don't wait on an already-closed browser.
             if cef_embed::has_browser() {
                 let close_rx = cef_embed::install_close_signal();
                 cef_embed::close_browser_async();
@@ -149,7 +127,41 @@ pub fn create_x_app(handle: &AppHandle<Wry>, mode: &Mode) -> tauri::Result<()> {
         _ => {}
     });
 
+    Ok(Some(window))
+}
+
+/// Build the X-App window with its panel webview + the initial CEF
+/// content surface for `mode`. Idempotent on the window.
+pub fn create_x_app(handle: &AppHandle<Wry>, mode: &Mode) -> tauri::Result<()> {
+    let Some(window) = build_shell(handle)? else {
+        return Ok(());
+    };
+    // The single CEF browser for this process, scoped to the CLI-locked mode.
+    let raw_parent = raw_parent_handle(&window);
+    let (x, y, w, h) = cef_bounds(&window);
+    cef_embed::create_browser(raw_parent, x, y, w, h, &cache_subdir_for(mode), start_url_for(mode));
     Ok(())
+}
+
+/// Build the window shell for **delivery** mode — no content browser is
+/// created here; the deliver driver creates one CEF browser per agent
+/// (each scoped to that agent's `cef-root/agent-<tag>/` profile) via
+/// [`spawn_agent_browser`].
+pub fn create_deliver_window(handle: &AppHandle<Wry>) -> tauri::Result<()> {
+    build_shell(handle)?;
+    Ok(())
+}
+
+/// Create a CEF content browser scoped to `cache_subdir`, sized to the
+/// window's content area, loading `url`. Used by the deliver driver to
+/// open each agent's session in turn. No-op if the window isn't built.
+pub fn spawn_agent_browser(handle: &AppHandle<Wry>, cache_subdir: &str, url: &str) {
+    let Some(window) = handle.get_window(X_APP_WINDOW) else {
+        return;
+    };
+    let raw_parent = raw_parent_handle(&window);
+    let (x, y, w, h) = cef_bounds(&window);
+    cef_embed::create_browser(raw_parent, x, y, w, h, cache_subdir, url);
 }
 
 /// Compute the CEF child surface's bounds inside the Tauri
