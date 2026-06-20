@@ -41,7 +41,7 @@ use super::super::tool_error::{ToolError, finish};
 pub struct GetRepliesRequest {
     #[schemars(description = "Numeric ID of the tweet whose replies you want.")]
     pub tweet_id: String,
-    #[schemars(description = "How many replies to return (after skipping `offset`).")]
+    #[schemars(description = "How many replies to return (after skipping `offset`; max 100).")]
     pub count: u32,
     #[schemars(description = "How many replies to skip from the start.")]
     pub offset: u32,
@@ -77,7 +77,7 @@ pub struct OpenAttachmentRequest {
 pub struct RunQueryRequest {
     #[schemars(description = "Raw X v2 search query (e.g. \"from:openai -is:retweet\").")]
     pub query: String,
-    #[schemars(description = "How many tweets to return (after skipping `offset`).")]
+    #[schemars(description = "How many tweets to return (after skipping `offset`; max 100).")]
     pub count: u32,
     #[schemars(description = "How many tweets to skip from the start.")]
     pub offset: u32,
@@ -88,7 +88,7 @@ pub struct WhoamiRequest {}
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct GetBookmarksRequest {
-    #[schemars(description = "How many bookmarks to return (after skipping `offset`).")]
+    #[schemars(description = "How many bookmarks to return (after skipping `offset`; max 100).")]
     pub count: u32,
     #[schemars(description = "How many bookmarks to skip from the start.")]
     pub offset: u32,
@@ -98,7 +98,7 @@ pub struct GetBookmarksRequest {
 pub struct ListFollowingRequest {
     #[schemars(description = "X handle without the leading @ whose following list you want.")]
     pub handle: String,
-    #[schemars(description = "How many accounts to return (after skipping `offset`).")]
+    #[schemars(description = "How many accounts to return (after skipping `offset`; max 100).")]
     pub count: u32,
     #[schemars(description = "How many accounts to skip from the start of the list.")]
     pub offset: u32,
@@ -108,7 +108,7 @@ pub struct ListFollowingRequest {
 pub struct ListFollowersRequest {
     #[schemars(description = "X handle without the leading @ whose followers list you want.")]
     pub handle: String,
-    #[schemars(description = "How many accounts to return (after skipping `offset`).")]
+    #[schemars(description = "How many accounts to return (after skipping `offset`; max 100).")]
     pub count: u32,
     #[schemars(description = "How many accounts to skip from the start of the list.")]
     pub offset: u32,
@@ -126,6 +126,28 @@ const SEARCH_PAGE: i32 = 100;
 
 /// X's max page size for `/2/users/{id}/bookmarks`.
 const BOOKMARKS_PAGE: i32 = 100;
+
+/// Cap on the `count` arg for the paginated read tools.
+const MAX_COUNT: u32 = 100;
+
+/// Reject a `count` over [`MAX_COUNT`] with an agent-visible message.
+fn check_count(count: u32) -> Result<(), ToolError> {
+    if count > MAX_COUNT {
+        return Err(ToolError::agent(format!(
+            "count is {count}, over the {MAX_COUNT} max — request {MAX_COUNT} or fewer."
+        )));
+    }
+    Ok(())
+}
+
+/// Trailing "remaining" line for a paginated result: the count of fetched
+/// items past the returned window, prefixed `over ` when a continuation
+/// token was present (so the number is a lower bound, not exact). Generic —
+/// `N == 0` renders naturally as `"0 remaining"` / `"over 0 remaining"`.
+fn remaining_note(total_fetched: usize, offset: usize, count: usize, has_more: bool) -> String {
+    let remaining = total_fetched.saturating_sub(offset + count);
+    format!("{}{remaining} remaining", if has_more { "over " } else { "" })
+}
 
 /// One entry in a `list_following` / `list_followers` result.
 #[derive(serde::Serialize)]
@@ -157,6 +179,7 @@ impl PsychologicalOperationsXApiMcp {
                 let http = self.build_client();
                 let auth = AuthMode::Agent(tag);
 
+                check_count(req.count)?;
                 let target = req.tweet_id.clone();
                 let need = req.offset as usize + req.count as usize;
                 let base = tweets_search_recent::get::Request {
@@ -178,6 +201,7 @@ impl PsychologicalOperationsXApiMcp {
                 };
                 let mut ids: Vec<String> = Vec::new();
                 let mut next_token: Option<PaginationToken36> = None;
+                let mut has_more;
                 loop {
                     let mut creq = base.clone();
                     creq.next_token = next_token.clone();
@@ -196,21 +220,28 @@ impl PsychologicalOperationsXApiMcp {
                             ids.push(id);
                         }
                     }
+                    let next = resp.meta.and_then(|m| m.next_token);
+                    has_more = next.is_some();
                     if ids.len() >= need {
                         break;
                     }
-                    match resp.meta.and_then(|m| m.next_token) {
+                    match next {
                         Some(next) => next_token = Some(PaginationToken36(next.0)),
                         None => break,
                     }
                 }
+                let note =
+                    remaining_note(ids.len(), req.offset as usize, req.count as usize, has_more);
                 let sliced: Vec<String> = ids
                     .into_iter()
                     .skip(req.offset as usize)
                     .take(req.count as usize)
                     .collect();
                 let body = serde_json::to_string(&sliced)?;
-                Ok(CallToolResult::success(vec![Content::text(body)]))
+                Ok(CallToolResult::success(vec![
+                    Content::text(body),
+                    Content::text(note),
+                ]))
             }
             .await,
         )
@@ -352,10 +383,12 @@ impl PsychologicalOperationsXApiMcp {
                 let http = self.build_client();
                 let auth = AuthMode::Agent(tag);
 
+                check_count(req.count)?;
                 let need = req.offset as usize + req.count as usize;
                 let base = standard_search_request(req.query);
                 let mut projected: Vec<Tweet> = Vec::new();
                 let mut next_token: Option<PaginationToken36> = None;
+                let mut has_more;
                 loop {
                     let mut creq = base.clone();
                     creq.next_token = next_token.clone();
@@ -364,21 +397,32 @@ impl PsychologicalOperationsXApiMcp {
                     for t in resp.data.unwrap_or_default().iter() {
                         projected.push(project_tweet(t, includes.as_ref()));
                     }
+                    let next = resp.meta.and_then(|m| m.next_token);
+                    has_more = next.is_some();
                     if projected.len() >= need {
                         break;
                     }
-                    match resp.meta.and_then(|m| m.next_token) {
+                    match next {
                         Some(next) => next_token = Some(PaginationToken36(next.0)),
                         None => break,
                     }
                 }
+                let note = remaining_note(
+                    projected.len(),
+                    req.offset as usize,
+                    req.count as usize,
+                    has_more,
+                );
                 let sliced: Vec<Tweet> = projected
                     .into_iter()
                     .skip(req.offset as usize)
                     .take(req.count as usize)
                     .collect();
                 let body = serde_json::to_string(&sliced)?;
-                Ok(CallToolResult::success(vec![Content::text(body)]))
+                Ok(CallToolResult::success(vec![
+                    Content::text(body),
+                    Content::text(note),
+                ]))
             }
             .await,
         )
@@ -424,6 +468,7 @@ impl PsychologicalOperationsXApiMcp {
                 let http = self.build_client();
                 let auth = AuthMode::Agent(tag);
 
+                check_count(req.count)?;
                 let user_id = resolve_self_user_id(&http, &auth).await?;
                 let need = req.offset as usize + req.count as usize;
                 let base = users_id_bookmarks::get::Request {
@@ -453,6 +498,7 @@ impl PsychologicalOperationsXApiMcp {
                 };
                 let mut projected: Vec<Tweet> = Vec::new();
                 let mut pagination_token: Option<PaginationToken36> = None;
+                let mut has_more;
                 loop {
                     let mut creq = base.clone();
                     creq.pagination_token = pagination_token.clone();
@@ -461,21 +507,32 @@ impl PsychologicalOperationsXApiMcp {
                     for t in resp.data.unwrap_or_default().iter() {
                         projected.push(project_tweet(t, includes.as_ref()));
                     }
+                    let next = resp.meta.and_then(|m| m.next_token);
+                    has_more = next.is_some();
                     if projected.len() >= need {
                         break;
                     }
-                    match resp.meta.and_then(|m| m.next_token) {
+                    match next {
                         Some(next) => pagination_token = Some(PaginationToken36(next.0)),
                         None => break,
                     }
                 }
+                let note = remaining_note(
+                    projected.len(),
+                    req.offset as usize,
+                    req.count as usize,
+                    has_more,
+                );
                 let sliced: Vec<Tweet> = projected
                     .into_iter()
                     .skip(req.offset as usize)
                     .take(req.count as usize)
                     .collect();
                 let body = serde_json::to_string(&sliced)?;
-                Ok(CallToolResult::success(vec![Content::text(body)]))
+                Ok(CallToolResult::success(vec![
+                    Content::text(body),
+                    Content::text(note),
+                ]))
             }
             .await,
         )
@@ -496,10 +553,12 @@ impl PsychologicalOperationsXApiMcp {
                 let http = self.build_client();
                 let auth = AuthMode::Agent(tag);
 
+                check_count(req.count)?;
                 let target = resolve_handle_user_id(&http, &auth, req.handle).await?;
                 let need = req.offset as usize + req.count as usize;
                 let mut users: Vec<User> = Vec::new();
                 let mut pagination_token: Option<PaginationToken32> = None;
+                let mut has_more;
                 loop {
                     let creq = users_id_following::get::Request {
                         id: target.clone(),
@@ -511,14 +570,18 @@ impl PsychologicalOperationsXApiMcp {
                     };
                     let resp = users_id_following::http::get(&http, &auth, &creq).await?;
                     users.extend(resp.data.unwrap_or_default());
+                    let next = resp.meta.and_then(|m| m.next_token);
+                    has_more = next.is_some();
                     if users.len() >= need {
                         break;
                     }
-                    match resp.meta.and_then(|m| m.next_token) {
+                    match next {
                         Some(next) => pagination_token = Some(PaginationToken32(next.0)),
                         None => break,
                     }
                 }
+                let note =
+                    remaining_note(users.len(), req.offset as usize, req.count as usize, has_more);
                 let listed: Vec<ListedUser> = users
                     .into_iter()
                     .skip(req.offset as usize)
@@ -526,7 +589,10 @@ impl PsychologicalOperationsXApiMcp {
                     .map(project_user)
                     .collect();
                 let body = serde_json::to_string(&listed)?;
-                Ok(CallToolResult::success(vec![Content::text(body)]))
+                Ok(CallToolResult::success(vec![
+                    Content::text(body),
+                    Content::text(note),
+                ]))
             }
             .await,
         )
@@ -547,10 +613,12 @@ impl PsychologicalOperationsXApiMcp {
                 let http = self.build_client();
                 let auth = AuthMode::Agent(tag);
 
+                check_count(req.count)?;
                 let target = resolve_handle_user_id(&http, &auth, req.handle).await?;
                 let need = req.offset as usize + req.count as usize;
                 let mut users: Vec<User> = Vec::new();
                 let mut pagination_token: Option<PaginationToken32> = None;
+                let mut has_more;
                 loop {
                     let creq = users_id_followers::get::Request {
                         id: target.clone(),
@@ -562,14 +630,18 @@ impl PsychologicalOperationsXApiMcp {
                     };
                     let resp = users_id_followers::http::get(&http, &auth, &creq).await?;
                     users.extend(resp.data.unwrap_or_default());
+                    let next = resp.meta.and_then(|m| m.next_token);
+                    has_more = next.is_some();
                     if users.len() >= need {
                         break;
                     }
-                    match resp.meta.and_then(|m| m.next_token) {
+                    match next {
                         Some(next) => pagination_token = Some(PaginationToken32(next.0)),
                         None => break,
                     }
                 }
+                let note =
+                    remaining_note(users.len(), req.offset as usize, req.count as usize, has_more);
                 let listed: Vec<ListedUser> = users
                     .into_iter()
                     .skip(req.offset as usize)
@@ -577,7 +649,10 @@ impl PsychologicalOperationsXApiMcp {
                     .map(project_user)
                     .collect();
                 let body = serde_json::to_string(&listed)?;
-                Ok(CallToolResult::success(vec![Content::text(body)]))
+                Ok(CallToolResult::success(vec![
+                    Content::text(body),
+                    Content::text(note),
+                ]))
             }
             .await,
         )
