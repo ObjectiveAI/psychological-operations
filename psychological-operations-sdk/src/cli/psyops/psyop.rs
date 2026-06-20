@@ -2,9 +2,11 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::for_you::ForYou;
+use super::mentions::Mentions;
 use super::query::Query;
 use super::sort_by::SortBy;
 use super::stage::Stage;
+use super::timeline::Timeline;
 
 /// A psyop scores tweets pulled from one or more X v2 sources.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -15,6 +17,15 @@ pub struct PsyOp {
     /// "field absent" via `skip_queries`.
     #[serde(default, skip_serializing_if = "skip_queries")]
     pub queries: Option<Vec<Query>>,
+    /// Home-timeline (reverse-chronological) inputs, one per agent. Each
+    /// paginates the agent's followed-accounts feed up to `max_posts`.
+    /// `None`/empty ⇒ no timeline ingestion (round-trips absent).
+    #[serde(default, skip_serializing_if = "skip_timeline")]
+    pub timeline: Option<Vec<Timeline>>,
+    /// Mentions inputs, one per agent. Each paginates the agent's mentions
+    /// feed up to `max_posts`. `None`/empty ⇒ no mentions ingestion.
+    #[serde(default, skip_serializing_if = "skip_mentions")]
+    pub mentions: Option<Vec<Mentions>>,
     /// Personalized "For You" timeline inputs, one per collecting agent.
     /// `None` or `Some(empty)` means no for-you ingestion — the CLI
     /// runtime skips collection, the queue check, the `hydrate_for_you`
@@ -95,6 +106,22 @@ fn skip_for_you(f: &Option<Vec<ForYou>>) -> bool {
     }
 }
 
+/// Skip-serializing predicate for `timeline`: omit when `None`/empty.
+fn skip_timeline(t: &Option<Vec<Timeline>>) -> bool {
+    match t {
+        None => true,
+        Some(v) => v.is_empty(),
+    }
+}
+
+/// Skip-serializing predicate for `mentions`: omit when `None`/empty.
+fn skip_mentions(m: &Option<Vec<Mentions>>) -> bool {
+    match m {
+        None => true,
+        Some(v) => v.is_empty(),
+    }
+}
+
 /// Skip-serializing predicate for `stages`: omit the field when
 /// it's `None` OR `Some(empty)`. Both shapes mean "no scoring";
 /// the runtime synthesizes max-score survivors instead.
@@ -131,13 +158,24 @@ impl PsyOp {
                 q.validate().map_err(|e| format!("queries[{i}]: {e}"))?;
             }
         }
+        if let Some(ts) = &self.timeline {
+            for (i, t) in ts.iter().enumerate() {
+                t.validate().map_err(|e| format!("timeline[{i}]: {e}"))?;
+            }
+        }
+        if let Some(ms) = &self.mentions {
+            for (i, m) in ms.iter().enumerate() {
+                m.validate().map_err(|e| format!("mentions[{i}]: {e}"))?;
+            }
+        }
 
-        // A psyop must have at least one input source — either a
-        // non-empty `queries` list, or a non-empty `for_you` list.
+        // A psyop must have at least one input source.
         let has_queries = self.queries.as_ref().is_some_and(|qs| !qs.is_empty());
+        let has_timeline = self.timeline.as_ref().is_some_and(|ts| !ts.is_empty());
+        let has_mentions = self.mentions.as_ref().is_some_and(|ms| !ms.is_empty());
         let has_for_you = self.for_you.as_ref().is_some_and(|fy| !fy.is_empty());
-        if !has_queries && !has_for_you {
-            return Err("psyop must have at least one query or for_you".into());
+        if !has_queries && !has_timeline && !has_mentions && !has_for_you {
+            return Err("psyop must have at least one query, timeline, mentions, or for_you".into());
         }
 
         if let Some(fys) = &self.for_you {

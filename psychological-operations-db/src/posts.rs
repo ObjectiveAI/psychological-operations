@@ -45,6 +45,10 @@ pub enum Origin {
     /// filter/priority and to interweave by agent at sort time).
     ForYou(String),
     Query(String),
+    /// An agent's home timeline; carries the agent's tag.
+    Timeline(String),
+    /// An agent's mentions; carries the agent's tag.
+    Mentions(String),
 }
 
 impl Db {

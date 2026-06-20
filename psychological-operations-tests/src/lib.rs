@@ -440,6 +440,8 @@ pub fn query_psyop(query: &str, stages: Vec<Stage>) -> PsyOp {
             priority: None,
             filter: None,
         }]),
+        timeline: None,
+        mentions: None,
         for_you: None,
         interval: "1h".to_string(),
         max_posts: 10,

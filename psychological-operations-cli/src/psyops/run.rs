@@ -293,6 +293,16 @@ async fn missing_agent_auth(
             tags.push(&q.agent_tag);
         }
     }
+    for t in psyop.timeline.iter().flatten() {
+        if !tags.contains(&t.agent_tag.as_str()) {
+            tags.push(&t.agent_tag);
+        }
+    }
+    for m in psyop.mentions.iter().flatten() {
+        if !tags.contains(&m.agent_tag.as_str()) {
+            tags.push(&m.agent_tag);
+        }
+    }
     for fy in psyop.for_you.iter().flatten() {
         if !tags.contains(&fy.agent_tag.as_str()) {
             tags.push(&fy.agent_tag);
@@ -363,6 +373,11 @@ async fn run_scored(
             if psyop.query_when_for_you_queued || !had_for_you {
                 run_queries_into(psyop, &http, name, &mut cands).await?;
             }
+
+            // 2b. Timeline + mentions reads (each as its own agent). Always
+            //     run — they aren't search queries, so the cost policy
+            //     doesn't gate them.
+            run_feeds_into(psyop, &http, ctx, name, &mut cands).await?;
 
             // 3. Filter.
             let accepted = filter_with_priority(psyop, &cands)?;
@@ -526,7 +541,8 @@ fn filter_with_priority(psyop: &PsyOp, cands: &[Cand]) -> Result<Vec<Accepted>, 
         }
         let for_you = match &cand.origin {
             Origin::ForYou(agent) => Some((agent.clone(), cand.arrival)),
-            Origin::Query(_) => None,
+            // Query / timeline / mentions sort in the SortBy section.
+            Origin::Query(_) | Origin::Timeline(_) | Origin::Mentions(_) => None,
         };
         out.push(Accepted {
             tweet,
@@ -555,6 +571,22 @@ fn origin_lookup<'a>(
             let qs = psyop.queries.as_ref()?;
             let matched: &Query = qs.iter().find(|qq| qq.query == *q)?;
             Some((matched.filter.as_ref(), matched.priority))
+        }
+        Origin::Timeline(agent) => {
+            let t = psyop
+                .timeline
+                .iter()
+                .flatten()
+                .find(|t| &t.agent_tag == agent)?;
+            Some((t.filter.as_ref(), t.priority))
+        }
+        Origin::Mentions(agent) => {
+            let m = psyop
+                .mentions
+                .iter()
+                .flatten()
+                .find(|m| &m.agent_tag == agent)?;
+            Some((m.filter.as_ref(), m.priority))
         }
     }
 }
@@ -680,21 +712,89 @@ async fn run_queries_into(
                 arrival: 0,
             });
         }
-        match err {
-            None => crate::output::OutputResult::from(crate::events::Event::QueryComplete {
-                psyop: name.to_string(),
-                query: q.query.clone(),
-                count,
-            })
-            .emit(),
-            // Partial: the `count` posts above were kept; report the failure.
-            Some(e) => crate::output::OutputResult::from(crate::events::Event::QueryFailed {
-                psyop: name.to_string(),
-                query: q.query.clone(),
-                error: format!("after {count} posts: {e}"),
-            })
-            .emit(),
+        emit_source_result(name, &q.query, count, err);
+    }
+    Ok(())
+}
+
+/// Emit a per-source ingest result: `QueryComplete` on a clean finish, or
+/// `QueryFailed` (annotated with how many posts were kept) when a fetch
+/// stopped early. Shared by queries, timeline, and mentions — the `label`
+/// is the source descriptor (query string, or `"timeline @agent"` etc.).
+fn emit_source_result(name: &str, label: &str, count: usize, err: Option<Error>) {
+    match err {
+        None => crate::output::OutputResult::from(crate::events::Event::QueryComplete {
+            psyop: name.to_string(),
+            query: label.to_string(),
+            count,
+        })
+        .emit(),
+        Some(e) => crate::output::OutputResult::from(crate::events::Event::QueryFailed {
+            psyop: name.to_string(),
+            query: label.to_string(),
+            error: format!("after {count} posts: {e}"),
+        })
+        .emit(),
+    }
+}
+
+/// Run the psyop's timeline + mentions reads (each as its own agent) and
+/// merge results into `cands`. Each agent's user id is resolved via
+/// `persona_twid_get`; an agent that isn't signed in is reported and
+/// skipped. Always runs (these aren't search queries — the cost policy
+/// doesn't gate them).
+async fn run_feeds_into(
+    psyop: &PsyOp,
+    http: &Client,
+    ctx: &crate::context::Context,
+    name: &str,
+    cands: &mut Vec<Cand>,
+) -> Result<(), Error> {
+    for t in psyop.timeline.iter().flatten() {
+        let label = format!("timeline @{}", t.agent_tag);
+        let Some(twid) = ctx
+            .db
+            .persona_twid_get("agent", &t.agent_tag)
+            .await
+            .map_err(Error::from)?
+        else {
+            emit_source_result(name, &label, 0, Some(Error::Other("agent not signed in".into())));
+            continue;
+        };
+        let auth = AuthMode::Agent(t.agent_tag.clone());
+        let (posts, err) = fetch_timeline(http, &auth, &twid, t.max_posts as usize).await;
+        let count = posts.len();
+        for p in posts {
+            cands.push(Cand {
+                post: p,
+                origin: Origin::Timeline(t.agent_tag.clone()),
+                arrival: 0,
+            });
         }
+        emit_source_result(name, &label, count, err);
+    }
+    for m in psyop.mentions.iter().flatten() {
+        let label = format!("mentions @{}", m.agent_tag);
+        let Some(twid) = ctx
+            .db
+            .persona_twid_get("agent", &m.agent_tag)
+            .await
+            .map_err(Error::from)?
+        else {
+            emit_source_result(name, &label, 0, Some(Error::Other("agent not signed in".into())));
+            continue;
+        };
+        let auth = AuthMode::Agent(m.agent_tag.clone());
+        let (posts, err) = fetch_mentions(http, &auth, &twid, m.max_posts as usize).await;
+        let count = posts.len();
+        for p in posts {
+            cands.push(Cand {
+                post: p,
+                origin: Origin::Mentions(m.agent_tag.clone()),
+                arrival: 0,
+            });
+        }
+        emit_source_result(name, &label, count, err);
     }
     Ok(())
 }
@@ -889,6 +989,107 @@ async fn search_recent(
             break;
         }
         // More pages? Carry the cursor forward; stop when exhausted.
+        match resp.meta.and_then(|m| m.next_token) {
+            Some(next) => pagination_token = Some(PaginationToken36(next.0)),
+            None => break,
+        }
+    }
+    (out, None)
+}
+
+/// Home-timeline read for `twid` (as `auth`), paginating until `max` posts
+/// or the pages run out. Same partial-keep contract as [`search_recent`].
+async fn fetch_timeline(
+    http: &Client,
+    auth: &AuthMode,
+    twid: &str,
+    max: usize,
+) -> (Vec<Post>, Option<Error>) {
+    use psychological_operations_sdk::x::types::{PaginationToken36, UserIdMatchesAuthenticatedUser};
+    use psychological_operations_sdk::x::users::id::timelines::reverse_chronological::get;
+    use psychological_operations_sdk::x::users::id::timelines::reverse_chronological::http::get as call;
+
+    let mut out: Vec<Post> = Vec::new();
+    let mut pagination_token: Option<PaginationToken36> = None;
+    loop {
+        let req = get::Request {
+            id: UserIdMatchesAuthenticatedUser(twid.to_string()),
+            tweet_fields: Some(standard_tweet_fields()),
+            expansions: Some(vec![TweetExpansions::AuthorId]),
+            user_fields: Some(vec![UserFields::Username]),
+            max_results: None,
+            pagination_token: pagination_token.clone(),
+            since_id: None,
+            until_id: None,
+            exclude: None,
+            start_time: None,
+            end_time: None,
+            media_fields: None,
+            poll_fields: None,
+            place_fields: None,
+        };
+        let resp = match call(http, auth, &req).await {
+            Ok(r) => r,
+            Err(e) => return (out, Some(Error::Other(format!("X home timeline failed: {e}")))),
+        };
+        let includes = resp.includes;
+        for t in resp.data.unwrap_or_default().iter() {
+            out.push(tweet_to_post(t, includes.as_ref()));
+        }
+        if out.len() >= max {
+            out.truncate(max);
+            break;
+        }
+        match resp.meta.and_then(|m| m.next_token) {
+            Some(next) => pagination_token = Some(PaginationToken36(next.0)),
+            None => break,
+        }
+    }
+    (out, None)
+}
+
+/// Mentions read for `twid` (as `auth`), paginating until `max` posts or the
+/// pages run out. Same partial-keep contract as [`search_recent`].
+async fn fetch_mentions(
+    http: &Client,
+    auth: &AuthMode,
+    twid: &str,
+    max: usize,
+) -> (Vec<Post>, Option<Error>) {
+    use psychological_operations_sdk::x::types::{PaginationToken36, UserId};
+    use psychological_operations_sdk::x::users::id::mentions::get;
+    use psychological_operations_sdk::x::users::id::mentions::http::get as call;
+
+    let mut out: Vec<Post> = Vec::new();
+    let mut pagination_token: Option<PaginationToken36> = None;
+    loop {
+        let req = get::Request {
+            id: UserId(twid.to_string()),
+            tweet_fields: Some(standard_tweet_fields()),
+            expansions: Some(vec![TweetExpansions::AuthorId]),
+            user_fields: Some(vec![UserFields::Username]),
+            max_results: None,
+            pagination_token: pagination_token.clone(),
+            since_id: None,
+            until_id: None,
+            start_time: None,
+            end_time: None,
+            media_fields: None,
+            poll_fields: None,
+            place_fields: None,
+        };
+        let resp = match call(http, auth, &req).await {
+            Ok(r) => r,
+            Err(e) => return (out, Some(Error::Other(format!("X mentions failed: {e}")))),
+        };
+        let includes = resp.includes;
+        for t in resp.data.unwrap_or_default().iter() {
+            out.push(tweet_to_post(t, includes.as_ref()));
+        }
+        if out.len() >= max {
+            out.truncate(max);
+            break;
+        }
         match resp.meta.and_then(|m| m.next_token) {
             Some(next) => pagination_token = Some(PaginationToken36(next.0)),
             None => break,

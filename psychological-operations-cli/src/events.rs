@@ -49,6 +49,8 @@ pub enum Event {
     },
 
     // ── query / ingest ───────────────────────────────────────
+    // Also used for timeline + mentions reads; `query` then carries a source
+    // label like `"timeline @<agent>"` / `"mentions @<agent>"`.
     QueryComplete {
         psyop: String,
         query: String,

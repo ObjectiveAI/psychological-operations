@@ -24,6 +24,8 @@ export interface PsyopEntry {
 // `psyops get <name>` payload — psychological-operations-cli/src/psyops/psyop.rs:10-49
 export interface Psyop {
   queries?: Query[];
+  timeline?: Timeline[];
+  mentions?: Mentions[];
   for_you?: ForYou[];
   max_posts: number;
   sort: SortBy;
@@ -37,6 +39,26 @@ export interface Query {
   // The agent whose auth this query is scraped as.
   agent_tag: string;
   // Max posts to pull from this query (recent-search paginates up to this).
+  max_posts: number;
+  priority?: number;
+  filter?: Filter;
+}
+
+// psychological-operations-cli/src/psyops/timeline.rs
+export interface Timeline {
+  // The agent whose home timeline this reads, scraped as its auth.
+  agent_tag: string;
+  // Max posts to pull (paginated).
+  max_posts: number;
+  priority?: number;
+  filter?: Filter;
+}
+
+// psychological-operations-cli/src/psyops/mentions.rs
+export interface Mentions {
+  // The agent whose mentions this reads, scraped as its auth.
+  agent_tag: string;
+  // Max posts to pull (paginated).
   max_posts: number;
   priority?: number;
   filter?: Filter;

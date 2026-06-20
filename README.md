@@ -70,6 +70,8 @@ Each psyop is a `psyop.json` published into a git repo (the commit SHA is part o
 
 - `for_you` — the algorithmic timeline. Captured passively by the Chromium extension as the psyop's account browses x.com. Optional `priority` and `filter`.
 - `queries` — a list of X v2 search-operator strings (e.g. `from:user has:media -is:retweet`), each hitting `/2/tweets/search/recent` (the 7-day window, all X access tiers). Each query requires an `agent_tag` (whose auth it scrapes as) and a `max_posts` (how many to paginate up to), plus optional `priority` and `filter`.
+- `timeline` — per-agent home-timeline reads (`/2/users/{id}/timelines/reverse_chronological`, posts from accounts the agent follows). Each requires `agent_tag` + `max_posts` (paginated, count-capped), plus optional `priority`/`filter`. Sorts like a query (via `sort`).
+- `mentions` — per-agent mentions reads (`/2/users/{id}/mentions`). Same shape as `timeline`. Sorts like a query.
 
 Tweets that show up in both sources are deduped; the priority across accepting sources wins.
 
