@@ -962,7 +962,8 @@ async fn search_recent(
     use psychological_operations_sdk::x::types::PaginationToken36;
 
     let mut out: Vec<Post> = Vec::new();
-    let mut pagination_token: Option<PaginationToken36> = None;
+    // search/recent paginates via `next_token` (NOT `pagination_token`).
+    let mut next_token: Option<PaginationToken36> = None;
     loop {
         let req = get::Request {
             query: query.to_string(),
@@ -970,7 +971,7 @@ async fn search_recent(
             expansions: Some(vec![TweetExpansions::AuthorId]),
             user_fields: Some(vec![UserFields::Username]),
             max_results: Some(FETCH_PAGE_MAX),
-            pagination_token: pagination_token.clone(),
+            next_token: next_token.clone(),
             ..default_recent_request()
         };
         let resp = match call(http, auth, &req).await {
@@ -993,7 +994,7 @@ async fn search_recent(
         }
         // More pages? Carry the cursor forward; stop when exhausted.
         match resp.meta.and_then(|m| m.next_token) {
-            Some(next) => pagination_token = Some(PaginationToken36(next.0)),
+            Some(next) => next_token = Some(PaginationToken36(next.0)),
             None => break,
         }
     }

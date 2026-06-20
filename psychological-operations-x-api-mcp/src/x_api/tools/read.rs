@@ -18,7 +18,8 @@ use psychological_operations_sdk::x::params;
 use psychological_operations_sdk::x::tweets::id as tweets_id;
 use psychological_operations_sdk::x::tweets::search::recent as tweets_search_recent;
 use psychological_operations_sdk::x::types::{
-    PaginationToken32, TweetReferencedTweetsItemType, User, UserIdMatchesAuthenticatedUser,
+    PaginationToken32, PaginationToken36, TweetReferencedTweetsItemType, User,
+    UserIdMatchesAuthenticatedUser,
 };
 use psychological_operations_sdk::x::users::by::username::username as users_by_username;
 use psychological_operations_sdk::x::users::id::bookmarks as users_id_bookmarks;
@@ -40,6 +41,10 @@ use super::super::tool_error::{ToolError, finish};
 pub struct GetRepliesRequest {
     #[schemars(description = "Numeric ID of the tweet whose replies you want.")]
     pub tweet_id: String,
+    #[schemars(description = "How many replies to return (after skipping `offset`).")]
+    pub count: u32,
+    #[schemars(description = "How many replies to skip from the start.")]
+    pub offset: u32,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
@@ -72,13 +77,22 @@ pub struct OpenAttachmentRequest {
 pub struct RunQueryRequest {
     #[schemars(description = "Raw X v2 search query (e.g. \"from:openai -is:retweet\").")]
     pub query: String,
+    #[schemars(description = "How many tweets to return (after skipping `offset`).")]
+    pub count: u32,
+    #[schemars(description = "How many tweets to skip from the start.")]
+    pub offset: u32,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct WhoamiRequest {}
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
-pub struct GetBookmarksRequest {}
+pub struct GetBookmarksRequest {
+    #[schemars(description = "How many bookmarks to return (after skipping `offset`).")]
+    pub count: u32,
+    #[schemars(description = "How many bookmarks to skip from the start.")]
+    pub offset: u32,
+}
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct ListFollowingRequest {
@@ -105,6 +119,13 @@ pub struct ListFollowersRequest {
 /// so each page fetch is identical regardless of the requested slice — the
 /// response cache can then serve it across calls.
 const FOLLOW_LIST_PAGE: i32 = 1000;
+
+/// X's max page size for `/2/tweets/search/recent` (used by `run_query` +
+/// `get_replies`). Full pages for the same fewer-requests / cache reasons.
+const SEARCH_PAGE: i32 = 100;
+
+/// X's max page size for `/2/users/{id}/bookmarks`.
+const BOOKMARKS_PAGE: i32 = 100;
 
 /// One entry in a `list_following` / `list_followers` result.
 #[derive(serde::Serialize)]
@@ -136,13 +157,15 @@ impl PsychologicalOperationsXApiMcp {
                 let http = self.build_client();
                 let auth = AuthMode::Agent(tag);
 
-                let creq = tweets_search_recent::get::Request {
+                let target = req.tweet_id.clone();
+                let need = req.offset as usize + req.count as usize;
+                let base = tweets_search_recent::get::Request {
                     query: format!("conversation_id:{}", req.tweet_id),
                     start_time: None,
                     end_time: None,
                     since_id: None,
                     until_id: None,
-                    max_results: Some(100),
+                    max_results: Some(SEARCH_PAGE),
                     next_token: None,
                     pagination_token: None,
                     sort_order: None,
@@ -153,24 +176,40 @@ impl PsychologicalOperationsXApiMcp {
                     user_fields: None,
                     place_fields: None,
                 };
-                let resp = tweets_search_recent::http::get(&http, &auth, &creq).await?;
-                let target = req.tweet_id;
-                let ids: Vec<String> = resp
-                    .data
-                    .unwrap_or_default()
-                    .into_iter()
-                    .filter_map(|t| {
-                        let id = t.id.as_ref()?.0.clone();
-                        let refs = t.referenced_tweets.as_ref()?;
-                        refs.iter()
-                            .any(|r| {
+                let mut ids: Vec<String> = Vec::new();
+                let mut next_token: Option<PaginationToken36> = None;
+                loop {
+                    let mut creq = base.clone();
+                    creq.next_token = next_token.clone();
+                    let resp = tweets_search_recent::http::get(&http, &auth, &creq).await?;
+                    for t in resp.data.unwrap_or_default() {
+                        let Some(id) = t.id.as_ref().map(|i| i.0.clone()) else {
+                            continue;
+                        };
+                        let is_reply = t.referenced_tweets.as_ref().is_some_and(|refs| {
+                            refs.iter().any(|r| {
                                 matches!(r.type_, TweetReferencedTweetsItemType::RepliedTo)
                                     && r.id.0 == target
                             })
-                            .then_some(id)
-                    })
+                        });
+                        if is_reply {
+                            ids.push(id);
+                        }
+                    }
+                    if ids.len() >= need {
+                        break;
+                    }
+                    match resp.meta.and_then(|m| m.next_token) {
+                        Some(next) => next_token = Some(PaginationToken36(next.0)),
+                        None => break,
+                    }
+                }
+                let sliced: Vec<String> = ids
+                    .into_iter()
+                    .skip(req.offset as usize)
+                    .take(req.count as usize)
                     .collect();
-                let body = serde_json::to_string(&ids)?;
+                let body = serde_json::to_string(&sliced)?;
                 Ok(CallToolResult::success(vec![Content::text(body)]))
             }
             .await,
@@ -313,16 +352,32 @@ impl PsychologicalOperationsXApiMcp {
                 let http = self.build_client();
                 let auth = AuthMode::Agent(tag);
 
-                let creq = standard_search_request(req.query);
-                let resp = tweets_search_recent::http::get(&http, &auth, &creq).await?;
-                let includes = resp.includes.as_ref();
-                let projected: Vec<Tweet> = resp
-                    .data
-                    .unwrap_or_default()
-                    .iter()
-                    .map(|t| project_tweet(t, includes))
+                let need = req.offset as usize + req.count as usize;
+                let base = standard_search_request(req.query);
+                let mut projected: Vec<Tweet> = Vec::new();
+                let mut next_token: Option<PaginationToken36> = None;
+                loop {
+                    let mut creq = base.clone();
+                    creq.next_token = next_token.clone();
+                    let resp = tweets_search_recent::http::get(&http, &auth, &creq).await?;
+                    let includes = resp.includes;
+                    for t in resp.data.unwrap_or_default().iter() {
+                        projected.push(project_tweet(t, includes.as_ref()));
+                    }
+                    if projected.len() >= need {
+                        break;
+                    }
+                    match resp.meta.and_then(|m| m.next_token) {
+                        Some(next) => next_token = Some(PaginationToken36(next.0)),
+                        None => break,
+                    }
+                }
+                let sliced: Vec<Tweet> = projected
+                    .into_iter()
+                    .skip(req.offset as usize)
+                    .take(req.count as usize)
                     .collect();
-                let body = serde_json::to_string(&projected)?;
+                let body = serde_json::to_string(&sliced)?;
                 Ok(CallToolResult::success(vec![Content::text(body)]))
             }
             .await,
@@ -360,7 +415,7 @@ impl PsychologicalOperationsXApiMcp {
     #[tool(name = "get_bookmarks", description = "Fetch your bookmarked tweets.")]
     async fn get_bookmarks(
         &self,
-        Parameters(_req): Parameters<GetBookmarksRequest>,
+        Parameters(req): Parameters<GetBookmarksRequest>,
         extensions: Extensions,
     ) -> Result<CallToolResult, ErrorData> {
         let tag = self.resolve_session(&extensions).await?.tag.clone();
@@ -370,9 +425,10 @@ impl PsychologicalOperationsXApiMcp {
                 let auth = AuthMode::Agent(tag);
 
                 let user_id = resolve_self_user_id(&http, &auth).await?;
-                let creq = users_id_bookmarks::get::Request {
+                let need = req.offset as usize + req.count as usize;
+                let base = users_id_bookmarks::get::Request {
                     id: UserIdMatchesAuthenticatedUser(user_id),
-                    max_results: Some(100),
+                    max_results: Some(BOOKMARKS_PAGE),
                     pagination_token: None,
                     tweet_fields: Some(vec![
                         params::TweetFields::Attachments,
@@ -395,15 +451,30 @@ impl PsychologicalOperationsXApiMcp {
                     user_fields: Some(vec![params::UserFields::Username]),
                     place_fields: None,
                 };
-                let resp = users_id_bookmarks::http::get(&http, &auth, &creq).await?;
-                let includes = resp.includes.as_ref();
-                let projected: Vec<Tweet> = resp
-                    .data
-                    .unwrap_or_default()
-                    .iter()
-                    .map(|t| project_tweet(t, includes))
+                let mut projected: Vec<Tweet> = Vec::new();
+                let mut pagination_token: Option<PaginationToken36> = None;
+                loop {
+                    let mut creq = base.clone();
+                    creq.pagination_token = pagination_token.clone();
+                    let resp = users_id_bookmarks::http::get(&http, &auth, &creq).await?;
+                    let includes = resp.includes;
+                    for t in resp.data.unwrap_or_default().iter() {
+                        projected.push(project_tweet(t, includes.as_ref()));
+                    }
+                    if projected.len() >= need {
+                        break;
+                    }
+                    match resp.meta.and_then(|m| m.next_token) {
+                        Some(next) => pagination_token = Some(PaginationToken36(next.0)),
+                        None => break,
+                    }
+                }
+                let sliced: Vec<Tweet> = projected
+                    .into_iter()
+                    .skip(req.offset as usize)
+                    .take(req.count as usize)
                     .collect();
-                let body = serde_json::to_string(&projected)?;
+                let body = serde_json::to_string(&sliced)?;
                 Ok(CallToolResult::success(vec![Content::text(body)]))
             }
             .await,
