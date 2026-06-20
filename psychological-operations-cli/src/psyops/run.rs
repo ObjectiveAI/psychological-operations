@@ -670,30 +670,30 @@ async fn run_queries_into(
     };
     for q in queries {
         let auth = AuthMode::Agent(q.agent_tag.clone());
-        match search_recent(http, &auth, &q.query, q.max_posts as usize).await {
-            Ok(posts) => {
-                crate::output::OutputResult::from(crate::events::Event::QueryComplete {
-                    psyop: name.to_string(),
-                    query: q.query.clone(),
-                    count: posts.len(),
-                })
-                .emit();
-                for p in posts {
-                    cands.push(Cand {
-                        post: p,
-                        origin: Origin::Query(q.query.clone()),
-                        arrival: 0,
-                    });
-                }
-            }
-            Err(e) => {
-                crate::output::OutputResult::from(crate::events::Event::QueryFailed {
-                    psyop: name.to_string(),
-                    query: q.query.clone(),
-                    error: e.to_string(),
-                })
-                .emit();
-            }
+        // Keep whatever paginated, even if a later page errored.
+        let (posts, err) = search_recent(http, &auth, &q.query, q.max_posts as usize).await;
+        let count = posts.len();
+        for p in posts {
+            cands.push(Cand {
+                post: p,
+                origin: Origin::Query(q.query.clone()),
+                arrival: 0,
+            });
+        }
+        match err {
+            None => crate::output::OutputResult::from(crate::events::Event::QueryComplete {
+                psyop: name.to_string(),
+                query: q.query.clone(),
+                count,
+            })
+            .emit(),
+            // Partial: the `count` posts above were kept; report the failure.
+            Some(e) => crate::output::OutputResult::from(crate::events::Event::QueryFailed {
+                psyop: name.to_string(),
+                query: q.query.clone(),
+                error: format!("after {count} posts: {e}"),
+            })
+            .emit(),
         }
     }
     Ok(())
@@ -843,12 +843,17 @@ async fn fetch_tweet(http: &Client, auth: &AuthMode, id: &str) -> Result<Option<
 /// Recent-search for `query`, paginating until `max` posts are collected or
 /// the pages run out. `max_results` is left unset (X's default page size);
 /// posts are taken from the top in page order and truncated to `max`.
+///
+/// Returns the posts gathered so far plus an `Option<Error>`: a page fetch
+/// that fails mid-pagination stops the loop but KEEPS everything paginated
+/// before it (the error is returned alongside the partial, not in place of
+/// it). `(posts, None)` means it ran to completion / the cap.
 async fn search_recent(
     http: &Client,
     auth: &AuthMode,
     query: &str,
     max: usize,
-) -> Result<Vec<Post>, Error> {
+) -> (Vec<Post>, Option<Error>) {
     use psychological_operations_sdk::x::tweets::search::recent::get;
     use psychological_operations_sdk::x::tweets::search::recent::http::get as call;
     use psychological_operations_sdk::x::types::PaginationToken36;
@@ -865,9 +870,16 @@ async fn search_recent(
             pagination_token: pagination_token.clone(),
             ..default_recent_request()
         };
-        let resp = call(http, auth, &req)
-            .await
-            .map_err(|e| Error::Other(format!("X /2/tweets/search/recent failed: {e}")))?;
+        let resp = match call(http, auth, &req).await {
+            Ok(r) => r,
+            // Keep what paginated before the failure.
+            Err(e) => {
+                return (
+                    out,
+                    Some(Error::Other(format!("X /2/tweets/search/recent failed: {e}"))),
+                );
+            }
+        };
         let includes = resp.includes;
         for t in resp.data.unwrap_or_default().iter() {
             out.push(tweet_to_post(t, includes.as_ref()));
@@ -882,7 +894,7 @@ async fn search_recent(
             None => break,
         }
     }
-    Ok(out)
+    (out, None)
 }
 
 fn tweet_to_post(
