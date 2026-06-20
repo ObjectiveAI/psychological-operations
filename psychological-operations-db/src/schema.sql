@@ -39,6 +39,18 @@ CREATE TABLE IF NOT EXISTS delivered (
     PRIMARY KEY (psyop, tweet_id)
 );
 
+-- ── stage-pipeline retry ─────────────────────────────────────────────
+-- When a psyop's scoring stages fail, its stage input (the trimmed
+-- candidate Vec<Post>) is saved here as JSONB and the run is NOT stamped.
+-- On the psyop's next run it skips collection/query/filter/dedup/trim and
+-- re-runs the stages on this saved input; the row is cleared on success.
+
+CREATE TABLE IF NOT EXISTS stage_retry (
+    psyop  TEXT   PRIMARY KEY,
+    input  JSONB  NOT NULL,  -- saved stage-pipeline input (Vec<Post>)
+    at     BIGINT NOT NULL   -- unix seconds
+);
+
 -- ── X-API response cache (ported from sdk/x-api-cache.sqlite) ─────────
 
 CREATE TABLE IF NOT EXISTS cache (

@@ -30,6 +30,7 @@ pub mod psyops;
 pub mod queue;
 pub mod quota;
 pub mod reply_queue;
+pub mod retry;
 pub mod x_app;
 
 pub use cookies::{parse_twid, signed_in_x_user_id, CookiesError};

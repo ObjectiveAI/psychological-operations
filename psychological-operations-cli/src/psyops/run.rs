@@ -18,6 +18,11 @@
 //!   delivers survivors to its `agent_tags` (recording them so they are
 //!   never delivered again).
 //!
+//! If a psyop's scoring stages fail, its stage input is saved to the
+//! `stage_retry` ledger and the run is NOT stamped; on the next run that
+//! psyop skips Phase A and the whole candidate pipeline and re-scores the
+//! saved input, clearing it on success.
+//!
 //! NOTHING about the candidate pipeline is persisted — posts, sources,
 //! hydration, scores all live in memory for the lifetime of this call.
 //! Only the per-psyop interval stamp (`psyop_runs`) and the delivered
@@ -88,10 +93,12 @@ async fn run_all_inner(
         (loaded, true)
     };
 
-    // Resolve the runnable set: validate + interval gate + agent-auth gate.
+    // Resolve the runnable set: validate + interval gate + (for normal runs)
+    // agent-auth gate. A psyop with a saved stage-retry input carries it and
+    // takes the retry shortcut (skips collection/scrape, so no auth gate).
     // Each non-runnable psyop emits its own event and is dropped; only db
     // errors abort the batch.
-    let mut runnable: Vec<(String, PsyOp)> = Vec::new();
+    let mut runnable: Vec<(String, PsyOp, Option<Vec<Post>>)> = Vec::new();
     for (name, psyop) in loaded {
         if let Err(reason) = psyop.validate() {
             crate::output::OutputResult::from(crate::events::Event::PsyopInvalidAtRun {
@@ -116,10 +123,21 @@ async fn run_all_inner(
                 continue;
             }
         }
-        // Every agent referenced by queries / for_you must be authed.
-        // Skipped in mock mode — there's no real X auth to check, and the
-        // mock X path needs none.
-        if !ctx.config.mock {
+        // A saved stage-retry input means: re-run the stages on it, skipping
+        // everything up to them.
+        let retry_input: Option<Vec<Post>> = match db.get_stage_retry(&name).await? {
+            Some(v) => match serde_json::from_value::<Vec<Post>>(v) {
+                Ok(posts) => Some(posts),
+                Err(e) => {
+                    emit_run_failed(&name, &format!("corrupt stage_retry: {e}"));
+                    continue;
+                }
+            },
+            None => None,
+        };
+        // Normal runs scrape, so every referenced agent must be authed
+        // (skipped in mock mode, and for retry runs which don't scrape).
+        if retry_input.is_none() && !ctx.config.mock {
             if let Some(agent_tag) = missing_agent_auth(db, &psyop).await? {
                 crate::output::OutputResult::from(crate::events::Event::PsyopAgentNotAuthed {
                     psyop: name.clone(),
@@ -129,13 +147,17 @@ async fn run_all_inner(
                 continue;
             }
         }
-        runnable.push((name, psyop));
+        runnable.push((name, psyop, retry_input));
     }
 
     // ── Phase A — collect + hydrate for_you, once per unique agent ──────
     // Distinct for_you agents across the runnable set, in first-seen order.
+    // Retry psyops don't collect — they re-score a saved input.
     let mut for_you_agents: Vec<String> = Vec::new();
-    for (_, psyop) in &runnable {
+    for (_, psyop, retry_input) in &runnable {
+        if retry_input.is_some() {
+            continue;
+        }
         for fy in psyop.for_you.iter().flatten() {
             if !for_you_agents.contains(&fy.agent_tag) {
                 for_you_agents.push(fy.agent_tag.clone());
@@ -155,8 +177,10 @@ async fn run_all_inner(
             }
             Err(e) => {
                 failed_agents.insert(agent.clone());
-                for (name, psyop) in &runnable {
-                    if psyop.for_you.iter().flatten().any(|fy| &fy.agent_tag == agent) {
+                for (name, psyop, retry_input) in &runnable {
+                    if retry_input.is_none()
+                        && psyop.for_you.iter().flatten().any(|fy| &fy.agent_tag == agent)
+                    {
                         emit_run_failed(name, &format!("for_you collection ({agent}): {e}"));
                     }
                 }
@@ -219,24 +243,32 @@ async fn run_all_inner(
         })
         .collect();
 
-    // Drop psyops whose for_you collection failed; the rest proceed.
-    let ready: Vec<(String, PsyOp)> = runnable
+    // Drop psyops whose for_you collection failed (retry psyops never
+    // collect, so they're never dropped here); the rest proceed.
+    let ready: Vec<(String, PsyOp, Option<Vec<Post>>)> = runnable
         .into_iter()
-        .filter(|(_, psyop)| {
-            !psyop
-                .for_you
-                .iter()
-                .flatten()
-                .any(|fy| failed_agents.contains(&fy.agent_tag))
+        .filter(|(_, psyop, retry_input)| {
+            retry_input.is_some()
+                || !psyop
+                    .for_you
+                    .iter()
+                    .flatten()
+                    .any(|fy| failed_agents.contains(&fy.agent_tag))
         })
         .collect();
 
     // ── Phase B — score + deliver, concurrently ───────────────────────
     let mut inflight: FuturesUnordered<_> = ready
         .iter()
-        .map(|(name, psyop)| {
+        .map(|(name, psyop, retry_input)| {
             let agent_posts = &agent_posts;
-            async move { (name.as_str(), run_scored(psyop, name, agent_posts, seed, ctx).await) }
+            let retry_input = retry_input.clone();
+            async move {
+                (
+                    name.as_str(),
+                    run_scored(psyop, name, agent_posts, retry_input, seed, ctx).await,
+                )
+            }
         })
         .collect();
     while let Some((name, result)) = inflight.next().await {
@@ -290,72 +322,87 @@ fn emit_run_failed(psyop: &str, error: &str) {
 }
 
 /// Run one psyop: assemble candidates (for_you + conditional queries),
-/// filter → sort → trim → score → deliver, then stamp the interval on
-/// success. Pure in-memory; `agent_posts` is the shared, already-hydrated
-/// for_you data.
+/// filter → sort → dedup → trim → score → deliver, then stamp the interval
+/// on success. Pure in-memory; `agent_posts` is the shared, already-hydrated
+/// for_you data. When `retry_input` is `Some`, everything up to the stages
+/// is skipped and the stages re-run on that saved input.
 async fn run_scored(
     psyop: &PsyOp,
     name: &str,
     agent_posts: &HashMap<String, Vec<Post>>,
+    retry_input: Option<Vec<Post>>,
     seed: Option<i64>,
     ctx: &crate::context::Context,
 ) -> Result<Output, Error> {
-    let http = make_http_client(ctx);
+    // The stage input: a saved retry input, or the full collect→…→trim
+    // pipeline.
+    let trimmed: Vec<Post> = match retry_input {
+        Some(saved) => saved,
+        None => {
+            let http = make_http_client(ctx);
 
-    // 1. Candidates from this psyop's for_you agents (config order). No
-    //    de-dup: the same tweet in two agents' feeds becomes two candidates.
-    let mut cands: Vec<Cand> = Vec::new();
-    for fy in psyop.for_you.iter().flatten() {
-        let Some(posts) = agent_posts.get(&fy.agent_tag) else {
-            continue;
-        };
-        for (idx, post) in posts.iter().enumerate() {
-            cands.push(Cand {
-                post: post.clone(),
-                origin: Origin::ForYou(fy.agent_tag.clone()),
-                arrival: idx,
-            });
+            // 1. Candidates from this psyop's for_you agents (config order).
+            //    No de-dup: a tweet in two agents' feeds becomes two
+            //    candidates.
+            let mut cands: Vec<Cand> = Vec::new();
+            for fy in psyop.for_you.iter().flatten() {
+                let Some(posts) = agent_posts.get(&fy.agent_tag) else {
+                    continue;
+                };
+                for (idx, post) in posts.iter().enumerate() {
+                    cands.push(Cand {
+                        post: post.clone(),
+                        origin: Origin::ForYou(fy.agent_tag.clone()),
+                        arrival: idx,
+                    });
+                }
+            }
+            let had_for_you = !cands.is_empty();
+
+            // 2. Run queries (each as its own agent) per the cost policy.
+            if psyop.query_when_for_you_queued || !had_for_you {
+                run_queries_into(psyop, &http, name, &mut cands).await?;
+            }
+
+            // 3. Filter.
+            let accepted = filter_with_priority(psyop, &cands)?;
+
+            // 4. Priority-bucket sort (for_you interwoven, ahead of queries).
+            let ordered = bucket_sort(psyop, accepted)?;
+
+            // 5. De-duplicate (keep first occurrence), BEFORE the cap so
+            //    max_posts counts distinct tweets.
+            let deduped = dedup_keep_first(ordered.into_iter().map(|a| a.post).collect());
+
+            // 5b. Drop tweets this psyop has already delivered in a prior run.
+            let ids: Vec<String> = deduped.iter().map(|p| p.id.clone()).collect();
+            let already = ctx
+                .db
+                .already_delivered(name, &ids)
+                .await
+                .map_err(Error::from)?;
+            let deduped: Vec<Post> = deduped
+                .into_iter()
+                .filter(|p| !already.contains(&p.id))
+                .collect();
+
+            // 6. Trim to max_posts distinct tweets.
+            deduped.into_iter().take(psyop.max_posts as usize).collect()
         }
-    }
-    let had_for_you = !cands.is_empty();
+    };
 
-    // 2. Run queries (each as its own agent) per the cost policy: queries
-    //    run unless `query_when_for_you_queued` is false AND for_you already
-    //    produced candidates. No min/max bounds — we score whatever the
-    //    sources yield.
-    if psyop.query_when_for_you_queued || !had_for_you {
-        run_queries_into(psyop, &http, name, &mut cands).await?;
-    }
-
-    // 3. Filter.
-    let accepted = filter_with_priority(psyop, &cands)?;
-
-    // 4. Priority-bucket sort (for_you interwoven, ahead of query tweets).
-    let ordered = bucket_sort(psyop, accepted)?;
-
-    // 5. De-duplicate (runs even with no stages, so delivery is
-    //    duplicate-free): keep the first occurrence of each tweet ID — its
-    //    best-ranked position — and drop every later copy. Done BEFORE the
-    //    cap so max_posts counts distinct tweets.
-    let deduped = dedup_keep_first(ordered.into_iter().map(|a| a.post).collect());
-
-    // 5b. Drop tweets this psyop has already delivered in a prior run.
-    let ids: Vec<String> = deduped.iter().map(|p| p.id.clone()).collect();
-    let already = ctx
-        .db
-        .already_delivered(name, &ids)
-        .await
-        .map_err(Error::from)?;
-    let deduped: Vec<Post> = deduped
-        .into_iter()
-        .filter(|p| !already.contains(&p.id))
-        .collect();
-
-    // 6. Trim to max_posts distinct tweets.
-    let trimmed: Vec<Post> = deduped.into_iter().take(psyop.max_posts as usize).collect();
-
-    // 7. Score.
-    let result = score_pipeline(psyop, name, trimmed, seed, ctx).await?;
+    // 7. Score. On stage-pipeline failure, persist the input for retry and
+    //    bail WITHOUT stamping the run, so the next run re-scores it.
+    let result = match score_pipeline(psyop, name, trimmed.clone(), seed, ctx).await {
+        Ok(r) => r,
+        Err(e) => {
+            if let Ok(input) = serde_json::to_value(&trimmed) {
+                // Best-effort: the stage error is the failure we report.
+                let _ = ctx.db.save_stage_retry(name, &input).await;
+            }
+            return Err(e);
+        }
+    };
 
     // 8. Deliver survivors to each configured agent + mark them delivered,
     //    all concurrently. Deliveries do NOT cancel each other on the first
@@ -394,7 +441,8 @@ async fn run_scored(
         }
     }
 
-    // Stamp the interval throttle only on success.
+    // Stages succeeded — clear any pending retry, then stamp the interval.
+    ctx.db.delete_stage_retry(name).await.map_err(Error::from)?;
     db_set_last_run(ctx, name).await?;
     Ok(Output::Ok)
 }

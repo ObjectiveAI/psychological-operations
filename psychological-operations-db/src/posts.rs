@@ -21,7 +21,9 @@ pub struct MediaUrl {
 
 /// Canonical tweet content + engagement metadata — the in-memory shape
 /// scraped/queried/hydrated tweets take through the run pipeline.
-#[derive(Debug, Clone)]
+/// `Serialize`/`Deserialize` so the stage-retry ledger can persist a
+/// failed run's stage input as JSONB.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Post {
     pub id: String,
     pub handle: String,
