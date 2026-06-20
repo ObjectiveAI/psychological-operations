@@ -453,6 +453,7 @@ pub fn query_psyop(query: &str, stages: Vec<Stage>) -> PsyOp {
             Some(stages)
         },
         agent_tags: Vec::new(),
+        message: "test psyop".to_string(),
     }
 }
 

@@ -68,6 +68,7 @@ CREATE TABLE IF NOT EXISTS queue (
     score                              DOUBLE PRECISION,
     deliverer_agent_instance_hierarchy TEXT,
     message                            TEXT,
+    run_id                             TEXT,
     queued_at                          BIGINT NOT NULL,
     PRIMARY KEY (agent_tag, tweet_id)
 );

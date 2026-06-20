@@ -37,6 +37,7 @@ async fn run_inner(
                 ctx.config.objectiveai_agent_instance_hierarchy.clone(),
             ),
             message: Some(message.to_string()),
+            run_id: None,
             queued_at: unix_now(),
         })
         .await

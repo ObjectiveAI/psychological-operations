@@ -4,11 +4,12 @@
 //! agent, **not** partitioned by operator. Two sources write:
 //!
 //! - **Psyop pipelines** — a survivor lands here with `psyop = Some(name)`
-//!   + `score = Some(value)` + no `deliverer_agent_instance_hierarchy` /
-//!   `message`.
+//!   + `score = Some(value)` + `run_id = Some(id)` (shared by every row a
+//!   single psyop run enqueues, so readers can group them) + the running
+//!   agent's `deliverer_agent_instance_hierarchy` + no `message`.
 //! - **`agents enqueue`** — an operator flags a tweet for an agent with
 //!   `message = Some(note)` + the caller's
-//!   `deliverer_agent_instance_hierarchy` + no `psyop` / `score`.
+//!   `deliverer_agent_instance_hierarchy` + no `psyop` / `score` / `run_id`.
 //!
 //! The `agent_tag` is the agent's tag (the only agent identity). Agent-
 //! side, the `read_queue` MCP tool lists pending entries and
@@ -31,6 +32,10 @@ pub struct QueueEntry {
     pub deliverer_agent_instance_hierarchy: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
+    /// Shared by every row a single psyop run enqueues (so the MCP can
+    /// group them into one item); `None` for operator-enqueued rows.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub run_id: Option<String>,
     pub queued_at: i64,
 }
 
@@ -41,13 +46,14 @@ impl Db {
         sqlx::query(
             "INSERT INTO queue \
              (agent_tag, tweet_id, psyop, score, \
-              deliverer_agent_instance_hierarchy, message, queued_at) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7) \
+              deliverer_agent_instance_hierarchy, message, run_id, queued_at) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8) \
              ON CONFLICT (agent_tag, tweet_id) DO UPDATE SET \
               psyop = excluded.psyop, \
               score = excluded.score, \
               deliverer_agent_instance_hierarchy = excluded.deliverer_agent_instance_hierarchy, \
               message = excluded.message, \
+              run_id = excluded.run_id, \
               queued_at = excluded.queued_at",
         )
         .bind(&entry.agent_tag)
@@ -56,6 +62,7 @@ impl Db {
         .bind(entry.score)
         .bind(entry.deliverer_agent_instance_hierarchy.as_deref())
         .bind(entry.message.as_deref())
+        .bind(entry.run_id.as_deref())
         .bind(entry.queued_at)
         .execute(&self.pool)
         .await?;
@@ -66,7 +73,7 @@ impl Db {
     pub async fn queue_list(&self, agent_tag: &str) -> Result<Vec<QueueEntry>, Error> {
         let rows = sqlx::query(
             "SELECT agent_tag, tweet_id, psyop, score, \
-                    deliverer_agent_instance_hierarchy, message, queued_at \
+                    deliverer_agent_instance_hierarchy, message, run_id, queued_at \
              FROM queue \
              WHERE agent_tag = $1 \
              ORDER BY queued_at ASC",
@@ -131,6 +138,7 @@ fn row_to_entry(row: sqlx::postgres::PgRow) -> QueueEntry {
         deliverer_agent_instance_hierarchy: row
             .get::<Option<String>, _>("deliverer_agent_instance_hierarchy"),
         message: row.get::<Option<String>, _>("message"),
+        run_id: row.get::<Option<String>, _>("run_id"),
         queued_at: row.get("queued_at"),
     }
 }

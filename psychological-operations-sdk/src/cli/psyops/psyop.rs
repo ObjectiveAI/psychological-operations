@@ -80,6 +80,12 @@ pub struct PsyOp {
     /// no delivery.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub agent_tags: Vec<String>,
+
+    /// Human-facing note delivered to agents alongside this psyop's queued
+    /// tweets. Read by the `read_queue` MCP tool (by psyop name, at read
+    /// time — not stored on the queue rows) and shown on each psyop-run
+    /// group so the agent knows what the run is for / how to engage.
+    pub message: String,
 }
 
 fn default_true() -> bool {

@@ -425,6 +425,10 @@ async fn run_scored(
     if !result.survivors.is_empty() && !psyop.agent_tags.is_empty() {
         use futures::future::FutureExt;
         let now = chrono::Utc::now().timestamp();
+        // One id for this psyop run, stamped on every row it enqueues (across
+        // all agents) so `read_queue` can group the run's tweets into a single
+        // item. Random 128-bit hex — unique enough across runs.
+        let run_id = format!("{:032x}", rand::random::<u128>());
         let survivors: Vec<(String, f64)> = result
             .survivors
             .iter()
@@ -435,7 +439,7 @@ async fn run_scored(
         let mut tasks: Vec<futures::future::BoxFuture<'_, Result<(), Error>>> = psyop
             .agent_tags
             .iter()
-            .map(|agent_tag| deliver_to_agent(ctx, name, agent_tag, &survivors, now).boxed())
+            .map(|agent_tag| deliver_to_agent(ctx, name, agent_tag, &survivors, &run_id, now).boxed())
             .collect();
         // Mark every tweet output for delivery so this psyop never re-delivers it.
         tasks.push(
@@ -487,6 +491,7 @@ async fn deliver_to_agent(
     psyop: &str,
     agent_tag: &str,
     survivors: &[(String, f64)],
+    run_id: &str,
     now: i64,
 ) -> Result<(), Error> {
     for (tweet_id, score) in survivors {
@@ -496,8 +501,11 @@ async fn deliver_to_agent(
                 tweet_id: tweet_id.clone(),
                 psyop: Some(psyop.to_string()),
                 score: Some(*score),
-                deliverer_agent_instance_hierarchy: None,
+                deliverer_agent_instance_hierarchy: Some(
+                    ctx.config.objectiveai_agent_instance_hierarchy.clone(),
+                ),
                 message: None,
+                run_id: Some(run_id.to_string()),
                 queued_at: now,
             })
             .await
