@@ -36,6 +36,8 @@ export interface Query {
   query: string;
   // The agent whose auth this query is scraped as.
   agent_tag: string;
+  // Max posts to pull from this query (recent-search paginates up to this).
+  max_posts: number;
   priority?: number;
   filter?: Filter;
 }

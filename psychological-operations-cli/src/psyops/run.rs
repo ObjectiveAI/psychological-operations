@@ -670,7 +670,7 @@ async fn run_queries_into(
     };
     for q in queries {
         let auth = AuthMode::Agent(q.agent_tag.clone());
-        match search_recent(http, &auth, &q.query).await {
+        match search_recent(http, &auth, &q.query, q.max_posts as usize).await {
             Ok(posts) => {
                 crate::output::OutputResult::from(crate::events::Event::QueryComplete {
                     psyop: name.to_string(),
@@ -840,25 +840,49 @@ async fn fetch_tweet(http: &Client, auth: &AuthMode, id: &str) -> Result<Option<
     Ok(Some(tweet_to_post(&tweet, resp.includes.as_ref())))
 }
 
-async fn search_recent(http: &Client, auth: &AuthMode, query: &str) -> Result<Vec<Post>, Error> {
+/// Recent-search for `query`, paginating until `max` posts are collected or
+/// the pages run out. `max_results` is left unset (X's default page size);
+/// posts are taken from the top in page order and truncated to `max`.
+async fn search_recent(
+    http: &Client,
+    auth: &AuthMode,
+    query: &str,
+    max: usize,
+) -> Result<Vec<Post>, Error> {
     use psychological_operations_sdk::x::tweets::search::recent::get;
     use psychological_operations_sdk::x::tweets::search::recent::http::get as call;
-    let req = get::Request {
-        query: query.to_string(),
-        tweet_fields: Some(standard_tweet_fields()),
-        expansions: Some(vec![TweetExpansions::AuthorId]),
-        user_fields: Some(vec![UserFields::Username]),
-        max_results: Some(100),
-        ..default_recent_request()
-    };
-    let resp = call(http, auth, &req)
-        .await
-        .map_err(|e| Error::Other(format!("X /2/tweets/search/recent failed: {e}")))?;
-    let tweets = resp.data.unwrap_or_default();
-    Ok(tweets
-        .iter()
-        .map(|t| tweet_to_post(t, resp.includes.as_ref()))
-        .collect())
+    use psychological_operations_sdk::x::types::PaginationToken36;
+
+    let mut out: Vec<Post> = Vec::new();
+    let mut pagination_token: Option<PaginationToken36> = None;
+    loop {
+        let req = get::Request {
+            query: query.to_string(),
+            tweet_fields: Some(standard_tweet_fields()),
+            expansions: Some(vec![TweetExpansions::AuthorId]),
+            user_fields: Some(vec![UserFields::Username]),
+            max_results: None,
+            pagination_token: pagination_token.clone(),
+            ..default_recent_request()
+        };
+        let resp = call(http, auth, &req)
+            .await
+            .map_err(|e| Error::Other(format!("X /2/tweets/search/recent failed: {e}")))?;
+        let includes = resp.includes;
+        for t in resp.data.unwrap_or_default().iter() {
+            out.push(tweet_to_post(t, includes.as_ref()));
+        }
+        if out.len() >= max {
+            out.truncate(max);
+            break;
+        }
+        // More pages? Carry the cursor forward; stop when exhausted.
+        match resp.meta.and_then(|m| m.next_token) {
+            Some(next) => pagination_token = Some(PaginationToken36(next.0)),
+            None => break,
+        }
+    }
+    Ok(out)
 }
 
 fn tweet_to_post(

@@ -69,7 +69,7 @@ Each psyop is a `psyop.json` published into a git repo (the commit SHA is part o
 **Sources** — where candidate tweets come from.
 
 - `for_you` — the algorithmic timeline. Captured passively by the Chromium extension as the psyop's account browses x.com. Optional `priority` and `filter`.
-- `queries` — a list of X v2 search-operator strings (e.g. `from:user has:media -is:retweet`), each hitting `/2/tweets/search/recent` (the 7-day window, all X access tiers). Each query has its own optional `priority` and `filter`.
+- `queries` — a list of X v2 search-operator strings (e.g. `from:user has:media -is:retweet`), each hitting `/2/tweets/search/recent` (the 7-day window, all X access tiers). Each query requires an `agent_tag` (whose auth it scrapes as) and a `max_posts` (how many to paginate up to), plus optional `priority` and `filter`.
 
 Tweets that show up in both sources are deduped; the priority across accepting sources wins.
 
@@ -99,7 +99,7 @@ A minimal example:
 {
   "for_you": { "filter": { "min_impressions": 1000 } },
   "queries": [
-    { "query": "from:vitalikbuterin -is:retweet", "agent_tag": "riddler", "priority": 10 }
+    { "query": "from:vitalikbuterin -is:retweet", "agent_tag": "riddler", "max_posts": 100, "priority": 10 }
   ],
   "min_posts": 5,
   "max_posts": 100,

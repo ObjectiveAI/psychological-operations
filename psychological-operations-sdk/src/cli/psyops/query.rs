@@ -13,6 +13,10 @@ pub struct Query {
     /// search call to X acts as this agent (`AuthMode::Agent`), and the
     /// run-time pre-flight refuses the psyop if the agent isn't authed.
     pub agent_tag: String,
+    /// Max posts to pull from this query. Required. The recent-search call
+    /// paginates (oldest pages last), taking from the top until it has this
+    /// many posts or the pages run out. Must be > 0.
+    pub max_posts: u64,
     /// Priority bucket for ordering the candidate union: smaller numbers
     /// come first; `None` ranks below every `Some(_)`. Within a bucket,
     /// for_you tweets interweave by arrival ahead of query tweets (which
@@ -35,6 +39,9 @@ impl Query {
         }
         if self.agent_tag.trim().is_empty() {
             return Err("agent_tag must not be empty".into());
+        }
+        if self.max_posts == 0 {
+            return Err("max_posts must be > 0".into());
         }
         if let Some(f) = &self.filter {
             f.validate().map_err(|e| format!("filter: {e}"))?;
