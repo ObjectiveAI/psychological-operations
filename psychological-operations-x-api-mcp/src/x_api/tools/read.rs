@@ -131,7 +131,7 @@ const BOOKMARKS_PAGE: i32 = 100;
 const MAX_COUNT: u32 = 100;
 
 /// Reject a `count` over [`MAX_COUNT`] with an agent-visible message.
-fn check_count(count: u32) -> Result<(), ToolError> {
+pub(super) fn check_count(count: u32) -> Result<(), ToolError> {
     if count > MAX_COUNT {
         return Err(ToolError::agent(format!(
             "count is {count}, over the {MAX_COUNT} max — request {MAX_COUNT} or fewer."
@@ -144,7 +144,12 @@ fn check_count(count: u32) -> Result<(), ToolError> {
 /// items past the returned window, prefixed `over ` when a continuation
 /// token was present (so the number is a lower bound, not exact). Generic —
 /// `N == 0` renders naturally as `"0 remaining"` / `"over 0 remaining"`.
-fn remaining_note(total_fetched: usize, offset: usize, count: usize, has_more: bool) -> String {
+pub(super) fn remaining_note(
+    total_fetched: usize,
+    offset: usize,
+    count: usize,
+    has_more: bool,
+) -> String {
     let remaining = total_fetched.saturating_sub(offset + count);
     format!("{}{remaining} remaining", if has_more { "over " } else { "" })
 }

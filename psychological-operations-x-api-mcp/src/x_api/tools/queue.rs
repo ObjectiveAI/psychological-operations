@@ -9,9 +9,15 @@ use rmcp::{ErrorData, handler::server::wrapper::Parameters, schemars, tool, tool
 
 use super::super::PsychologicalOperationsXApiMcp;
 use super::super::tool_error::{ToolError, finish};
+use super::read::{check_count, remaining_note};
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
-pub struct ReadQueueRequest {}
+pub struct ReadQueueRequest {
+    #[schemars(description = "How many queued tweets to return (window size; max 100).")]
+    pub count: u32,
+    #[schemars(description = "How many queued tweets to skip before the window.")]
+    pub offset: u32,
+}
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct MarkHandledRequest {
@@ -27,17 +33,36 @@ impl PsychologicalOperationsXApiMcp {
     )]
     async fn read_queue(
         &self,
-        Parameters(_req): Parameters<ReadQueueRequest>,
+        Parameters(req): Parameters<ReadQueueRequest>,
         extensions: Extensions,
-    ) -> Result<String, ErrorData> {
+    ) -> Result<CallToolResult, ErrorData> {
         let tag = self.resolve_session(&extensions).await?.tag.clone();
-        let entries = self
-            .db
-            .queue_list(&tag)
-            .await
-            .map_err(|e| ErrorData::internal_error(format!("queue list: {e}"), None))?;
-        serde_json::to_string(&entries)
-            .map_err(|e| ErrorData::internal_error(format!("serialize: {e}"), None))
+        finish(
+            async move {
+                check_count(req.count)?;
+                let entries = self.db.queue_list(&tag).await?;
+                // The whole per-agent queue is in hand, so `remaining` is
+                // exact (never `over `): this is a complete DB list, not a
+                // cursor source.
+                let note = remaining_note(
+                    entries.len(),
+                    req.offset as usize,
+                    req.count as usize,
+                    false,
+                );
+                let window: Vec<_> = entries
+                    .into_iter()
+                    .skip(req.offset as usize)
+                    .take(req.count as usize)
+                    .collect();
+                let body = serde_json::to_string(&window)?;
+                Ok(CallToolResult::success(vec![
+                    Content::text(body),
+                    Content::text(note),
+                ]))
+            }
+            .await,
+        )
     }
 
     #[tool(
