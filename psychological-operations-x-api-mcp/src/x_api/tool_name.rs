@@ -20,14 +20,14 @@ pub enum Direction {
 /// set round-trips against the live tool router.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ToolName {
-    GetReplies,
+    ListReplies,
     GetBio,
     GetProfilePicture,
     GetTweet,
     OpenAttachment,
     RunQuery,
     Whoami,
-    GetBookmarks,
+    ListBookmarks,
     ListFollowing,
     ListFollowers,
     Post,
@@ -43,14 +43,14 @@ pub enum ToolName {
 impl ToolName {
     /// Every metered tool, in a stable order (clap value list + tests).
     pub const ALL: [ToolName; 18] = [
-        ToolName::GetReplies,
+        ToolName::ListReplies,
         ToolName::GetBio,
         ToolName::GetProfilePicture,
         ToolName::GetTweet,
         ToolName::OpenAttachment,
         ToolName::RunQuery,
         ToolName::Whoami,
-        ToolName::GetBookmarks,
+        ToolName::ListBookmarks,
         ToolName::ListFollowing,
         ToolName::ListFollowers,
         ToolName::Post,
@@ -67,14 +67,14 @@ impl ToolName {
     pub fn as_name(self) -> &'static str {
         use ToolName::*;
         match self {
-            GetReplies => "get_replies",
+            ListReplies => "list_replies",
             GetBio => "get_bio",
             GetProfilePicture => "get_profile_picture",
             GetTweet => "get_tweet",
             OpenAttachment => "open_attachment",
             RunQuery => "run_query",
             Whoami => "whoami",
-            GetBookmarks => "get_bookmarks",
+            ListBookmarks => "list_bookmarks",
             ListFollowing => "list_following",
             ListFollowers => "list_followers",
             Post => "post",
@@ -98,8 +98,8 @@ impl ToolName {
     pub fn direction(self) -> Direction {
         use ToolName::*;
         match self {
-            GetReplies | GetBio | GetProfilePicture | GetTweet | OpenAttachment | RunQuery
-            | Whoami | GetBookmarks | ListFollowing | ListFollowers => Direction::Read,
+            ListReplies | GetBio | GetProfilePicture | GetTweet | OpenAttachment | RunQuery
+            | Whoami | ListBookmarks | ListFollowing | ListFollowers => Direction::Read,
             Post | Reply | Quote | Like | Retweet | Bookmark | Follow | Unfollow => {
                 Direction::Write
             }

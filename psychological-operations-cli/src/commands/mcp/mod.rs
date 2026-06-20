@@ -84,8 +84,8 @@ pub enum XApiCommands {
         quota_write: Option<String>,
         #[arg(long = "quota_interval")]
         quota_interval: Option<String>,
-        #[arg(long = "quota_usage_get_replies")]
-        quota_usage_get_replies: Option<String>,
+        #[arg(long = "quota_usage_list_replies")]
+        quota_usage_list_replies: Option<String>,
         #[arg(long = "quota_usage_get_bio")]
         quota_usage_get_bio: Option<String>,
         #[arg(long = "quota_usage_get_profile_picture")]
@@ -98,8 +98,8 @@ pub enum XApiCommands {
         quota_usage_run_query: Option<String>,
         #[arg(long = "quota_usage_whoami")]
         quota_usage_whoami: Option<String>,
-        #[arg(long = "quota_usage_get_bookmarks")]
-        quota_usage_get_bookmarks: Option<String>,
+        #[arg(long = "quota_usage_list_bookmarks")]
+        quota_usage_list_bookmarks: Option<String>,
         #[arg(long = "quota_usage_post")]
         quota_usage_post: Option<String>,
         #[arg(long = "quota_usage_reply")]

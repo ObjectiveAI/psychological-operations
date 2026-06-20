@@ -121,7 +121,7 @@ pub(super) async fn send_create_tweet(
 
 /// Resolve the authenticated user's numeric id via `/users/me`.
 /// Used by the engagement tools (like / retweet / bookmark /
-/// get_bookmarks) that need the acting user id in the URL path.
+/// list_bookmarks) that need the acting user id in the URL path.
 pub(super) async fn resolve_self_user_id(
     http: &Client,
     auth: &AuthMode,

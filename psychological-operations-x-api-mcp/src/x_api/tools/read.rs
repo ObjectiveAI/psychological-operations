@@ -1,4 +1,4 @@
-//! Read tools — pure-GET endpoints. `get_bookmarks` lives here too
+//! Read tools — pure-GET endpoints. `list_bookmarks` lives here too
 //! even though its endpoint shares a URL prefix with the `bookmark`
 //! write: the GET is a read.
 //!
@@ -38,7 +38,7 @@ use super::super::projection::{lookup_attachment, project_tweet};
 use super::super::tool_error::{ToolError, finish};
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
-pub struct GetRepliesRequest {
+pub struct ListRepliesRequest {
     #[schemars(description = "Numeric ID of the tweet whose replies you want.")]
     pub tweet_id: String,
     #[schemars(description = "How many replies to return (after skipping `offset`; max 100).")]
@@ -87,7 +87,7 @@ pub struct RunQueryRequest {
 pub struct WhoamiRequest {}
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
-pub struct GetBookmarksRequest {
+pub struct ListBookmarksRequest {
     #[schemars(description = "How many bookmarks to return (after skipping `offset`; max 100).")]
     pub count: u32,
     #[schemars(description = "How many bookmarks to skip from the start.")]
@@ -121,7 +121,7 @@ pub struct ListFollowersRequest {
 const FOLLOW_LIST_PAGE: i32 = 1000;
 
 /// X's max page size for `/2/tweets/search/recent` (used by `run_query` +
-/// `get_replies`). Full pages for the same fewer-requests / cache reasons.
+/// `list_replies`). Full pages for the same fewer-requests / cache reasons.
 const SEARCH_PAGE: i32 = 100;
 
 /// X's max page size for `/2/users/{id}/bookmarks`.
@@ -172,10 +172,10 @@ fn project_user(u: User) -> ListedUser {
 
 #[tool_router(router = read_tools, vis = "pub")]
 impl PsychologicalOperationsXApiMcp {
-    #[tool(name = "get_replies", description = "Fetch recent replies to a tweet.")]
-    async fn get_replies(
+    #[tool(name = "list_replies", description = "Fetch recent replies to a tweet.")]
+    async fn list_replies(
         &self,
-        Parameters(req): Parameters<GetRepliesRequest>,
+        Parameters(req): Parameters<ListRepliesRequest>,
         extensions: Extensions,
     ) -> Result<CallToolResult, ErrorData> {
         let tag = self.resolve_session(&extensions).await?.tag.clone();
@@ -461,10 +461,10 @@ impl PsychologicalOperationsXApiMcp {
         )
     }
 
-    #[tool(name = "get_bookmarks", description = "Fetch your bookmarked tweets.")]
-    async fn get_bookmarks(
+    #[tool(name = "list_bookmarks", description = "Fetch your bookmarked tweets.")]
+    async fn list_bookmarks(
         &self,
-        Parameters(req): Parameters<GetBookmarksRequest>,
+        Parameters(req): Parameters<ListBookmarksRequest>,
         extensions: Extensions,
     ) -> Result<CallToolResult, ErrorData> {
         let tag = self.resolve_session(&extensions).await?.tag.clone();
