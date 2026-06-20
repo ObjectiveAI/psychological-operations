@@ -13,13 +13,12 @@
 
 use psychological_operations_db::{ReplyQuoteEntry, unix_now};
 use psychological_operations_sdk::x::Error as XError;
-use psychological_operations_sdk::x::client::{AuthMode, Client};
+use psychological_operations_sdk::x::client::AuthMode;
 use psychological_operations_sdk::x::types::{
     BookmarkAddRequest, Problem, TweetCreateRequest, TweetCreateRequestReply, TweetId, TweetText,
-    UserId, UserIdMatchesAuthenticatedUser, UsersFollowingCreateRequest, UsersLikesCreateRequest,
+    UserIdMatchesAuthenticatedUser, UsersFollowingCreateRequest, UsersLikesCreateRequest,
     UsersRetweetsCreateRequest,
 };
-use psychological_operations_sdk::x::users::by::username::username as users_by_username;
 use psychological_operations_sdk::x::users::id::bookmarks as users_id_bookmarks;
 use psychological_operations_sdk::x::users::id::following as users_id_following;
 use psychological_operations_sdk::x::users::id::likes as users_id_likes;
@@ -29,7 +28,9 @@ use rmcp::model::{CallToolResult, Content, Extensions};
 use rmcp::{ErrorData, handler::server::wrapper::Parameters, schemars, tool, tool_router};
 
 use super::super::PsychologicalOperationsXApiMcp;
-use super::super::builders::{empty_tweet_create_request, resolve_self_user_id, send_create_tweet};
+use super::super::builders::{
+    empty_tweet_create_request, resolve_handle_user_id, resolve_self_user_id, send_create_tweet,
+};
 use super::super::tool_error::{ToolError, finish};
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
@@ -350,26 +351,6 @@ impl PsychologicalOperationsXApiMcp {
             .await,
         )
     }
-}
-
-/// Resolve a handle (username) to its X user id, acting as the session.
-/// A handle X doesn't know surfaces as an agent-visible error result so the
-/// agent can correct it.
-async fn resolve_handle_user_id(
-    http: &Client,
-    auth: &AuthMode,
-    handle: String,
-) -> Result<UserId, ToolError> {
-    let creq = users_by_username::get::Request {
-        username: handle.clone(),
-        user_fields: None,
-        expansions: None,
-        tweet_fields: None,
-    };
-    let resp = users_by_username::http::get(http, auth, &creq).await?;
-    resp.data
-        .map(|u| u.id)
-        .ok_or_else(|| ToolError::agent(format!("no X user found for handle @{handle}")))
 }
 
 /// X's standard tweet character limit. Posts/replies/quotes over this are

@@ -18,17 +18,19 @@ use psychological_operations_sdk::x::params;
 use psychological_operations_sdk::x::tweets::id as tweets_id;
 use psychological_operations_sdk::x::tweets::search::recent as tweets_search_recent;
 use psychological_operations_sdk::x::types::{
-    TweetReferencedTweetsItemType, UserIdMatchesAuthenticatedUser,
+    PaginationToken32, TweetReferencedTweetsItemType, User, UserIdMatchesAuthenticatedUser,
 };
 use psychological_operations_sdk::x::users::by::username::username as users_by_username;
 use psychological_operations_sdk::x::users::id::bookmarks as users_id_bookmarks;
+use psychological_operations_sdk::x::users::id::followers as users_id_followers;
+use psychological_operations_sdk::x::users::id::following as users_id_following;
 use psychological_operations_sdk::x::users::me as users_me;
 use rmcp::model::{CallToolResult, Content, Extensions};
 use rmcp::{ErrorData, handler::server::wrapper::Parameters, schemars, tool, tool_router};
 
 use super::super::PsychologicalOperationsXApiMcp;
 use super::super::builders::{
-    resolve_self_user_id, standard_search_request, standard_tweet_request,
+    resolve_handle_user_id, resolve_self_user_id, standard_search_request, standard_tweet_request,
 };
 use super::super::model::{AttachmentKind, FetchedAttachment, Tweet};
 use super::super::projection::{lookup_attachment, project_tweet};
@@ -77,6 +79,48 @@ pub struct WhoamiRequest {}
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct GetBookmarksRequest {}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct ListFollowingRequest {
+    #[schemars(description = "X handle without the leading @ whose following list you want.")]
+    pub handle: String,
+    #[schemars(description = "How many accounts to return (after skipping `offset`).")]
+    pub count: u32,
+    #[schemars(description = "How many accounts to skip from the start of the list.")]
+    pub offset: u32,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct ListFollowersRequest {
+    #[schemars(description = "X handle without the leading @ whose followers list you want.")]
+    pub handle: String,
+    #[schemars(description = "How many accounts to return (after skipping `offset`).")]
+    pub count: u32,
+    #[schemars(description = "How many accounts to skip from the start of the list.")]
+    pub offset: u32,
+}
+
+/// X's max page size for the followers / following endpoints. We always
+/// request full pages (rather than capping at the caller's `offset + count`)
+/// so each page fetch is identical regardless of the requested slice — the
+/// response cache can then serve it across calls.
+const FOLLOW_LIST_PAGE: i32 = 1000;
+
+/// One entry in a `list_following` / `list_followers` result.
+#[derive(serde::Serialize)]
+struct ListedUser {
+    id: String,
+    username: String,
+    name: String,
+}
+
+fn project_user(u: User) -> ListedUser {
+    ListedUser {
+        id: u.id.0,
+        username: u.username.0,
+        name: u.name,
+    }
+}
 
 #[tool_router(router = read_tools, vis = "pub")]
 impl PsychologicalOperationsXApiMcp {
@@ -360,6 +404,108 @@ impl PsychologicalOperationsXApiMcp {
                     .map(|t| project_tweet(t, includes))
                     .collect();
                 let body = serde_json::to_string(&projected)?;
+                Ok(CallToolResult::success(vec![Content::text(body)]))
+            }
+            .await,
+        )
+    }
+
+    #[tool(
+        name = "list_following",
+        description = "List the accounts an X user (by handle) follows."
+    )]
+    async fn list_following(
+        &self,
+        Parameters(req): Parameters<ListFollowingRequest>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, ErrorData> {
+        let tag = self.resolve_session(&extensions).await?.tag.clone();
+        finish(
+            async move {
+                let http = self.build_client();
+                let auth = AuthMode::Agent(tag);
+
+                let target = resolve_handle_user_id(&http, &auth, req.handle).await?;
+                let need = req.offset as usize + req.count as usize;
+                let mut users: Vec<User> = Vec::new();
+                let mut pagination_token: Option<PaginationToken32> = None;
+                loop {
+                    let creq = users_id_following::get::Request {
+                        id: target.clone(),
+                        max_results: Some(FOLLOW_LIST_PAGE),
+                        pagination_token: pagination_token.clone(),
+                        user_fields: None,
+                        expansions: None,
+                        tweet_fields: None,
+                    };
+                    let resp = users_id_following::http::get(&http, &auth, &creq).await?;
+                    users.extend(resp.data.unwrap_or_default());
+                    if users.len() >= need {
+                        break;
+                    }
+                    match resp.meta.and_then(|m| m.next_token) {
+                        Some(next) => pagination_token = Some(PaginationToken32(next.0)),
+                        None => break,
+                    }
+                }
+                let listed: Vec<ListedUser> = users
+                    .into_iter()
+                    .skip(req.offset as usize)
+                    .take(req.count as usize)
+                    .map(project_user)
+                    .collect();
+                let body = serde_json::to_string(&listed)?;
+                Ok(CallToolResult::success(vec![Content::text(body)]))
+            }
+            .await,
+        )
+    }
+
+    #[tool(
+        name = "list_followers",
+        description = "List the accounts that follow an X user (by handle)."
+    )]
+    async fn list_followers(
+        &self,
+        Parameters(req): Parameters<ListFollowersRequest>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, ErrorData> {
+        let tag = self.resolve_session(&extensions).await?.tag.clone();
+        finish(
+            async move {
+                let http = self.build_client();
+                let auth = AuthMode::Agent(tag);
+
+                let target = resolve_handle_user_id(&http, &auth, req.handle).await?;
+                let need = req.offset as usize + req.count as usize;
+                let mut users: Vec<User> = Vec::new();
+                let mut pagination_token: Option<PaginationToken32> = None;
+                loop {
+                    let creq = users_id_followers::get::Request {
+                        id: target.clone(),
+                        max_results: Some(FOLLOW_LIST_PAGE),
+                        pagination_token: pagination_token.clone(),
+                        user_fields: None,
+                        expansions: None,
+                        tweet_fields: None,
+                    };
+                    let resp = users_id_followers::http::get(&http, &auth, &creq).await?;
+                    users.extend(resp.data.unwrap_or_default());
+                    if users.len() >= need {
+                        break;
+                    }
+                    match resp.meta.and_then(|m| m.next_token) {
+                        Some(next) => pagination_token = Some(PaginationToken32(next.0)),
+                        None => break,
+                    }
+                }
+                let listed: Vec<ListedUser> = users
+                    .into_iter()
+                    .skip(req.offset as usize)
+                    .take(req.count as usize)
+                    .map(project_user)
+                    .collect();
+                let body = serde_json::to_string(&listed)?;
                 Ok(CallToolResult::success(vec![Content::text(body)]))
             }
             .await,

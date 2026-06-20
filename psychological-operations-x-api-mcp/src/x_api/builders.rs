@@ -10,7 +10,8 @@ use psychological_operations_sdk::x::params;
 use psychological_operations_sdk::x::tweets as tweets_root;
 use psychological_operations_sdk::x::tweets::id as tweets_id;
 use psychological_operations_sdk::x::tweets::search::recent as tweets_search_recent;
-use psychological_operations_sdk::x::types::{TweetCreateRequest, TweetId};
+use psychological_operations_sdk::x::types::{TweetCreateRequest, TweetId, UserId};
+use psychological_operations_sdk::x::users::by::username::username as users_by_username;
 use psychological_operations_sdk::x::users::me as users_me;
 use rmcp::ErrorData;
 
@@ -140,4 +141,25 @@ pub(super) async fn resolve_self_user_id(
         ))
     })?;
     Ok(user.id.0)
+}
+
+/// Resolve a handle (username) to its X user id, acting as the session.
+/// A handle X doesn't know surfaces as an agent-visible error result so the
+/// agent can correct it. Shared by the follow/unfollow write tools and the
+/// list_following/list_followers read tools.
+pub(super) async fn resolve_handle_user_id(
+    http: &Client,
+    auth: &AuthMode,
+    handle: String,
+) -> Result<UserId, ToolError> {
+    let creq = users_by_username::get::Request {
+        username: handle.clone(),
+        user_fields: None,
+        expansions: None,
+        tweet_fields: None,
+    };
+    let resp = users_by_username::http::get(http, auth, &creq).await?;
+    resp.data
+        .map(|u| u.id)
+        .ok_or_else(|| ToolError::agent(format!("no X user found for handle @{handle}")))
 }
