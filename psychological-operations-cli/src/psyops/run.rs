@@ -10,9 +10,10 @@
 //!   hydrated via the X API ONCE. The result (`agent → Vec<Post>`, arrival
 //!   order) is shared by every psyop referencing that agent.
 //! * **Phase B — score + deliver per psyop (parallel):** each psyop builds
-//!   its candidate set from its for_you agents (+ its queries, scraped as
-//!   `AuthMode::Agent`, run per the `query_when_for_you_queued` cost
-//!   policy), filters, sorts (for_you interwoven across agents, ahead of
+//!   its candidate set from its for_you agents (+ its queries / timeline /
+//!   mentions, scraped as `AuthMode::Agent`, run per the
+//!   `fetch_when_for_you_queued` cost policy), filters, sorts (for_you
+//!   interwoven across agents, ahead of
 //!   query tweets), de-duplicates (keep first occurrence of each tweet),
 //!   drops tweets it has already delivered in a prior run, scores, and
 //!   delivers survivors to its `agent_tags` (recording them so they are
@@ -369,15 +370,13 @@ async fn run_scored(
             }
             let had_for_you = !cands.is_empty();
 
-            // 2. Run queries (each as its own agent) per the cost policy.
-            if psyop.query_when_for_you_queued || !had_for_you {
-                run_queries_into(psyop, &http, name, &mut cands).await?;
+            // 2. X-API fetch sources — queries + timeline + mentions, each
+            //    as its own agent, all run CONCURRENTLY — gated together by
+            //    the cost policy: when `fetch_when_for_you_queued` is false
+            //    and for_you already produced candidates, skip all three.
+            if psyop.fetch_when_for_you_queued || !had_for_you {
+                run_fetch_sources_into(psyop, &http, ctx, name, &mut cands).await?;
             }
-
-            // 2b. Timeline + mentions reads (each as its own agent). Always
-            //     run — they aren't search queries, so the cost policy
-            //     doesn't gate them.
-            run_feeds_into(psyop, &http, ctx, name, &mut cands).await?;
 
             // 3. Filter.
             let accepted = filter_with_priority(psyop, &cands)?;
@@ -685,37 +684,7 @@ fn dedup_keep_first(posts: Vec<Post>) -> Vec<Post> {
     posts.into_iter().filter(|p| seen.insert(p.id.clone())).collect()
 }
 
-// -- queries --------------------------------------------------------------
-
-/// Run each of `psyop`'s queries (as its own agent) and merge the results
-/// into `cands` with a `Query` origin. Endpoints other than `recent` are
-/// skipped with a notice.
-async fn run_queries_into(
-    psyop: &PsyOp,
-    http: &Client,
-    name: &str,
-    cands: &mut Vec<Cand>,
-) -> Result<(), Error> {
-    let queries = match &psyop.queries {
-        Some(qs) if !qs.is_empty() => qs,
-        _ => return Ok(()),
-    };
-    for q in queries {
-        let auth = AuthMode::Agent(q.agent_tag.clone());
-        // Keep whatever paginated, even if a later page errored.
-        let (posts, err) = search_recent(http, &auth, &q.query, q.max_posts as usize).await;
-        let count = posts.len();
-        for p in posts {
-            cands.push(Cand {
-                post: p,
-                origin: Origin::Query(q.query.clone()),
-                arrival: 0,
-            });
-        }
-        emit_source_result(name, &q.query, count, err);
-    }
-    Ok(())
-}
+// -- X-API fetch sources --------------------------------------------------
 
 /// Emit a per-source ingest result: `QueryComplete` on a clean finish, or
 /// `QueryFailed` (annotated with how many posts were kept) when a fetch
@@ -738,18 +707,35 @@ fn emit_source_result(name: &str, label: &str, count: usize, err: Option<Error>)
     }
 }
 
-/// Run the psyop's timeline + mentions reads (each as its own agent) and
-/// merge results into `cands`. Each agent's user id is resolved via
-/// `persona_twid_get`; an agent that isn't signed in is reported and
-/// skipped. Always runs (these aren't search queries — the cost policy
-/// doesn't gate them).
-async fn run_feeds_into(
+/// Run ALL of the psyop's X-API fetch sources — queries, timeline, and
+/// mentions, each as its own agent — CONCURRENTLY, then merge the results
+/// into `cands`. Timeline/mentions agents are resolved to their user id via
+/// `persona_twid_get` up front (an unsigned-in agent is reported and
+/// skipped); the network fetches then all run at once. Each fetch keeps
+/// whatever it paginated before any error (see `search_recent`).
+async fn run_fetch_sources_into(
     psyop: &PsyOp,
     http: &Client,
     ctx: &crate::context::Context,
     name: &str,
     cands: &mut Vec<Cand>,
 ) -> Result<(), Error> {
+    use futures::future::FutureExt;
+    type Task<'a> = futures::future::BoxFuture<'a, (Origin, String, Vec<Post>, Option<Error>)>;
+    let mut tasks: Vec<Task<'_>> = Vec::new();
+
+    for q in psyop.queries.iter().flatten() {
+        let auth = AuthMode::Agent(q.agent_tag.clone());
+        let query = q.query.clone();
+        let max = q.max_posts as usize;
+        tasks.push(
+            async move {
+                let (posts, err) = search_recent(http, &auth, &query, max).await;
+                (Origin::Query(query.clone()), query, posts, err)
+            }
+            .boxed(),
+        );
+    }
     for t in psyop.timeline.iter().flatten() {
         let label = format!("timeline @{}", t.agent_tag);
         let Some(twid) = ctx
@@ -762,16 +748,15 @@ async fn run_feeds_into(
             continue;
         };
         let auth = AuthMode::Agent(t.agent_tag.clone());
-        let (posts, err) = fetch_timeline(http, &auth, &twid, t.max_posts as usize).await;
-        let count = posts.len();
-        for p in posts {
-            cands.push(Cand {
-                post: p,
-                origin: Origin::Timeline(t.agent_tag.clone()),
-                arrival: 0,
-            });
-        }
-        emit_source_result(name, &label, count, err);
+        let agent = t.agent_tag.clone();
+        let max = t.max_posts as usize;
+        tasks.push(
+            async move {
+                let (posts, err) = fetch_timeline(http, &auth, &twid, max).await;
+                (Origin::Timeline(agent), label, posts, err)
+            }
+            .boxed(),
+        );
     }
     for m in psyop.mentions.iter().flatten() {
         let label = format!("mentions @{}", m.agent_tag);
@@ -785,12 +770,24 @@ async fn run_feeds_into(
             continue;
         };
         let auth = AuthMode::Agent(m.agent_tag.clone());
-        let (posts, err) = fetch_mentions(http, &auth, &twid, m.max_posts as usize).await;
+        let agent = m.agent_tag.clone();
+        let max = m.max_posts as usize;
+        tasks.push(
+            async move {
+                let (posts, err) = fetch_mentions(http, &auth, &twid, max).await;
+                (Origin::Mentions(agent), label, posts, err)
+            }
+            .boxed(),
+        );
+    }
+
+    // All fetches run at once; merge results in task order.
+    for (origin, label, posts, err) in futures::future::join_all(tasks).await {
         let count = posts.len();
         for p in posts {
             cands.push(Cand {
                 post: p,
-                origin: Origin::Mentions(m.agent_tag.clone()),
+                origin: origin.clone(),
                 arrival: 0,
             });
         }

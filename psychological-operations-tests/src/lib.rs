@@ -446,7 +446,7 @@ pub fn query_psyop(query: &str, stages: Vec<Stage>) -> PsyOp {
         interval: "1h".to_string(),
         max_posts: 10,
         sort: SortBy::Newest,
-        query_when_for_you_queued: true,
+        fetch_when_for_you_queued: true,
         stages: if stages.is_empty() {
             None
         } else {

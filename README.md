@@ -93,7 +93,7 @@ Tweets that show up in both sources are deduped; the priority across accepting s
 
 Stage k's survivors become stage k+1's input.
 
-**Cost knob** — `query_when_for_you_queued` (default `true`). Set to `false` to skip search-API queries while the For You queue still has unhydrated material; useful in steady state to avoid burning search credits when the feedback loop is already self-sustaining.
+**Cost knob** — `fetch_when_for_you_queued` (default `true`). Set to `false` to skip the X-API fetch sources (`queries`, `timeline`, `mentions`) whenever `for_you` already produced candidates; useful in steady state to avoid burning API calls when the feedback loop is already self-sustaining.
 
 A minimal example:
 

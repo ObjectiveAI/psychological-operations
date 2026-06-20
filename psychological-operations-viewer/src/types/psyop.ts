@@ -29,7 +29,7 @@ export interface Psyop {
   for_you?: ForYou[];
   max_posts: number;
   sort: SortBy;
-  query_when_for_you_queued: boolean;
+  fetch_when_for_you_queued: boolean;
   stages?: Stage[];
 }
 

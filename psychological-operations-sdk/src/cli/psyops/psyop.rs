@@ -29,7 +29,7 @@ pub struct PsyOp {
     /// Personalized "For You" timeline inputs, one per collecting agent.
     /// `None` or `Some(empty)` means no for-you ingestion — the CLI
     /// runtime skips collection, the queue check, the `hydrate_for_you`
-    /// step, and the `query_when_for_you_queued` policy entirely; both
+    /// step, and the `fetch_when_for_you_queued` policy entirely; both
     /// round-trip out as "field absent" via `skip_for_you`. Publish-time
     /// validation requires at least one of `queries` (non-empty) or
     /// `for_you` (non-empty) to be present.
@@ -54,14 +54,14 @@ pub struct PsyOp {
     /// tiebreak among equal-priority items).
     pub sort: SortBy,
 
-    /// When `false`, queries are skipped on a run as long as the
-    /// for-you input still has queued candidates — the rationale
-    /// being that if the algorithmic feed is feeding us enough
-    /// material, paying for X v2 search calls is wasteful. When
-    /// `true`, queries always run regardless of for-you queue state.
-    /// Defaults to `true` (no implicit skipping).
+    /// When `false`, the X-API fetch sources — `queries`, `timeline`, and
+    /// `mentions` — are all skipped on a run as long as `for_you` produced
+    /// candidates, the rationale being that if the algorithmic feed is
+    /// feeding us enough material, paying for those API calls is wasteful.
+    /// When `true`, they always run regardless of for-you state. Defaults
+    /// to `true` (no implicit skipping).
     #[serde(default = "default_true")]
-    pub query_when_for_you_queued: bool,
+    pub fetch_when_for_you_queued: bool,
 
     /// Multi-stage scoring pipeline. Posts are scored by `stages[0]`,
     /// optionally narrowed via the stage's `output_threshold` /
