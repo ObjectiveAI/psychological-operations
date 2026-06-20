@@ -898,6 +898,12 @@ async fn score_pipeline(
 
 // -- X API ----------------------------------------------------------------
 
+/// X's max page size for the psyop fetch endpoints — search/recent,
+/// timeline, and mentions all cap `max_results` at 100. We request full
+/// pages so pagination takes the fewest round-trips and the responses are
+/// the most reusable from the cache.
+const FETCH_PAGE_MAX: i32 = 100;
+
 fn make_http_client(ctx: &crate::context::Context) -> Client {
     Client::new(
         reqwest::Client::new(),
@@ -963,7 +969,7 @@ async fn search_recent(
             tweet_fields: Some(standard_tweet_fields()),
             expansions: Some(vec![TweetExpansions::AuthorId]),
             user_fields: Some(vec![UserFields::Username]),
-            max_results: None,
+            max_results: Some(FETCH_PAGE_MAX),
             pagination_token: pagination_token.clone(),
             ..default_recent_request()
         };
@@ -1014,7 +1020,7 @@ async fn fetch_timeline(
             tweet_fields: Some(standard_tweet_fields()),
             expansions: Some(vec![TweetExpansions::AuthorId]),
             user_fields: Some(vec![UserFields::Username]),
-            max_results: None,
+            max_results: Some(FETCH_PAGE_MAX),
             pagination_token: pagination_token.clone(),
             since_id: None,
             until_id: None,
@@ -1065,7 +1071,7 @@ async fn fetch_mentions(
             tweet_fields: Some(standard_tweet_fields()),
             expansions: Some(vec![TweetExpansions::AuthorId]),
             user_fields: Some(vec![UserFields::Username]),
-            max_results: None,
+            max_results: Some(FETCH_PAGE_MAX),
             pagination_token: pagination_token.clone(),
             since_id: None,
             until_id: None,
