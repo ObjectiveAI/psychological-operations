@@ -331,20 +331,17 @@ async fn run_scored(
     // 4. Priority-bucket sort (for_you interwoven, ahead of query tweets).
     let ordered = bucket_sort(psyop, accepted)?;
 
-    // 5. Trim to max_posts; carry the Posts forward.
-    let trimmed: Vec<Post> = ordered
-        .into_iter()
-        .take(psyop.max_posts as usize)
-        .map(|a| a.post)
-        .collect();
+    // 5. De-duplicate (runs even with no stages, so delivery is
+    //    duplicate-free): keep the first occurrence of each tweet ID — its
+    //    best-ranked position — and drop every later copy. Done BEFORE the
+    //    cap so max_posts counts distinct tweets.
+    let deduped = dedup_keep_first(ordered.into_iter().map(|a| a.post).collect());
 
-    // 6. De-duplicate before stages (runs even with no stages, so delivery
-    //    is duplicate-free): keep the first occurrence of each tweet ID —
-    //    its best-ranked position — and drop every later copy.
-    let deduped = dedup_keep_first(trimmed);
+    // 6. Trim to max_posts distinct tweets.
+    let trimmed: Vec<Post> = deduped.into_iter().take(psyop.max_posts as usize).collect();
 
     // 7. Score.
-    let result = score_pipeline(psyop, name, deduped, seed, ctx).await?;
+    let result = score_pipeline(psyop, name, trimmed, seed, ctx).await?;
 
     // 8. Deliver survivors to each configured agent (in parallel).
     if !result.survivors.is_empty() && !psyop.agent_tags.is_empty() {
