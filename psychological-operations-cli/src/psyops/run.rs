@@ -14,7 +14,9 @@
 //!   `AuthMode::Agent`, run per the `query_when_for_you_queued` cost
 //!   policy), filters, sorts (for_you interwoven across agents, ahead of
 //!   query tweets), de-duplicates (keep first occurrence of each tweet),
-//!   scores, and delivers survivors to its `agent_tags`.
+//!   drops tweets it has already delivered in a prior run, scores, and
+//!   delivers survivors to its `agent_tags` (recording them so they are
+//!   never delivered again).
 //!
 //! NOTHING about the candidate pipeline is persisted — posts, sources,
 //! hydration, scores all live in memory for the lifetime of this call.
@@ -337,25 +339,59 @@ async fn run_scored(
     //    cap so max_posts counts distinct tweets.
     let deduped = dedup_keep_first(ordered.into_iter().map(|a| a.post).collect());
 
+    // 5b. Drop tweets this psyop has already delivered in a prior run.
+    let ids: Vec<String> = deduped.iter().map(|p| p.id.clone()).collect();
+    let already = ctx
+        .db
+        .already_delivered(name, &ids)
+        .await
+        .map_err(Error::from)?;
+    let deduped: Vec<Post> = deduped
+        .into_iter()
+        .filter(|p| !already.contains(&p.id))
+        .collect();
+
     // 6. Trim to max_posts distinct tweets.
     let trimmed: Vec<Post> = deduped.into_iter().take(psyop.max_posts as usize).collect();
 
     // 7. Score.
     let result = score_pipeline(psyop, name, trimmed, seed, ctx).await?;
 
-    // 8. Deliver survivors to each configured agent (in parallel).
+    // 8. Deliver survivors to each configured agent + mark them delivered,
+    //    all concurrently. Deliveries do NOT cancel each other on the first
+    //    failure (join_all, not try_join_all); each failure is emitted on
+    //    its own and the rest still complete.
     if !result.survivors.is_empty() && !psyop.agent_tags.is_empty() {
+        use futures::future::FutureExt;
         let now = chrono::Utc::now().timestamp();
         let survivors: Vec<(String, f64)> = result
             .survivors
             .iter()
             .map(|s| (s.post.id.clone(), s.score))
             .collect();
-        let deliveries = psyop
+        let survivor_ids: Vec<String> = survivors.iter().map(|(id, _)| id.clone()).collect();
+
+        let mut tasks: Vec<futures::future::BoxFuture<'_, Result<(), Error>>> = psyop
             .agent_tags
             .iter()
-            .map(|agent_tag| deliver_to_agent(ctx, name, agent_tag, &survivors, now));
-        futures::future::try_join_all(deliveries).await?;
+            .map(|agent_tag| deliver_to_agent(ctx, name, agent_tag, &survivors, now).boxed())
+            .collect();
+        // Mark every tweet output for delivery so this psyop never re-delivers it.
+        tasks.push(
+            async {
+                ctx.db
+                    .mark_delivered(name, &survivor_ids)
+                    .await
+                    .map_err(Error::from)
+            }
+            .boxed(),
+        );
+
+        for result in futures::future::join_all(tasks).await {
+            if let Err(e) = result {
+                emit_run_failed(name, &e.to_string());
+            }
+        }
     }
 
     // Stamp the interval throttle only on success.
@@ -403,7 +439,7 @@ async fn deliver_to_agent(
                 queued_at: now,
             })
             .await
-            .map_err(|e| Error::Other(format!("queue enqueue: {e}")))?;
+            .map_err(Error::from)?;
     }
     crate::commands::agents::notify::notify_agent(ctx, agent_tag).await
 }

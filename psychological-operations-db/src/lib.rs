@@ -22,6 +22,7 @@ use sqlx::postgres::{PgPool, PgPoolOptions};
 pub mod actions;
 pub mod auth;
 pub mod cache;
+pub mod delivered;
 pub mod cookies;
 pub mod locker;
 pub mod posts;

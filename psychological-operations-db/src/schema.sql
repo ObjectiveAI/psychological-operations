@@ -26,6 +26,19 @@ CREATE TABLE IF NOT EXISTS psyop_runs (
     last_run_at  BIGINT NOT NULL
 );
 
+-- ── per-psyop "delivered once" ledger ────────────────────────────────
+-- Every tweet a psyop has output for delivery. A psyop never re-delivers a
+-- tweet already recorded here: the run filters its candidates against this
+-- table (after de-dup, before the max_posts cap) and writes survivors here
+-- as part of the delivery step.
+
+CREATE TABLE IF NOT EXISTS delivered (
+    psyop     TEXT   NOT NULL,
+    tweet_id  TEXT   NOT NULL,
+    at        BIGINT NOT NULL,  -- unix seconds
+    PRIMARY KEY (psyop, tweet_id)
+);
+
 -- ── X-API response cache (ported from sdk/x-api-cache.sqlite) ─────────
 
 CREATE TABLE IF NOT EXISTS cache (
