@@ -9,3 +9,6 @@ target/
 embed/
 .logs/
 .objectiveai/
+# Dev browser-bridge / deliver-bridge runtime artifacts (cmd/out/err + state).
+.browser-bridge/
+.deliver-bridge/
