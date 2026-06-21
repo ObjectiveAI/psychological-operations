@@ -83,6 +83,10 @@ pub enum PanelCondition {
     /// button is up — header flashes "Skip" and the overlay points at
     /// the Skip button so the operator dismisses it.
     DiscordSkip,
+    /// DiscordLogin mode, signed in on the applications list — header
+    /// reads "Create a New Application" and the overlay points at the
+    /// New Application button.
+    CreateDiscordApp,
 }
 
 /// Everything the panel needs to render. Either it's hidden (zero

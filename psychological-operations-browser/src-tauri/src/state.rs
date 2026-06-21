@@ -533,6 +533,10 @@ pub fn derive(facts: &Facts) -> PanelState {
                 condition: PanelCondition::DiscordSkip,
                 message: "Skip".into(),
             },
+            Some("create_app") => PanelState::Show {
+                condition: PanelCondition::CreateDiscordApp,
+                message: "Create a New Application".into(),
+            },
             // No actionable step (or not yet reported) → hidden.
             _ => PanelState::Hidden,
         },

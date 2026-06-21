@@ -44,9 +44,17 @@ function byExactText(text: string): () => HTMLElement | null {
 }
 
 // Checked in order; the first step whose target is present is active.
+// `create_app` is last (lowest priority): a "New Application" button exists
+// even signed-out, but `log_in` matches first there, so create_app only
+// wins on the signed-in app list.
 const STEPS: Step[] = [
   { name: "log_in", condition: "sign_in_to_discord", find: byExactText("log in") },
   { name: "skip", condition: "discord_skip", find: byExactText("skip") },
+  {
+    name: "create_app",
+    condition: "create_discord_app",
+    find: byExactText("new application"),
+  },
 ];
 
 let rootEl: HTMLDivElement | null = null;
