@@ -16,8 +16,8 @@
 //! caller decides which `Output` variants count as success or
 //! failure.
 
-use std::io::{BufRead, BufReader, Write};
-use std::process::{ChildStdin, ChildStdout};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::process::{ChildStdin, ChildStdout};
 
 use psychological_operations_sdk::browser::output::Output;
 use psychological_operations_sdk::browser::request::Request;
@@ -32,7 +32,7 @@ use psychological_operations_sdk::browser::request::Request;
 /// JSON-parse failures on a line → silently dropped (the browser
 /// might emit lines under future schema versions; better to
 /// keep reading than to crash).
-pub fn watch_for_terminator<F, T>(
+pub async fn watch_for_terminator<F, T>(
     stdout: ChildStdout,
     eof_message: &str,
     is_terminator: F,
@@ -40,9 +40,8 @@ pub fn watch_for_terminator<F, T>(
 where
     F: Fn(&Output) -> Option<Result<T, String>>,
 {
-    let reader = BufReader::new(stdout);
-    for line in reader.lines() {
-        let Ok(line) = line else { break };
+    let mut lines = BufReader::new(stdout).lines();
+    while let Ok(Some(line)) = lines.next_line().await {
         let Ok(output) = serde_json::from_str::<Output>(&line) else {
             continue;
         };
@@ -62,10 +61,10 @@ where
 ///
 /// If the child has already exited, the write fails silently —
 /// the caller's subsequent `child.wait()` reaps it.
-pub fn send_shutdown(mut stdin: ChildStdin) {
+pub async fn send_shutdown(mut stdin: ChildStdin) {
     let req = serde_json::to_string(&Request::Shutdown)
         .expect("Request::Shutdown is always serializable");
-    let _ = writeln!(&mut stdin, "{req}");
-    let _ = stdin.flush();
+    let _ = stdin.write_all(format!("{req}\n").as_bytes()).await;
+    let _ = stdin.flush().await;
     drop(stdin);
 }

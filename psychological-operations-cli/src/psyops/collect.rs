@@ -8,7 +8,7 @@
 //! psyop); the caller fans the returned IDs out to every psyop in the
 //! run that references this agent in its `for_you`.
 
-use std::io::{BufRead, BufReader};
+use tokio::io::{AsyncBufReadExt, BufReader};
 
 use psychological_operations_sdk::browser::output::Output as BrowserOutput;
 
@@ -42,7 +42,7 @@ pub(crate) async fn collect_for_you(
     crate::output::OutputResult::from(crate::events::Event::BrowserSpawned {
         kind: "agent_read".into(),
         name: Some(agent_tag.to_string()),
-        pid: child.id(),
+        pid: child.id().unwrap_or(0),
     })
     .emit();
 
@@ -56,8 +56,8 @@ pub(crate) async fn collect_for_you(
         .take()
         .ok_or_else(|| Error::Other("browser stdout pipe missing".into()))?;
     let mut ids: Vec<String> = Vec::new();
-    for line in BufReader::new(stdout).lines() {
-        let Ok(line) = line else { break };
+    let mut lines = BufReader::new(stdout).lines();
+    while let Ok(Some(line)) = lines.next_line().await {
         let trimmed = line.trim();
         if trimmed.is_empty() {
             continue;
@@ -80,6 +80,7 @@ pub(crate) async fn collect_for_you(
 
     let status = child
         .wait()
+        .await
         .map_err(|e| Error::Other(format!("waiting for browser ({agent_tag}) failed: {e}")))?;
     crate::output::OutputResult::from(crate::events::Event::BrowseSessionEnded {
         agent: agent_tag.to_string(),

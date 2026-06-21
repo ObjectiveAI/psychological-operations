@@ -76,7 +76,7 @@ async fn run_inner(
     crate::output::OutputResult::from(crate::events::Event::BrowserSpawned {
         kind: "x_app_setup".into(),
         name: None,
-        pid: child.id(),
+        pid: child.id().unwrap_or(0),
     })
     .emit();
 
@@ -90,12 +90,14 @@ async fn run_inner(
             Output::XAppSetupSucceeded => Some(Ok(())),
             _ => None,
         },
-    );
+    )
+    .await;
 
-    stream::send_shutdown(child_stdin);
+    stream::send_shutdown(child_stdin).await;
 
     let status = child
         .wait()
+        .await
         .map_err(|e| Error::Other(format!("waiting for browser (x_app) failed: {e}")))?;
 
     crate::output::OutputResult::from(crate::events::Event::BrowserExit {

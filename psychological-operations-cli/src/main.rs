@@ -1,5 +1,10 @@
 #[tokio::main]
 async fn main() {
+    // OS-level leash so the browser child (and, on Windows, its whole CEF
+    // subprocess tree) dies with us no matter how we exit. Must be the first
+    // statement — on macOS the binary re-invokes itself as the guardian
+    // watcher; no-op on Windows/Linux.
+    objectiveai_sdk::subprocess_reaper::run_guardian_if_invoked();
     let ctx = match psychological_operations_cli::context::Context::new().await {
         Ok(ctx) => ctx,
         Err(e) => {

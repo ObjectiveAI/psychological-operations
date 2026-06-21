@@ -57,12 +57,13 @@ async fn run_inner(
     crate::output::OutputResult::from(crate::events::Event::BrowserSpawned {
         kind: event_kind.into(),
         name: Some(name.to_string()),
-        pid: child.id(),
+        pid: child.id().unwrap_or(0),
     })
     .emit();
 
     let status = child
         .wait()
+        .await
         .map_err(|e| Error::Other(format!("waiting for browser ({name}) failed: {e}")))?;
 
     crate::output::OutputResult::from(crate::events::Event::BrowserExit {

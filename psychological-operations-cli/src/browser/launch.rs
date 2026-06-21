@@ -3,7 +3,9 @@
 //! Caller has already resolved the mode (and any psyop/agent name).
 
 use std::path::Path;
-use std::process::{Child, Command, Stdio};
+use std::process::Stdio;
+
+use tokio::process::{Child, Command};
 
 use crate::error::Error;
 
@@ -74,6 +76,8 @@ pub fn spawn(
     if pipe_stdout {
         cmd.stdout(Stdio::piped());
     }
-    cmd.spawn()
+    // Reaper-spawn so the OS kills the browser (and its CEF subprocess tree
+    // on Windows) if we die. It sets `kill_on_drop` itself — don't double it.
+    objectiveai_sdk::subprocess_reaper::spawn(&mut cmd)
         .map_err(|e| Error::Other(format!("failed to spawn browser: {e}")))
 }

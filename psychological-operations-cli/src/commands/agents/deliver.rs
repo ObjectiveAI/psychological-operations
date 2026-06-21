@@ -10,7 +10,8 @@
 //! after the first.
 
 use std::collections::BTreeMap;
-use std::io::{BufRead, BufReader};
+
+use tokio::io::{AsyncBufReadExt, BufReader};
 
 use psychological_operations_sdk::browser::deliver::DeliverItem;
 use psychological_operations_sdk::browser::output::Output;
@@ -85,16 +86,15 @@ async fn deliver_agent(
     OutputResult::from(Event::BrowserSpawned {
         kind: "deliver".into(),
         name: Some(agent.to_string()),
-        pid: child.id(),
+        pid: child.id().unwrap_or(0),
     })
     .emit();
 
     // Stream this agent's confirmations, removing each delivered row as it
     // lands. Loop to EOF — the browser self-exits when its batch is done.
     let child_stdout = child.stdout.take().expect("piped");
-    let reader = BufReader::new(child_stdout);
-    for line in reader.lines() {
-        let Ok(line) = line else { break };
+    let mut lines = BufReader::new(child_stdout).lines();
+    while let Ok(Some(line)) = lines.next_line().await {
         let Ok(output) = serde_json::from_str::<Output>(&line) else {
             continue;
         };
@@ -124,6 +124,7 @@ async fn deliver_agent(
 
     let status = child
         .wait()
+        .await
         .map_err(|e| Error::Other(format!("waiting for browser failed: {e}")))?;
     OutputResult::from(Event::BrowserExit {
         kind: "deliver".into(),
