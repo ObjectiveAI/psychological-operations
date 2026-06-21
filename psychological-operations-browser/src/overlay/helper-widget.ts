@@ -193,6 +193,40 @@ export const HELPER_CSS = `
   }
 `;
 
+/**
+ * Nudge an already-positioned helper badge back inside the viewport.
+ *
+ * Call this AFTER the consumer has set `.style.left/.top/.transform` and made
+ * the badge visible. It measures the badge's *rendered* rect — so it's
+ * agnostic to whatever `transform` the consumer used — and shifts `left`/`top`
+ * by however much it takes to bring the badge fully on screen, leaving
+ * `margin` px to each edge.
+ *
+ * The effect: when a pointer's target has scrolled out of view, the badge
+ * stays pinned at the nearest edge (e.g. the bottom) instead of disappearing,
+ * cueing the user to scroll toward it. No-op when the badge already fits.
+ *
+ * Requires `left`/`top` to be px values (the px the caller just set); a badge
+ * pinned with `%`/`vw` units should not be clamped (it's already viewport-
+ * relative and on screen).
+ */
+export function clampHelperIntoViewport(el: HTMLElement, margin = 8): void {
+  const r = el.getBoundingClientRect();
+  if (r.width === 0 && r.height === 0) return; // not laid out / hidden
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  let dx = 0;
+  let dy = 0;
+  if (r.left < margin) dx = margin - r.left;
+  else if (r.right > vw - margin)
+    dx = Math.max(margin - r.left, vw - margin - r.right);
+  if (r.top < margin) dy = margin - r.top;
+  else if (r.bottom > vh - margin)
+    dy = Math.max(margin - r.top, vh - margin - r.bottom);
+  if (dx) el.style.left = `${(parseFloat(el.style.left) || 0) + dx}px`;
+  if (dy) el.style.top = `${(parseFloat(el.style.top) || 0) + dy}px`;
+}
+
 /** Build a new helper badge. The element starts in
  *  `incomplete` state with the given text; the caller can flip
  *  state and text any time via the returned controller. */

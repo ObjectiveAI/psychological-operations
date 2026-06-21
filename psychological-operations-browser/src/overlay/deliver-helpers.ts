@@ -43,6 +43,7 @@
 
 import {
   HELPER_CSS,
+  clampHelperIntoViewport,
   createHelperWidget,
   type HelperWidget,
 } from "./helper-widget";
@@ -173,6 +174,7 @@ function anchorRightOf(w: HelperWidget, target: HTMLElement | null) {
   el.style.top = `${rect.top + rect.height / 2}px`;
   el.style.left = `${rect.right + 8}px`;
   el.style.transform = "translateY(-50%)";
+  clampHelperIntoViewport(el);
 }
 
 function anchorLeftOf(w: HelperWidget, target: HTMLElement | null) {
@@ -191,6 +193,7 @@ function anchorLeftOf(w: HelperWidget, target: HTMLElement | null) {
   // Right edge of the badge sits 8px left of the target's left edge.
   el.style.left = `${rect.left - 8}px`;
   el.style.transform = "translate(-100%, -50%)";
+  clampHelperIntoViewport(el);
 }
 
 function hide(w: HelperWidget | null) {

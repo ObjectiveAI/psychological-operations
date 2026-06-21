@@ -17,6 +17,7 @@
 import { invoke } from "./ipc";
 import {
   HELPER_CSS,
+  clampHelperIntoViewport,
   createHelperWidget,
   type HelperState,
   type HelperWidget,
@@ -565,6 +566,7 @@ function tick() {
       el.style.transform = "translateX(-100%) translateY(-50%)";
     }
     el.style.left = `${rect.left - GAP}px`;
+    clampHelperIntoViewport(el);
 
     let state: HelperState;
     if (step.id === "save") {

@@ -35,6 +35,7 @@
 
 import {
   HELPER_CSS,
+  clampHelperIntoViewport,
   createHelperWidget,
   type HelperState,
   type HelperWidget,
@@ -242,6 +243,7 @@ function tick() {
       el.style.transform = "translateX(-100%) translateY(-50%)";
     }
     el.style.left = `${rect.left - GAP}px`;
+    clampHelperIntoViewport(el);
 
     // Compute the visual state for this step + push to the
     // shared widget.

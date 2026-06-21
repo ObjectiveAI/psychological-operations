@@ -17,6 +17,7 @@
 
 import {
   HELPER_CSS,
+  clampHelperIntoViewport,
   createHelperWidget,
   type HelperWidget,
 } from "./helper-widget";
@@ -141,6 +142,7 @@ function tick() {
     el.style.top = `${rect.top + rect.height / 2}px`;
     el.style.left = `${rect.right + 8}px`;
     el.style.transform = "translateY(-50%)";
+    clampHelperIntoViewport(el);
   }
   rafId = requestAnimationFrame(tick);
 }

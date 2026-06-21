@@ -35,6 +35,7 @@
 import { invoke } from "./ipc";
 import {
   HELPER_CSS,
+  clampHelperIntoViewport,
   createHelperWidget,
   type HelperWidget,
 } from "./helper-widget";
@@ -287,6 +288,7 @@ function tick() {
     createEl.style.top = `${rect.top + rect.height / 2}px`;
     createEl.style.left = `${rect.left - 8}px`;
     createEl.style.transform = "translateX(-100%) translateY(-50%)";
+    clampHelperIntoViewport(createEl);
   }
 
   // -- Production app pointer ---------------------------------------
@@ -308,6 +310,7 @@ function tick() {
     prodEl.style.top = `${anchorRect.top + anchorRect.height / 2}px`;
     prodEl.style.left = `${cardRect.right + 8}px`;
     prodEl.style.transform = "translateY(-50%)";
+    clampHelperIntoViewport(prodEl);
   }
 
   rafId = requestAnimationFrame(tick);
