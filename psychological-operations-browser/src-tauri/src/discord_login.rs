@@ -1,44 +1,54 @@
 //! Discord bot-creation wizard (browser side) — `Mode::DiscordLogin`.
 //!
-//! The CEF content overlay (`discord-login-helpers`, gated on the locked
-//! mode) drives the operator through the Discord developer portal: sign in,
-//! create the application, add a bot, reveal/reset its token. Once it has
-//! the application's client id + bot token it posts them back over the
-//! `psyops://` scheme (`discord_bot_credentials`), which lands in
-//! [`store_bot_credentials`] — we persist them for the agent and emit the
-//! [`Output::DiscordLoginSucceeded`] terminator the CLI's
-//! `agents login discord` is waiting on.
-//!
-//! The portal navigation + scrape DOM walk live in the overlay and are the
-//! iteration points; this module is the Rust-side landing.
+//! The header shows a read-only auth form (Application ID / Public Key / Bot
+//! Token). The content overlay auto-scrapes each value from the portal as the
+//! operator navigates and posts it over the `psyops://` scheme as
+//! `discord_capture { field, value }` → [`capture_field`], which records it in
+//! the in-memory header form. Values can arrive in any order; once **all
+//! three** are present the browser emits a single
+//! [`Output::DiscordLoginSucceeded`] item carrying them and closes. The CLI
+//! persists it — the browser itself never touches the DB.
 
-use psychological_operations_db::Db;
 use psychological_operations_sdk::browser::mode::{self, Mode};
 use psychological_operations_sdk::browser::output::Output;
-use tauri::{AppHandle, Manager, Wry};
+use tauri::{AppHandle, Wry};
 
-/// Persist the scraped client id + bot token for the current `DiscordLogin`
-/// agent and fire the success terminator. Returns the agent tag it was
-/// stored under.
-pub async fn store_bot_credentials(
-    app: &AppHandle<Wry>,
-    client_id: String,
-    token: String,
-) -> Result<String, String> {
-    let name = match mode::get() {
-        Some(Mode::DiscordLogin { name }) => name,
-        _ => return Err("discord_bot_credentials received outside DiscordLogin mode".into()),
-    };
-
-    let db = app.state::<Db>();
-    db.discord_auth_set(&name, &client_id, &token)
-        .await
-        .map_err(|e| format!("store discord bot credentials for {name}: {e}"))?;
-
-    let _ = Output::Log {
-        message: format!("discord: stored bot credentials for {name}"),
+fn current_agent() -> Result<String, String> {
+    match mode::get() {
+        Some(Mode::DiscordLogin { name }) => Ok(name),
+        _ => Err("discord capture received outside DiscordLogin mode".into()),
     }
-    .emit();
-    let _ = Output::DiscordLoginSucceeded.emit();
+}
+
+/// Record one scraped credential field into the in-memory header form. `field`
+/// is one of `application_id` / `public_key` / `bot_token`. When all three are
+/// present, emit the single success item for the CLI to persist.
+pub async fn capture_field(
+    app: &AppHandle<Wry>,
+    field: String,
+    value: String,
+) -> Result<String, String> {
+    let name = current_agent()?;
+    if !matches!(field.as_str(), "application_id" | "public_key" | "bot_token") {
+        return Err(format!("unknown discord field: {field}"));
+    }
+
+    // Update the header form (in memory only).
+    crate::state::discord_field_set(app, &field, value);
+
+    // Emit once all three values are in hand (order-independent).
+    let snap = crate::state::discord_auth_snapshot();
+    if let (Some(client_id), Some(public_key), Some(bot_token)) = (
+        snap.application_id.value,
+        snap.public_key.value,
+        snap.bot_token.value,
+    ) {
+        let _ = Output::DiscordLoginSucceeded {
+            client_id,
+            public_key,
+            bot_token,
+        }
+        .emit();
+    }
     Ok(name)
 }

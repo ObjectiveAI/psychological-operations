@@ -25,16 +25,11 @@ use psychological_operations_sdk::browser::mode::Mode;
 pub struct Args {
     /// Base directory for psych-ops state. Mode-specific CEF session
     /// data (cookies, IndexedDB, cache, ...) lives under
-    /// `<state-dir>/browser/cef-root/<mode-subdir>/`. Credentials and
-    /// tokens now live in postgres, not on disk.
+    /// `<state-dir>/browser/cef-root/<mode-subdir>/`. The browser does
+    /// NOT persist anything itself — each mode emits its captured data on
+    /// stdout and the CLI writes it to the DB.
     #[arg(long)]
     pub state_dir: PathBuf,
-
-    /// Postgres connection URL — the single persistence layer (the
-    /// `OBJECTIVEAI_POSTGRES_URL` value, inherited from the launching
-    /// CLI process). Used for credential-HTML + token storage.
-    #[arg(long, env = "OBJECTIVEAI_POSTGRES_URL")]
-    pub postgres_url: String,
 
     /// Launch in X-App mode. The CEF browser loads
     /// `https://console.x.com/` with a `RequestContext` whose
@@ -53,11 +48,22 @@ pub struct Args {
 
     /// Launch in Agent **authorize** mode, scoped to the given
     /// agent tag. Same RequestContext as read, but after the
-    /// agent signs in Rust drives them through X's OAuth 2.0
-    /// PKCE consent screen and writes the resulting tokens to
-    /// `<agent-data-dir>/handles/<twid>/auth.json`.
-    #[arg(long, group = "mode", value_name = "TAG")]
+    /// agent signs in Rust drives them through X's OAuth 2.0 PKCE
+    /// consent screen and emits the minted tokens (`AuthorizeSucceeded`)
+    /// for the CLI to persist. Requires the X-App OAuth client creds
+    /// below (the CLI reads them from the captured X-App).
+    #[arg(long, group = "mode", value_name = "TAG", requires = "x_app_client_id")]
     pub agent_authorize: Option<String>,
+
+    /// X-App OAuth client id — required with `--agent-authorize`. Used for
+    /// the PKCE token exchange. Supplied by the CLI from the captured
+    /// X-App credentials (the browser no longer reads the DB).
+    #[arg(long, requires = "agent_authorize")]
+    pub x_app_client_id: Option<String>,
+
+    /// X-App OAuth client secret — required with `--agent-authorize`.
+    #[arg(long, requires = "agent_authorize")]
+    pub x_app_client_secret: Option<String>,
 
     /// Launch in Agent **browser** mode, scoped to the given
     /// agent tag. Loads `https://x.com/` under the agent's CEF

@@ -136,21 +136,8 @@ pub fn run() {
     // its handles leak by design, so the lock is held until this process exits
     // (and is OS-released on any exit, crash included).
 
-    // Connect the persistence layer up front (credential-HTML + token
-    // storage). Uses tauri's global async runtime since the builder
-    // hasn't started yet. Fatal on failure.
-    let db = match tauri::async_runtime::block_on(psychological_operations_db::Db::connect(
-        &args.postgres_url,
-    )) {
-        Ok(db) => db,
-        Err(e) => {
-            let _ = Output::Error {
-                error: format!("db connect: {e}"),
-            }
-            .emit();
-            std::process::exit(1);
-        }
-    };
+    // No DB: the browser persists nothing. Each mode captures in memory and
+    // emits its data on stdout for the CLI to write.
 
     // Build the frontend-ready signal BEFORE the Tauri builder so
     // we can hand the receiver to the stdin reader (started inside
@@ -169,7 +156,6 @@ pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(args)
-        .manage(db)
         .manage(ReadyTx(Mutex::new(Some(ready_tx))))
         .manage(PendingAck(Mutex::new(None)))
         .manage(CookiesWatcherSlot(Mutex::new(None)))
@@ -215,6 +201,9 @@ pub fn run() {
                 // drives sign-in + token scrape over the `psyops://` scheme.
                 let mode = &initial_mode;
                 webview::create_x_app(handle, mode)?;
+                // Discord runs no x.com cookies watcher — its header auth form
+                // starts empty and accumulates scraped values in memory until
+                // all are present (then commits + closes). Other modes watch.
                 if !matches!(mode, mode::Mode::DiscordLogin { .. }) {
                     let watcher_slot: tauri::State<CookiesWatcherSlot> = handle.state();
                     *watcher_slot.0.lock().expect("watcher slot poisoned") =

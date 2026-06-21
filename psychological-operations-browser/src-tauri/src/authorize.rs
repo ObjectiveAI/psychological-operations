@@ -33,8 +33,7 @@ use std::time::Duration;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use chrono::Utc;
-use psychological_operations_db::Db;
-use psychological_operations_sdk::browser::auth_json::{PersonaKind, Tokens};
+use psychological_operations_sdk::browser::auth_json::Tokens;
 use psychological_operations_sdk::browser::mode::Mode;
 use psychological_operations_sdk::browser::output::Output;
 use rand::Rng;
@@ -87,72 +86,18 @@ pub fn clear_in_flight_on_signout() {
 // Public entry point — called from cookies_watcher::apply_snapshot
 // =================================================================
 pub async fn maybe_start_flow(handle: &AppHandle<Wry>) {
-    let (kind, persona_name) = match psychological_operations_sdk::browser::mode::get() {
-        Some(Mode::AgentAuthorize { name }) => (PersonaKind::Agent, name),
+    match psychological_operations_sdk::browser::mode::get() {
+        Some(Mode::AgentAuthorize { .. }) => {}
         _ => return,
-    };
+    }
     let Some(persona_twid) = state::current_user_id() else {
         return;
     };
 
-    let db = handle.state::<Db>();
-
-    // Fail fast if no X-App is set up — `run_flow` re-resolves the active
-    // x_app twid (from `x_app_html`, not cookies) and stores it on the token
-    // row, so we only need the presence gate here.
-    match db.x_app_twid_active().await {
-        Ok(Some(_)) => {}
-        Ok(None) => {
-            let msg = "no X-App account set up".to_string();
-            let _ = Output::Log {
-                message: format!("authorize: {msg}; not starting flow"),
-            }
-            .emit();
-            let _ = Output::AuthorizeFailed { error: msg }.emit();
-            return;
-        }
-        Err(e) => {
-            let msg = format!("x-app twid lookup failed: {e}");
-            let _ = Output::Log {
-                message: format!("authorize: {msg}"),
-            }
-            .emit();
-            let _ = Output::AuthorizeFailed { error: msg }.emit();
-            return;
-        }
-    };
-
-    // Agents don't conflict-guard — the same X account can be operated by
-    // multiple agents simultaneously without blocking.
-
-    // Establish the persona → account-twid mapping — the source of truth
-    // for every runtime auth lookup. Written even when consent is skipped
-    // below, so the mapping exists regardless of whether a token is minted.
-    if let Err(e) = db
-        .persona_twid_set(kind.db_kind(), &persona_name, &persona_twid)
-        .await
-    {
-        let msg = format!("persona twid mapping write failed: {e}");
-        let _ = Output::Log {
-            message: format!("authorize: {msg}"),
-        }
-        .emit();
-        let _ = Output::AuthorizeFailed { error: msg }.emit();
-        return;
-    }
-
-    // The account already has a token? Then there's nothing to mint — skip
-    // the OAuth redirect and report success so the login closes cleanly.
-    // (Multiple agents sharing one X account reuse the single token row.)
-    let auth_exists = db
-        .account_auth_get(&persona_twid)
-        .await
-        .map(|t| t.is_some())
-        .unwrap_or(false);
-    if auth_exists {
-        let _ = Output::AuthorizeSucceeded.emit();
-        return;
-    }
+    // No DB here: the X-App creds come from CLI args, and the "skip if a
+    // token already exists" check + the persona→twid mapping write are now
+    // the CLI's job (it persists on `AuthorizeSucceeded`). Agents don't
+    // conflict-guard — one X account can back multiple agents.
 
     {
         let mut slot = match in_flight_slot().lock() {
@@ -167,7 +112,7 @@ pub async fn maybe_start_flow(handle: &AppHandle<Wry>) {
 
     let handle_for_task = handle.clone();
     tauri::async_runtime::spawn(async move {
-        if let Err(e) = run_flow(handle_for_task, kind, persona_name, persona_twid).await {
+        if let Err(e) = run_flow(handle_for_task, persona_twid).await {
             let _ = Output::Log {
                 message: format!("authorize: flow failed: {e}"),
             }
@@ -180,13 +125,8 @@ pub async fn maybe_start_flow(handle: &AppHandle<Wry>) {
     });
 }
 
-async fn run_flow(
-    handle: AppHandle<Wry>,
-    kind: PersonaKind,
-    persona_name: String,
-    persona_twid: String,
-) -> Result<(), String> {
-    let (client_id, client_secret, x_app_twid) = read_x_app_creds(&handle).await?;
+async fn run_flow(handle: AppHandle<Wry>, persona_twid: String) -> Result<(), String> {
+    let (client_id, client_secret) = read_x_app_creds(&handle)?;
     let pkce = pkce_generate();
     let state_nonce = random_state();
     let (port, callback_fut) = bind_callback_server(CALLBACK_TIMEOUT)
@@ -230,42 +170,20 @@ async fn run_flow(
     .await
     .map_err(|e| format!("token exchange: {e}"))?;
 
-    let args = handle.state::<Args>();
-    let state_dir = args.state_dir.clone();
-    let cache_max_size = args.cache_max_size;
-    let cache_ttl = std::time::Duration::from_secs(args.cache_ttl);
-    let db = handle.state::<Db>().inner().clone();
-    let client = psychological_operations_sdk::x::client::Client::new(
-        reqwest::Client::new(),
-        false,
-        cache_max_size,
-        cache_ttl,
-        state_dir,
-        db,
-    );
-    // Pass the persona identity EXPLICITLY. We already know the persona
-    // twid (resolved via the cookie watcher / current_user_id) and the
-    // X-App twid (from read_x_app_creds above), so we use the probe-free
-    // lock: the Client's normal cookie probe can't run here — this is the
-    // browser process, which holds an exclusive OS lock on the persona's
-    // cookie SQLite (it would fail with SQLITE_CANTOPEN).
-    let lock = client
-        .lock_auth_for(kind, persona_name.clone(), persona_twid.clone(), x_app_twid)
-        .await
-        .map_err(|e| format!("lock auth row: {e}"))?;
-    client
-        .write_auth(lock, &tokens)
-        .await
-        .map_err(|e| format!("write auth row: {e}"))?;
+    // No DB write — emit the minted tokens + persona twid for the CLI to
+    // persist (account_auth + persona_twids).
     let _ = Output::Log {
         message: format!(
-            "authorize: wrote auth.json for {persona_twid} (expires_at={:?})",
+            "authorize: minted tokens for {persona_twid} (expires_at={:?})",
             tokens.expires_at
         ),
     }
     .emit();
-    state::recompute_and_publish(&handle);
-    let _ = Output::AuthorizeSucceeded.emit();
+    let _ = Output::AuthorizeSucceeded {
+        persona_twid,
+        tokens,
+    }
+    .emit();
     Ok(())
 }
 
@@ -464,36 +382,25 @@ async fn exchange_code_for_tokens(
 }
 
 // =================================================================
-// X-App credential lookup (from the db)
+// X-App OAuth client creds — supplied by the CLI as args (it reads them
+// from the DB's captured oauth-popup snapshot). The browser no longer
+// touches the DB.
 // =================================================================
-async fn read_x_app_creds(handle: &AppHandle<Wry>) -> Result<(String, String, String), String> {
-    use psychological_operations_sdk::browser::x_app_credentials::OAuthPopup;
-
-    let db = handle.state::<Db>();
-
-    // The OAuth popup snapshot is keyed by the active X-App's twid,
-    // resolved from the DB (`x_app_html`), not cookies.
-    let x_app_twid = db
-        .x_app_twid_active()
-        .await
-        .map_err(|e| format!("x-app twid lookup: {e}"))?
-        .ok_or_else(|| "no X-App account set up".to_string())?;
-
-    let popup = OAuthPopup::from_db(db.inner(), &x_app_twid)
-        .await
-        .map_err(|e| format!("read oauth popup snapshot: {e}"))?
-        .ok_or_else(|| "no oauth_popup snapshot captured for the X-App".to_string())?;
-    let client_id = popup
-        .client_id
-        .ok_or_else(|| "oauth_popup snapshot missing client_id".to_string())?;
-    let client_secret = popup
-        .client_secret
-        .ok_or_else(|| "oauth_popup snapshot missing client_secret".to_string())?;
+fn read_x_app_creds(handle: &AppHandle<Wry>) -> Result<(String, String), String> {
+    let args = handle.state::<Args>();
+    let client_id = args
+        .x_app_client_id
+        .clone()
+        .ok_or_else(|| "missing --x-app-client-id (required for agent authorize)".to_string())?;
+    let client_secret = args
+        .x_app_client_secret
+        .clone()
+        .ok_or_else(|| "missing --x-app-client-secret".to_string())?;
     if client_id.is_empty() || client_secret.is_empty() {
-        return Err("client_id or client_secret is empty".into());
+        return Err("X-App client_id or client_secret is empty".into());
     }
-    Ok((client_id, client_secret, x_app_twid))
+    Ok((client_id, client_secret))
 }
 
-// Tokens are written via `Client::write_auth` from the SDK (into the
-// `auth_tokens` table); the browser owns no token writer of its own.
+// Tokens are emitted via `Output::AuthorizeSucceeded` for the CLI to
+// persist; the browser owns no token writer of its own.

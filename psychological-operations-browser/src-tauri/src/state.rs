@@ -30,7 +30,9 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use psychological_operations_sdk::browser::mode::{self, Mode};
 use psychological_operations_sdk::browser::output::{Output, SignedInInfo};
-use psychological_operations_sdk::browser::panel::{PanelCondition, PanelState};
+use psychological_operations_sdk::browser::panel::{
+    DiscordAuthForm, PanelCondition, PanelState,
+};
 use tauri::{AppHandle, Emitter, Url, Wry};
 
 use crate::webview;
@@ -94,13 +96,11 @@ pub struct Facts {
     /// (pre-first-HTML or non-Read mode). Driven by
     /// [`set_tweets_read_count`].
     pub tweets_read_count: Option<u32>,
-    /// DiscordLogin mode: the wizard's current step, as reported by the
-    /// overlay from the portal DOM (Discord's auth is localStorage, not an
-    /// observable cookie, so the overlay detects state and reports via the
-    /// `discord_step` scheme call). One of `"log_in"`, `"skip"`, … ; `None`
-    /// ⇒ no actionable step (panel hidden). [`derive`] maps it to the
-    /// matching [`PanelCondition`].
-    pub discord_step: Option<String>,
+    /// DiscordLogin mode: the persistent top-header auth form. Seeded from
+    /// the DB at startup and updated as the wizard captures each value
+    /// (per-field `saving` → saved). [`derive`] surfaces it as the panel for
+    /// the whole Discord session.
+    pub discord_auth: DiscordAuthForm,
 }
 
 // ---------------------------------------------------------------------
@@ -193,17 +193,42 @@ pub fn set_tweets_read_count(handle: &AppHandle<Wry>, count: u32) {
     recompute_and_publish(handle);
 }
 
-/// Update the DiscordLogin wizard's current step (reported by the overlay
-/// from the portal DOM). `None` clears it. DiscordLogin-only.
-pub fn set_discord_step(handle: &AppHandle<Wry>, step: Option<String>) {
+/// Mutably reach the named auth-form field (`"application_id"` /
+/// `"public_key"` / `"bot_token"`).
+fn discord_field_mut<'a>(
+    form: &'a mut DiscordAuthForm,
+    field: &str,
+) -> Option<&'a mut psychological_operations_sdk::browser::panel::DiscordField> {
+    match field {
+        "application_id" => Some(&mut form.application_id),
+        "public_key" => Some(&mut form.public_key),
+        "bot_token" => Some(&mut form.bot_token),
+        _ => None,
+    }
+}
+
+/// Set a captured field's value in the in-memory header form. No DB write —
+/// the wizard accumulates all three values in the header, then commits them
+/// to the DB once at completion. DiscordLogin-only.
+pub fn discord_field_set(handle: &AppHandle<Wry>, field: &str, value: String) {
     {
         let mut facts = facts_slot().lock().expect("facts slot poisoned");
-        if facts.discord_step == step {
+        let Some(f) = discord_field_mut(&mut facts.discord_auth, field) else {
             return;
-        }
-        facts.discord_step = step;
+        };
+        f.value = Some(value);
     }
     recompute_and_publish(handle);
+}
+
+/// A snapshot of the in-memory auth form — used to test whether all three
+/// fields have been captured (the trigger to commit + finish).
+pub fn discord_auth_snapshot() -> DiscordAuthForm {
+    facts_slot()
+        .lock()
+        .expect("facts slot poisoned")
+        .discord_auth
+        .clone()
 }
 
 /// Re-scan the on-disk credentials store under the current
@@ -218,20 +243,17 @@ pub fn set_discord_step(handle: &AppHandle<Wry>, step: Option<String>) {
 ///   - [`crate::stdio::process_post_create_html_inner`] (right
 ///     after a successful snapshot write, so the panel goes
 ///     `Hidden` without waiting for the next cookies kick).
-pub async fn recheck_credentials(handle: &AppHandle<Wry>) {
+pub fn recheck_credentials(handle: &AppHandle<Wry>) {
     let uid = facts_slot()
         .lock()
         .expect("facts slot poisoned")
         .user_id
         .clone();
     let (next_first, next_access) = match uid.as_deref() {
-        Some(u) => {
-            let (a, b) = tokio::join!(
-                crate::credentials::post_create_present(handle, u),
-                crate::credentials::oauth_popup_present(handle, u),
-            );
-            (Some(a), Some(b))
-        }
+        Some(u) => (
+            Some(crate::credentials::post_create_present(u)),
+            Some(crate::credentials::oauth_popup_present(u)),
+        ),
         None => (None, None),
     };
     let changed = {
@@ -269,17 +291,13 @@ pub async fn apply_cookie_facts(
     auth_token: Option<String>,
     user_id: Option<String>,
 ) {
-    // Concurrent: presence-check both snapshot files. Both are
-    // disk-bound and independent — `tokio::join!` runs them in
-    // parallel. Mode is locked at startup so it's safe to read
-    // outside any lock.
+    // Presence-check both in-memory snapshots for the current twid. Mode is
+    // locked at startup so it's safe to read outside any lock.
     let (creds_complete, oauth_complete) = match user_id.as_deref() {
-        Some(uid) => {
-            let post_create_fut = crate::credentials::post_create_present(handle, uid);
-            let oauth_fut = crate::credentials::oauth_popup_present(handle, uid);
-            let (a, b) = tokio::join!(post_create_fut, oauth_fut);
-            (Some(a), Some(b))
-        }
+        Some(uid) => (
+            Some(crate::credentials::post_create_present(uid)),
+            Some(crate::credentials::oauth_popup_present(uid)),
+        ),
         None => (None, None),
     };
 
@@ -520,26 +538,10 @@ pub fn derive(facts: &Facts) -> PanelState {
         // Delivery drives its own window/driver (no persona panel + no
         // cookies watcher), so the panel never surfaces here.
         Some(Mode::AgentDeliver { .. }) => PanelState::Hidden,
-        // Discord bot-creation wizard. The overlay reports the current
-        // step from the portal DOM (Discord auth is localStorage, not a
-        // cookie); the panel header + the in-page "Click here" pointer stay
-        // in lockstep via the condition.
-        Some(Mode::DiscordLogin { .. }) => match facts.discord_step.as_deref() {
-            Some("log_in") => PanelState::Show {
-                condition: PanelCondition::SignInToDiscord,
-                message: "Log in".into(),
-            },
-            Some("skip") => PanelState::Show {
-                condition: PanelCondition::DiscordSkip,
-                message: "Skip".into(),
-            },
-            Some("create_app") => PanelState::Show {
-                condition: PanelCondition::CreateDiscordApp,
-                message: "Create a New Application".into(),
-            },
-            // No actionable step (or not yet reported) → hidden.
-            _ => PanelState::Hidden,
-        },
+        // Discord bot-creation wizard: the persistent auth form is the
+        // header for the whole session. The in-page "Click here" pointers
+        // (overlay) gate on the form's field state, not on the panel.
+        Some(Mode::DiscordLogin { .. }) => PanelState::DiscordAuth(facts.discord_auth.clone()),
         None => PanelState::Hidden,
     }
 }
@@ -686,7 +688,16 @@ pub fn recompute_and_publish(handle: &AppHandle<Wry>) {
     {
         static X_APP_TERMINATOR_FIRED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
         if X_APP_TERMINATOR_FIRED.set(()).is_ok() {
-            let _ = Output::XAppSetupSucceeded.emit();
+            // Emit the captured HTML for the CLI to persist (browser is DB-free).
+            if let Some((handle, post_create_dialog, oauth_popup)) = crate::credentials::captured()
+            {
+                let _ = Output::XAppSetupSucceeded {
+                    handle,
+                    post_create_dialog,
+                    oauth_popup,
+                }
+                .emit();
+            }
         }
     }
 

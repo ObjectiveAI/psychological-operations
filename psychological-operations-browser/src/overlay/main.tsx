@@ -26,6 +26,7 @@ import { installPostCreateDialogHelpers } from "./post-create-dialog-helpers";
 import { installAgentReadHelpers } from "./agent-read-helpers";
 import { installDeliverHelpers } from "./deliver-helpers";
 import { installDiscordLoginHelpers } from "./discord-login-helpers";
+import { installDiscordCreateDialogHelpers } from "./discord-create-dialog-helpers";
 // Side-effect: registers `window.__psyops_set_panel` so the first
 // Rust push lands. Imported before any helper module so the setter
 // is in place by the time anyone reads `getPanelState()`.
@@ -141,6 +142,7 @@ async function handleRequest(payload: unknown) {
       installDeliverHelpers();
     } else if (mode?.type === "discord_login") {
       installDiscordLoginHelpers();
+      installDiscordCreateDialogHelpers(mode.name);
     }
     // agent_authorize / agent_browser install no helpers — Rust drives the
     // OAuth navigation (authorize) or there's nothing custom (browser).

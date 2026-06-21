@@ -58,16 +58,38 @@
         border: 2px solid rgba(91, 148, 255, 0.95);
         animation: psyops-border-pulse 3s linear infinite;
       }
-      /* Attention flash for high-urgency steps (e.g. "Skip") — the whole
-         message blinks in/out rather than just the border breathing. */
-      @keyframes psyops-text-flash {
-        0%, 100% { opacity: 1; }
-        50%      { opacity: 0.15; }
+      /* DiscordLogin auth form — three read-only fields filling the row.
+         The container also carries the inline panel STYLE (flex, centered);
+         this just adds the gap + per-field layout. */
+      .psyops-form {
+        gap: 18px;
       }
-      .psyops-flash {
-        box-sizing: border-box;
-        border: 2px solid rgba(255, 183, 91, 0.95);
-        animation: psyops-text-flash 0.9s ease-in-out infinite;
+      .psyops-field {
+        display: flex;
+        align-items: baseline;
+        gap: 6px;
+        flex: 1 1 0;
+        min-width: 0;
+      }
+      .psyops-field-label {
+        color: rgba(255, 255, 255, 0.55);
+        font-size: 11px;
+        white-space: nowrap;
+        flex-shrink: 0;
+      }
+      .psyops-field-value {
+        color: #fff;
+        font: 12px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        min-width: 0;
+      }
+      .psyops-field-empty {
+        color: rgba(255, 255, 255, 0.3);
+      }
+      .psyops-field-dots .psyops-dot {
+        font-size: 14px;
       }
     </style>
   </head>

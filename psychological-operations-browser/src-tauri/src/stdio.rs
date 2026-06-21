@@ -237,24 +237,20 @@ pub async fn process_post_create_html_inner(
         return Err("no user_id yet — cookies watcher hasn't observed twid".into());
     };
 
-    credentials::save_post_create_dialog(app, &user_id, &html).await?;
+    credentials::save_post_create_dialog(&user_id, &html)?;
     let parsed = PostCreateDialog::parse(&html);
 
     let _ = Output::Log {
         message: format!(
-            "credentials: stored post_create_dialog for {user_id} ({} / 3 fields parsed)",
+            "credentials: captured post_create_dialog for {user_id} ({} / 3 fields parsed)",
             parsed.parsed_count(),
         ),
     }
     .emit();
 
-    // Refresh `Facts::credentials_complete` from disk so the panel
-    // transitions to Hidden the moment the snapshot lands — no
-    // waiting for the next cookie kick.
-    let app_for_task = app.clone();
-    tauri::async_runtime::spawn(async move {
-        state::recheck_credentials(&app_for_task).await;
-    });
+    // Refresh `Facts::credentials_complete` from the in-memory capture so the
+    // panel transitions to Hidden the moment the snapshot lands.
+    state::recheck_credentials(app);
     Ok(parsed.parsed_count())
 }
 
@@ -269,21 +265,18 @@ pub async fn process_oauth_popup_html_inner(
         return Err("no user_id yet — cookies watcher hasn't observed twid".into());
     };
 
-    credentials::save_oauth_popup(app, &user_id, &html).await?;
+    credentials::save_oauth_popup(&user_id, &html)?;
     let parsed = OAuthPopup::parse(&html);
 
     let _ = Output::Log {
         message: format!(
-            "credentials: stored oauth_popup for {user_id} ({} / 2 fields parsed)",
+            "credentials: captured oauth_popup for {user_id} ({} / 2 fields parsed)",
             parsed.parsed_count(),
         ),
     }
     .emit();
 
-    let app_for_task = app.clone();
-    tauri::async_runtime::spawn(async move {
-        state::recheck_credentials(&app_for_task).await;
-    });
+    state::recheck_credentials(app);
     Ok(parsed.parsed_count())
 }
 

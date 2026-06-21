@@ -1,36 +1,86 @@
 // Discord developer-portal login wizard (Mode::DiscordLogin).
 //
-// A small DOM state machine: each tick it finds the active wizard step by
-// probing the page (in priority order), reports the step name to Rust via
-// the `discord_step` scheme call (which drives the panel header), and parks
-// a single "Click here" pointer on the active step's target — gated on the
-// step's panel condition so pointer + header stay in lockstep (mirrors the
-// X helpers' apps-tab pattern).
+// Two jobs:
+//   1. Auto-scrape the credential values from the portal (read-only) and post
+//      each to Rust as `discord_capture { field, value }`. Rust accumulates
+//      them in the in-memory header form (no DB write); once ALL fields are
+//      present it commits them in one write and closes. Values can arrive in
+//      any order across pages. (App ID + Public Key are scraped here on the
+//      General Information page; the Bot token scraper lands on the Bot page.)
+//   2. A single "Click here" pointer that guides the *navigation* steps
+//      (sign in / skip / create app / open the Bot tab) — gated on DOM
+//      presence + the header form state.
 //
-// Adding a step = one entry in STEPS (+ a Rust `derive` arm mapping its
-// name to a PanelCondition). Steps so far: log_in, skip. Create-app / add-
-// bot / reveal-token hang off here next.
-//
-// TOS posture matches the X helpers: read-only DOM observation + rendering
-// under our own shadow root. No `.value=`, `.click()`, `.dispatchEvent`, or
-// fetch to discord.com.
+// TOS posture matches the X helpers: read-only DOM observation + render under
+// our own shadow root. No `.value=`, `.click()`, `.dispatchEvent`, or fetch.
 
 import {
   HELPER_CSS,
   createHelperWidget,
   type HelperWidget,
 } from "./helper-widget";
-import { isPanelCondition } from "./panel-state";
+import { getDiscordAuth } from "./panel-state";
 import { invoke } from "./ipc";
+import { isDiscordCreateDialogOpen } from "./discord-create-dialog-helpers";
 
 const HELPER_TEXT = "Click here";
+const HEX = "0123456789abcdef";
 
-/** A wizard step: how to find its target on the page + the panel condition
- *  that gates its pointer. Discord's class names are hashed and churn, so
- *  steps match on visible text rather than selectors. */
-type Step = { name: string; condition: string; find: () => HTMLElement | null };
+// --- value scraping (read-only) ------------------------------------------
+/** The single 17–20 digit leaf on the page (the Application ID), or null. */
+function uniqueSnowflake(): string | null {
+  return uniqueLeaf(
+    (t) => t.length >= 17 && t.length <= 20 && [...t].every((c) => c >= "0" && c <= "9"),
+  );
+}
+/** The single 64-hex leaf on the page (the Public Key), or null. */
+function uniquePublicKey(): string | null {
+  return uniqueLeaf(
+    (t) => t.length === 64 && [...t.toLowerCase()].every((c) => HEX.includes(c)),
+  );
+}
+function uniqueLeaf(pred: (t: string) => boolean): string | null {
+  const found = new Set<string>();
+  for (const e of document.querySelectorAll("*")) {
+    if (e.children.length) continue;
+    const t = (e.textContent ?? "").trim();
+    if (pred(t)) found.add(t);
+  }
+  return found.size === 1 ? [...found][0] : null;
+}
 
-/** Find a clickable element whose visible text is exactly `text`. */
+// --- header form state ---------------------------------------------------
+type FieldName = "application_id" | "public_key" | "bot_token";
+function value(field: FieldName): string | undefined {
+  return getDiscordAuth()?.[field]?.value;
+}
+/** Still needs capture (not yet in the header form). */
+function pending(field: FieldName): boolean {
+  return !value(field);
+}
+
+// --- auto-scrape → header ------------------------------------------------
+const reported = new Set<FieldName>();
+
+function report(field: FieldName, v: string): void {
+  if (value(field) || reported.has(field)) return;
+  reported.add(field);
+  invoke("discord_capture", { field, value: v }).catch(() => {
+    reported.delete(field); // let a later tick retry
+  });
+}
+
+function scrapeAndReport(): void {
+  // Application ID + Public Key both live on the General Information page;
+  // require both present so a stray snowflake elsewhere can't misfire.
+  const appId = uniqueSnowflake();
+  const publicKey = uniquePublicKey();
+  if (!appId || !publicKey) return;
+  report("application_id", appId);
+  report("public_key", publicKey);
+}
+
+// --- navigation pointers -------------------------------------------------
 function byExactText(text: string): () => HTMLElement | null {
   const want = text.toLowerCase();
   return () => {
@@ -43,31 +93,30 @@ function byExactText(text: string): () => HTMLElement | null {
   };
 }
 
-// Checked in order; the first step whose target is present is active.
-// `create_app` is last (lowest priority): a "New Application" button exists
-// even signed-out, but `log_in` matches first there, so create_app only
-// wins on the signed-in app list.
+/** The Bot sidebar link, by its stable href (class names churn). */
+function findBotLink(): HTMLElement | null {
+  for (const a of document.querySelectorAll<HTMLAnchorElement>("a[href]")) {
+    if ((a.getAttribute("href") ?? "").endsWith("/bot")) return a;
+  }
+  return null;
+}
+
+type Step = { name: string; side: "left" | "right"; find: () => HTMLElement | null };
+
 const STEPS: Step[] = [
-  { name: "log_in", condition: "sign_in_to_discord", find: byExactText("log in") },
-  { name: "skip", condition: "discord_skip", find: byExactText("skip") },
+  { name: "log_in", side: "right", find: byExactText("log in") },
+  { name: "skip", side: "right", find: byExactText("skip") },
+  { name: "create_app", side: "left", find: byExactText("new application") },
   {
-    name: "create_app",
-    condition: "create_discord_app",
-    find: byExactText("new application"),
+    name: "open_bot",
+    side: "right",
+    // Once app id + public key are captured and the token isn't yet.
+    find: () =>
+      value("application_id") && value("public_key") && pending("bot_token")
+        ? findBotLink()
+        : null,
   },
 ];
-
-let rootEl: HTMLDivElement | null = null;
-let widget: HelperWidget | null = null;
-let rafId: number | null = null;
-let lastStep: string | null = null;
-
-/** Report the active step to Rust on change (drives the panel header). */
-function reportStep(step: string | null): void {
-  if (lastStep === step) return;
-  lastStep = step;
-  invoke("discord_step", { step }).catch(() => {});
-}
 
 function activeStep(): { step: Step; el: HTMLElement } | null {
   for (const step of STEPS) {
@@ -77,9 +126,13 @@ function activeStep(): { step: Step; el: HTMLElement } | null {
   return null;
 }
 
+// --- mount / tick --------------------------------------------------------
+let rootEl: HTMLDivElement | null = null;
+let widget: HelperWidget | null = null;
+let rafId: number | null = null;
+
 function mount(): void {
   if (rootEl) return;
-
   rootEl = document.createElement("div");
   rootEl.id = "__psyops_discord_login_helper";
   Object.assign(rootEl.style, {
@@ -91,39 +144,43 @@ function mount(): void {
     pointerEvents: "none",
     zIndex: "2147483600",
   } satisfies Partial<CSSStyleDeclaration>);
-
   const shadow = rootEl.attachShadow({ mode: "closed" });
   const style = document.createElement("style");
   style.textContent = HELPER_CSS;
   shadow.appendChild(style);
-
   widget = createHelperWidget({ text: HELPER_TEXT, arrow: "left" });
   shadow.appendChild(widget.element);
   widget.element.style.display = "none";
-
   document.body.appendChild(rootEl);
   rafId = requestAnimationFrame(tick);
 }
 
 function tick(): void {
   if (!widget) return;
-  const active = activeStep();
 
-  // Report the current step so Rust flips the panel header.
-  reportStep(active?.step.name ?? null);
+  // Auto-scrape credentials into the header form every tick.
+  scrapeAndReport();
 
   const el = widget.element;
-  // Show only when there's an active step AND the panel header is on that
-  // step's condition (mirrored from Rust) — keeps pointer + header in sync.
-  const show = !!active && isPanelCondition(active.step.condition);
-  if (!show || !active) {
+  // The create dialog owns its own badges; hide the single pointer.
+  const active = isDiscordCreateDialogOpen() ? null : activeStep();
+  if (!active) {
     el.style.display = "none";
   } else {
     el.style.display = "";
     const rect = active.el.getBoundingClientRect();
     el.style.top = `${rect.top + rect.height / 2}px`;
-    el.style.left = `${rect.right + 8}px`;
-    el.style.transform = "translateY(-50%)";
+    if (active.step.side === "left") {
+      el.classList.remove("arrow-left");
+      el.classList.add("arrow-right");
+      el.style.left = `${rect.left - 8}px`;
+      el.style.transform = "translate(-100%, -50%)";
+    } else {
+      el.classList.remove("arrow-right");
+      el.classList.add("arrow-left");
+      el.style.left = `${rect.right + 8}px`;
+      el.style.transform = "translateY(-50%)";
+    }
   }
   rafId = requestAnimationFrame(tick);
 }

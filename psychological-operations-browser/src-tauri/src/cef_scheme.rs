@@ -339,15 +339,9 @@ pub async fn dispatch_inner(
             crate::deliver::report(&args.tweet_id, &args.kind, &args.status);
             Ok(Value::Null)
         }
-        "discord_step" => {
-            let args = parse_body::<DiscordStepArgs>(body).map_err(DispatchError::BadRequest)?;
-            crate::state::set_discord_step(app, args.step);
-            Ok(Value::Null)
-        }
-        "discord_bot_credentials" => {
-            let args =
-                parse_body::<DiscordBotCredentialsArgs>(body).map_err(DispatchError::BadRequest)?;
-            crate::discord_login::store_bot_credentials(app, args.client_id, args.token)
+        "discord_capture" => {
+            let args = parse_body::<DiscordCaptureArgs>(body).map_err(DispatchError::BadRequest)?;
+            crate::discord_login::capture_field(app, args.field, args.value)
                 .await
                 .map(Value::from)
                 .map_err(DispatchError::Internal)
@@ -424,14 +418,8 @@ struct DeliverReportArgs {
 }
 
 #[derive(Deserialize)]
-struct DiscordStepArgs {
-    /// Wizard step the overlay detected (`"log_in"`, `"skip"`, …), or
-    /// `null` when no actionable step is present.
-    step: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct DiscordBotCredentialsArgs {
-    client_id: String,
-    token: String,
+struct DiscordCaptureArgs {
+    /// `"application_id"` / `"public_key"` / `"bot_token"`.
+    field: String,
+    value: String,
 }
