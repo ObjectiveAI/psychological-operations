@@ -5,8 +5,9 @@
 //! the mode determines which `CefRequestContext` (and therefore
 //! which per-account cookie / cache directory) the browser uses.
 //! Exactly one of `--x-app`, `--agent-read <TAG>`,
-//! `--agent-authorize <TAG>`, or `--agent-browser <TAG>`
-//! must be set; multiple or none is a clap error.
+//! `--agent-authorize <TAG>`, `--agent-browser <TAG>`, or
+//! `--agent-deliver <TAG>` (with `--items <JSON>`) must be set;
+//! multiple or none is a clap error.
 //!
 //! Mode is locked at process startup — there is no runtime
 //! mode swap. To change mode, kill the browser and relaunch
@@ -20,7 +21,7 @@ use psychological_operations_sdk::browser::mode::Mode;
 #[derive(Debug, Parser)]
 #[command(name = "psychological-operations-browser")]
 #[command(about = "Tauri+CEF webview shell for psychological-operations sessions.")]
-#[command(group = ArgGroup::new("mode").required(true).multiple(false).args(["x_app", "agent_read", "agent_authorize", "agent_browser", "deliver"]))]
+#[command(group = ArgGroup::new("mode").required(true).multiple(false).args(["x_app", "agent_read", "agent_authorize", "agent_browser", "agent_deliver"]))]
 pub struct Args {
     /// Base directory for psych-ops state. Mode-specific CEF session
     /// data (cookies, IndexedDB, cache, ...) lives under
@@ -67,15 +68,20 @@ pub struct Args {
     #[arg(long, group = "mode", value_name = "TAG")]
     pub agent_browser: Option<String>,
 
-    /// Launch in reply/quote **delivery** mode. The value is an inline
-    /// JSON array of
-    /// [`psychological_operations_sdk::browser::deliver::DeliverItem`].
-    /// The browser fulfills each item (as its `agent`) and streams one
-    /// `Output::Delivered` per success, then self-exits. NOT persona-
-    /// scoped (the batch spans agents), so this is a separate invocation
-    /// handled before the `Mode` system (see `lib.rs` + `deliver.rs`).
-    #[arg(long, group = "mode", value_name = "JSON")]
-    pub deliver: Option<String>,
+    /// Launch in reply/quote **delivery** mode, scoped to the given agent
+    /// tag (one agent per invocation — the CLI spawns one browser per
+    /// agent). Shares the agent's `agent-<tag>` CEF profile. Requires
+    /// `--agent-deliver-items`; the browser fulfills each item as this agent,
+    /// streams one `Output::Delivered` per success, then self-exits.
+    #[arg(long, group = "mode", value_name = "TAG", requires = "agent_deliver_items")]
+    pub agent_deliver: Option<String>,
+
+    /// The reply/quote payload for `--agent-deliver`: an inline JSON array
+    /// of [`psychological_operations_sdk::browser::deliver::DeliverItem`]
+    /// (each `{tweet_id, content, kind}` — the agent is `--agent-deliver`,
+    /// not a per-item field). Only valid with `--agent-deliver`.
+    #[arg(long, value_name = "JSON", requires = "agent_deliver")]
+    pub agent_deliver_items: Option<String>,
 
     /// Bytes — SQLite response-cache size budget passed to
     /// `Client::new` when the browser needs to interact with
@@ -106,6 +112,8 @@ impl Args {
             Mode::AgentAuthorize { name: name.clone() }
         } else if let Some(name) = self.agent_browser.as_ref() {
             Mode::AgentBrowser { name: name.clone() }
+        } else if let Some(name) = self.agent_deliver.as_ref() {
+            Mode::AgentDeliver { name: name.clone() }
         } else {
             unreachable!("clap ArgGroup mode required=true, multiple=false")
         }

@@ -4481,6 +4481,7 @@ dependencies = [
  "objc2",
  "objc2-app-kit",
  "objc2-foundation",
+ "objectiveai-sdk",
  "psychological-operations-db",
  "psychological-operations-sdk",
  "rand 0.10.1",

@@ -85,34 +85,55 @@ pub fn run() {
         }
     };
 
-    // Reply/quote delivery (`--deliver <json>`) is a separate invocation,
-    // NOT a persona `Mode` — the batch spans agents, so it skips the Mode
-    // system and runs the delivery driver (per-agent CEF sessions) instead
-    // of the persona UI. Parse the inline item array up front.
-    let deliver_items: Option<Vec<DeliverItem>> = match args.deliver.as_ref() {
-        Some(json) => match serde_json::from_str::<Vec<DeliverItem>>(json) {
-            Ok(items) => Some(items),
-            Err(e) => {
-                let _ = Output::Error {
-                    error: format!("--deliver: invalid JSON: {e}"),
+    // The mode flag is required (clap's ArgGroup enforces it). Lock the SDK
+    // mode static once for every mode, delivery included.
+    let initial_mode = args.initial_mode();
+    mode::set(initial_mode.clone());
+
+    // `--agent-deliver <tag> --items <json>`: parse the reply/quote payload
+    // (clap guarantees `--items` is present iff `--agent-deliver` is). The
+    // acting agent is the mode's tag, not a per-item field.
+    let deliver_items: Option<Vec<DeliverItem>> = match &initial_mode {
+        mode::Mode::AgentDeliver { .. } => {
+            let json = args.agent_deliver_items.as_deref().unwrap_or("[]");
+            match serde_json::from_str::<Vec<DeliverItem>>(json) {
+                Ok(items) => Some(items),
+                Err(e) => {
+                    let _ = Output::Error {
+                        error: format!("--items: invalid JSON: {e}"),
+                    }
+                    .emit();
+                    std::process::exit(2);
                 }
-                .emit();
-                std::process::exit(2);
             }
-        },
-        None => None,
+        }
+        _ => None,
     };
 
-    // The CLI mode flag is required (clap's ArgGroup enforces it). Lock the
-    // SDK mode static once — but only when NOT delivering (delivery has no
-    // persona mode; `mode::get()` stays `None`).
-    let initial_mode = if deliver_items.is_none() {
-        let m = args.initial_mode();
-        mode::set(m.clone());
-        Some(m)
-    } else {
-        None
-    };
+    // Acquire the per-identity auth lock and hold it for the whole process.
+    // Refuse to start if another process (a second browser, or the CLI's
+    // dangerous-reset path) already owns this identity's auth. Key is the
+    // mode's `cache_subdir()` (`x-app` / `agent-<tag>`) so both sides agree;
+    // dir is `<state_dir>/browser/locks/` (created by `try_acquire`).
+    let lock_key = initial_mode.cache_subdir();
+    if tauri::async_runtime::block_on(objectiveai_sdk::lockfile::try_acquire(
+        &args.state_dir.join("browser").join("locks"),
+        &lock_key,
+        &format!("pid {}", std::process::id()),
+    ))
+    .is_none()
+    {
+        let _ = Output::Error {
+            error: format!(
+                "another process holds the browser auth lock '{lock_key}' for this state; close it first"
+            ),
+        }
+        .emit();
+        std::process::exit(1);
+    }
+    // `try_acquire` returned `Some` — the `LockClaim` is intentionally dropped:
+    // its handles leak by design, so the lock is held until this process exits
+    // (and is OS-released on any exit, crash included).
 
     // Connect the persistence layer up front (credential-HTML + token
     // storage). Uses tauri's global async runtime since the builder
@@ -174,18 +195,21 @@ pub fn run() {
                 .take();
 
             if let Some(items) = items {
-                // Delivery path: window shell (no per-mode browser — the
-                // driver opens one per agent), the stdin reader (so the dev
-                // bridge's Html/Eval introspection works), and the driver.
+                // Delivery path: window shell (no persona browser — the
+                // driver opens the agent's session itself), the stdin reader
+                // (so the dev bridge's Html/Eval introspection works), and the
+                // driver. The acting agent is the `AgentDeliver` mode's tag.
+                let agent = match &initial_mode {
+                    mode::Mode::AgentDeliver { name } => name.clone(),
+                    _ => unreachable!("deliver items present ⟺ AgentDeliver mode"),
+                };
                 webview::create_deliver_window(handle)?;
                 stdio::start(handle.clone(), rx);
-                deliver::start(handle.clone(), items);
+                deliver::start(handle.clone(), agent, items);
             } else {
                 // Persona path: the window + the single mode-scoped CEF
                 // browser + the cookies watcher.
-                let mode = initial_mode
-                    .as_ref()
-                    .expect("initial_mode is set when not delivering");
+                let mode = &initial_mode;
                 webview::create_x_app(handle, mode)?;
                 let watcher_slot: tauri::State<CookiesWatcherSlot> = handle.state();
                 *watcher_slot.0.lock().expect("watcher slot poisoned") =

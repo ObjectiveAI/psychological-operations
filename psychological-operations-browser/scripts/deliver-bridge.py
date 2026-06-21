@@ -54,9 +54,14 @@ def pump_stream(stream, sinks):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument(
-        "--deliver",
+        "--agent-deliver",
         required=True,
-        help="inline JSON array of DeliverItem (passed verbatim to --deliver)",
+        help="agent tag to deliver as (passed verbatim to --agent-deliver)",
+    )
+    ap.add_argument(
+        "--agent-deliver-items",
+        required=True,
+        help="inline JSON array of DeliverItem {tweet_id, content, kind} (passed verbatim to --agent-deliver-items)",
     )
     ap.add_argument(
         "--state-dir",
@@ -95,10 +100,14 @@ def main():
         args.binary,
         "--state-dir",
         args.state_dir,
-        "--deliver",
-        args.deliver,
+        "--agent-deliver",
+        args.agent_deliver,
+        "--agent-deliver-items",
+        args.agent_deliver_items,
     ]
-    print(f"[bridge] spawning: {cmd[0]} --state-dir {args.state_dir} --deliver <{len(args.deliver)} bytes>",
+    print(f"[bridge] spawning: {cmd[0]} --state-dir {args.state_dir} "
+          f"--agent-deliver {args.agent_deliver} "
+          f"--agent-deliver-items <{len(args.agent_deliver_items)} bytes>",
           flush=True)
     proc = subprocess.Popen(
         cmd,

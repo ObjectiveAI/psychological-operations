@@ -50,7 +50,6 @@ async fn run_inner(ctx: &crate::context::Context) -> Result<CliOutput, Error> {
     for e in entries {
         by_agent.entry(e.agent_tag.clone()).or_default().push(DeliverItem {
             tweet_id: e.target_tweet_id,
-            agent: e.agent_tag,
             content: e.text,
             kind: e.kind,
         });
@@ -72,13 +71,16 @@ async fn deliver_agent(
     agent: &str,
     items: &[DeliverItem],
 ) -> Result<(), Error> {
-    let json = serde_json::to_string(items)
+    let items_json = serde_json::to_string(items)
         .map_err(|e| Error::Other(format!("serialize deliver items: {e}")))?;
 
     let mut child = launch::spawn(
         &browser_binary(&ctx.config),
         state_dir,
-        launch::Mode::Deliver { json },
+        launch::Mode::AgentDeliver {
+            agent: agent.to_string(),
+            items_json,
+        },
         /* pipe_stdin  = */ false,
         /* pipe_stdout = */ true,
     )?;

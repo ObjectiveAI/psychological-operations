@@ -69,9 +69,10 @@ fn cache_subdir_for(mode: &Mode) -> String {
 fn start_url_for(mode: &Mode) -> &'static str {
     match mode {
         Mode::XApp => "https://console.x.com/",
-        Mode::AgentRead { .. } | Mode::AgentAuthorize { .. } | Mode::AgentBrowser { .. } => {
-            "https://x.com/"
-        }
+        Mode::AgentRead { .. }
+        | Mode::AgentAuthorize { .. }
+        | Mode::AgentBrowser { .. }
+        | Mode::AgentDeliver { .. } => "https://x.com/",
     }
 }
 

@@ -49,10 +49,10 @@ import {
 import { subscribeUrl } from "./spa-url";
 import { invoke } from "./ipc";
 
-/** Mirror of the Rust `DeliverItem` (sdk browser/deliver.rs). */
+/** Mirror of the Rust `DeliverItem` (sdk browser/deliver.rs). The acting
+ *  agent rides on the `--agent-deliver` invocation, not each item. */
 export type DeliverItem = {
   tweet_id: string;
-  agent: string;
   content: string;
   kind: string; // "reply" | "quote"
 };

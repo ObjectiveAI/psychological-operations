@@ -57,11 +57,28 @@ async fn run_inner(
         ));
     }
     if dangerously_reset {
+        // Take the same auth lock the browser holds so we never wipe an
+        // identity a running browser is using. Same (dir, key) as the
+        // browser: `<state_dir>/browser/locks/` + `Mode::cache_subdir()`.
+        let lock_key = psychological_operations_sdk::browser::mode::Mode::XApp.cache_subdir();
+        let claim = objectiveai_sdk::lockfile::try_acquire(
+            &state_dir.join("browser").join("locks"),
+            &lock_key,
+            &format!("pid {} x-app reset", std::process::id()),
+        )
+        .await
+        .ok_or_else(|| {
+            Error::Other(
+                "x-app auth is locked by a running browser; close it before resetting".into(),
+            )
+        })?;
         // wipe_x_app now also clears every account's tokens (a new X-App
         // orphans them), so no separate persona-auth wipe is needed.
-        reset::wipe_x_app(&ctx.db, &state_dir)
-            .await
-            .map_err(Error::Other)?;
+        let wiped = reset::wipe_x_app(&ctx.db, &state_dir).await;
+        // Explicitly release now (drop is a no-op) — before this command
+        // spawns its own browser below, which re-acquires the same lock.
+        let _ = claim.release();
+        wiped.map_err(Error::Other)?;
     }
 
     // === Spawn browser in XApp mode ===

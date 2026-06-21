@@ -70,9 +70,27 @@ async fn run_inner(
     // either mints a token or — if that account already has one — skips the
     // OAuth consent and closes.
     if dangerously_reset {
-        reset::wipe_persona(&ctx.db, &state_dir, kind, name)
-            .await
-            .map_err(Error::Other)?;
+        // Take the same auth lock the browser holds for this identity so we
+        // never wipe an account a running browser is using. Key derived from
+        // `kind.to_mode(name).cache_subdir()` (= `agent-<tag>`) so both sides
+        // agree, including the `/`→`-` flattening for hierarchy tags.
+        let lock_key = kind.to_mode(name).cache_subdir();
+        let claim = objectiveai_sdk::lockfile::try_acquire(
+            &state_dir.join("browser").join("locks"),
+            &lock_key,
+            &format!("pid {} persona reset", std::process::id()),
+        )
+        .await
+        .ok_or_else(|| {
+            Error::Other(format!(
+                "auth for '{name}' is locked by a running browser; close it before resetting"
+            ))
+        })?;
+        let wiped = reset::wipe_persona(&ctx.db, &state_dir, kind, name).await;
+        // Explicitly release now (drop is a no-op) — before this command
+        // spawns its own browser below, which re-acquires the same lock.
+        let _ = claim.release();
+        wiped.map_err(Error::Other)?;
     }
 
     // === Spawn browser in <kind>Authorize mode ===

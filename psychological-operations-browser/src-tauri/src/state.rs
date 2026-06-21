@@ -309,9 +309,10 @@ pub async fn apply_cookie_facts(
 fn home_url_for_current_mode() -> Option<&'static str> {
     match mode::get()? {
         Mode::XApp => Some("https://console.x.com/"),
-        Mode::AgentRead { .. } | Mode::AgentAuthorize { .. } | Mode::AgentBrowser { .. } => {
-            Some("https://x.com/")
-        }
+        Mode::AgentRead { .. }
+        | Mode::AgentAuthorize { .. }
+        | Mode::AgentBrowser { .. }
+        | Mode::AgentDeliver { .. } => Some("https://x.com/"),
     }
 }
 
@@ -495,6 +496,9 @@ pub fn derive(facts: &Facts) -> PanelState {
                 PanelState::Hidden
             }
         }
+        // Delivery drives its own window/driver (no persona panel + no
+        // cookies watcher), so the panel never surfaces here.
+        Some(Mode::AgentDeliver { .. }) => PanelState::Hidden,
         None => PanelState::Hidden,
     }
 }

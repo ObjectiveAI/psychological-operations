@@ -36,6 +36,9 @@ tauri-build = { version = "2.6.2", features = [] }
 [dependencies]
 psychological-operations-db = { path = "../../psychological-operations-db" }
 psychological-operations-sdk = { path = "../../psychological-operations-sdk", version = "0.1.0" }
+# File-lock so the browser owns its identity's auth exclusively (the CLI's
+# dangerous-reset path takes the same lock). `lockfile` feature only.
+objectiveai-sdk = { version = "2.2.4", default-features = false, features = ["lockfile"] }
 # OAuth dance pieces for the psyop authorize flow. The SDK's
 # `x::oauth` module has equivalents but was inlined here when
 # x-api (its prior home) was mid-refactor; the inline copy

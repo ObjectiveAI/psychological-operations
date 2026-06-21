@@ -1,19 +1,18 @@
 //! Reply/quote delivery driver (browser side) — stage-2 framework.
 //!
-//! Driven by the `--deliver <json>` invocation. The items (a JSON array of
-//! [`DeliverItem`]) are grouped by agent; each agent is a sequential
-//! "session": open a CEF browser on that agent's `agent-<tag>` profile and
-//! walk every reply/quote — navigate to the tweet, show the copy widget +
-//! operator instructions via the overlay, await an auto-detected
-//! completion (or skip on timeout / unrecognized state), and stream
-//! [`Output::Delivered`]. Then tear the browser down and move to the next
-//! agent.
+//! Driven by the `--agent-deliver <tag> --items <json>` invocation: one
+//! agent per process (the CLI spawns one browser per agent). Open a CEF
+//! browser on the agent's `agent-<tag>` profile and walk every reply/quote
+//! in `items` — navigate to the tweet, show the copy widget + operator
+//! instructions via the overlay, await an auto-detected completion (or skip
+//! on timeout / unrecognized state), and stream [`Output::Delivered`]. Then
+//! tear the browser down and exit.
 //!
 //! The completion-detection signals + the x.com selectors live in the
 //! overlay's `deliver-helpers` and are the iteration points; this module
 //! is the orchestration framework.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
@@ -61,53 +60,43 @@ pub fn is_finished() -> bool {
     FINISHED.load(Ordering::SeqCst)
 }
 
-/// Spawn the delivery driver task: run each agent session sequentially,
-/// then exit the app so the CLI driver sees stdout EOF.
-pub fn start(handle: AppHandle<Wry>, items: Vec<DeliverItem>) {
+/// Spawn the delivery driver task: walk this agent's items, then exit the
+/// app so the CLI driver sees stdout EOF.
+pub fn start(handle: AppHandle<Wry>, agent: String, items: Vec<DeliverItem>) {
     tauri::async_runtime::spawn(async move {
-        run(&handle, items).await;
+        run(&handle, &agent, items).await;
         // Release the exit guard, then terminate so the CLI sees EOF.
         FINISHED.store(true, Ordering::SeqCst);
         handle.exit(0);
     });
 }
 
-async fn run(handle: &AppHandle<Wry>, items: Vec<DeliverItem>) {
-    // Group by agent (BTreeMap → stable, sorted by tag). Replies/quotes are
-    // walked in queue order within each agent.
-    let mut by_agent: BTreeMap<String, Vec<DeliverItem>> = BTreeMap::new();
-    for it in items {
-        by_agent.entry(it.agent.clone()).or_default().push(it);
+async fn run(handle: &AppHandle<Wry>, agent: &str, items: Vec<DeliverItem>) {
+    // One agent per invocation. Open its X session (its own CEF profile);
+    // the cache subdir matches what `agents login` wrote (canonical Mode
+    // mapping). Replies/quotes are walked in queue order.
+    let cache_subdir = Mode::AgentDeliver { name: agent.to_string() }.cache_subdir();
+    crate::webview::spawn_agent_browser(handle, &cache_subdir, "https://x.com/home");
+    if !wait_until(BROWSER_UP_TIMEOUT, crate::cef::has_browser).await {
+        let _ = Output::Log {
+            message: format!("deliver: browser for agent {agent} did not come up; skipping"),
+        }
+        .emit();
+        return;
     }
 
-    for (agent, group) in by_agent {
-        // Open this agent's X session (its own CEF profile). The cache
-        // subdir matches what `agents login` wrote (the canonical Mode
-        // mapping).
-        let cache_subdir = Mode::AgentBrowser { name: agent.clone() }.cache_subdir();
-        crate::webview::spawn_agent_browser(handle, &cache_subdir, "https://x.com/home");
-        if !wait_until(BROWSER_UP_TIMEOUT, crate::cef::has_browser).await {
-            let _ = Output::Log {
-                message: format!("deliver: browser for agent {agent} did not come up; skipping"),
-            }
-            .emit();
-            continue;
-        }
+    for item in &items {
+        deliver_one(agent, item).await;
+    }
 
-        for item in &group {
-            deliver_one(item).await;
-        }
-
-        // Tear down this agent's browser before the next (the `do_close`
-        // hook flushes its cookie store).
-        if crate::cef::has_browser() {
-            crate::cef::close_browser_async();
-            let _ = wait_until(BROWSER_DOWN_TIMEOUT, || !crate::cef::has_browser()).await;
-        }
+    // Tear the browser down (the `do_close` hook flushes its cookie store).
+    if crate::cef::has_browser() {
+        crate::cef::close_browser_async();
+        let _ = wait_until(BROWSER_DOWN_TIMEOUT, || !crate::cef::has_browser()).await;
     }
 }
 
-async fn deliver_one(item: &DeliverItem) {
+async fn deliver_one(agent: &str, item: &DeliverItem) {
     // Navigate to the target tweet (handle-less form). Iteration point.
     let url = format!("https://x.com/i/web/status/{}", item.tweet_id);
     crate::cef::navigate(url);
@@ -135,7 +124,7 @@ async fn deliver_one(item: &DeliverItem) {
         Ok(true) => {
             let _ = Output::Delivered {
                 tweet_id: item.tweet_id.clone(),
-                agent: item.agent.clone(),
+                agent: agent.to_string(),
                 kind: item.kind.clone(),
             }
             .emit();
@@ -145,7 +134,7 @@ async fn deliver_one(item: &DeliverItem) {
             let _ = Output::Log {
                 message: format!(
                     "deliver: skipped {} {} for {}",
-                    item.kind, item.tweet_id, item.agent
+                    item.kind, item.tweet_id, agent
                 ),
             }
             .emit();

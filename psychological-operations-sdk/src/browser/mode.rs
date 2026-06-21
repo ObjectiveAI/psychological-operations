@@ -42,6 +42,12 @@ pub enum Mode {
     /// not signed in) or hides entirely. The browser waits for the
     /// operator to close the window.
     AgentBrowser { name: String },
+    /// Per-agent reply/quote **delivery** session, scoped to one agent
+    /// (the CLI spawns one browser per agent). Shares the agent's
+    /// `agent-<tag>` CEF profile; the delivery driver walks the `--items`
+    /// payload, driving the overlay to post each reply/quote, and streams
+    /// one `Output::Delivered` per success before self-exiting.
+    AgentDeliver { name: String },
 }
 
 /// Reduce a persona name to a SINGLE filesystem path segment for use as
@@ -75,7 +81,8 @@ impl Mode {
             Mode::XApp => "x-app".to_string(),
             Mode::AgentRead { name }
             | Mode::AgentAuthorize { name }
-            | Mode::AgentBrowser { name } => format!("agent-{}", flat_segment(name)),
+            | Mode::AgentBrowser { name }
+            | Mode::AgentDeliver { name } => format!("agent-{}", flat_segment(name)),
         }
     }
 }
@@ -130,7 +137,9 @@ mod tests {
     fn same_persona_shares_one_profile_across_submodes() {
         let a = Mode::AgentAuthorize { name: "foo".into() }.cache_subdir();
         let b = Mode::AgentBrowser { name: "foo".into() }.cache_subdir();
+        let c = Mode::AgentDeliver { name: "foo".into() }.cache_subdir();
         assert_eq!(a, b);
+        assert_eq!(a, c);
     }
 
     #[test]

@@ -26,10 +26,12 @@ pub enum Mode {
     AgentBrowser {
         name: String,
     },
-    /// Reply/quote delivery: `json` is an inline JSON array of
-    /// [`psychological_operations_sdk::browser::deliver::DeliverItem`].
-    Deliver {
-        json: String,
+    /// Reply/quote delivery for one `agent`: `items_json` is an inline JSON
+    /// array of [`psychological_operations_sdk::browser::deliver::DeliverItem`]
+    /// (each `{tweet_id, content, kind}` — the agent rides on the flag).
+    AgentDeliver {
+        agent: String,
+        items_json: String,
     },
 }
 
@@ -40,7 +42,12 @@ impl Mode {
             Mode::AgentRead { name } => vec!["--agent-read".into(), name.clone()],
             Mode::AgentAuthorize { name } => vec!["--agent-authorize".into(), name.clone()],
             Mode::AgentBrowser { name } => vec!["--agent-browser".into(), name.clone()],
-            Mode::Deliver { json } => vec!["--deliver".into(), json.clone()],
+            Mode::AgentDeliver { agent, items_json } => vec![
+                "--agent-deliver".into(),
+                agent.clone(),
+                "--agent-deliver-items".into(),
+                items_json.clone(),
+            ],
         }
     }
 }
