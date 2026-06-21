@@ -184,13 +184,16 @@ CREATE TABLE IF NOT EXISTS account_auth (
     updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- ── per-agent Discord bot token ──────────────────────────────────────
--- Written by `agents login discord` (the wizard scrapes the bot token from
--- the Discord developer portal) and later read by the agent's Discord
--- gateway/REST. Keyed by agent tag — one bot per agent.
+-- ── per-agent Discord bot credentials ────────────────────────────────
+-- Written by `agents login discord` (the wizard scrapes the application's
+-- client id + bot token from the Discord developer portal) and later read
+-- by the agent's Discord gateway/REST. The `client_id` (application id) is
+-- public — used to build the bot's invite link; the `bot_token` is secret.
+-- Keyed by agent tag — one bot per agent.
 
 CREATE TABLE IF NOT EXISTS discord_auth (
     agent_tag   TEXT PRIMARY KEY,
+    client_id   TEXT NOT NULL,
     bot_token   TEXT NOT NULL,
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );

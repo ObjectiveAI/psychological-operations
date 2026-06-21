@@ -339,9 +339,10 @@ pub async fn dispatch_inner(
             crate::deliver::report(&args.tweet_id, &args.kind, &args.status);
             Ok(Value::Null)
         }
-        "discord_bot_token" => {
-            let args = parse_body::<DiscordBotTokenArgs>(body).map_err(DispatchError::BadRequest)?;
-            crate::discord_login::store_bot_token(app, args.token)
+        "discord_bot_credentials" => {
+            let args =
+                parse_body::<DiscordBotCredentialsArgs>(body).map_err(DispatchError::BadRequest)?;
+            crate::discord_login::store_bot_credentials(app, args.client_id, args.token)
                 .await
                 .map(Value::from)
                 .map_err(DispatchError::Internal)
@@ -418,6 +419,7 @@ struct DeliverReportArgs {
 }
 
 #[derive(Deserialize)]
-struct DiscordBotTokenArgs {
+struct DiscordBotCredentialsArgs {
+    client_id: String,
     token: String,
 }

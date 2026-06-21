@@ -35,6 +35,7 @@ pub mod retry;
 pub mod x_app;
 
 pub use cookies::{parse_twid, signed_in_x_user_id, CookiesError};
+pub use discord::DiscordAuth;
 pub use locker::LockGuard;
 pub use posts::{MediaUrl, Origin, Post};
 pub use queue::QueueEntry;
