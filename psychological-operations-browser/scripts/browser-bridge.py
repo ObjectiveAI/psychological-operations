@@ -48,11 +48,6 @@ def main():
         default=os.environ.get("OBJECTIVEAI_STATE_DIR"),
         help="state root (default: $OBJECTIVEAI_STATE_DIR)",
     )
-    ap.add_argument(
-        "--postgres-url",
-        default=os.environ.get("OBJECTIVEAI_POSTGRES_URL"),
-        help="postgres URL (default: $OBJECTIVEAI_POSTGRES_URL)",
-    )
     ap.add_argument("--binary", default=str(DEFAULT_BINARY))
     ap.add_argument("--workdir", default=str(REPO_ROOT / ".browser-bridge"))
     ap.add_argument(
@@ -65,8 +60,6 @@ def main():
 
     if not args.state_dir:
         ap.error("--state-dir is required (or set OBJECTIVEAI_STATE_DIR)")
-    if not args.postgres_url:
-        ap.error("--postgres-url is required (or set OBJECTIVEAI_POSTGRES_URL)")
 
     # argparse.REMAINDER keeps a leading `--`; drop it.
     passthrough = [a for a in args.browser_args if a != "--"]
@@ -84,7 +77,6 @@ def main():
     err_f = err_path.open("w", encoding="utf-8")
 
     env = dict(os.environ)
-    env["OBJECTIVEAI_POSTGRES_URL"] = args.postgres_url
 
     cmd = [args.binary, "--state-dir", args.state_dir, *passthrough]
     print(f"[bridge] spawning: {' '.join(cmd)}", flush=True)
