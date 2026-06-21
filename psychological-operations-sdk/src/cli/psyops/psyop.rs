@@ -43,9 +43,14 @@ pub struct PsyOp {
     /// publish time via [`humantime::parse_duration`]; must be > 0.
     pub interval: String,
 
-    /// Hard cap on candidates sent to the scoring function. After the
-    /// candidate union is ordered by `(priority, sort/interweave)` it is
-    /// truncated to `max_posts` before scoring. Must be > 0.
+    /// Hard cap on candidates that enter the scoring stages — and so the
+    /// upper bound on delivery. After the candidate union is ordered by
+    /// `(priority, sort/interweave)` and de-duplicated, it is truncated to
+    /// `max_posts` *before* scoring. Because the stages only ever narrow the
+    /// set (via `output_threshold` / `output_top`), the number of tweets
+    /// delivered to each agent's queue is at most `max_posts` — and exactly
+    /// `min(distinct candidates, max_posts)` when there are no stages (every
+    /// survivor flows straight through to delivery). Must be > 0.
     pub max_posts: u64,
 
     /// Tiebreak ordering applied across the deduped candidate union.
