@@ -339,10 +339,9 @@ pub async fn dispatch_inner(
             crate::deliver::report(&args.tweet_id, &args.kind, &args.status);
             Ok(Value::Null)
         }
-        "discord_signed_in" => {
-            let args =
-                parse_body::<DiscordSignedInArgs>(body).map_err(DispatchError::BadRequest)?;
-            crate::state::set_discord_signed_in(app, args.signed_in);
+        "discord_step" => {
+            let args = parse_body::<DiscordStepArgs>(body).map_err(DispatchError::BadRequest)?;
+            crate::state::set_discord_step(app, args.step);
             Ok(Value::Null)
         }
         "discord_bot_credentials" => {
@@ -425,8 +424,10 @@ struct DeliverReportArgs {
 }
 
 #[derive(Deserialize)]
-struct DiscordSignedInArgs {
-    signed_in: bool,
+struct DiscordStepArgs {
+    /// Wizard step the overlay detected (`"log_in"`, `"skip"`, …), or
+    /// `null` when no actionable step is present.
+    step: Option<String>,
 }
 
 #[derive(Deserialize)]

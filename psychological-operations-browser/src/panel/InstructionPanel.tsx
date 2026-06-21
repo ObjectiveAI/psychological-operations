@@ -47,8 +47,11 @@ export function InstructionPanel() {
       </div>
     );
   }
+  // High-urgency steps flash the whole message instead of the gentle
+  // border pulse (see `psyops-flash` in panel.html).
+  const cls = state.condition === "discord_skip" ? "psyops-flash" : "psyops-pulse";
   return (
-    <div style={STYLE} className="psyops-pulse">
+    <div style={STYLE} className={cls}>
       {state.message}
     </div>
   );

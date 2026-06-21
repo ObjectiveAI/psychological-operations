@@ -79,6 +79,10 @@ pub enum PanelCondition {
     /// portal — header reads "Log in" and the overlay points at the
     /// portal's Log In button.
     SignInToDiscord,
+    /// DiscordLogin mode, an onboarding/interstitial with a "Skip"
+    /// button is up — header flashes "Skip" and the overlay points at
+    /// the Skip button so the operator dismisses it.
+    DiscordSkip,
 }
 
 /// Everything the panel needs to render. Either it's hidden (zero

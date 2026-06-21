@@ -58,6 +58,17 @@
         border: 2px solid rgba(91, 148, 255, 0.95);
         animation: psyops-border-pulse 3s linear infinite;
       }
+      /* Attention flash for high-urgency steps (e.g. "Skip") — the whole
+         message blinks in/out rather than just the border breathing. */
+      @keyframes psyops-text-flash {
+        0%, 100% { opacity: 1; }
+        50%      { opacity: 0.15; }
+      }
+      .psyops-flash {
+        box-sizing: border-box;
+        border: 2px solid rgba(255, 183, 91, 0.95);
+        animation: psyops-text-flash 0.9s ease-in-out infinite;
+      }
     </style>
   </head>
   <body>

@@ -94,12 +94,13 @@ pub struct Facts {
     /// (pre-first-HTML or non-Read mode). Driven by
     /// [`set_tweets_read_count`].
     pub tweets_read_count: Option<u32>,
-    /// DiscordLogin mode: whether the Discord developer portal is
-    /// signed in, as reported by the overlay wizard (Discord's auth is
-    /// localStorage, not an observable cookie, so the overlay detects it
-    /// from the DOM and reports via the `discord_signed_in` scheme call).
-    /// `None` ⇒ not reported yet; `Some(false)` ⇒ show the "Log in" step.
-    pub discord_signed_in: Option<bool>,
+    /// DiscordLogin mode: the wizard's current step, as reported by the
+    /// overlay from the portal DOM (Discord's auth is localStorage, not an
+    /// observable cookie, so the overlay detects state and reports via the
+    /// `discord_step` scheme call). One of `"log_in"`, `"skip"`, … ; `None`
+    /// ⇒ no actionable step (panel hidden). [`derive`] maps it to the
+    /// matching [`PanelCondition`].
+    pub discord_step: Option<String>,
 }
 
 // ---------------------------------------------------------------------
@@ -192,15 +193,15 @@ pub fn set_tweets_read_count(handle: &AppHandle<Wry>, count: u32) {
     recompute_and_publish(handle);
 }
 
-/// Update whether the Discord developer portal is signed in (reported by
-/// the DiscordLogin overlay wizard). DiscordLogin-only.
-pub fn set_discord_signed_in(handle: &AppHandle<Wry>, signed_in: bool) {
+/// Update the DiscordLogin wizard's current step (reported by the overlay
+/// from the portal DOM). `None` clears it. DiscordLogin-only.
+pub fn set_discord_step(handle: &AppHandle<Wry>, step: Option<String>) {
     {
         let mut facts = facts_slot().lock().expect("facts slot poisoned");
-        if facts.discord_signed_in == Some(signed_in) {
+        if facts.discord_step == step {
             return;
         }
-        facts.discord_signed_in = Some(signed_in);
+        facts.discord_step = step;
     }
     recompute_and_publish(handle);
 }
@@ -519,16 +520,20 @@ pub fn derive(facts: &Facts) -> PanelState {
         // Delivery drives its own window/driver (no persona panel + no
         // cookies watcher), so the panel never surfaces here.
         Some(Mode::AgentDeliver { .. }) => PanelState::Hidden,
-        // Discord bot-creation wizard. The overlay reports portal state
-        // (Discord auth is localStorage, not a cookie); the panel header +
-        // the in-page "Click here" pointer stay in lockstep via the
-        // condition. Step 1: not signed in → "Log in".
-        Some(Mode::DiscordLogin { .. }) => match facts.discord_signed_in {
-            Some(false) => PanelState::Show {
+        // Discord bot-creation wizard. The overlay reports the current
+        // step from the portal DOM (Discord auth is localStorage, not a
+        // cookie); the panel header + the in-page "Click here" pointer stay
+        // in lockstep via the condition.
+        Some(Mode::DiscordLogin { .. }) => match facts.discord_step.as_deref() {
+            Some("log_in") => PanelState::Show {
                 condition: PanelCondition::SignInToDiscord,
                 message: "Log in".into(),
             },
-            // Signed in (later wizard steps) or not yet reported → hidden.
+            Some("skip") => PanelState::Show {
+                condition: PanelCondition::DiscordSkip,
+                message: "Skip".into(),
+            },
+            // No actionable step (or not yet reported) → hidden.
             _ => PanelState::Hidden,
         },
         None => PanelState::Hidden,
