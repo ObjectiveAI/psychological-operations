@@ -75,18 +75,26 @@ pub enum PanelCondition {
     /// a non-text affordance (e.g. a progress chip) if they
     /// want.
     TweetsRead,
-    /// DiscordLogin mode, not signed in to the Discord developer
-    /// portal — header reads "Log in" and the overlay points at the
-    /// portal's Log In button.
-    SignInToDiscord,
-    /// DiscordLogin mode, an onboarding/interstitial with a "Skip"
-    /// button is up — header flashes "Skip" and the overlay points at
-    /// the Skip button so the operator dismisses it.
-    DiscordSkip,
-    /// DiscordLogin mode, signed in on the applications list — header
-    /// reads "Create a New Application" and the overlay points at the
-    /// New Application button.
-    CreateDiscordApp,
+}
+
+/// One field of the DiscordLogin auth form (see [`DiscordAuthForm`]).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DiscordField {
+    /// The saved value, if captured. `None` ⇒ not captured yet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
+    /// A capture is in flight (writing to the DB) → render loading dots.
+    pub saving: bool,
+}
+
+/// The DiscordLogin top-header auth form — the three credential values the
+/// wizard captures, mirrored from the DB and shown read-only for the whole
+/// Discord session.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DiscordAuthForm {
+    pub application_id: DiscordField,
+    pub public_key: DiscordField,
+    pub bot_token: DiscordField,
 }
 
 /// Everything the panel needs to render. Either it's hidden (zero
@@ -99,12 +107,15 @@ pub enum PanelState {
         condition: PanelCondition,
         message: String,
     },
+    /// DiscordLogin mode — a persistent read-only auth form (Application
+    /// ID / Public Key / Bot Token) shown for the whole session.
+    DiscordAuth(DiscordAuthForm),
 }
 
 impl PanelState {
     /// True when the panel should occupy its full row (i.e. there's
     /// something to render). Used by the reflow logic.
     pub fn is_visible(&self) -> bool {
-        matches!(self, PanelState::Show { .. })
+        matches!(self, PanelState::Show { .. } | PanelState::DiscordAuth(_))
     }
 }

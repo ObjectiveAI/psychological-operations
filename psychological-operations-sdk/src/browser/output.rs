@@ -12,6 +12,7 @@ use std::sync::{Mutex, OnceLock};
 
 use serde::{Deserialize, Serialize};
 
+use super::auth_json::Tokens;
 use super::panel::PanelState;
 use super::response::ResponseOutcome;
 
@@ -87,11 +88,14 @@ pub enum Output {
     },
 
     /// Sole terminating signal on the OAuth-success path
-    /// ([`crate::browser::mode::Mode::AgentAuthorize`]). Emitted
-    /// once `auth.json` is on disk for the persona; the host
-    /// (CLI's `login` command) reads this to know the flow
-    /// finished cleanly and sends a `Request::Shutdown` back.
-    AuthorizeSucceeded,
+    /// ([`crate::browser::mode::Mode::AgentAuthorize`]). Carries the
+    /// minted tokens + the persona's twid; the host (CLI's `agents login
+    /// x`) persists them (`account_auth` + `persona_twids`) and sends a
+    /// `Request::Shutdown` back. The browser itself no longer touches the DB.
+    AuthorizeSucceeded {
+        persona_twid: String,
+        tokens: Tokens,
+    },
 
     /// Sole terminating signal on the OAuth-failure path.
     /// `error` is the human-readable summary; the operator may
@@ -109,15 +113,26 @@ pub enum Output {
     /// derivation lands on
     /// [`crate::browser::panel::PanelState::Hidden`]. The CLI's
     /// `x-app setup` command reads this to know setup
-    /// finished cleanly and sends a `Request::Shutdown` back.
-    XAppSetupSucceeded,
+    /// finished cleanly and sends a `Request::Shutdown` back. Carries the
+    /// two captured credential-HTML blobs + the X account handle/twid they
+    /// key on; the CLI persists them to `x_app_html`.
+    XAppSetupSucceeded {
+        handle: String,
+        post_create_dialog: String,
+        oauth_popup: String,
+    },
 
     /// Sole terminating signal on the Discord bot-creation success path
     /// ([`crate::browser::mode::Mode::DiscordLogin`]). Emitted once the
     /// wizard has scraped the bot token and stored it for the agent. The
     /// CLI's `agents login discord` reads this to know the flow finished
-    /// cleanly and sends a `Request::Shutdown` back.
-    DiscordLoginSucceeded,
+    /// cleanly and sends a `Request::Shutdown` back. Carries the three
+    /// captured bot credentials; the CLI persists them to `discord_auth`.
+    DiscordLoginSucceeded {
+        client_id: String,
+        public_key: String,
+        bot_token: String,
+    },
 
     /// Sole terminating signal on the Discord bot-creation failure path.
     /// `error` is the human-readable summary. The host reads this to
