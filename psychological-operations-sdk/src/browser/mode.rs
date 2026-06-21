@@ -48,6 +48,13 @@ pub enum Mode {
     /// payload, driving the overlay to post each reply/quote, and streams
     /// one `Output::Delivered` per success before self-exiting.
     AgentDeliver { name: String },
+    /// Discord bot-creation wizard for one agent (`name`). Drives the
+    /// Discord developer portal — sign in, create the bot, scrape its
+    /// token — and stores the token for `name`. Uses a single shared
+    /// `discord` CEF profile (one operator account creates every bot), so
+    /// `name` rides along for bot naming + token storage, not the profile
+    /// dir.
+    DiscordLogin { name: String },
 }
 
 /// Reduce a persona name to a SINGLE filesystem path segment for use as
@@ -83,6 +90,9 @@ impl Mode {
             | Mode::AgentAuthorize { name }
             | Mode::AgentBrowser { name }
             | Mode::AgentDeliver { name } => format!("agent-{}", flat_segment(name)),
+            // One shared Discord operator profile across all agents — the
+            // per-agent thing is the bot + token, not the login session.
+            Mode::DiscordLogin { .. } => "discord".to_string(),
         }
     }
 }

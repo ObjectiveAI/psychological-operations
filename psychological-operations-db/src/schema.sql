@@ -183,3 +183,14 @@ CREATE TABLE IF NOT EXISTS account_auth (
     tokens        JSONB NOT NULL,
     updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- ── per-agent Discord bot token ──────────────────────────────────────
+-- Written by `agents login discord` (the wizard scrapes the bot token from
+-- the Discord developer portal) and later read by the agent's Discord
+-- gateway/REST. Keyed by agent tag — one bot per agent.
+
+CREATE TABLE IF NOT EXISTS discord_auth (
+    agent_tag   TEXT PRIMARY KEY,
+    bot_token   TEXT NOT NULL,
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);

@@ -313,6 +313,7 @@ fn home_url_for_current_mode() -> Option<&'static str> {
         | Mode::AgentAuthorize { .. }
         | Mode::AgentBrowser { .. }
         | Mode::AgentDeliver { .. } => Some("https://x.com/"),
+        Mode::DiscordLogin { .. } => Some("https://discord.com/developers/applications"),
     }
 }
 
@@ -499,6 +500,9 @@ pub fn derive(facts: &Facts) -> PanelState {
         // Delivery drives its own window/driver (no persona panel + no
         // cookies watcher), so the panel never surfaces here.
         Some(Mode::AgentDeliver { .. }) => PanelState::Hidden,
+        // The Discord wizard renders its own in-page overlay UI and runs no
+        // cookies watcher, so the Tauri panel stays hidden.
+        Some(Mode::DiscordLogin { .. }) => PanelState::Hidden,
         None => PanelState::Hidden,
     }
 }

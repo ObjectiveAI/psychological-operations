@@ -111,6 +111,18 @@ pub enum Output {
     /// `x-app setup` command reads this to know setup
     /// finished cleanly and sends a `Request::Shutdown` back.
     XAppSetupSucceeded,
+
+    /// Sole terminating signal on the Discord bot-creation success path
+    /// ([`crate::browser::mode::Mode::DiscordLogin`]). Emitted once the
+    /// wizard has scraped the bot token and stored it for the agent. The
+    /// CLI's `agents login discord` reads this to know the flow finished
+    /// cleanly and sends a `Request::Shutdown` back.
+    DiscordLoginSucceeded,
+
+    /// Sole terminating signal on the Discord bot-creation failure path.
+    /// `error` is the human-readable summary. The host reads this to
+    /// propagate the error and send a `Request::Shutdown` back.
+    DiscordLoginFailed { error: String },
 }
 
 /// Identifying claims extracted from the auth JWT's payload. All

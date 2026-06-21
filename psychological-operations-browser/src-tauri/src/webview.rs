@@ -73,6 +73,7 @@ fn start_url_for(mode: &Mode) -> &'static str {
         | Mode::AgentAuthorize { .. }
         | Mode::AgentBrowser { .. }
         | Mode::AgentDeliver { .. } => "https://x.com/",
+        Mode::DiscordLogin { .. } => "https://discord.com/developers/applications",
     }
 }
 

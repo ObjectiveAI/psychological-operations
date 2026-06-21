@@ -21,7 +21,7 @@ use psychological_operations_sdk::browser::mode::Mode;
 #[derive(Debug, Parser)]
 #[command(name = "psychological-operations-browser")]
 #[command(about = "Tauri+CEF webview shell for psychological-operations sessions.")]
-#[command(group = ArgGroup::new("mode").required(true).multiple(false).args(["x_app", "agent_read", "agent_authorize", "agent_browser", "agent_deliver"]))]
+#[command(group = ArgGroup::new("mode").required(true).multiple(false).args(["x_app", "agent_read", "agent_authorize", "agent_browser", "agent_deliver", "discord_login"]))]
 pub struct Args {
     /// Base directory for psych-ops state. Mode-specific CEF session
     /// data (cookies, IndexedDB, cache, ...) lives under
@@ -83,6 +83,13 @@ pub struct Args {
     #[arg(long, value_name = "JSON", requires = "agent_deliver")]
     pub agent_deliver_items: Option<String>,
 
+    /// Launch the Discord bot-creation wizard for the given agent tag.
+    /// Lands on the Discord developer portal under the shared `discord`
+    /// CEF profile; the overlay guides sign-in + bot creation and scrapes
+    /// the bot token, which is stored for the agent.
+    #[arg(long, group = "mode", value_name = "TAG")]
+    pub discord_login: Option<String>,
+
     /// Bytes — SQLite response-cache size budget passed to
     /// `Client::new` when the browser needs to interact with
     /// the X v2 API (today: the OAuth-mint write under
@@ -114,6 +121,8 @@ impl Args {
             Mode::AgentBrowser { name: name.clone() }
         } else if let Some(name) = self.agent_deliver.as_ref() {
             Mode::AgentDeliver { name: name.clone() }
+        } else if let Some(name) = self.discord_login.as_ref() {
+            Mode::DiscordLogin { name: name.clone() }
         } else {
             unreachable!("clap ArgGroup mode required=true, multiple=false")
         }

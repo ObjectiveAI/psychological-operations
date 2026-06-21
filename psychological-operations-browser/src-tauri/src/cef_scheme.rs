@@ -339,6 +339,13 @@ pub async fn dispatch_inner(
             crate::deliver::report(&args.tweet_id, &args.kind, &args.status);
             Ok(Value::Null)
         }
+        "discord_bot_token" => {
+            let args = parse_body::<DiscordBotTokenArgs>(body).map_err(DispatchError::BadRequest)?;
+            crate::discord_login::store_bot_token(app, args.token)
+                .await
+                .map(Value::from)
+                .map_err(DispatchError::Internal)
+        }
         _ => Err(DispatchError::NotFound(format!("unknown command: {cmd}"))),
     }
 }
@@ -408,4 +415,9 @@ struct DeliverReportArgs {
     kind: String,
     /// `"done"` or `"skip"`.
     status: String,
+}
+
+#[derive(Deserialize)]
+struct DiscordBotTokenArgs {
+    token: String,
 }

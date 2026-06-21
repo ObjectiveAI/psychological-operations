@@ -18,6 +18,7 @@ use clap::Subcommand;
 mod agent_ref;
 pub mod deliver;
 pub mod enqueue;
+pub mod login;
 pub mod notify;
 pub mod quota;
 
@@ -25,23 +26,13 @@ use agent_ref::AgentRef;
 
 #[derive(Subcommand)]
 pub enum Commands {
-    /// Sign in an agent's X account. Requires the master X-App to
-    /// already be signed in + fully set up (`x-app setup`). Opens
-    /// the embedded browser scoped to `agent/<name>/`; on sign-in
-    /// the browser drives the OAuth 2.0 PKCE consent screen,
-    /// exchanges the code, and writes auth.json under the agent's
-    /// data root. Refuses if the agent is already signed in or
-    /// already has an auth.json for the current X-App — pass
-    /// `--dangerously-reset` to wipe its browser folder and re-login.
+    /// Sign in an agent on a platform. Parent command: `login x`
+    /// (X OAuth authorize) and `login discord` (the Discord
+    /// bot-creation wizard). See each subcommand for specifics.
     #[command(name = "login")]
     Login {
-        #[command(flatten)]
-        agent: AgentRef,
-        /// Wipe any existing browser state for this agent before
-        /// signing in. Required when re-logging in for an agent
-        /// that already has an active session or stored auth.json.
-        #[arg(long)]
-        dangerously_reset: bool,
+        #[command(subcommand)]
+        command: login::Commands,
     },
     /// Open the embedded browser as this agent. Loads x.com under
     /// the agent's CEF profile (shared with `agents login`). No
@@ -83,19 +74,7 @@ pub enum Commands {
 impl Commands {
     pub async fn handle(self, ctx: &crate::context::Context) -> bool {
         match self {
-            Commands::Login {
-                agent,
-                dangerously_reset,
-            } => {
-                let name = agent.resolve_raw(&ctx.config);
-                crate::login::run(
-                    psychological_operations_sdk::browser::auth_json::PersonaKind::Agent,
-                    &name,
-                    dangerously_reset,
-                    ctx,
-                )
-                .await
-            }
+            Commands::Login { command } => command.handle(ctx).await,
             Commands::Browser { agent } => {
                 let name = agent.resolve_raw(&ctx.config);
                 crate::persona_browser::run(

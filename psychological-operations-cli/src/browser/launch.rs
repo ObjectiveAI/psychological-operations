@@ -33,6 +33,10 @@ pub enum Mode {
         agent: String,
         items_json: String,
     },
+    /// Discord bot-creation wizard for one agent (`name`).
+    DiscordLogin {
+        name: String,
+    },
 }
 
 impl Mode {
@@ -48,6 +52,7 @@ impl Mode {
                 "--agent-deliver-items".into(),
                 items_json.clone(),
             ],
+            Mode::DiscordLogin { name } => vec!["--discord-login".into(), name.clone()],
         }
     }
 }

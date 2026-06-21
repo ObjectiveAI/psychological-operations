@@ -7,6 +7,7 @@ mod cef_v8;
 mod cookies_watcher;
 mod credentials;
 mod deliver;
+mod discord_login;
 mod state;
 mod stdio;
 mod webview;
@@ -208,12 +209,17 @@ pub fn run() {
                 deliver::start(handle.clone(), agent, items);
             } else {
                 // Persona path: the window + the single mode-scoped CEF
-                // browser + the cookies watcher.
+                // browser. X-account modes also run the x.com cookies
+                // watcher; DiscordLogin does NOT (Discord auth is
+                // localStorage, not an x.com cookie) — its overlay wizard
+                // drives sign-in + token scrape over the `psyops://` scheme.
                 let mode = &initial_mode;
                 webview::create_x_app(handle, mode)?;
-                let watcher_slot: tauri::State<CookiesWatcherSlot> = handle.state();
-                *watcher_slot.0.lock().expect("watcher slot poisoned") =
-                    cookies_watcher::start(handle.clone(), mode);
+                if !matches!(mode, mode::Mode::DiscordLogin { .. }) {
+                    let watcher_slot: tauri::State<CookiesWatcherSlot> = handle.state();
+                    *watcher_slot.0.lock().expect("watcher slot poisoned") =
+                        cookies_watcher::start(handle.clone(), mode);
+                }
                 stdio::start(handle.clone(), rx);
             }
             Ok(())
