@@ -22,7 +22,9 @@
 
 use psychological_operations_sdk::browser::output::Output;
 use psychological_operations_sdk::browser::reset;
-use psychological_operations_sdk::browser::x_app_credentials::{OAuthPopup, PostCreateDialog};
+use psychological_operations_sdk::browser::x_app_credentials::{
+    OAuthPopup, PostCreateDialog, OAUTH_POPUP_KIND, POST_CREATE_DIALOG_KIND,
+};
 use psychological_operations_sdk::cli::Output as CliOutput;
 
 use crate::browser::{browser_binary, launch, stream};
@@ -104,7 +106,15 @@ async fn run_inner(
         child_stdout,
         "browser exited without emitting a setup result",
         |output| match output {
-            Output::XAppSetupSucceeded => Some(Ok(())),
+            Output::XAppSetupSucceeded {
+                handle,
+                post_create_dialog,
+                oauth_popup,
+            } => Some(Ok((
+                handle.clone(),
+                post_create_dialog.clone(),
+                oauth_popup.clone(),
+            ))),
             _ => None,
         },
     )
@@ -124,7 +134,15 @@ async fn run_inner(
     })
     .emit();
 
-    outcome.map(|()| CliOutput::Ok).map_err(Error::Other)
+    // Persist the captured credential HTML CLI-side (the browser is DB-free).
+    let (handle, post_create_dialog, oauth_popup) = outcome.map_err(Error::Other)?;
+    ctx.db
+        .x_app_html_set(&handle, POST_CREATE_DIALOG_KIND, &post_create_dialog)
+        .await?;
+    ctx.db
+        .x_app_html_set(&handle, OAUTH_POPUP_KIND, &oauth_popup)
+        .await?;
+    Ok(CliOutput::Ok)
 }
 
 /// `true` iff a captured X-App is present (the active twid from

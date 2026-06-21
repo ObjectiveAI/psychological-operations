@@ -80,7 +80,11 @@ async fn run_inner(
         child_stdout,
         "browser exited without emitting a discord login result",
         |output| match output {
-            Output::DiscordLoginSucceeded => Some(Ok(())),
+            Output::DiscordLoginSucceeded {
+                client_id,
+                public_key,
+                bot_token,
+            } => Some(Ok((client_id.clone(), public_key.clone(), bot_token.clone()))),
             Output::DiscordLoginFailed { error } => Some(Err(error.clone())),
             _ => None,
         },
@@ -101,5 +105,10 @@ async fn run_inner(
     })
     .emit();
 
-    outcome.map(|()| CliOutput::Ok).map_err(Error::Other)
+    // Persist the scraped bot credentials CLI-side (the browser is DB-free).
+    let (client_id, public_key, bot_token) = outcome.map_err(Error::Other)?;
+    ctx.db
+        .discord_auth_set_all(name, &client_id, &public_key, &bot_token)
+        .await?;
+    Ok(CliOutput::Ok)
 }

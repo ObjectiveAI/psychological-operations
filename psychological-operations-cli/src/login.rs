@@ -60,8 +60,9 @@ async fn run_inner(
 
     let state_dir = ctx.config.state_dir();
 
-    // === Pre-flight: X-App must be set up ===
-    check_x_app(ctx).await?;
+    // === Pre-flight: X-App must be set up; read its OAuth client creds +
+    // active twid so we can hand them to the (DB-free) browser. ===
+    let (client_id, client_secret, x_app_twid) = read_x_app_creds(ctx).await?;
 
     // `--dangerously-reset` forgets the persona's account mapping + wipes
     // its CEF profile for a clean re-login (e.g. to switch to a different X
@@ -91,12 +92,21 @@ async fn run_inner(
         // spawns its own browser below, which re-acquires the same lock.
         let _ = claim.release();
         wiped.map_err(Error::Other)?;
+    } else if let Some(twid) = ctx.db.persona_twid_get(kind.db_kind(), name).await? {
+        // Already logged in — the persona maps to an account that already has
+        // tokens. Nothing to mint; short-circuit. (`--dangerously-reset` to
+        // switch accounts.)
+        if ctx.db.account_auth_get(&twid).await?.is_some() {
+            return Ok(CliOutput::Ok);
+        }
     }
 
     // === Spawn browser in <kind>Authorize mode ===
     let launch_mode = match kind {
         PersonaKind::Agent => launch::Mode::AgentAuthorize {
             name: name.to_string(),
+            client_id,
+            client_secret,
         },
     };
     let event_kind = match kind {
@@ -131,7 +141,10 @@ async fn run_inner(
         child_stdout,
         "browser exited without emitting an authorize result",
         |output| match output {
-            Output::AuthorizeSucceeded => Some(Ok(())),
+            Output::AuthorizeSucceeded {
+                persona_twid,
+                tokens,
+            } => Some(Ok((persona_twid.clone(), tokens.clone()))),
             Output::AuthorizeFailed { error } => Some(Err(error.clone())),
             _ => None,
         },
@@ -155,16 +168,30 @@ async fn run_inner(
     })
     .emit();
 
-    outcome.map(|()| CliOutput::Ok).map_err(Error::Other)
+    // Persist the minted tokens CLI-side (the browser is DB-free). The
+    // persona→twid mapping + the account's token row both key off the
+    // emitted persona_twid; `x_app_twid` rides along for refresh/provenance.
+    let (persona_twid, tokens) = outcome.map_err(Error::Other)?;
+    ctx.db
+        .persona_twid_set(kind.db_kind(), name, &persona_twid)
+        .await?;
+    let tokens_value =
+        serde_json::to_value(&tokens).map_err(|e| Error::Other(format!("serialize tokens: {e}")))?;
+    ctx.db
+        .account_auth_set(&persona_twid, &x_app_twid, &tokens_value)
+        .await?;
+    Ok(CliOutput::Ok)
 }
 
 const X_APP_NOT_READY: &str = "X-App account is not set up with an X OAuth app — \
      complete `psychological-operations x-app setup` first";
 
-/// Verify an X-App is set up: the active twid (from `x_app_html`) resolves
-/// and both captured HTML snapshots are present + complete. Reads the DB,
-/// not cookies.
-async fn check_x_app(ctx: &crate::context::Context) -> Result<(), Error> {
+/// Verify an X-App is set up and return its OAuth client creds + active twid.
+/// Requires the active twid (from `x_app_html`) to resolve and both captured
+/// HTML snapshots to be present + complete. Reads the DB, not cookies.
+async fn read_x_app_creds(
+    ctx: &crate::context::Context,
+) -> Result<(String, String, String), Error> {
     let x_app_twid = ctx
         .db
         .x_app_twid_active()
@@ -178,6 +205,11 @@ async fn check_x_app(ctx: &crate::context::Context) -> Result<(), Error> {
     if !post_ok || !popup_ok {
         return Err(Error::Other(X_APP_NOT_READY.into()));
     }
-
-    Ok(())
+    // `is_complete()` guarantees both fields are `Some`.
+    let popup = popup.expect("popup present");
+    Ok((
+        popup.client_id.expect("client_id present"),
+        popup.client_secret.expect("client_secret present"),
+        x_app_twid,
+    ))
 }

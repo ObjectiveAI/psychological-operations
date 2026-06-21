@@ -22,6 +22,10 @@ pub enum Mode {
     },
     AgentAuthorize {
         name: String,
+        /// X-App OAuth client creds (CLI reads them from the captured X-App)
+        /// — the browser needs them for the PKCE token exchange.
+        client_id: String,
+        client_secret: String,
     },
     AgentBrowser {
         name: String,
@@ -44,7 +48,18 @@ impl Mode {
         match self {
             Mode::XApp => vec!["--x-app".into()],
             Mode::AgentRead { name } => vec!["--agent-read".into(), name.clone()],
-            Mode::AgentAuthorize { name } => vec!["--agent-authorize".into(), name.clone()],
+            Mode::AgentAuthorize {
+                name,
+                client_id,
+                client_secret,
+            } => vec![
+                "--agent-authorize".into(),
+                name.clone(),
+                "--x-app-client-id".into(),
+                client_id.clone(),
+                "--x-app-client-secret".into(),
+                client_secret.clone(),
+            ],
             Mode::AgentBrowser { name } => vec!["--agent-browser".into(), name.clone()],
             Mode::AgentDeliver { agent, items_json } => vec![
                 "--agent-deliver".into(),
