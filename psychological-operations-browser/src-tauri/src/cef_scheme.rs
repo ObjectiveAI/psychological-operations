@@ -339,6 +339,12 @@ pub async fn dispatch_inner(
             crate::deliver::report(&args.tweet_id, &args.kind, &args.status);
             Ok(Value::Null)
         }
+        "discord_signed_in" => {
+            let args =
+                parse_body::<DiscordSignedInArgs>(body).map_err(DispatchError::BadRequest)?;
+            crate::state::set_discord_signed_in(app, args.signed_in);
+            Ok(Value::Null)
+        }
         "discord_bot_credentials" => {
             let args =
                 parse_body::<DiscordBotCredentialsArgs>(body).map_err(DispatchError::BadRequest)?;
@@ -416,6 +422,11 @@ struct DeliverReportArgs {
     kind: String,
     /// `"done"` or `"skip"`.
     status: String,
+}
+
+#[derive(Deserialize)]
+struct DiscordSignedInArgs {
+    signed_in: bool,
 }
 
 #[derive(Deserialize)]

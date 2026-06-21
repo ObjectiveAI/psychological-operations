@@ -75,6 +75,10 @@ pub enum PanelCondition {
     /// a non-text affordance (e.g. a progress chip) if they
     /// want.
     TweetsRead,
+    /// DiscordLogin mode, not signed in to the Discord developer
+    /// portal — header reads "Log in" and the overlay points at the
+    /// portal's Log In button.
+    SignInToDiscord,
 }
 
 /// Everything the panel needs to render. Either it's hidden (zero

@@ -94,6 +94,12 @@ pub struct Facts {
     /// (pre-first-HTML or non-Read mode). Driven by
     /// [`set_tweets_read_count`].
     pub tweets_read_count: Option<u32>,
+    /// DiscordLogin mode: whether the Discord developer portal is
+    /// signed in, as reported by the overlay wizard (Discord's auth is
+    /// localStorage, not an observable cookie, so the overlay detects it
+    /// from the DOM and reports via the `discord_signed_in` scheme call).
+    /// `None` ⇒ not reported yet; `Some(false)` ⇒ show the "Log in" step.
+    pub discord_signed_in: Option<bool>,
 }
 
 // ---------------------------------------------------------------------
@@ -182,6 +188,19 @@ pub fn set_tweets_read_count(handle: &AppHandle<Wry>, count: u32) {
             return;
         }
         facts.tweets_read_count = Some(count);
+    }
+    recompute_and_publish(handle);
+}
+
+/// Update whether the Discord developer portal is signed in (reported by
+/// the DiscordLogin overlay wizard). DiscordLogin-only.
+pub fn set_discord_signed_in(handle: &AppHandle<Wry>, signed_in: bool) {
+    {
+        let mut facts = facts_slot().lock().expect("facts slot poisoned");
+        if facts.discord_signed_in == Some(signed_in) {
+            return;
+        }
+        facts.discord_signed_in = Some(signed_in);
     }
     recompute_and_publish(handle);
 }
@@ -500,9 +519,18 @@ pub fn derive(facts: &Facts) -> PanelState {
         // Delivery drives its own window/driver (no persona panel + no
         // cookies watcher), so the panel never surfaces here.
         Some(Mode::AgentDeliver { .. }) => PanelState::Hidden,
-        // The Discord wizard renders its own in-page overlay UI and runs no
-        // cookies watcher, so the Tauri panel stays hidden.
-        Some(Mode::DiscordLogin { .. }) => PanelState::Hidden,
+        // Discord bot-creation wizard. The overlay reports portal state
+        // (Discord auth is localStorage, not a cookie); the panel header +
+        // the in-page "Click here" pointer stay in lockstep via the
+        // condition. Step 1: not signed in → "Log in".
+        Some(Mode::DiscordLogin { .. }) => match facts.discord_signed_in {
+            Some(false) => PanelState::Show {
+                condition: PanelCondition::SignInToDiscord,
+                message: "Log in".into(),
+            },
+            // Signed in (later wizard steps) or not yet reported → hidden.
+            _ => PanelState::Hidden,
+        },
         None => PanelState::Hidden,
     }
 }

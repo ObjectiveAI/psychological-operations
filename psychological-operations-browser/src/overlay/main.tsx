@@ -25,6 +25,7 @@ import { installCreateAppDialogHelpers } from "./create-app-dialog-helpers";
 import { installPostCreateDialogHelpers } from "./post-create-dialog-helpers";
 import { installAgentReadHelpers } from "./agent-read-helpers";
 import { installDeliverHelpers } from "./deliver-helpers";
+import { installDiscordLoginHelpers } from "./discord-login-helpers";
 // Side-effect: registers `window.__psyops_set_panel` so the first
 // Rust push lands. Imported before any helper module so the setter
 // is in place by the time anyone reads `getPanelState()`.
@@ -44,6 +45,8 @@ type Mode =
   | { type: "agent_read"; name: string }
   | { type: "agent_authorize"; name: string }
   | { type: "agent_browser"; name: string }
+  | { type: "agent_deliver"; name: string }
+  | { type: "discord_login"; name: string }
   | null;
 
 async function respondOk(response: unknown) {
@@ -119,34 +122,29 @@ async function handleRequest(payload: unknown) {
       "[psyops-overlay] initial panel =",
       JSON.stringify(initialPanel),
     );
-    if (mode !== null) {
-      // URL reporter is mode-agnostic — useful in every mode so
-      // Rust's panel derivation has fresh `current_url` facts.
-      installSpaUrlReporter();
-      if (mode.type === "x_app") {
-        installOnboardingHelpers();
-        installAppsTabHelper();
-        installAppsPageHelpers();
-        installAppPageHelpers();
-        installAuthSettingsHelpers();
-        installCreateAppDialogHelpers();
-        installPostCreateDialogHelpers();
-      } else if (mode.type === "agent_read") {
-        installAgentReadHelpers();
-      }
-      // agent_authorize installs no helpers — Rust drives the
-      // OAuth navigation on its own; X's consent page is the
-      // affordance.
-      console.log("[psyops-overlay] helpers installed for mode", mode.type);
-    } else {
-      // No mode = reply/quote delivery (`--deliver`). The Rust driver
-      // (deliver.rs) calls `window.__psyops_deliver(item)` per tweet; the
-      // SPA URL reporter keeps Rust's `current_url` fresh while it
-      // navigates between target tweets.
-      installSpaUrlReporter();
+    // URL reporter is mode-agnostic — useful in every mode so Rust's
+    // panel derivation has fresh `current_url` facts.
+    installSpaUrlReporter();
+    if (mode?.type === "x_app") {
+      installOnboardingHelpers();
+      installAppsTabHelper();
+      installAppsPageHelpers();
+      installAppPageHelpers();
+      installAuthSettingsHelpers();
+      installCreateAppDialogHelpers();
+      installPostCreateDialogHelpers();
+    } else if (mode?.type === "agent_read") {
+      installAgentReadHelpers();
+    } else if (mode?.type === "agent_deliver") {
+      // Reply/quote delivery: the Rust driver (deliver.rs) calls
+      // `window.__psyops_deliver(item)` per tweet.
       installDeliverHelpers();
-      console.log("[psyops-overlay] deliver helpers installed (no mode)");
+    } else if (mode?.type === "discord_login") {
+      installDiscordLoginHelpers();
     }
+    // agent_authorize / agent_browser install no helpers — Rust drives the
+    // OAuth navigation (authorize) or there's nothing custom (browser).
+    console.log("[psyops-overlay] helpers installed for mode", mode?.type ?? "(none)");
   } catch (e) {
     console.error("[psyops-overlay] mount failed:", (e as Error)?.message ?? String(e));
   }
