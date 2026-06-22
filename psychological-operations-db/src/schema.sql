@@ -75,14 +75,14 @@ CREATE TABLE IF NOT EXISTS x_queue (
 
 -- ── per-agent Discord (message) queue ────────────────────────────────
 --
--- Parallel to x_queue but for Discord messages, which are identified by
--- (channel_id, message_id); guild_id is optional context (absent for DMs).
+-- Parallel to x_queue but for Discord messages, which are fully identified
+-- by (channel_id, message_id) — channel snowflakes are globally unique, so
+-- no guild id is needed.
 
 CREATE TABLE IF NOT EXISTS discord_queue (
     agent_tag                          TEXT   NOT NULL,
     channel_id                         TEXT   NOT NULL,
     message_id                         TEXT   NOT NULL,
-    guild_id                           TEXT,
     psyop                              TEXT,
     score                              DOUBLE PRECISION,
     deliverer_agent_instance_hierarchy TEXT,

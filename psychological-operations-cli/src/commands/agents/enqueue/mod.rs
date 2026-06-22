@@ -37,9 +37,6 @@ pub enum Commands {
         /// The message's snowflake id.
         #[arg(long)]
         message_id: String,
-        /// The server the message is in (snowflake id). Omit for DMs.
-        #[arg(long)]
-        guild_id: Option<String>,
         /// Free-text note for the agent. Required.
         #[arg(long)]
         message: String,
@@ -58,19 +55,8 @@ impl Commands {
                 agent_tag,
                 channel_id,
                 message_id,
-                guild_id,
                 message,
-            } => {
-                discord::run(
-                    &agent_tag,
-                    &channel_id,
-                    &message_id,
-                    guild_id.as_deref(),
-                    &message,
-                    ctx,
-                )
-                .await
-            }
+            } => discord::run(&agent_tag, &channel_id, &message_id, &message, ctx).await,
         }
     }
 }

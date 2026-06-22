@@ -2,8 +2,9 @@
 //!
 //! Parallel to [`crate::x_queue`] but for Discord messages. Rows are keyed by
 //! `(agent_tag, channel_id, message_id)` — a Discord message needs both ids
-//! to be addressable (`GET /channels/{channel_id}/messages/{message_id}`);
-//! `guild_id` is optional context (absent for DMs). Two sources write:
+//! to be addressable (`GET /channels/{channel_id}/messages/{message_id}`); no
+//! guild id is needed (channel snowflakes are globally unique). Two sources
+//! write:
 //!
 //! - **Psyop pipelines** — a survivor lands here with `psyop` + `score` +
 //!   `run_id` + the running agent's `deliverer_agent_instance_hierarchy`.
@@ -21,9 +22,6 @@ pub struct DiscordQueueEntry {
     pub agent_tag: String,
     pub channel_id: String,
     pub message_id: String,
-    /// Server the message is in; `None` for DMs.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub guild_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub psyop: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -45,11 +43,10 @@ impl Db {
     pub async fn discord_queue_enqueue(&self, entry: &DiscordQueueEntry) -> Result<(), Error> {
         sqlx::query(
             "INSERT INTO discord_queue \
-             (agent_tag, channel_id, message_id, guild_id, psyop, score, \
+             (agent_tag, channel_id, message_id, psyop, score, \
               deliverer_agent_instance_hierarchy, message, run_id, queued_at) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) \
              ON CONFLICT (agent_tag, channel_id, message_id) DO UPDATE SET \
-              guild_id = excluded.guild_id, \
               psyop = excluded.psyop, \
               score = excluded.score, \
               deliverer_agent_instance_hierarchy = excluded.deliverer_agent_instance_hierarchy, \
@@ -60,7 +57,6 @@ impl Db {
         .bind(&entry.agent_tag)
         .bind(&entry.channel_id)
         .bind(&entry.message_id)
-        .bind(entry.guild_id.as_deref())
         .bind(entry.psyop.as_deref())
         .bind(entry.score)
         .bind(entry.deliverer_agent_instance_hierarchy.as_deref())
@@ -78,7 +74,7 @@ impl Db {
         agent_tag: &str,
     ) -> Result<Vec<DiscordQueueEntry>, Error> {
         let rows = sqlx::query(
-            "SELECT agent_tag, channel_id, message_id, guild_id, psyop, score, \
+            "SELECT agent_tag, channel_id, message_id, psyop, score, \
                     deliverer_agent_instance_hierarchy, message, run_id, queued_at \
              FROM discord_queue \
              WHERE agent_tag = $1 \
@@ -105,7 +101,6 @@ fn row_to_entry(row: sqlx::postgres::PgRow) -> DiscordQueueEntry {
         agent_tag: row.get("agent_tag"),
         channel_id: row.get("channel_id"),
         message_id: row.get("message_id"),
-        guild_id: row.get::<Option<String>, _>("guild_id"),
         psyop: row.get::<Option<String>, _>("psyop"),
         score: row.get::<Option<f64>, _>("score"),
         deliverer_agent_instance_hierarchy: row
