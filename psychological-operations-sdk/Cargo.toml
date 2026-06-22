@@ -40,3 +40,4 @@ schemars = "1.2.1"
 # SDK doesn't need (the CLI binary keeps the full set).
 objectiveai-sdk = { version = "2.2.5", default-features = false, features = ["cli"] }
 serenity = { version = "0.12.5", default-features = false, features = ["builder", "client", "gateway", "http", "model", "rustls_backend"] }
+dashmap = "6.2.1"

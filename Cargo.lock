@@ -4564,6 +4564,7 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "clap",
+ "dashmap",
  "dirs",
  "humantime",
  "objectiveai-sdk",
