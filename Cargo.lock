@@ -4527,6 +4527,7 @@ dependencies = [
  "indexmap 2.14.0",
  "objectiveai-sdk",
  "psychological-operations-db",
+ "psychological-operations-discord-mcp",
  "psychological-operations-sdk",
  "psychological-operations-x-mcp",
  "rand 0.8.6",
@@ -4555,6 +4556,30 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "windows 0.62.2",
+]
+
+[[package]]
+name = "psychological-operations-discord-mcp"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "chrono",
+ "clap",
+ "futures",
+ "http",
+ "humantime",
+ "objectiveai-sdk",
+ "psychological-operations-db",
+ "psychological-operations-sdk",
+ "rmcp",
+ "schemars 1.2.1",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

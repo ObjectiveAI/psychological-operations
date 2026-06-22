@@ -30,6 +30,7 @@ humantime = "2"
 psychological-operations-db = { path = "../psychological-operations-db" }
 psychological-operations-sdk = { path = "../psychological-operations-sdk" }
 psychological-operations-x-mcp = { path = "../psychological-operations-x-mcp" }
+psychological-operations-discord-mcp = { path = "../psychological-operations-discord-mcp" }
 schemars = "1.2.1"
 
 [dev-dependencies]

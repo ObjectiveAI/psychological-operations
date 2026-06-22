@@ -30,6 +30,7 @@
     { "path": "/psyops/deleted", "method": "POST", "type": "psyop_deleted" }
   ],
   "mcp_servers": [
-    { "name": "x", "authorization": false }
+    { "name": "x", "authorization": false },
+    { "name": "discord", "authorization": false }
   ]
 }

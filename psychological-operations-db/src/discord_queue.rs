@@ -86,6 +86,40 @@ impl Db {
         Ok(rows.into_iter().map(row_to_entry).collect())
     }
 
+    /// Remove the given `(channel_id, message_id)` messages from `agent_tag`'s
+    /// queue, all-or-nothing. Returns the keys that were NOT present; a
+    /// non-empty result means the whole batch was rolled back (nothing
+    /// removed), mirroring [`Self::x_queue_delete_many`].
+    pub async fn discord_queue_delete_many(
+        &self,
+        agent_tag: &str,
+        keys: &[(String, String)],
+    ) -> Result<Vec<(String, String)>, Error> {
+        let mut tx = self.pool.begin().await?;
+        let mut missing = Vec::new();
+        for (channel_id, message_id) in keys {
+            let result = sqlx::query(
+                "DELETE FROM discord_queue \
+                 WHERE agent_tag = $1 AND channel_id = $2 AND message_id = $3",
+            )
+            .bind(agent_tag)
+            .bind(channel_id)
+            .bind(message_id)
+            .execute(&mut *tx)
+            .await?;
+            if result.rows_affected() == 0 {
+                missing.push((channel_id.clone(), message_id.clone()));
+            }
+        }
+        if missing.is_empty() {
+            tx.commit().await?;
+        } else {
+            // All-or-nothing: a single absent key voids the whole batch.
+            tx.rollback().await?;
+        }
+        Ok(missing)
+    }
+
     /// Count of pending messages for one `agent_tag`.
     pub async fn discord_queue_count(&self, agent_tag: &str) -> Result<i64, Error> {
         let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM discord_queue WHERE agent_tag = $1")

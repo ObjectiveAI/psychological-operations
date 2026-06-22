@@ -18,6 +18,7 @@
 
 use clap::Subcommand;
 
+pub mod discord;
 pub mod x;
 
 #[derive(Subcommand)]
@@ -30,12 +31,20 @@ pub enum Commands {
         #[command(subcommand)]
         command: x::Commands,
     },
+    /// Discord MCP server commands. Nested under the server's name (`<name>` =
+    /// `discord`) so the host's `mcp <name> begin` launch resolves here.
+    #[command(name = "discord")]
+    Discord {
+        #[command(subcommand)]
+        command: discord::Commands,
+    },
 }
 
 impl Commands {
     pub async fn handle(self, ctx: &crate::context::Context) -> bool {
         match self {
             Commands::X { command } => command.handle(ctx).await,
+            Commands::Discord { command } => command.handle(ctx).await,
         }
     }
 }

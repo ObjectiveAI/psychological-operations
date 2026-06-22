@@ -126,4 +126,26 @@ impl Db {
         .await?;
         Ok(total)
     }
+
+    /// Discord twin of [`Self::active_x_quota_grants`]: total of all grants for
+    /// `account` + `direction` in effect at `now` (unix seconds), against the
+    /// `discord_quota_grants` table. Active grants stack; `0` when none.
+    pub async fn active_discord_quota_grants(
+        &self,
+        account: &str,
+        direction: &str,
+        now: i64,
+    ) -> Result<i64, Error> {
+        let total: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(SUM(amount), 0)::bigint FROM discord_quota_grants \
+             WHERE account = $1 AND direction = $2 \
+               AND granted_at <= $3 AND expires_at > $3",
+        )
+        .bind(account)
+        .bind(direction)
+        .bind(now)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(total)
+    }
 }
