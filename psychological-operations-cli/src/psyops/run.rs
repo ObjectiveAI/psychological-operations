@@ -529,7 +529,7 @@ async fn deliver_to_agent(
 ) -> Result<(), Error> {
     for (tweet_id, score) in survivors {
         ctx.db
-            .queue_enqueue(&psychological_operations_db::QueueEntry {
+            .x_queue_enqueue(&psychological_operations_db::XQueueEntry {
                 agent_tag: agent_tag.to_string(),
                 tweet_id: tweet_id.clone(),
                 psyop: Some(psyop.to_string()),

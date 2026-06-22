@@ -59,9 +59,9 @@ CREATE TABLE IF NOT EXISTS cache (
     inserted_at  BIGINT NOT NULL
 );
 
--- ── per-agent tweet queue (ported from sdk/queue.sqlite) ──────────────
+-- ── per-agent X (tweet) queue (ported from sdk/queue.sqlite) ──────────
 
-CREATE TABLE IF NOT EXISTS queue (
+CREATE TABLE IF NOT EXISTS x_queue (
     agent_tag                          TEXT   NOT NULL,
     tweet_id                           TEXT   NOT NULL,
     psyop                              TEXT,
@@ -71,6 +71,25 @@ CREATE TABLE IF NOT EXISTS queue (
     run_id                             TEXT,
     queued_at                          BIGINT NOT NULL,
     PRIMARY KEY (agent_tag, tweet_id)
+);
+
+-- ── per-agent Discord (message) queue ────────────────────────────────
+--
+-- Parallel to x_queue but for Discord messages, which are identified by
+-- (channel_id, message_id); guild_id is optional context (absent for DMs).
+
+CREATE TABLE IF NOT EXISTS discord_queue (
+    agent_tag                          TEXT   NOT NULL,
+    channel_id                         TEXT   NOT NULL,
+    message_id                         TEXT   NOT NULL,
+    guild_id                           TEXT,
+    psyop                              TEXT,
+    score                              DOUBLE PRECISION,
+    deliverer_agent_instance_hierarchy TEXT,
+    message                            TEXT,
+    run_id                             TEXT,
+    queued_at                          BIGINT NOT NULL,
+    PRIMARY KEY (agent_tag, channel_id, message_id)
 );
 
 -- ── deferred reply/quote queue ───────────────────────────────────────

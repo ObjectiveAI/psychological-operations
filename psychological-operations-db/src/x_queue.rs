@@ -1,4 +1,4 @@
-//! Per-agent tweet handling queue.
+//! Per-agent X (tweet) handling queue.
 //!
 //! Rows are keyed by `(agent_tag, tweet_id)` — a shared "to-do list" per
 //! agent, **not** partitioned by operator. Two sources write:
@@ -7,7 +7,7 @@
 //!   + `score = Some(value)` + `run_id = Some(id)` (shared by every row a
 //!   single psyop run enqueues, so readers can group them) + the running
 //!   agent's `deliverer_agent_instance_hierarchy` + no `message`.
-//! - **`agents enqueue`** — an operator flags a tweet for an agent with
+//! - **`agents enqueue x`** — an operator flags a tweet for an agent with
 //!   `message = Some(note)` + the caller's
 //!   `deliverer_agent_instance_hierarchy` + no `psyop` / `score` / `run_id`.
 //!
@@ -21,7 +21,7 @@ use sqlx::Row;
 use crate::{Db, Error};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct QueueEntry {
+pub struct XQueueEntry {
     pub agent_tag: String,
     pub tweet_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -42,9 +42,9 @@ pub struct QueueEntry {
 impl Db {
     /// Upsert by `(agent_tag, tweet_id)`. Re-enqueueing overwrites the
     /// other columns wholesale.
-    pub async fn queue_enqueue(&self, entry: &QueueEntry) -> Result<(), Error> {
+    pub async fn x_queue_enqueue(&self, entry: &XQueueEntry) -> Result<(), Error> {
         sqlx::query(
-            "INSERT INTO queue \
+            "INSERT INTO x_queue \
              (agent_tag, tweet_id, psyop, score, \
               deliverer_agent_instance_hierarchy, message, run_id, queued_at) \
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8) \
@@ -70,11 +70,11 @@ impl Db {
     }
 
     /// All entries for `agent_tag`, oldest first.
-    pub async fn queue_list(&self, agent_tag: &str) -> Result<Vec<QueueEntry>, Error> {
+    pub async fn x_queue_list(&self, agent_tag: &str) -> Result<Vec<XQueueEntry>, Error> {
         let rows = sqlx::query(
             "SELECT agent_tag, tweet_id, psyop, score, \
                     deliverer_agent_instance_hierarchy, message, run_id, queued_at \
-             FROM queue \
+             FROM x_queue \
              WHERE agent_tag = $1 \
              ORDER BY queued_at ASC",
         )
@@ -86,8 +86,8 @@ impl Db {
 
     /// Count of pending tweets for one `agent_tag` — the number reported
     /// in the agent's notification.
-    pub async fn queue_count(&self, agent_tag: &str) -> Result<i64, Error> {
-        let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM queue WHERE agent_tag = $1")
+    pub async fn x_queue_count(&self, agent_tag: &str) -> Result<i64, Error> {
+        let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM x_queue WHERE agent_tag = $1")
             .bind(agent_tag)
             .fetch_one(&self.pool)
             .await?;
@@ -102,7 +102,7 @@ impl Db {
     /// Returns the ids that were **not** present. An empty vec means all
     /// were deleted and the transaction committed; a non-empty vec means
     /// nothing was deleted (rolled back) and names the offending ids.
-    pub async fn queue_delete_many(
+    pub async fn x_queue_delete_many(
         &self,
         agent_tag: &str,
         tweet_ids: &[String],
@@ -110,7 +110,7 @@ impl Db {
         let mut tx = self.pool.begin().await?;
         let mut missing = Vec::new();
         for tweet_id in tweet_ids {
-            let result = sqlx::query("DELETE FROM queue WHERE agent_tag = $1 AND tweet_id = $2")
+            let result = sqlx::query("DELETE FROM x_queue WHERE agent_tag = $1 AND tweet_id = $2")
                 .bind(agent_tag)
                 .bind(tweet_id)
                 .execute(&mut *tx)
@@ -129,8 +129,8 @@ impl Db {
     }
 }
 
-fn row_to_entry(row: sqlx::postgres::PgRow) -> QueueEntry {
-    QueueEntry {
+fn row_to_entry(row: sqlx::postgres::PgRow) -> XQueueEntry {
+    XQueueEntry {
         agent_tag: row.get("agent_tag"),
         tweet_id: row.get("tweet_id"),
         psyop: row.get::<Option<String>, _>("psyop"),

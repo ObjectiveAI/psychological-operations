@@ -91,7 +91,7 @@ impl PsychologicalOperationsXApiMcp {
         finish(
             async move {
                 check_count(req.count)?;
-                let entries = self.db.queue_list(&tag).await?;
+                let entries = self.db.x_queue_list(&tag).await?;
 
                 // Collapse the rows into items: rows sharing a `run_id` fold
                 // into one psyop group (encounter order, which is queued_at
@@ -178,7 +178,7 @@ impl PsychologicalOperationsXApiMcp {
         let tag = self.resolve_session(&extensions).await?.tag.clone();
         finish(
             async move {
-                let missing = self.db.queue_delete_many(&tag, &req.tweet_ids).await?;
+                let missing = self.db.x_queue_delete_many(&tag, &req.tweet_ids).await?;
                 // Some id wasn't queued → the batch was rolled back (nothing
                 // removed). That's the agent referencing items it can't
                 // resolve → agent-facing.

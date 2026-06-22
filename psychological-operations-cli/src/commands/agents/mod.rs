@@ -44,19 +44,12 @@ pub enum Commands {
         #[arg(long)]
         agent_tag: String,
     },
-    /// Enqueue a tweet into an agent's per-agent queue (by tag), then
-    /// auto-notify the agent of its new pending count.
+    /// Enqueue an item into an agent's per-agent queue, then auto-notify the
+    /// agent: `enqueue x` (a tweet) or `enqueue discord` (a message).
     #[command(name = "enqueue")]
     Enqueue {
-        /// Agent tag whose queue to add to.
-        #[arg(long)]
-        agent_tag: String,
-        /// Numeric ID of the tweet.
-        #[arg(long)]
-        tweet_id: String,
-        /// Free-text note for the agent. Required.
-        #[arg(long)]
-        message: String,
+        #[command(subcommand)]
+        command: enqueue::Commands,
     },
     /// Output an invite link for an agent on a platform: `invite discord`
     /// prints the bot's Discord server-invite URL.
@@ -89,11 +82,7 @@ impl Commands {
                 )
                 .await
             }
-            Commands::Enqueue {
-                agent_tag,
-                tweet_id,
-                message,
-            } => enqueue::run(&agent_tag, &tweet_id, &message, ctx).await,
+            Commands::Enqueue { command } => command.handle(ctx).await,
             Commands::Invite { command } => command.handle(ctx).await,
             Commands::Quota { command } => command.handle(ctx).await,
             Commands::Deliver => deliver::run(ctx).await,

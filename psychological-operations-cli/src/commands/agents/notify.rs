@@ -20,7 +20,7 @@ use crate::error::Error;
 pub async fn notify_agent(ctx: &crate::context::Context, agent_tag: &str) -> Result<(), Error> {
     let n = ctx
         .db
-        .queue_count(agent_tag)
+        .x_queue_count(agent_tag)
         .await
         .map_err(|e| Error::Other(format!("queue count: {e}")))?;
     let request = agents_enqueue::Request {
@@ -32,6 +32,35 @@ pub async fn notify_agent(ctx: &crate::context::Context, agent_tag: &str) -> Res
             "<psychological-operations>\nThe agent \"{agent_tag}\" has {n} tweets in the queue.\n</psychological-operations>"
         )),
         key: Some("psychological-operations".to_string()),
+        base: Default::default(),
+    };
+    agents_enqueue::execute(&*ctx.executor, request, None)
+        .await
+        .map_err(|e| Error::Other(format!("notify {agent_tag}: {e}")))?;
+    Ok(())
+}
+
+/// Park an `agents enqueue` notification for `agent_tag` reporting its
+/// current pending Discord-queue count. Keyed `"psychological-operations-discord"`
+/// so it replaces the prior Discord count and coexists with the X notification.
+pub async fn notify_agent_discord(
+    ctx: &crate::context::Context,
+    agent_tag: &str,
+) -> Result<(), Error> {
+    let n = ctx
+        .db
+        .discord_queue_count(agent_tag)
+        .await
+        .map_err(|e| Error::Other(format!("discord queue count: {e}")))?;
+    let request = agents_enqueue::Request {
+        path_type: agents_enqueue::Path::AgentsEnqueue,
+        agent: AgentSelector::Tag {
+            agent_tag: agent_tag.to_string(),
+        },
+        message: RequestMessage::Simple(format!(
+            "<psychological-operations>\nThe agent \"{agent_tag}\" has {n} Discord messages in the queue.\n</psychological-operations>"
+        )),
+        key: Some("psychological-operations-discord".to_string()),
         base: Default::default(),
     };
     agents_enqueue::execute(&*ctx.executor, request, None)
