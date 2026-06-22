@@ -12,7 +12,7 @@ pub mod sort_by;
 // under `psychological_operations_sdk::cli::psyops`. Re-export at
 // the same shorthand `crate::psyops::*` so call sites that wrote
 // `use crate::psyops::PsyOp;` keep resolving.
-pub use psychological_operations_sdk::cli::psyops::{
+pub use psychological_operations_sdk::cli::psyops::x::{
     Filter, ForYou, Mentions, OutputTop, PsyOp, PsyopEntry, PublishedPsyop, Query, SortBy, Stage,
     StageBase, Timeline, is_vector_function,
 };

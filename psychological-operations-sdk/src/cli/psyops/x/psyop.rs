@@ -8,9 +8,24 @@ use super::sort_by::SortBy;
 use super::stage::Stage;
 use super::timeline::Timeline;
 
+/// Psyop family discriminator. Today the only family is X (tweets);
+/// serializes / deserializes as the static string `"x"`. Lets the untagged
+/// [`Psyop`](crate::cli::psyops::Psyop) enum tell families apart as more are
+/// added.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PsyopType {
+    #[default]
+    X,
+}
+
 /// A psyop scores tweets pulled from one or more X v2 sources.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct PsyOp {
+    /// Psyop family tag — always `"x"` for now. Defaults to `X` when absent
+    /// so psyops stored before the tag existed still deserialize.
+    #[serde(rename = "type", default)]
+    pub psyop_type: PsyopType,
     /// Live X v2 search-query inputs. `None` means no query-driven
     /// ingestion for this psyop. An empty `Some(vec![])` is equivalent
     /// to `None` for ingestion purposes; both round-trip out as

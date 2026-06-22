@@ -14,7 +14,7 @@
 //! for descending). A `None` value — or a position past the end of a short
 //! list — drops that item; extra elements are ignored.
 
-use psychological_operations_sdk::cli::psyops::sort_by::SortBy;
+use psychological_operations_sdk::cli::psyops::x::sort_by::SortBy;
 
 use crate::error::Error;
 use crate::tweet::{tweet_json, Tweet};

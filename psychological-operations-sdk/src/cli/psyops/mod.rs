@@ -1,42 +1,22 @@
-//! The `PsyOp` type graph + publish-time validators — shared
-//! body shape for `psychological-operations psyops publish
-//! --psyop-inline '<json>'`.
+//! Psyop type graph. Each psyop *family* lives in its own submodule; today
+//! the only family is [`x`] (tweets). The top-level [`Psyop`] enum is the
+//! published shape — untagged, discriminated by each family body's `type`
+//! field ([`x::PsyopType`]).
 //!
-//! Pure data + `validate()` methods. Runtime concerns (db-backed
-//! load/save, Python evaluation against live `Tweet` rows) live in
-//! the CLI alongside the scoring pipeline.
+//! Pure data + `validate()` methods. Runtime concerns (db-backed load/save,
+//! Python evaluation against live `Tweet` rows) live in the CLI alongside the
+//! scoring pipeline.
 
-pub mod filter;
-pub mod for_you;
-pub mod mentions;
-pub mod psyop;
-pub mod query;
-pub mod sort_by;
-pub mod stage;
-pub mod timeline;
+pub mod x;
 
-pub use filter::Filter;
-pub use for_you::ForYou;
-pub use mentions::Mentions;
-pub use psyop::PsyOp;
-pub use query::Query;
-pub use sort_by::SortBy;
-pub use timeline::Timeline;
-pub use stage::{is_vector_function, OutputTop, Stage, StageBase};
-
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-/// One row of `psyops list`. Resolved per name + its `disabled` flag.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PsyopEntry {
-    pub name: String,
-    pub enabled: bool,
-}
-
-/// Returned by `psyops publish` — the upserted name + its resolved
-/// enabled state.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PublishedPsyop {
-    pub name: String,
-    pub enabled: bool,
+/// A published psyop. Untagged: each family body carries a `type`
+/// discriminator ([`x::PsyopType`]) so serde can tell them apart. Only the
+/// `X` family exists today.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum Psyop {
+    X(x::PsyOp),
 }

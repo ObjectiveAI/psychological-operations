@@ -4,7 +4,7 @@
 //! is purely the evaluator — it runs the operator's `python` boolean
 //! expression (via the `python` command) against a tweet's metrics.
 
-use psychological_operations_sdk::cli::psyops::filter::Filter;
+use psychological_operations_sdk::cli::psyops::x::filter::Filter;
 
 use crate::error::Error;
 use crate::tweet::Tweet;

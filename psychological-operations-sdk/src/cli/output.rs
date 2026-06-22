@@ -15,7 +15,7 @@
 use schemars::Schema;
 use serde::{Deserialize, Serialize};
 
-use crate::cli::psyops::{PsyOp, PsyopEntry, PublishedPsyop};
+use crate::cli::psyops::x::{PsyOp, PsyopEntry, PublishedPsyop};
 
 /// Terminal CLI command output. Every variant is typed; no
 /// opaque payloads.
