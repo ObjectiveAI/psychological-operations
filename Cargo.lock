@@ -4526,6 +4526,7 @@ dependencies = [
  "humantime",
  "indexmap 2.14.0",
  "objectiveai-sdk",
+ "psychological-operations-daemon",
  "psychological-operations-db",
  "psychological-operations-sdk",
  "psychological-operations-x-mcp",
@@ -4540,6 +4541,19 @@ dependencies = [
  "tokio-tungstenite 0.29.0",
  "url",
  "urlencoding",
+]
+
+[[package]]
+name = "psychological-operations-daemon"
+version = "0.1.0"
+dependencies = [
+ "objectiveai-sdk",
+ "psychological-operations-db",
+ "psychological-operations-sdk",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

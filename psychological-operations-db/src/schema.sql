@@ -92,6 +92,22 @@ CREATE TABLE IF NOT EXISTS discord_queue (
     PRIMARY KEY (agent_tag, channel_id, message_id)
 );
 
+-- ── per-agent Discord daemon hooks ───────────────────────────────────
+--
+-- A hook is operator-defined Python, named per agent. The daemon runs every
+-- hook for every gateway event it receives (the raw event JSON is fed as the
+-- Python `input`). The daemon only listens for agents that have BOTH discord
+-- auth and one or more hooks.
+
+CREATE TABLE IF NOT EXISTS discord_hooks (
+    agent_tag   TEXT   NOT NULL,
+    name        TEXT   NOT NULL,
+    description TEXT   NOT NULL,
+    python      TEXT   NOT NULL,
+    updated_at  BIGINT NOT NULL,
+    PRIMARY KEY (agent_tag, name)
+);
+
 -- ── deferred reply/quote queue ───────────────────────────────────────
 --
 -- When X refuses a reply/quote with the conversation-restriction 403, the

@@ -1,0 +1,13 @@
+[package]
+name = "psychological-operations-daemon"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+objectiveai-sdk = { version = "2.2.5", default-features = false, features = ["cli", "cli-executor"] }
+psychological-operations-db = { path = "../psychological-operations-db" }
+psychological-operations-sdk = { path = "../psychological-operations-sdk" }
+serde_json = "1.0.149"
+thiserror = "2.0.18"
+tokio = { version = "1.50.0", features = ["full"] }
+tracing = "0.1.44"

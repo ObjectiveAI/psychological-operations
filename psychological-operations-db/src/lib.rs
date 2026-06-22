@@ -25,6 +25,7 @@ pub mod cache;
 pub mod delivered;
 pub mod cookies;
 pub mod discord;
+pub mod discord_hooks;
 pub mod discord_queue;
 pub mod locker;
 pub mod posts;
@@ -37,6 +38,7 @@ pub mod x_queue;
 
 pub use cookies::{parse_twid, signed_in_x_user_id, CookiesError};
 pub use discord::DiscordAuth;
+pub use discord_hooks::DiscordHookEntry;
 pub use discord_queue::DiscordQueueEntry;
 pub use locker::LockGuard;
 pub use posts::{MediaUrl, Origin, Post};

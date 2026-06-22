@@ -15,6 +15,7 @@ use clap::{Parser, Subcommand};
 use crate::context::Context;
 
 pub mod agents;
+pub mod daemon;
 pub mod mcp;
 pub mod psyops;
 pub mod x_app;
@@ -50,6 +51,12 @@ enum Commands {
     Mcp {
         #[command(subcommand)]
         command: mcp::Commands,
+    },
+    /// Resident Discord gateway daemon: `begin` runs it (never returns).
+    /// Launched by the objectiveai daemon for this plugin.
+    Daemon {
+        #[command(subcommand)]
+        command: daemon::Commands,
     },
 }
 
@@ -99,5 +106,6 @@ where
         Commands::Agents { command } => command.handle(ctx).await,
         Commands::XApp { command } => command.handle(ctx).await,
         Commands::Mcp { command } => command.handle(ctx).await,
+        Commands::Daemon { command } => command.handle(ctx).await,
     }
 }

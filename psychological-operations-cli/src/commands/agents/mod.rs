@@ -15,6 +15,7 @@
 
 use clap::Subcommand;
 
+pub mod daemon;
 pub mod deliver;
 pub mod enqueue;
 pub mod invite;
@@ -64,6 +65,13 @@ pub enum Commands {
         #[command(subcommand)]
         command: quota::Commands,
     },
+    /// Daemon management for an agent: `daemon discord hooks {add,list,delete}`
+    /// manage the Python hooks the Discord gateway daemon runs.
+    #[command(name = "daemon")]
+    Daemon {
+        #[command(subcommand)]
+        command: daemon::Commands,
+    },
     /// Deliver pending reply/quote queue entries via the browser,
     /// removing each row as the browser confirms it.
     #[command(name = "deliver")]
@@ -85,6 +93,7 @@ impl Commands {
             Commands::Enqueue { command } => command.handle(ctx).await,
             Commands::Invite { command } => command.handle(ctx).await,
             Commands::Quota { command } => command.handle(ctx).await,
+            Commands::Daemon { command } => command.handle(ctx).await,
             Commands::Deliver => deliver::run(ctx).await,
         }
     }

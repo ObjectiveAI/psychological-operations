@@ -23,7 +23,7 @@ use std::sync::Arc;
 
 use dashmap::DashMap;
 use psychological_operations_db::Db;
-use serenity::all::{EventHandler, GatewayIntents, ShardManager};
+use serenity::all::{EventHandler, GatewayIntents, RawEventHandler, ShardManager};
 use tokio::sync::OnceCell;
 
 use super::error::Error;
@@ -118,6 +118,32 @@ impl Client {
             // Run the event loop for the life of the process; the handler
             // receives events. A start() error (e.g. disconnect) ends the
             // task but leaves the cached manager in place.
+            tokio::spawn(async move {
+                let _ = client.start().await;
+            });
+            Ok(shard_manager)
+        })
+        .await
+        .cloned()
+    }
+
+    /// Like [`Self::gateway`] but with a [`RawEventHandler`] — the handler
+    /// receives the raw `serenity::all::Event` enum (which serializes to JSON)
+    /// for **every** gateway event, rather than the per-event-type
+    /// [`EventHandler`] callbacks. Shares the same per-agent gateway cache as
+    /// [`Self::gateway`] (whichever is called first for an agent wins).
+    pub async fn gateway_raw<H: RawEventHandler + 'static>(
+        &self,
+        agent_tag: &str,
+        handler: H,
+    ) -> Result<Arc<ShardManager>, Error> {
+        let cell = self.inner.gateway.entry(agent_tag.to_string()).or_default().clone();
+        cell.get_or_try_init(|| async {
+            let token = self.bot_token(agent_tag).await?;
+            let mut client = serenity::Client::builder(&token, GatewayIntents::all())
+                .raw_event_handler(handler)
+                .await?;
+            let shard_manager = client.shard_manager.clone();
             tokio::spawn(async move {
                 let _ = client.start().await;
             });

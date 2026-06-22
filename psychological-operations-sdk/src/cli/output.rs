@@ -40,6 +40,9 @@ pub enum Output {
     // ── agents ─────────────────────────────────────────────
     /// `agents invite discord` — the bot's server-invite URL.
     DiscordInvite(DiscordInvite),
+    /// `agents daemon discord hooks list` — the agent's hooks
+    /// (name + description; the Python source is not surfaced).
+    DiscordHookList(Vec<DiscordHookEntry>),
 
     // ── meta ───────────────────────────────────────────────
     /// `--help` / `--version` / "missing subcommand" rendered
@@ -52,6 +55,14 @@ pub enum Output {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DiscordInvite {
     pub url: String,
+}
+
+/// One `agents daemon discord hooks list` row — a hook's name + description.
+/// The Python source is intentionally omitted from the listing.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiscordHookEntry {
+    pub name: String,
+    pub description: String,
 }
 
 /// Rendered clap text emitted on `--help` / `--version` /
