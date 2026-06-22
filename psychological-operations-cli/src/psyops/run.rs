@@ -59,6 +59,14 @@ async fn run_all_inner(
 ) -> Result<Output, Error> {
     let db = &ctx.db;
 
+    // Per-psyop file locks (`<state_dir>/psyops/locks/<psyop>`): a
+    // non-blocking guard so two concurrent `psyops run` invocations never
+    // process the same psyop. Each runnable psyop takes its lock below; held
+    // for the life of this run and released at the end (drop alone is a no-op
+    // for the lockfile API — the OS otherwise frees them only on process exit).
+    let locks_dir = ctx.config.state_dir().join("psyops").join("locks");
+    let mut claims: Vec<objectiveai_sdk::lockfile::LockClaim> = Vec::new();
+
     // Load (name, PsyOp) pairs. Names given → load each by name (an
     // interval-blocked named psyop still announces the skip). No names →
     // every enabled psyop, interval-skipped silently.
@@ -145,6 +153,29 @@ async fn run_all_inner(
                     agent_tag,
                 })
                 .emit();
+                continue;
+            }
+        }
+        // Take the psyop's non-blocking file lock. If another run already
+        // holds it, skip this psyop (announce only for explicitly-named runs,
+        // mirroring the interval skip). Psyop names are flat; collapse any
+        // stray separator so the key is a single filesystem segment.
+        let lock_key = name.replace(['/', '\\'], "-");
+        match objectiveai_sdk::lockfile::try_acquire(
+            &locks_dir,
+            &lock_key,
+            &format!("pid {} psyops run", std::process::id()),
+        )
+        .await
+        {
+            Some(claim) => claims.push(claim),
+            None => {
+                if announce_interval {
+                    crate::output::OutputResult::from(crate::events::Event::PsyopSkippedLocked {
+                        psyop: name.clone(),
+                    })
+                    .emit();
+                }
                 continue;
             }
         }
@@ -276,6 +307,12 @@ async fn run_all_inner(
         if let Err(e) = result {
             emit_run_failed(name, &e.to_string());
         }
+    }
+
+    // Release the per-psyop locks now the batch is done (drop is a no-op for
+    // the lockfile API; without this they'd free only on process exit).
+    for claim in claims {
+        let _ = claim.release();
     }
 
     Ok(Output::Ok)

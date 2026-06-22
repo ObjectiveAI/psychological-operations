@@ -152,6 +152,12 @@ pub enum Event {
         psyop: String,
         agent_tag: String,
     },
+    /// `psyops run` could not take the psyop's file lock — another run is
+    /// already processing it. The psyop is skipped (exit code stays 0);
+    /// the in-progress run will stamp the interval.
+    PsyopSkippedLocked {
+        psyop: String,
+    },
 }
 
 impl Event {
@@ -168,6 +174,7 @@ impl Event {
             | Event::BrowserError { .. }
             | Event::PsyopInvalidAtRun { .. }
             | Event::PsyopSkippedInterval { .. }
+            | Event::PsyopSkippedLocked { .. }
             | Event::PsyopRunFailed { .. }
             | Event::PsyopAgentNotAuthed { .. } => Some(Level::Warn),
             _ => None,
