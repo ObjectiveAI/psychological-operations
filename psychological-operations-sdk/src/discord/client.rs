@@ -127,6 +127,18 @@ impl Client {
         .cloned()
     }
 
+    /// Stop and evict the agent's gateway connection, if one is cached:
+    /// shut down its shards and remove the cache entry so a later
+    /// [`Self::gateway`] / [`Self::gateway_raw`] reconnects fresh. No-op if the
+    /// agent has no connection.
+    pub async fn stop_gateway(&self, agent_tag: &str) {
+        if let Some((_, cell)) = self.inner.gateway.remove(agent_tag) {
+            if let Some(manager) = cell.get() {
+                manager.shutdown_all().await;
+            }
+        }
+    }
+
     /// Like [`Self::gateway`] but with a [`RawEventHandler`] — the handler
     /// receives the raw `serenity::all::Event` enum (which serializes to JSON)
     /// for **every** gateway event, rather than the per-event-type

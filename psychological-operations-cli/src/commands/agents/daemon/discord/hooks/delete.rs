@@ -23,5 +23,7 @@ async fn run_inner(
             "no hook named '{name}' for agent '{agent_tag}'"
         )));
     }
+    // Tell a running daemon to reload (no-op if none is running).
+    crate::commands::daemon::request_reload(&ctx.config.state_dir()).await?;
     Ok(CliOutput::Ok)
 }

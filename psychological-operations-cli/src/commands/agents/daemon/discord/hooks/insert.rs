@@ -43,5 +43,7 @@ async fn run_inner(
         })
         .await
         .map_err(|e| Error::Other(format!("hook insert: {e}")))?;
+    // Tell a running daemon to reload (no-op if none is running).
+    crate::commands::daemon::request_reload(&ctx.config.state_dir()).await?;
     Ok(CliOutput::Ok)
 }

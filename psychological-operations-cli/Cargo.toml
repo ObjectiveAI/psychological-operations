@@ -31,6 +31,7 @@ psychological-operations-db = { path = "../psychological-operations-db" }
 psychological-operations-sdk = { path = "../psychological-operations-sdk" }
 psychological-operations-x-mcp = { path = "../psychological-operations-x-mcp" }
 schemars = "1.2.1"
+interprocess = { version = "2.4.2", features = ["tokio"] }
 
 [dev-dependencies]
 # Blocking download of the objectiveai release binary in the test

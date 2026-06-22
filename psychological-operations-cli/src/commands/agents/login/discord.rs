@@ -110,5 +110,7 @@ async fn run_inner(
     ctx.db
         .discord_auth_set_all(name, &client_id, &public_key, &bot_token)
         .await?;
+    // Tell a running daemon to pick up the new auth (no-op if none is running).
+    crate::commands::daemon::request_reload(&state_dir).await?;
     Ok(CliOutput::Ok)
 }
