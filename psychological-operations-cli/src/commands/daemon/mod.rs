@@ -1,36 +1,35 @@
-//! `daemon` — the resident Discord gateway daemon + its reload socket.
+//! `daemon` — the resident Discord gateway daemon.
 //!
 //! `daemon begin` is the entry the objectiveai daemon launches for this plugin
 //! (manifest `daemon: true`, invoked as `<plugin-exec> daemon begin` with the
 //! full bidirectional protocol — so Python runs through the normal
 //! `PluginExecutor` in `ctx.executor`). It takes a process-singleton lock,
-//! loads the DB, then listens on a cross-platform local socket (interprocess)
-//! for **reload** requests.
+//! does an initial load, then subscribes to the database and reloads on every
+//! notification, indefinitely.
+//!
+//! Reload is driven by the database itself: postgres triggers on `psyops`,
+//! `discord_hooks`, and `discord_auth` fire a `daemon_reload` NOTIFY on any
+//! change (from any process), which the daemon receives via a [`ReloadListener`]
+//! ([`psychological_operations_db::Db::reload_listener`]). There is no longer a
+//! reload socket or a writer-side kick — the mutating commands just write to
+//! the DB and the trigger does the rest.
 //!
 //! Hooks are held in a shared, live store rather than snapshotted: a reload
 //! re-queries the DB, swaps the store (so running listeners pick up the new
 //! hooks immediately), and starts gateway listeners for any newly-eligible
 //! agents (`gateway_raw` is idempotent per agent). An agent that loses
-//! eligibility goes quiet (its handler finds no hooks) but keeps its
-//! connection. The reload acks `ok` or `err <message>`.
-//!
-//! [`request_reload`] is the client side, used by the mutating commands. It's
-//! best-effort: a daemon that isn't running (connect fails) is not an error —
-//! only an explicit `err` ack is.
+//! eligibility has its gateway connection torn down.
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 use clap::Subcommand;
-use interprocess::local_socket::tokio::prelude::*;
-use interprocess::local_socket::{GenericFilePath, ListenerOptions};
 use objectiveai_sdk::cli::command::plugin::PluginExecutor;
 use objectiveai_sdk::cli::command::python::{self, Path as PyPath, Request};
 use psychological_operations_sdk::cli::Output as CliOutput;
 use psychological_operations_sdk::discord::{self, serenity};
 use serenity::all::{Context as SerenityContext, Event, RawEventHandler};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::RwLock;
 
 use crate::error::Error;
@@ -52,15 +51,6 @@ impl Commands {
 /// agent_tag -> the agent's hooks' Python sources. Shared between the gateway
 /// handlers (read on every event) and reload (replaces it wholesale).
 type HookStore = Arc<RwLock<HashMap<String, Arc<Vec<String>>>>>;
-
-/// The reload socket lives at a fixed path inside the (per-state) state dir.
-/// The daemon's singleton lock already guarantees one per state, so no
-/// disambiguation is needed. `GenericFilePath` is supported on every platform
-/// (a Unix-domain socket file, or a named pipe derived from the path on
-/// Windows).
-fn socket_path(state_dir: &Path) -> PathBuf {
-    state_dir.join("discord-daemon.sock")
-}
 
 /// Per-agent raw-event handler: runs every hook for every gateway event,
 /// reading the current hooks from the shared live store.
@@ -179,79 +169,36 @@ async fn begin(ctx: &crate::context::Context) -> Result<CliOutput, Error> {
     let store: HookStore = Arc::new(RwLock::new(HashMap::new()));
     let client = discord::Client::new(ctx.db.clone());
 
+    // Subscribe BEFORE the initial load, so a change racing between LISTEN and
+    // the load is never lost — at worst it yields one redundant, idempotent
+    // reload below.
+    let mut listener = ctx
+        .db
+        .reload_listener()
+        .await
+        .map_err(|e| Error::Other(format!("subscribe to daemon_reload: {e}")))?;
+
     // Initial load.
     do_reload(&ctx.db, &ctx.executor, &store, &client).await?;
-    eprintln!("discord daemon: initial load complete");
+    eprintln!("discord daemon: initial load complete; subscribed to daemon_reload");
 
-    // Bind the reload socket (fixed path in the state dir). Remove any stale
-    // socket file left by a crashed predecessor — safe since we hold the
-    // singleton lock. (On Windows the path maps to a named pipe; the remove is
-    // a harmless no-op.)
-    let path = socket_path(&state_dir);
-    let _ = std::fs::remove_file(&path);
-    let name = path
-        .to_fs_name::<GenericFilePath>()
-        .map_err(|e| Error::Other(format!("reload socket name: {e}")))?;
-    let listener = ListenerOptions::new()
-        .name(name)
-        .create_tokio()
-        .map_err(|e| Error::Other(format!("bind reload socket: {e}")))?;
-    eprintln!("discord daemon: listening for reload requests");
-
-    // Serve reload requests forever (one connection at a time, so reloads
-    // never race the store swap).
+    // Reload on every notification, forever. Reloads stay serial (one
+    // `next_reload` at a time), so the store swap never races. A reload error
+    // is logged and the daemon keeps serving; a listener error gets a short
+    // backoff before retrying (the connection reconnects transparently).
     loop {
-        let conn = match listener.accept().await {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!("discord daemon: accept error: {e}");
-                continue;
-            }
-        };
-        let (recv, mut send) = conn.split();
-        // Read the request line (any line means "reload").
-        let mut lines = BufReader::new(recv).lines();
-        let _ = lines.next_line().await;
-        let resp = match do_reload(&ctx.db, &ctx.executor, &store, &client).await {
+        match listener.next_reload().await {
             Ok(()) => {
-                eprintln!("discord daemon: reloaded");
-                "ok\n".to_string()
+                if let Err(e) = do_reload(&ctx.db, &ctx.executor, &store, &client).await {
+                    eprintln!("discord daemon: reload failed: {e}");
+                } else {
+                    eprintln!("discord daemon: reloaded");
+                }
             }
             Err(e) => {
-                eprintln!("discord daemon: reload failed: {e}");
-                format!("err {e}\n")
+                eprintln!("discord daemon: listener error: {e}");
+                tokio::time::sleep(Duration::from_secs(1)).await;
             }
-        };
-        let _ = send.write_all(resp.as_bytes()).await;
-        let _ = send.flush().await;
-    }
-}
-
-/// Ask a running daemon to reload (used by the mutating commands). Best-effort:
-/// if the daemon isn't running (connect fails), this is `Ok(())`. Only an
-/// explicit `err` ack from a live daemon is an error.
-pub async fn request_reload(state_dir: &Path) -> Result<(), Error> {
-    let name = match socket_path(state_dir).to_fs_name::<GenericFilePath>() {
-        Ok(n) => n,
-        Err(_) => return Ok(()),
-    };
-    let conn = match LocalSocketStream::connect(name).await {
-        Ok(c) => c,
-        // No daemon listening — the common case; not an error.
-        Err(_) => return Ok(()),
-    };
-    let (recv, mut send) = conn.split();
-    if send.write_all(b"reload\n").await.is_err() {
-        return Ok(());
-    }
-    let _ = send.flush().await;
-    let mut lines = BufReader::new(recv).lines();
-    match lines.next_line().await {
-        Ok(Some(line)) => match line.strip_prefix("err ") {
-            Some(msg) => Err(Error::Other(format!("daemon reload failed: {msg}"))),
-            None => Ok(()),
-        },
-        // No / unreadable response — swallow (only an explicit err propagates).
-        _ => Ok(()),
+        }
     }
 }

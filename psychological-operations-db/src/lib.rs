@@ -31,6 +31,7 @@ pub mod locker;
 pub mod posts;
 pub mod psyops;
 pub mod quota;
+pub mod reload;
 pub mod reply_queue;
 pub mod retry;
 pub mod x_app;
@@ -42,6 +43,7 @@ pub use discord_hooks::DiscordHookEntry;
 pub use discord_queue::DiscordQueueEntry;
 pub use locker::LockGuard;
 pub use posts::{MediaUrl, Origin, Post};
+pub use reload::ReloadListener;
 pub use x_queue::XQueueEntry;
 pub use reply_queue::ReplyQuoteEntry;
 

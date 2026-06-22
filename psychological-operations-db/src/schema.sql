@@ -256,3 +256,36 @@ CREATE TABLE IF NOT EXISTS discord_auth (
     bot_token   TEXT,
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- ── daemon reload notifications ──────────────────────────────────────
+-- The resident Discord daemon subscribes (LISTEN) to the `daemon_reload`
+-- channel and re-queries its state whenever any of the tables it depends on
+-- changes — from ANY process, not just the one that wrote the row. A single
+-- statement-level trigger per table fires one NOTIFY per mutating statement
+-- (regardless of row count). The payload is the table name, for debug logging
+-- only — never row contents (avoids leaking discord_auth.bot_token).
+--
+-- Idempotent re-application: CREATE OR REPLACE FUNCTION is always safe;
+-- CREATE TRIGGER is not, so each is guarded by DROP TRIGGER IF EXISTS.
+
+CREATE OR REPLACE FUNCTION notify_daemon_reload() RETURNS trigger AS $$
+BEGIN
+    PERFORM pg_notify('daemon_reload', TG_TABLE_NAME);
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS daemon_reload_psyops ON psyops;
+CREATE TRIGGER daemon_reload_psyops
+    AFTER INSERT OR UPDATE OR DELETE ON psyops
+    FOR EACH STATEMENT EXECUTE FUNCTION notify_daemon_reload();
+
+DROP TRIGGER IF EXISTS daemon_reload_discord_hooks ON discord_hooks;
+CREATE TRIGGER daemon_reload_discord_hooks
+    AFTER INSERT OR UPDATE OR DELETE ON discord_hooks
+    FOR EACH STATEMENT EXECUTE FUNCTION notify_daemon_reload();
+
+DROP TRIGGER IF EXISTS daemon_reload_discord_auth ON discord_auth;
+CREATE TRIGGER daemon_reload_discord_auth
+    AFTER INSERT OR UPDATE OR DELETE ON discord_auth
+    FOR EACH STATEMENT EXECUTE FUNCTION notify_daemon_reload();

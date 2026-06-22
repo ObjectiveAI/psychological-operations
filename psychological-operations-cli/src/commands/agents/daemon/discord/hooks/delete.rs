@@ -23,7 +23,7 @@ async fn run_inner(
             "no hook named '{name}' for agent '{agent_tag}'"
         )));
     }
-    // Tell a running daemon to reload (no-op if none is running).
-    crate::commands::daemon::request_reload(&ctx.config.state_dir()).await?;
+    // A running daemon reloads via the discord_hooks NOTIFY trigger — no
+    // writer-side kick needed.
     Ok(CliOutput::Ok)
 }
