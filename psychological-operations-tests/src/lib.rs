@@ -458,12 +458,12 @@ pub fn query_psyop(query: &str, stages: Vec<Stage>) -> PsyOp {
 }
 
 /// An inline **mock** agent scripted to make ONE deterministic tool call to
-/// the psychological-operations x-api MCP tool `mark_handled`
+/// the psychological-operations x MCP tool `mark_handled`
 /// (`{"tweet_ids": [...]}`), then close out with a
-/// content turn. It wires `client_objectiveai_mcp` so the plugin's `x-api`
+/// content turn. It wires `client_objectiveai_mcp` so the plugin's `x`
 /// MCP server is exposed in **full** mode (`mark_handled` is hidden in
 /// readonly). The tool name is the proxy-prefixed `<serverInfo.name>_<tool>`
-/// = `psychological-operations-x-api_mark_handled`.
+/// = `psychological-operations-x_mark_handled`.
 pub fn mark_handled_mock_agent(tag: &str, tweet_ids: &[&str]) -> InlineAgentBase {
     let arguments = serde_json::json!({ "tweet_ids": tweet_ids }).to_string();
     let mut base = mock::AgentBase::default();
@@ -471,7 +471,7 @@ pub fn mark_handled_mock_agent(tag: &str, tweet_ids: &[&str]) -> InlineAgentBase
         // Turn 1: the deterministic tool call.
         mock::Call {
             tool_calls: vec![mock::CallToolCall {
-                name: "psychological-operations-x-api_mark_handled".to_string(),
+                name: "psychological-operations-x_mark_handled".to_string(),
                 arguments,
             }],
             content: String::new(),
@@ -490,12 +490,12 @@ pub fn mark_handled_mock_agent(tag: &str, tweet_ids: &[&str]) -> InlineAgentBase
             name: NAME.to_string(),
             version: VERSION.to_string(),
             // Don't surface the plugin's own command tools — only bring up
-            // its declared `x-api` MCP server (which carries mark_handled).
+            // its declared `x` MCP server (which carries mark_handled).
             executable: false,
             mcp_servers: Some(vec![ClientObjectiveaiMcpPluginMcpServer {
-                name: "x-api".to_string(),
+                name: "x".to_string(),
                 // Forwarded as the per-request `X-OBJECTIVEAI-ARGUMENTS`
-                // header → the x-api session reads `mode` (FULL, so
+                // header → the x session reads `mode` (FULL, so
                 // mark_handled is visible) and the REQUIRED `tag` (the
                 // agent identity every tool acts as). There's no per-tool
                 // `tag` arg anymore — tools read it from the session.

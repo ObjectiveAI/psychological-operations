@@ -1,8 +1,8 @@
-//! `mcp x-api` subcommands — the X-API MCP server.
+//! `mcp x` subcommands — the X-API MCP server (manifest name `x`).
 //!
-//! `mcp x-api begin` runs the server in-process (this CLI process becomes
+//! `mcp x begin` runs the server in-process (this CLI process becomes
 //! the MCP server). See the parent `mcp` module docs for how the
-//! objectiveai host launches it (`<plugin-exec> mcp x-api begin …`) and
+//! objectiveai host launches it (`<plugin-exec> mcp x begin …`) and
 //! consumes the emitted `Output::Mcp` URL line.
 
 use clap::Subcommand;
@@ -30,7 +30,7 @@ pub enum Commands {
     /// `Context`, not flags. The per-session `mode` + optional `quota_*`
     /// overrides are supplied by the client on connect via the
     /// `X-OBJECTIVEAI-ARGUMENTS` header (which also re-carries `tag`);
-    /// the flags below exist so the conduit's `mcp x-api begin --<arg>
+    /// the flags below exist so the conduit's `mcp x begin --<arg>
     /// <value>` launch (one flag per declared argument) parses. `--tag`
     /// is consumed at startup as above; `--mode` + `--quota_*` are
     /// DISCARDED here, validated at connect-time in the header parser.

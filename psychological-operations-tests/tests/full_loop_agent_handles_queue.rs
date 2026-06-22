@@ -3,7 +3,7 @@
 //! A scripted mock agent (deterministic tool call) is bound to a tag, a
 //! tweet is parked on that tag's psyops queue, and the agent — spawned via
 //! plain `agents spawn` (streaming, NOT queue deliver) — calls the
-//! psychological-operations x-api MCP tool `mark_handled` with the enqueued
+//! psychological-operations x MCP tool `mark_handled` with the enqueued
 //! tweet id. This exercises the MCP server end-to-end: tool exposure (FULL
 //! mode), the tool call, the server's response, and the queue mutation.
 //!
@@ -60,7 +60,7 @@ async fn full_loop_agent_handles_queue() {
         .collect::<Vec<_>>()
         .join("\n");
     assert!(
-        stream.contains("psychological-operations-x-api_mark_handled"),
+        stream.contains("psychological-operations-x_mark_handled"),
         "expected the mark_handled tool call in the spawn stream",
     );
     assert!(

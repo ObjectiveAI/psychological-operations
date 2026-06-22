@@ -127,7 +127,7 @@ Each psyop is a separate X account.
 
 ## Delivery
 
-A psyop's `agent_tags` list names the agents that should receive its survivors. After a run scores its tweets, each surviving tweet is written into every listed agent's queue and the agent is notified of its new pending count. The agent works its queue through the `x-api` MCP server, marking tweets handled as it acts on them. A psyop with no `agent_tags` is score-only — it ranks tweets without delivering them anywhere.
+A psyop's `agent_tags` list names the agents that should receive its survivors. After a run scores its tweets, each surviving tweet is written into every listed agent's queue and the agent is notified of its new pending count. The agent works its queue through the `x` MCP server, marking tweets handled as it acts on them. A psyop with no `agent_tags` is score-only — it ranks tweets without delivering them anywhere.
 
 Tweets can also be placed on an agent's queue by hand with `agents enqueue --agent-tag <tag> --tweet-id <id> --message <msg>`, which notifies the agent the same way.
 
