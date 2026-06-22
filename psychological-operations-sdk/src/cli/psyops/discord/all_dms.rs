@@ -1,0 +1,40 @@
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+
+/// An all-DMs source: paginate across **every** DM channel the bot is part
+/// of, not a single user's. (For one specific conversation, use the
+/// [`Dm`](super::dm::Dm) source.) The bot only ever sees DMs it is itself a
+/// party to.
+#[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
+pub struct AllDms {
+    /// The agent (bot) whose DMs are read. Required — the read acts as this
+    /// agent, and the run-time pre-flight refuses the psyop if the agent
+    /// isn't authed.
+    pub agent_tag: String,
+    /// Max messages to pull across all DM channels. Required. The read
+    /// paginates (100 per page) until it has this many messages or the
+    /// histories run out. Must be > 0.
+    pub count: u64,
+    /// Priority bucket for ordering the candidate union: smaller numbers
+    /// come first; `None` ranks below every `Some(_)`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub priority: Option<u64>,
+    /// Optional Python boolean expression filtering each message before it
+    /// becomes a candidate. `None` accepts every message the read returns.
+    /// Not parse-checked at publish time — errors surface at run time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub python_filter: Option<String>,
+}
+
+impl AllDms {
+    /// Publish-time validation.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.agent_tag.trim().is_empty() {
+            return Err("agent_tag must not be empty".into());
+        }
+        if self.count == 0 {
+            return Err("count must be > 0".into());
+        }
+        Ok(())
+    }
+}
