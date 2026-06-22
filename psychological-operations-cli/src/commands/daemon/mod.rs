@@ -25,6 +25,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use clap::Subcommand;
+use objectiveai_sdk::cli::command::agents::queue::deliver;
 use objectiveai_sdk::cli::command::plugin::PluginExecutor;
 use objectiveai_sdk::cli::command::python::{self, Path as PyPath, Request};
 use psychological_operations_sdk::cli::Output as CliOutput;
@@ -232,6 +233,22 @@ async fn begin(ctx: &crate::context::Context) -> Result<CliOutput, Error> {
     loop {
         // Bare psyops run; the result is intentionally ignored.
         let _ = crate::psyops::run::run_all(Vec::new(), None, ctx).await;
+
+        // Wake queued agents to deliver whatever the run just enqueued.
+        // Fire-and-forget through the plugin executor, exactly like the hook
+        // handler's `python::execute`: `execute()` writes the command line
+        // before it returns, so the host runs the delivery independently — we
+        // drop the response stream and ignore the result. We deliberately do
+        // NOT drain the stream to its end: the host only writes a nested
+        // command's completion terminator after our stdout EOFs (process
+        // exit), so awaiting stream end would block forever; dropping it is
+        // safe and the listener reaps the pending entry on the next response.
+        let deliver = deliver::Request {
+            path_type: deliver::Path::AgentsQueueDeliver,
+            dangerous_advanced: None,
+            base: Default::default(),
+        };
+        let _ = deliver::execute(&*ctx.executor, deliver, None).await;
 
         let min_interval = match ctx.db.psyops_min_interval().await {
             Ok(v) => v,
