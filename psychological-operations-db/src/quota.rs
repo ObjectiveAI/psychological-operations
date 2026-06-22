@@ -76,6 +76,32 @@ impl Db {
         Ok(())
     }
 
+    /// Record a time-bounded additive Discord-quota grant. Same shape as
+    /// [`grant_quota`](Self::grant_quota) but for the Discord MCP's separate
+    /// budget (`discord_quota_grants`).
+    pub async fn grant_discord_quota(
+        &self,
+        account: &str,
+        direction: &str,
+        amount: i64,
+        granted_at: i64,
+        expires_at: i64,
+    ) -> Result<(), Error> {
+        sqlx::query(
+            "INSERT INTO discord_quota_grants \
+             (account, direction, amount, granted_at, expires_at) \
+             VALUES ($1, $2, $3, $4, $5)",
+        )
+        .bind(account)
+        .bind(direction)
+        .bind(amount)
+        .bind(granted_at)
+        .bind(expires_at)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
     /// Total of all grants for `account` + `direction` in effect at `now`
     /// (unix seconds). Active grants stack; `0` when none.
     pub async fn active_quota_grants(

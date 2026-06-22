@@ -156,6 +156,19 @@ CREATE TABLE IF NOT EXISTS quota_grants (
 CREATE INDEX IF NOT EXISTS quota_grants_account_dir_exp
     ON quota_grants(account, direction, expires_at);
 
+-- Same shape as quota_grants but for the (future) Discord MCP's quota, kept
+-- separate so an X grant never boosts the Discord budget or vice versa.
+CREATE TABLE IF NOT EXISTS discord_quota_grants (
+    id          BIGSERIAL PRIMARY KEY,
+    account     TEXT   NOT NULL,
+    direction   TEXT   NOT NULL,  -- 'read' | 'write'
+    amount      BIGINT NOT NULL,
+    granted_at  BIGINT NOT NULL,
+    expires_at  BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS discord_quota_grants_account_dir_exp
+    ON discord_quota_grants(account, direction, expires_at);
+
 -- ── psyops (was git repos + psyop.json) ──────────────────────────────
 
 CREATE TABLE IF NOT EXISTS psyops (
