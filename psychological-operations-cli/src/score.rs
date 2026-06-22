@@ -15,7 +15,7 @@ use objectiveai_sdk::functions::{
 };
 
 use crate::db::Post;
-use crate::input::{PostInputValue, PostsInputValue, new_post_input_value};
+use crate::input::new_post_input_value;
 use crate::psyops::is_vector_function;
 
 #[derive(Clone)]
@@ -247,48 +247,35 @@ impl Drop for ExecTempDir {
     }
 }
 
-/// Run a single function-stage's objectiveai execution against
-/// the given posts. Returns scored posts in score-descending
-/// order. The `Stage::Bare` variant skips this entirely — the
-/// score_pipeline caller assigns flat 1.0 instead.
-#[allow(clippy::too_many_arguments)]
-pub async fn score_function(
+/// Run one function-stage's objectiveai execution against an arbitrary list of
+/// pre-built input items, returning the scores **in input order** (aligned to
+/// `items`). Family-agnostic: callers build their own per-item input
+/// (`PostInputValue` for X, `DiscordInputValue` for Discord) and zip the
+/// scores back. Vector functions get `{ "items": [...] }` (single execution);
+/// others get the bare array + split.
+pub async fn score_items(
     function_spec: &FullInlineFunctionOrRemoteCommitOptional,
     profile: &InlineProfileOrRemoteCommitOptional,
     strategy: &Strategy,
     invert: bool,
-    text: bool,
-    images: bool,
-    videos: bool,
-    posts: Vec<Post>,
+    items: Vec<objectiveai_sdk::functions::expression::InputValue>,
     seed: Option<i64>,
     ctx: &crate::context::Context,
-) -> Result<Vec<ScoredPost>, crate::error::Error> {
-    let mut scored: Vec<ScoredPost> = posts
-        .into_iter()
-        .map(|p| ScoredPost {
-            post: p,
-            score: 0.0,
-        })
-        .collect();
-
+) -> Result<Vec<f64>, crate::error::Error> {
+    use objectiveai_sdk::functions::expression::InputValue;
+    let n = items.len();
     let function = resolve_function(function_spec, ctx).await?;
     let is_vector = is_vector_function(&function);
 
-    let items: Vec<PostInputValue> = scored
-        .iter()
-        .map(|s| new_post_input_value(&s.post, text, images, videos))
-        .collect();
-
+    // A vector function takes one execution over `{ items: [...] }`; others get
+    // the bare array + split (per-item executions).
     let (input_value, split) = if is_vector {
-        let input = PostsInputValue { items };
-        (serde_json::to_value(&input)?, false)
+        let mut map = indexmap::IndexMap::new();
+        map.insert("items".to_string(), InputValue::Array(items));
+        (InputValue::Object(map), false)
     } else {
-        (serde_json::to_value(&items)?, true)
+        (InputValue::Array(items), true)
     };
-
-    let input_value: objectiveai_sdk::functions::expression::InputValue =
-        serde_json::from_value(input_value)?;
 
     let result = run_function_execution(
         &function,
@@ -315,23 +302,46 @@ pub async fn score_function(
         })
         .collect::<Result<Vec<_>, _>>()?;
 
-    if scores.len() != scored.len() {
+    if scores.len() != n {
         return Err(crate::error::Error::Other(format!(
-            "score count ({}) doesn't match post count ({})",
+            "score count ({}) doesn't match item count ({n})",
             scores.len(),
-            scored.len()
         )));
     }
+    Ok(scores)
+}
 
-    for (s, val) in scored.iter_mut().zip(scores.iter()) {
-        s.score = *val;
-    }
+/// Score X posts (tweets). Builds `PostInputValue` items, scores them, and
+/// returns `ScoredPost`s in score-descending order. `Stage::Bare` skips this
+/// (the pipeline assigns a flat 1.0 instead).
+#[allow(clippy::too_many_arguments)]
+pub async fn score_function(
+    function_spec: &FullInlineFunctionOrRemoteCommitOptional,
+    profile: &InlineProfileOrRemoteCommitOptional,
+    strategy: &Strategy,
+    invert: bool,
+    text: bool,
+    images: bool,
+    videos: bool,
+    posts: Vec<Post>,
+    seed: Option<i64>,
+    ctx: &crate::context::Context,
+) -> Result<Vec<ScoredPost>, crate::error::Error> {
+    let items: Vec<_> = posts
+        .iter()
+        .map(|p| new_post_input_value(p, text, images, videos))
+        .collect();
+    let scores = score_items(function_spec, profile, strategy, invert, items, seed, ctx).await?;
 
+    let mut scored: Vec<ScoredPost> = posts
+        .into_iter()
+        .zip(scores)
+        .map(|(post, score)| ScoredPost { post, score })
+        .collect();
     scored.sort_by(|a, b| {
         b.score
             .partial_cmp(&a.score)
             .unwrap_or(std::cmp::Ordering::Equal)
     });
-
     Ok(scored)
 }

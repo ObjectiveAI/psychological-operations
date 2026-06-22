@@ -31,4 +31,24 @@ impl PsyOp {
             PsyOp::Discord(p) => p.validate(),
         }
     }
+
+    /// The psyop's run cadence: `Ok(None)` for a `manual` trigger (runs only
+    /// when explicitly named), `Ok(Some(d))` for an `interval` trigger (the
+    /// parsed humantime duration). The two families' `Trigger` enums are
+    /// identical-shaped, so this unifies them for the run gate.
+    pub fn trigger_interval(&self) -> Result<Option<std::time::Duration>, String> {
+        let interval_str = match self {
+            PsyOp::X(p) => match &p.trigger {
+                x::trigger::Trigger::Manual => return Ok(None),
+                x::trigger::Trigger::Interval { interval } => interval,
+            },
+            PsyOp::Discord(p) => match &p.trigger {
+                discord::trigger::Trigger::Manual => return Ok(None),
+                discord::trigger::Trigger::Interval { interval } => interval,
+            },
+        };
+        humantime::parse_duration(interval_str)
+            .map(Some)
+            .map_err(|e| format!("trigger.interval: invalid humantime duration: {e}"))
+    }
 }

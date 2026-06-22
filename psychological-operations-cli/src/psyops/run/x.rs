@@ -45,138 +45,54 @@ use psychological_operations_sdk::x::params::tweet_fields_parameter::TweetFields
 use psychological_operations_sdk::x::params::user_fields_parameter::UserFields;
 use psychological_operations_sdk::x::types::TweetId;
 
-use super::{PsyOp, Query};
+use psychological_operations_sdk::cli::psyops::x::{PsyOp, Query};
 
-/// CLI entrypoint for `psyops::Commands::Run`.
-pub async fn run_all(names: Vec<String>, seed: Option<i64>, ctx: &crate::context::Context) -> bool {
-    crate::output::emit_result(run_all_inner(names, seed, ctx).await)
-}
-
-async fn run_all_inner(
-    names: Vec<String>,
+/// Run the X psyops: resolve stage-retry + agent-auth, collect + hydrate
+/// for_you (Phase A, shared once per agent), then score + deliver each psyop
+/// concurrently (Phase B). Validation, trigger gating, and the per-psyop lock
+/// are handled by the caller (`super::run_all_inner`).
+pub(super) async fn run_batch(
+    psyops: Vec<(String, PsyOp)>,
     seed: Option<i64>,
     ctx: &crate::context::Context,
-) -> Result<Output, Error> {
+) {
     let db = &ctx.db;
 
-    // Per-psyop file locks (`<state_dir>/psyops/locks/<psyop>`): a
-    // non-blocking guard so two concurrent `psyops run` invocations never
-    // process the same psyop. Each runnable psyop takes its lock below; held
-    // for the life of this run and released at the end (drop alone is a no-op
-    // for the lockfile API — the OS otherwise frees them only on process exit).
-    let locks_dir = ctx.config.state_dir().join("psyops").join("locks");
-    let mut claims: Vec<objectiveai_sdk::lockfile::LockClaim> = Vec::new();
-
-    // Load (name, PsyOp) pairs. Names given → load each by name (an
-    // interval-blocked named psyop still announces the skip). No names →
-    // every enabled psyop, interval-skipped silently.
-    let (loaded, announce_interval): (Vec<(String, PsyOp)>, bool) = if names.is_empty() {
-        let mut loaded = Vec::new();
-        for (name, def, _disabled) in db
-            .psyop_list()
-            .await?
-            .into_iter()
-            .filter(|(_, _, disabled)| !disabled)
-        {
-            match serde_json::from_value::<PsyOp>(def) {
-                Ok(psyop) => loaded.push((name, psyop)),
-                Err(e) => emit_run_failed(&name, &e.to_string()),
-            }
-        }
-        (loaded, false)
-    } else {
-        let mut loads: FuturesUnordered<_> = names
-            .into_iter()
-            .map(|name| async move {
-                let result = super::psyop::load(&name, ctx).await;
-                (name, result)
-            })
-            .collect();
-        let mut loaded = Vec::new();
-        while let Some((name, result)) = loads.next().await {
-            match result {
-                Ok(psyop) => loaded.push((name, psyop)),
-                Err(e) => emit_run_failed(&name, &e.to_string()),
-            }
-        }
-        (loaded, true)
-    };
-
-    // Resolve the runnable set: validate + interval gate + (for normal runs)
-    // agent-auth gate. A psyop with a saved stage-retry input carries it and
-    // takes the retry shortcut (skips collection/scrape, so no auth gate).
-    // Each non-runnable psyop emits its own event and is dropped; only db
-    // errors abort the batch.
+    // Resolve the runnable set: a saved stage-retry input takes the re-score
+    // shortcut (no scrape, so no auth gate); otherwise every referenced agent
+    // must be authed. Each non-runnable psyop emits its own event and is
+    // dropped.
     let mut runnable: Vec<(String, PsyOp, Option<Vec<Post>>)> = Vec::new();
-    for (name, psyop) in loaded {
-        if let Err(reason) = psyop.validate() {
-            crate::output::OutputResult::from(crate::events::Event::PsyopInvalidAtRun {
-                psyop: name.clone(),
-                reason,
-            })
-            .emit();
-            continue;
-        }
-        let interval = psyop.interval_duration().expect("validated interval");
-        if let Some(last_run) = db.get_last_run(&name).await? {
-            let elapsed = (chrono::Utc::now().timestamp() - last_run).max(0) as u64;
-            if elapsed < interval.as_secs() {
-                if announce_interval {
-                    crate::output::OutputResult::from(crate::events::Event::PsyopSkippedInterval {
-                        psyop: name.clone(),
-                        interval: psyop.interval.clone(),
-                        remaining_secs: interval.as_secs() - elapsed,
-                    })
-                    .emit();
-                }
-                continue;
-            }
-        }
-        // A saved stage-retry input means: re-run the stages on it, skipping
-        // everything up to them.
-        let retry_input: Option<Vec<Post>> = match db.get_stage_retry(&name).await? {
-            Some(v) => match serde_json::from_value::<Vec<Post>>(v) {
+    for (name, psyop) in psyops {
+        let retry_input: Option<Vec<Post>> = match db.get_stage_retry(&name).await {
+            Ok(Some(v)) => match serde_json::from_value::<Vec<Post>>(v) {
                 Ok(posts) => Some(posts),
                 Err(e) => {
-                    emit_run_failed(&name, &format!("corrupt stage_retry: {e}"));
+                    super::emit_run_failed(&name, &format!("corrupt stage_retry: {e}"));
                     continue;
                 }
             },
-            None => None,
-        };
-        // Normal runs scrape, so every referenced agent must be authed
-        // (skipped in mock mode, and for retry runs which don't scrape).
-        if retry_input.is_none() && !ctx.config.mock {
-            if let Some(agent_tag) = missing_agent_auth(db, &psyop).await? {
-                crate::output::OutputResult::from(crate::events::Event::PsyopAgentNotAuthed {
-                    psyop: name.clone(),
-                    agent_tag,
-                })
-                .emit();
+            Ok(None) => None,
+            Err(e) => {
+                super::emit_run_failed(&name, &e.to_string());
                 continue;
             }
-        }
-        // Take the psyop's non-blocking file lock. If another run already
-        // holds it, skip this psyop (announce only for explicitly-named runs,
-        // mirroring the interval skip). Psyop names are flat; collapse any
-        // stray separator so the key is a single filesystem segment.
-        let lock_key = name.replace(['/', '\\'], "-");
-        match objectiveai_sdk::lockfile::try_acquire(
-            &locks_dir,
-            &lock_key,
-            &format!("pid {} psyops run", std::process::id()),
-        )
-        .await
-        {
-            Some(claim) => claims.push(claim),
-            None => {
-                if announce_interval {
-                    crate::output::OutputResult::from(crate::events::Event::PsyopSkippedLocked {
+        };
+        if retry_input.is_none() && !ctx.config.mock {
+            match missing_agent_auth(db, &psyop).await {
+                Ok(Some(agent_tag)) => {
+                    crate::output::OutputResult::from(crate::events::Event::PsyopAgentNotAuthed {
                         psyop: name.clone(),
+                        agent_tag,
                     })
                     .emit();
+                    continue;
                 }
-                continue;
+                Ok(None) => {}
+                Err(e) => {
+                    super::emit_run_failed(&name, &e.to_string());
+                    continue;
+                }
             }
         }
         runnable.push((name, psyop, retry_input));
@@ -203,7 +119,7 @@ async fn run_all_inner(
     let mut agent_ids: HashMap<String, Vec<String>> = HashMap::new();
     let mut failed_agents: HashSet<String> = HashSet::new();
     for agent in &for_you_agents {
-        match super::collect::collect_for_you(agent, ctx).await {
+        match crate::psyops::collect::collect_for_you(agent, ctx).await {
             Ok(ids) => {
                 agent_ids.insert(agent.clone(), ids);
             }
@@ -213,7 +129,7 @@ async fn run_all_inner(
                     if retry_input.is_none()
                         && psyop.for_you.iter().flatten().any(|fy| &fy.agent_tag == agent)
                     {
-                        emit_run_failed(name, &format!("for_you collection ({agent}): {e}"));
+                        super::emit_run_failed(name, &format!("for_you collection ({agent}): {e}"));
                     }
                 }
             }
@@ -305,17 +221,9 @@ async fn run_all_inner(
         .collect();
     while let Some((name, result)) = inflight.next().await {
         if let Err(e) = result {
-            emit_run_failed(name, &e.to_string());
+            super::emit_run_failed(name, &e.to_string());
         }
     }
-
-    // Release the per-psyop locks now the batch is done (drop is a no-op for
-    // the lockfile API; without this they'd free only on process exit).
-    for claim in claims {
-        let _ = claim.release();
-    }
-
-    Ok(Output::Ok)
 }
 
 /// The first `agent_tag` referenced by `psyop`'s queries / for_you that
@@ -358,15 +266,6 @@ async fn missing_agent_auth(
         }
     }
     Ok(None)
-}
-
-/// Emit a non-fatal per-psyop failure event (the batch keeps running).
-fn emit_run_failed(psyop: &str, error: &str) {
-    crate::output::OutputResult::from(crate::events::Event::PsyopRunFailed {
-        psyop: psyop.to_string(),
-        error: error.to_string(),
-    })
-    .emit();
 }
 
 /// Run one psyop: assemble candidates (for_you + conditional queries),
@@ -428,7 +327,7 @@ async fn run_scored(
             let ids: Vec<String> = deduped.iter().map(|p| p.id.clone()).collect();
             let already = ctx
                 .db
-                .already_delivered(name, &ids)
+                .x_already_delivered(name, &ids)
                 .await
                 .map_err(Error::from)?;
             deduped
@@ -478,7 +377,7 @@ async fn run_scored(
         tasks.push(
             async {
                 ctx.db
-                    .mark_delivered(name, &survivor_ids)
+                    .x_mark_delivered(name, &survivor_ids)
                     .await
                     .map_err(Error::from)
             }
@@ -487,7 +386,7 @@ async fn run_scored(
 
         for result in futures::future::join_all(tasks).await {
             if let Err(e) = result {
-                emit_run_failed(name, &e.to_string());
+                super::emit_run_failed(name, &e.to_string());
             }
         }
     }
@@ -935,7 +834,7 @@ async fn score_pipeline(
                 after_threshold.into_iter().take(*n as usize).collect()
             }
             Some(crate::psyops::OutputTop::Python(src)) => {
-                let n = super::output_top::evaluate(ctx, src, &after_threshold).await?;
+                let n = crate::psyops::output_top::evaluate(ctx, src, &after_threshold).await?;
                 after_threshold.into_iter().take(n).collect()
             }
             _ => after_threshold,

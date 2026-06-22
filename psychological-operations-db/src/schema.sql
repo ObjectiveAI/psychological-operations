@@ -26,17 +26,25 @@ CREATE TABLE IF NOT EXISTS psyop_runs (
     last_run_at  BIGINT NOT NULL
 );
 
--- ── per-psyop "delivered once" ledger ────────────────────────────────
--- Every tweet a psyop has output for delivery. A psyop never re-delivers a
--- tweet already recorded here: the run filters its candidates against this
--- table (after de-dup, before the max_posts cap) and writes survivors here
--- as part of the delivery step.
+-- ── per-psyop "delivered once" ledgers ───────────────────────────────
+-- Every item a psyop has output for delivery. A psyop never re-delivers an
+-- item already recorded here: the run filters its candidates against this
+-- table (after de-dup) and writes survivors here as part of delivery.
+-- X is keyed by tweet_id; Discord by (channel_id, message_id).
 
-CREATE TABLE IF NOT EXISTS delivered (
+CREATE TABLE IF NOT EXISTS x_delivered (
     psyop     TEXT   NOT NULL,
     tweet_id  TEXT   NOT NULL,
     at        BIGINT NOT NULL,  -- unix seconds
     PRIMARY KEY (psyop, tweet_id)
+);
+
+CREATE TABLE IF NOT EXISTS discord_delivered (
+    psyop       TEXT   NOT NULL,
+    channel_id  TEXT   NOT NULL,
+    message_id  TEXT   NOT NULL,
+    at          BIGINT NOT NULL,  -- unix seconds
+    PRIMARY KEY (psyop, channel_id, message_id)
 );
 
 -- ── stage-pipeline retry ─────────────────────────────────────────────

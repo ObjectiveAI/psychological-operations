@@ -1,9 +1,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use super::all_dms::AllDms;
 use super::channel::Channel;
-use super::dm::Dm;
 use super::server::Server;
 use super::sort_by::SortBy;
 use super::stage::Stage;
@@ -28,20 +26,11 @@ pub struct PsyOp {
     #[serde(rename = "type", default)]
     pub psyop_type: PsyopType,
 
-    /// Channel-read sources — paginate specific Discord channels' histories,
-    /// one entry per channel. `None`/empty ⇒ no channel ingestion.
+    /// Channel-read sources — paginate specific channels' histories, one entry
+    /// per channel. A DM is just a channel, so a DM is read by giving its
+    /// channel id here. `None`/empty ⇒ no channel ingestion.
     #[serde(default, skip_serializing_if = "skip_channels")]
     pub channels: Option<Vec<Channel>>,
-
-    /// DM-read sources — paginate the bot's DM history with specific users,
-    /// one entry per user. `None`/empty ⇒ no per-user DM ingestion.
-    #[serde(default, skip_serializing_if = "skip_dms")]
-    pub dms: Option<Vec<Dm>>,
-
-    /// All-DMs source — paginate across every DM channel the bot is part of.
-    /// `None` ⇒ no all-DMs ingestion.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub all_dms: Option<AllDms>,
 
     /// Server-read sources — paginate across a whole server's channels, one
     /// entry per server. `None`/empty ⇒ no server ingestion.
@@ -88,14 +77,6 @@ fn skip_channels(c: &Option<Vec<Channel>>) -> bool {
     }
 }
 
-/// Skip-serializing predicate for `dms`: omit when `None`/empty.
-fn skip_dms(d: &Option<Vec<Dm>>) -> bool {
-    match d {
-        None => true,
-        Some(v) => v.is_empty(),
-    }
-}
-
 /// Skip-serializing predicate for `servers`: omit when `None`/empty.
 fn skip_servers(s: &Option<Vec<Server>>) -> bool {
     match s {
@@ -114,14 +95,6 @@ impl PsyOp {
                 c.validate().map_err(|e| format!("channels[{i}]: {e}"))?;
             }
         }
-        if let Some(ds) = &self.dms {
-            for (i, d) in ds.iter().enumerate() {
-                d.validate().map_err(|e| format!("dms[{i}]: {e}"))?;
-            }
-        }
-        if let Some(a) = &self.all_dms {
-            a.validate().map_err(|e| format!("all_dms: {e}"))?;
-        }
         if let Some(ss) = &self.servers {
             for (i, s) in ss.iter().enumerate() {
                 s.validate().map_err(|e| format!("servers[{i}]: {e}"))?;
@@ -130,11 +103,9 @@ impl PsyOp {
 
         // A psyop must have at least one input source.
         let has_channels = self.channels.as_ref().is_some_and(|cs| !cs.is_empty());
-        let has_dms = self.dms.as_ref().is_some_and(|ds| !ds.is_empty());
-        let has_all_dms = self.all_dms.is_some();
         let has_servers = self.servers.as_ref().is_some_and(|s| !s.is_empty());
-        if !has_channels && !has_dms && !has_all_dms && !has_servers {
-            return Err("psyop must have at least one channel, dm, all_dms, or server".into());
+        if !has_channels && !has_servers {
+            return Err("psyop must have at least one channel or server".into());
         }
 
         self.sort.validate().map_err(|e| format!("sort: {e}"))?;
