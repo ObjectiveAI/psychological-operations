@@ -33,6 +33,25 @@ pub(super) struct Tweet {
     pub reply_count: i32,
 }
 
+/// Slim list-item shape for the multi-tweet read tools (`run_query`,
+/// `list_replies`, `list_mentions`, `list_timeline`, `list_bookmarks`).
+/// Deliberately tiny — id, author, and any single referenced-tweet id — so a
+/// page of results stays cheap in agent context. The reference kind is
+/// knowable at a glance from which field is present (`replied_to` / `quoted` /
+/// `retweeted`). To see a tweet's full content (text, media, metrics) the agent
+/// opens it with `get_tweet`.
+#[derive(Debug, Clone, Serialize)]
+pub(super) struct TweetSummary {
+    pub id: String,
+    pub handle: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub replied_to: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quoted: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retweeted: Option<String>,
+}
+
 #[derive(Debug, Clone)]
 pub(super) struct FetchedAttachment {
     pub kind: AttachmentKind,

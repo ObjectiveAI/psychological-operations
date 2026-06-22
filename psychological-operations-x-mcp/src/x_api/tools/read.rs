@@ -35,8 +35,8 @@ use super::super::PsychologicalOperationsXApiMcp;
 use super::super::builders::{
     resolve_handle_user_id, resolve_self_user_id, standard_search_request, standard_tweet_request,
 };
-use super::super::model::{AttachmentKind, FetchedAttachment, Tweet};
-use super::super::projection::{lookup_attachment, project_tweet};
+use super::super::model::{AttachmentKind, FetchedAttachment, TweetSummary};
+use super::super::projection::{lookup_attachment, project_tweet, project_tweet_summary};
 use super::super::tool_error::{ToolError, finish};
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
@@ -220,24 +220,25 @@ impl PsychologicalOperationsXApiMcp {
                     next_token: None,
                     pagination_token: None,
                     sort_order: None,
-                    tweet_fields: Some(vec![params::TweetFields::ReferencedTweets]),
-                    expansions: None,
+                    tweet_fields: Some(vec![
+                        params::TweetFields::AuthorId,
+                        params::TweetFields::ReferencedTweets,
+                    ]),
+                    expansions: Some(vec![params::TweetExpansions::AuthorId]),
                     media_fields: None,
                     poll_fields: None,
-                    user_fields: None,
+                    user_fields: Some(vec![params::UserFields::Username]),
                     place_fields: None,
                 };
-                let mut ids: Vec<String> = Vec::new();
+                let mut replies: Vec<TweetSummary> = Vec::new();
                 let mut next_token: Option<PaginationToken36> = None;
                 let mut has_more;
                 loop {
                     let mut creq = base.clone();
                     creq.next_token = next_token.clone();
                     let resp = tweets_search_recent::http::get(&http, &auth, &creq).await?;
+                    let includes = resp.includes;
                     for t in resp.data.unwrap_or_default() {
-                        let Some(id) = t.id.as_ref().map(|i| i.0.clone()) else {
-                            continue;
-                        };
                         let is_reply = t.referenced_tweets.as_ref().is_some_and(|refs| {
                             refs.iter().any(|r| {
                                 matches!(r.type_, TweetReferencedTweetsItemType::RepliedTo)
@@ -245,12 +246,12 @@ impl PsychologicalOperationsXApiMcp {
                             })
                         });
                         if is_reply {
-                            ids.push(id);
+                            replies.push(project_tweet_summary(&t, includes.as_ref()));
                         }
                     }
                     let next = resp.meta.and_then(|m| m.next_token);
                     has_more = next.is_some();
-                    if ids.len() >= need {
+                    if replies.len() >= need {
                         break;
                     }
                     match next {
@@ -259,8 +260,8 @@ impl PsychologicalOperationsXApiMcp {
                     }
                 }
                 let note =
-                    remaining_note(ids.len(), req.offset as usize, req.count as usize, has_more);
-                let sliced: Vec<String> = ids
+                    remaining_note(replies.len(), req.offset as usize, req.count as usize, has_more);
+                let sliced: Vec<TweetSummary> = replies
                     .into_iter()
                     .skip(req.offset as usize)
                     .take(req.count as usize)
@@ -414,7 +415,7 @@ impl PsychologicalOperationsXApiMcp {
                 check_count(req.count)?;
                 let need = req.offset as usize + req.count as usize;
                 let base = standard_search_request(req.query);
-                let mut projected: Vec<Tweet> = Vec::new();
+                let mut projected: Vec<TweetSummary> = Vec::new();
                 let mut next_token: Option<PaginationToken36> = None;
                 let mut has_more;
                 loop {
@@ -423,7 +424,7 @@ impl PsychologicalOperationsXApiMcp {
                     let resp = tweets_search_recent::http::get(&http, &auth, &creq).await?;
                     let includes = resp.includes;
                     for t in resp.data.unwrap_or_default().iter() {
-                        projected.push(project_tweet(t, includes.as_ref()));
+                        projected.push(project_tweet_summary(t, includes.as_ref()));
                     }
                     let next = resp.meta.and_then(|m| m.next_token);
                     has_more = next.is_some();
@@ -441,7 +442,7 @@ impl PsychologicalOperationsXApiMcp {
                     req.count as usize,
                     has_more,
                 );
-                let sliced: Vec<Tweet> = projected
+                let sliced: Vec<TweetSummary> = projected
                     .into_iter()
                     .skip(req.offset as usize)
                     .take(req.count as usize)
@@ -483,27 +484,16 @@ impl PsychologicalOperationsXApiMcp {
                     start_time: None,
                     end_time: None,
                     tweet_fields: Some(vec![
-                        params::TweetFields::Attachments,
                         params::TweetFields::AuthorId,
-                        params::TweetFields::PublicMetrics,
                         params::TweetFields::ReferencedTweets,
-                        params::TweetFields::Text,
                     ]),
-                    expansions: Some(vec![
-                        params::TweetExpansions::AttachmentsMediaKeys,
-                        params::TweetExpansions::AuthorId,
-                    ]),
-                    media_fields: Some(vec![
-                        params::MediaFields::Url,
-                        params::MediaFields::Variants,
-                        params::MediaFields::PreviewImageUrl,
-                        params::MediaFields::Type,
-                    ]),
+                    expansions: Some(vec![params::TweetExpansions::AuthorId]),
+                    media_fields: None,
                     poll_fields: None,
                     user_fields: Some(vec![params::UserFields::Username]),
                     place_fields: None,
                 };
-                let mut projected: Vec<Tweet> = Vec::new();
+                let mut projected: Vec<TweetSummary> = Vec::new();
                 let mut pagination_token: Option<PaginationToken36> = None;
                 let mut has_more;
                 loop {
@@ -512,7 +502,7 @@ impl PsychologicalOperationsXApiMcp {
                     let resp = users_id_mentions::http::get(&http, &auth, &creq).await?;
                     let includes = resp.includes;
                     for t in resp.data.unwrap_or_default().iter() {
-                        projected.push(project_tweet(t, includes.as_ref()));
+                        projected.push(project_tweet_summary(t, includes.as_ref()));
                     }
                     let next = resp.meta.and_then(|m| m.next_token);
                     has_more = next.is_some();
@@ -530,7 +520,7 @@ impl PsychologicalOperationsXApiMcp {
                     req.count as usize,
                     has_more,
                 );
-                let sliced: Vec<Tweet> = projected
+                let sliced: Vec<TweetSummary> = projected
                     .into_iter()
                     .skip(req.offset as usize)
                     .take(req.count as usize)
@@ -573,27 +563,16 @@ impl PsychologicalOperationsXApiMcp {
                     start_time: None,
                     end_time: None,
                     tweet_fields: Some(vec![
-                        params::TweetFields::Attachments,
                         params::TweetFields::AuthorId,
-                        params::TweetFields::PublicMetrics,
                         params::TweetFields::ReferencedTweets,
-                        params::TweetFields::Text,
                     ]),
-                    expansions: Some(vec![
-                        params::TweetExpansions::AttachmentsMediaKeys,
-                        params::TweetExpansions::AuthorId,
-                    ]),
-                    media_fields: Some(vec![
-                        params::MediaFields::Url,
-                        params::MediaFields::Variants,
-                        params::MediaFields::PreviewImageUrl,
-                        params::MediaFields::Type,
-                    ]),
+                    expansions: Some(vec![params::TweetExpansions::AuthorId]),
+                    media_fields: None,
                     poll_fields: None,
                     user_fields: Some(vec![params::UserFields::Username]),
                     place_fields: None,
                 };
-                let mut projected: Vec<Tweet> = Vec::new();
+                let mut projected: Vec<TweetSummary> = Vec::new();
                 let mut pagination_token: Option<PaginationToken36> = None;
                 let mut has_more;
                 loop {
@@ -602,7 +581,7 @@ impl PsychologicalOperationsXApiMcp {
                     let resp = users_timeline::http::get(&http, &auth, &creq).await?;
                     let includes = resp.includes;
                     for t in resp.data.unwrap_or_default().iter() {
-                        projected.push(project_tweet(t, includes.as_ref()));
+                        projected.push(project_tweet_summary(t, includes.as_ref()));
                     }
                     let next = resp.meta.and_then(|m| m.next_token);
                     has_more = next.is_some();
@@ -620,7 +599,7 @@ impl PsychologicalOperationsXApiMcp {
                     req.count as usize,
                     has_more,
                 );
-                let sliced: Vec<Tweet> = projected
+                let sliced: Vec<TweetSummary> = projected
                     .into_iter()
                     .skip(req.offset as usize)
                     .take(req.count as usize)
@@ -683,27 +662,16 @@ impl PsychologicalOperationsXApiMcp {
                     max_results: Some(BOOKMARKS_PAGE),
                     pagination_token: None,
                     tweet_fields: Some(vec![
-                        params::TweetFields::Attachments,
                         params::TweetFields::AuthorId,
-                        params::TweetFields::PublicMetrics,
                         params::TweetFields::ReferencedTweets,
-                        params::TweetFields::Text,
                     ]),
-                    expansions: Some(vec![
-                        params::TweetExpansions::AttachmentsMediaKeys,
-                        params::TweetExpansions::AuthorId,
-                    ]),
-                    media_fields: Some(vec![
-                        params::MediaFields::Url,
-                        params::MediaFields::Variants,
-                        params::MediaFields::PreviewImageUrl,
-                        params::MediaFields::Type,
-                    ]),
+                    expansions: Some(vec![params::TweetExpansions::AuthorId]),
+                    media_fields: None,
                     poll_fields: None,
                     user_fields: Some(vec![params::UserFields::Username]),
                     place_fields: None,
                 };
-                let mut projected: Vec<Tweet> = Vec::new();
+                let mut projected: Vec<TweetSummary> = Vec::new();
                 let mut pagination_token: Option<PaginationToken36> = None;
                 let mut has_more;
                 loop {
@@ -712,7 +680,7 @@ impl PsychologicalOperationsXApiMcp {
                     let resp = users_id_bookmarks::http::get(&http, &auth, &creq).await?;
                     let includes = resp.includes;
                     for t in resp.data.unwrap_or_default().iter() {
-                        projected.push(project_tweet(t, includes.as_ref()));
+                        projected.push(project_tweet_summary(t, includes.as_ref()));
                     }
                     let next = resp.meta.and_then(|m| m.next_token);
                     has_more = next.is_some();
@@ -730,7 +698,7 @@ impl PsychologicalOperationsXApiMcp {
                     req.count as usize,
                     has_more,
                 );
-                let sliced: Vec<Tweet> = projected
+                let sliced: Vec<TweetSummary> = projected
                     .into_iter()
                     .skip(req.offset as usize)
                     .take(req.count as usize)

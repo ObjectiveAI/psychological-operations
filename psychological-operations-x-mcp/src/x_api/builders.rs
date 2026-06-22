@@ -43,6 +43,11 @@ pub(super) fn standard_tweet_request(tweet_id: &str) -> tweets_id::get::Request 
     }
 }
 
+/// Recent-search request for the `run_query` list tool, which projects to the
+/// slim [`TweetSummary`](super::model::TweetSummary) — so it only asks for the
+/// fields that shape needs: the author (handle) and reply reference. Detailed
+/// fields (text, media, metrics, quote/retweet refs) are fetched on demand by
+/// `get_tweet` / `open_attachment`.
 pub(super) fn standard_search_request(query: String) -> tweets_search_recent::get::Request {
     tweets_search_recent::get::Request {
         query,
@@ -55,22 +60,11 @@ pub(super) fn standard_search_request(query: String) -> tweets_search_recent::ge
         pagination_token: None,
         sort_order: None,
         tweet_fields: Some(vec![
-            params::TweetFields::Attachments,
             params::TweetFields::AuthorId,
-            params::TweetFields::PublicMetrics,
             params::TweetFields::ReferencedTweets,
-            params::TweetFields::Text,
         ]),
-        expansions: Some(vec![
-            params::TweetExpansions::AttachmentsMediaKeys,
-            params::TweetExpansions::AuthorId,
-        ]),
-        media_fields: Some(vec![
-            params::MediaFields::Url,
-            params::MediaFields::Variants,
-            params::MediaFields::PreviewImageUrl,
-            params::MediaFields::Type,
-        ]),
+        expansions: Some(vec![params::TweetExpansions::AuthorId]),
+        media_fields: None,
         poll_fields: None,
         user_fields: Some(vec![params::UserFields::Username]),
         place_fields: None,

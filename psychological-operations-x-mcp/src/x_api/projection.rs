@@ -7,7 +7,35 @@ use psychological_operations_sdk::x::types::{
     self as x_types, MediaUnion, TweetReferencedTweetsItemType, Variant,
 };
 
-use super::model::{Attachment, AttachmentKind, Tweet};
+use super::model::{Attachment, AttachmentKind, Tweet, TweetSummary};
+
+/// Slim projection for the multi-tweet list tools: only `id`, `handle`, and
+/// `replied_to` (the reply target id). Everything else is left for `get_tweet`
+/// — keeps list payloads tiny.
+pub(super) fn project_tweet_summary(
+    t: &x_types::Tweet,
+    includes: Option<&x_types::Expansions>,
+) -> TweetSummary {
+    let id = t.id.as_ref().map(|i| i.0.clone()).unwrap_or_default();
+    let handle = resolve_handle(t.author_id.as_ref(), includes);
+    let (mut replied_to, mut quoted, mut retweeted) = (None, None, None);
+    if let Some(refs) = t.referenced_tweets.as_ref() {
+        for r in refs {
+            match r.type_ {
+                TweetReferencedTweetsItemType::RepliedTo => replied_to = Some(r.id.0.clone()),
+                TweetReferencedTweetsItemType::Quoted => quoted = Some(r.id.0.clone()),
+                TweetReferencedTweetsItemType::Retweeted => retweeted = Some(r.id.0.clone()),
+            }
+        }
+    }
+    TweetSummary {
+        id,
+        handle,
+        replied_to,
+        quoted,
+        retweeted,
+    }
+}
 
 pub(super) fn project_tweet(t: &x_types::Tweet, includes: Option<&x_types::Expansions>) -> Tweet {
     let id = t.id.as_ref().map(|i| i.0.clone()).unwrap_or_default();
