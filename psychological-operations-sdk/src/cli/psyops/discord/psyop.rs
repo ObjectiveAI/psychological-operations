@@ -38,10 +38,10 @@ pub struct PsyOp {
     #[serde(default, skip_serializing_if = "skip_dms")]
     pub dms: Option<Vec<Dm>>,
 
-    /// All-DMs sources — paginate across every DM channel a bot is part of,
-    /// one entry per bot. `None`/empty ⇒ no all-DMs ingestion.
-    #[serde(default, skip_serializing_if = "skip_all_dms")]
-    pub all_dms: Option<Vec<AllDms>>,
+    /// All-DMs source — paginate across every DM channel the bot is part of.
+    /// `None` ⇒ no all-DMs ingestion.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub all_dms: Option<AllDms>,
 
     /// Server-read sources — paginate across a whole server's channels, one
     /// entry per server. `None`/empty ⇒ no server ingestion.
@@ -96,14 +96,6 @@ fn skip_dms(d: &Option<Vec<Dm>>) -> bool {
     }
 }
 
-/// Skip-serializing predicate for `all_dms`: omit when `None`/empty.
-fn skip_all_dms(a: &Option<Vec<AllDms>>) -> bool {
-    match a {
-        None => true,
-        Some(v) => v.is_empty(),
-    }
-}
-
 /// Skip-serializing predicate for `servers`: omit when `None`/empty.
 fn skip_servers(s: &Option<Vec<Server>>) -> bool {
     match s {
@@ -127,10 +119,8 @@ impl PsyOp {
                 d.validate().map_err(|e| format!("dms[{i}]: {e}"))?;
             }
         }
-        if let Some(ads) = &self.all_dms {
-            for (i, a) in ads.iter().enumerate() {
-                a.validate().map_err(|e| format!("all_dms[{i}]: {e}"))?;
-            }
+        if let Some(a) = &self.all_dms {
+            a.validate().map_err(|e| format!("all_dms: {e}"))?;
         }
         if let Some(ss) = &self.servers {
             for (i, s) in ss.iter().enumerate() {
@@ -141,7 +131,7 @@ impl PsyOp {
         // A psyop must have at least one input source.
         let has_channels = self.channels.as_ref().is_some_and(|cs| !cs.is_empty());
         let has_dms = self.dms.as_ref().is_some_and(|ds| !ds.is_empty());
-        let has_all_dms = self.all_dms.as_ref().is_some_and(|a| !a.is_empty());
+        let has_all_dms = self.all_dms.is_some();
         let has_servers = self.servers.as_ref().is_some_and(|s| !s.is_empty());
         if !has_channels && !has_dms && !has_all_dms && !has_servers {
             return Err("psyop must have at least one channel, dm, all_dms, or server".into());
