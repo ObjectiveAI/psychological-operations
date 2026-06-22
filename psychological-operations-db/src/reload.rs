@@ -1,10 +1,12 @@
 //! Daemon reload subscription over postgres LISTEN/NOTIFY.
 //!
 //! The resident Discord daemon subscribes to the `daemon_reload` channel and
-//! re-queries its state whenever any of the tables it depends on (`psyops`,
-//! `discord_hooks`, `discord_auth`) changes — driven by the statement-level
-//! triggers in `schema.sql`. This keeps all `sqlx` / [`PgListener`] use inside
-//! the db crate; the CLI only ever sees the opaque [`ReloadListener`].
+//! re-queries its hook/auth state whenever the `discord_hooks` or
+//! `discord_auth` tables change — driven by the statement-level triggers in
+//! `schema.sql`. (Psyop scheduling is independent: the daemon polls on its own
+//! cadence, so `psyops` changes don't notify.) This keeps all `sqlx` /
+//! [`PgListener`] use inside the db crate; the CLI only ever sees the opaque
+//! [`ReloadListener`].
 
 use sqlx::postgres::PgListener;
 

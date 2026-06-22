@@ -260,11 +260,15 @@ CREATE TABLE IF NOT EXISTS discord_auth (
 
 -- ── daemon reload notifications ──────────────────────────────────────
 -- The resident Discord daemon subscribes (LISTEN) to the `daemon_reload`
--- channel and re-queries its state whenever any of the tables it depends on
--- changes — from ANY process, not just the one that wrote the row. A single
--- statement-level trigger per table fires one NOTIFY per mutating statement
--- (regardless of row count). The payload is the table name, for debug logging
--- only — never row contents (avoids leaking discord_auth.bot_token).
+-- channel and re-queries its hook/auth state whenever those tables change —
+-- from ANY process, not just the one that wrote the row. A statement-level
+-- trigger per table fires one NOTIFY per mutating statement (regardless of row
+-- count). The payload is the table name, for debug logging only — never row
+-- contents (avoids leaking discord_auth.bot_token).
+--
+-- Only `discord_hooks` and `discord_auth` drive reloads. Psyop scheduling is
+-- independent — the daemon polls on its own cadence — so `psyops` changes do
+-- NOT notify (the old `daemon_reload_psyops` trigger is dropped below).
 --
 -- Idempotent re-application: CREATE OR REPLACE FUNCTION is always safe;
 -- CREATE TRIGGER is not, so each is guarded by DROP TRIGGER IF EXISTS.
@@ -276,10 +280,9 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- Psyop changes no longer trigger a reload; drop the trigger if a prior schema
+-- version installed it.
 DROP TRIGGER IF EXISTS daemon_reload_psyops ON psyops;
-CREATE TRIGGER daemon_reload_psyops
-    AFTER INSERT OR UPDATE OR DELETE ON psyops
-    FOR EACH STATEMENT EXECUTE FUNCTION notify_daemon_reload();
 
 DROP TRIGGER IF EXISTS daemon_reload_discord_hooks ON discord_hooks;
 CREATE TRIGGER daemon_reload_discord_hooks

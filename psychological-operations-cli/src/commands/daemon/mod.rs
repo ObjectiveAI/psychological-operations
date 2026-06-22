@@ -1,44 +1,47 @@
-//! `daemon` — the resident Discord gateway daemon.
+//! `daemon` — the resident Discord gateway daemon + psyop scheduler.
 //!
 //! `daemon begin` is the entry the objectiveai daemon launches for this plugin
 //! (manifest `daemon: true`, invoked as `<plugin-exec> daemon begin` with the
 //! full bidirectional protocol — so Python runs through the normal
-//! `PluginExecutor` in `ctx.executor`). It takes a process-singleton lock,
-//! does an initial load, then subscribes to the database and reloads on every
-//! notification, indefinitely.
+//! `PluginExecutor` in `ctx.executor`). It takes a process-singleton lock then
+//! runs two independent jobs forever:
 //!
-//! Reload is driven by the database itself: postgres triggers on `psyops`,
-//! `discord_hooks`, and `discord_auth` fire a `daemon_reload` NOTIFY on any
-//! change (from any process), which the daemon receives via a [`ReloadListener`]
-//! ([`psychological_operations_db::Db::reload_listener`]). There is no longer a
-//! reload socket or a writer-side kick — the mutating commands just write to
-//! the DB and the trigger does the rest.
+//! * **Hook/auth reloader** (a spawned task): subscribes to the postgres
+//!   `daemon_reload` channel and re-queries hook/auth state on every NOTIFY.
+//!   The triggers fire on `discord_hooks` / `discord_auth` changes from any
+//!   process — there is no reload socket or writer-side kick. Hooks are held in
+//!   a shared live store: a reload swaps the store (running listeners pick up
+//!   new hooks immediately) and starts/stops gateway listeners as agents gain
+//!   or lose eligibility (`gateway_raw` is idempotent per agent).
 //!
-//! Hooks are held in a shared, live store rather than snapshotted: a reload
-//! re-queries the DB, swaps the store (so running listeners pick up the new
-//! hooks immediately), and starts gateway listeners for any newly-eligible
-//! agents (`gateway_raw` is idempotent per agent). An agent that loses
-//! eligibility has its gateway connection torn down.
+//! * **Psyop scheduler** (the main loop): repeatedly does a bare `psyops run`
+//!   (every due psyop; manual ones skipped), ignores the result, then sleeps
+//!   `max(shortest psyop interval, rand[30..=600]s)`. It is independent of
+//!   reloads — psyop changes do not notify, and a hook/auth reload never
+//!   disturbs scheduling.
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use clap::Subcommand;
 use objectiveai_sdk::cli::command::plugin::PluginExecutor;
 use objectiveai_sdk::cli::command::python::{self, Path as PyPath, Request};
 use psychological_operations_sdk::cli::Output as CliOutput;
 use psychological_operations_sdk::discord::{self, serenity};
+use rand::Rng;
 use serenity::all::{Context as SerenityContext, Event, RawEventHandler};
-use tokio::sync::{Notify, RwLock};
+use tokio::sync::RwLock;
 
 use crate::error::Error;
 
-/// Minimum gap between scheduler-launched `psyops run` invocations. Bounds how
-/// often a perpetually-due psyop (one that keeps failing/skipping and so never
-/// advances its last-run stamp) is re-attempted; healthy psyops run on their
-/// own interval, far above this.
-const MIN_CYCLE: Duration = Duration::from_secs(30);
+/// The scheduler sleeps for `max(shortest psyop interval, rand[MIN..=MAX])`
+/// between `psyops run` cycles. The random floor keeps the daemon from waking
+/// faster than `MIN_SLEEP_SECS` (no hot-loop on a perpetually-due psyop) and
+/// jitters the cadence; the upper bound caps how long a short-interval psyop
+/// can drift.
+const MIN_SLEEP_SECS: u64 = 30;
+const MAX_SLEEP_SECS: u64 = 600;
 
 #[derive(Subcommand)]
 pub enum Commands {
@@ -175,28 +178,41 @@ async fn begin(ctx: &crate::context::Context) -> Result<CliOutput, Error> {
     let store: HookStore = Arc::new(RwLock::new(HashMap::new()));
     let client = discord::Client::new(ctx.db.clone());
 
-    // Subscribe BEFORE the initial load, so a change racing between LISTEN and
-    // the load is never lost — at worst it yields one redundant, idempotent
-    // reload below.
+    // Subscribe BEFORE the initial load, so a hook/auth change racing between
+    // LISTEN and the load is never lost — at worst it yields one redundant,
+    // idempotent reload.
     let listener = ctx
         .db
         .reload_listener()
         .await
         .map_err(|e| Error::Other(format!("subscribe to daemon_reload: {e}")))?;
 
-    // Pump the listener in its own task: sqlx's `try_recv` is not cancel-safe,
-    // so it must never sit in a `select!` arm (a dropped receive can lose a
-    // notification). Instead each notification pokes a cancel-safe `Notify`
-    // that the scheduler loop selects on. Coalescing is fine — the daemon
-    // re-queries everything on any signal.
-    let reload = Arc::new(Notify::new());
+    // Initial hook/auth load.
+    do_reload(&ctx.db, &ctx.executor, &store, &client).await?;
+    eprintln!("discord daemon: initial load complete; subscribed to daemon_reload");
+
+    // The hook/auth reloader runs in its own task, independent of the psyop
+    // scheduler below: a hook/auth change re-queries hook state but never
+    // disturbs psyop scheduling. It owns clones of everything `do_reload`
+    // needs (all cheap: Db/Client clone, Arc bumps) plus the listener, so it's
+    // `'static`. The listener sits in a plain loop (no `select!`) because
+    // sqlx's `try_recv` is not cancel-safe.
     {
-        let reload = reload.clone();
+        let db = ctx.db.clone();
+        let executor = ctx.executor.clone();
+        let store = store.clone();
+        let client = client.clone();
         let mut listener = listener;
         tokio::spawn(async move {
             loop {
                 match listener.next_reload().await {
-                    Ok(()) => reload.notify_one(),
+                    Ok(()) => {
+                        if let Err(e) = do_reload(&db, &executor, &store, &client).await {
+                            eprintln!("discord daemon: reload failed: {e}");
+                        } else {
+                            eprintln!("discord daemon: reloaded");
+                        }
+                    }
                     Err(e) => {
                         eprintln!("discord daemon: listener error: {e}");
                         tokio::time::sleep(Duration::from_secs(1)).await;
@@ -206,61 +222,29 @@ async fn begin(ctx: &crate::context::Context) -> Result<CliOutput, Error> {
         });
     }
 
-    // Initial load.
-    do_reload(&ctx.db, &ctx.executor, &store, &client).await?;
-    eprintln!("discord daemon: initial load complete; subscribed to daemon_reload");
-
-    // The scheduler + reload loop (keeps the process alive). Each iteration:
-    // compute when the next interval psyop is due, then race that timer against
-    // a reload poke.
-    //   * reload poke  → re-load hooks/auth AND restart the scheduler (the loop
-    //     recomputes the next-due time); psyops/hooks/auth changes all land here.
-    //   * timer fires  → a bare `psyops run` (no names: runs every due psyop,
-    //     manual ones skipped); the result is ignored.
-    // With no interval psyops, the timer is `pending()` and only a reload wakes
-    // the loop, so the daemon idles.
-    let mut last_run_started: Option<Instant> = None;
+    // The psyop scheduler (keeps the process alive). Each cycle: do a bare
+    // `psyops run` (no names → runs every due psyop, manual ones skipped),
+    // ignore the result, then sleep until the next cycle. The sleep is
+    // `max(shortest psyop interval, rand[MIN..=MAX])` — never shorter than the
+    // most-frequent psyop needs, never less than the random floor. With no
+    // interval psyops, it's just the random duration. Reloads do not affect
+    // this loop.
     loop {
-        let next_due = match ctx.db.psyops_next_due().await {
+        // Bare psyops run; the result is intentionally ignored.
+        let _ = crate::psyops::run::run_all(Vec::new(), None, ctx).await;
+
+        let min_interval = match ctx.db.psyops_min_interval().await {
             Ok(v) => v,
             Err(e) => {
-                eprintln!("discord daemon: next-due query: {e}");
+                eprintln!("discord daemon: min-interval query: {e}");
                 None
             }
         };
-        let now = chrono::Utc::now().timestamp();
-        let wait = next_due.map(|due| Duration::from_secs((due - now).max(0) as u64));
-        let timer = async {
-            match wait {
-                Some(d) => tokio::time::sleep(d).await,
-                None => std::future::pending::<()>().await,
-            }
+        let rand_secs: u64 = rand::thread_rng().gen_range(MIN_SLEEP_SECS..=MAX_SLEEP_SECS);
+        let sleep_secs = match min_interval {
+            Some(iv) => (iv as u64).max(rand_secs),
+            None => rand_secs,
         };
-
-        tokio::select! {
-            _ = reload.notified() => {
-                if let Err(e) = do_reload(&ctx.db, &ctx.executor, &store, &client).await {
-                    eprintln!("discord daemon: reload failed: {e}");
-                } else {
-                    eprintln!("discord daemon: reloaded");
-                }
-            }
-            _ = timer => {
-                // Spin guard: a psyop that fails (or is skipped for auth/lock)
-                // never advances its last-run stamp, so it stays "due" forever.
-                // Don't launch runs closer together than MIN_CYCLE. Healthy
-                // psyops are unaffected — their inter-run gap is the interval,
-                // far above MIN_CYCLE.
-                if let Some(prev) = last_run_started {
-                    let elapsed = prev.elapsed();
-                    if elapsed < MIN_CYCLE {
-                        tokio::time::sleep(MIN_CYCLE - elapsed).await;
-                    }
-                }
-                last_run_started = Some(Instant::now());
-                // Bare psyops run; the result is intentionally ignored.
-                let _ = crate::psyops::run::run_all(Vec::new(), None, ctx).await;
-            }
-        }
+        tokio::time::sleep(Duration::from_secs(sleep_secs)).await;
     }
 }

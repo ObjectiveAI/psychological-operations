@@ -62,21 +62,19 @@ impl Db {
         Ok(out)
     }
 
-    /// The earliest unix-second time any enabled interval psyop is next due —
-    /// `MIN(last_run_at + interval_secs)` across them, treating a never-run
-    /// psyop as due in the past (`last_run_at` ⇒ 0). `None` when no enabled
-    /// psyop has an interval trigger (nothing to schedule). Manual psyops
-    /// (`interval_secs IS NULL`) are excluded — they only run when named.
-    pub async fn psyops_next_due(&self) -> Result<Option<i64>, Error> {
-        let due: Option<i64> = sqlx::query_scalar(
-            "SELECT MIN(COALESCE(r.last_run_at, 0) + p.interval_secs) \
-             FROM psyops p \
-             LEFT JOIN psyop_runs r ON r.psyop = p.name \
-             WHERE p.disabled = false AND p.interval_secs IS NOT NULL",
+    /// The smallest trigger interval (seconds) across all enabled interval
+    /// psyops — the shortest cadence the daemon scheduler needs to wake at.
+    /// `None` when no enabled psyop has an interval trigger (nothing to
+    /// schedule). Manual psyops (`interval_secs IS NULL`) are excluded — they
+    /// only run when named.
+    pub async fn psyops_min_interval(&self) -> Result<Option<i64>, Error> {
+        let min: Option<i64> = sqlx::query_scalar(
+            "SELECT MIN(interval_secs) FROM psyops \
+             WHERE disabled = false AND interval_secs IS NOT NULL",
         )
         .fetch_one(&self.pool)
         .await?;
-        Ok(due)
+        Ok(min)
     }
 
     /// Record `at` (unix seconds) as this psyop's last successful run.
