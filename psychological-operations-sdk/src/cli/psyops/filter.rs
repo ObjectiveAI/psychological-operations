@@ -1,8 +1,6 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use starlark::syntax::{AstModule, Dialect};
-
 /// Per-tweet eligibility filter. Shared by `Query` and `ForYou` —
 /// both attach an `Option<Filter>` so a source with no filter accepts
 /// every tweet that the source itself produces.
@@ -13,10 +11,10 @@ use starlark::syntax::{AstModule, Dialect};
 /// engagement settle before scoring, `max_age` rejects tweets older
 /// than the cutoff.
 ///
-/// `custom` is an optional Starlark boolean expression that
+/// `custom` is an optional Python boolean expression that
 /// AND-combines with the static gates above. Runtime evaluation
-/// lives in the CLI (uses `&Tweet`); only publish-time `validate`
-/// lives here.
+/// lives in the CLI (it runs the code via the `python` command
+/// against `&Tweet`); only publish-time `validate` lives here.
 #[derive(Debug, Serialize, Deserialize, Clone, Default, JsonSchema)]
 pub struct Filter {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -60,11 +58,11 @@ pub struct Filter {
     /// Reject tweets whose `created` is older than this many seconds.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_age: Option<u64>,
-    /// Optional Starlark boolean expression. Receives `likes`,
-    /// `retweets`, `replies`, `impressions`, `age` (all `int`, age
-    /// in seconds). Must evaluate to `bool` — non-bool results are
-    /// rejected as errors, not coerced. AND-combines with the
-    /// static gates above.
+    /// Optional Python boolean expression. The `input` global is a
+    /// dict with keys `likes`, `retweets`, `replies`, `impressions`,
+    /// `age` (all `int`, age in seconds). Its trailing expression must
+    /// evaluate to `bool` — non-bool results are rejected as errors,
+    /// not coerced. AND-combines with the static gates above.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub custom: Option<String>,
 }
@@ -75,7 +73,8 @@ impl Filter {
     ///     both bounds must be consistent (`min <= max`) when both
     ///     are set.
     ///   - Every `_per_impression` ratio bound must lie in `[0, 1]`.
-    ///   - If `custom` is `Some`, the Starlark expression must parse.
+    /// (`custom` is Python; it is not parse-checked here — errors
+    /// surface at run time.)
     pub fn validate(&self) -> Result<(), String> {
         check_pair("likes", self.min_likes, self.max_likes)?;
         check_pair("retweets", self.min_retweets, self.max_retweets)?;
@@ -118,9 +117,6 @@ impl Filter {
             self.max_replies_per_impression,
         )?;
 
-        if let Some(src) = &self.custom {
-            parse_custom(src).map(|_| ())?;
-        }
         Ok(())
     }
 }
@@ -152,28 +148,9 @@ fn check_ratio_pair(name: &str, min: Option<f64>, max: Option<f64>) -> Result<()
     Ok(())
 }
 
-/// Parse a Filter `custom` Starlark expression into an AST module.
-/// Exposed `pub` so the CLI-side evaluator can re-use the same
-/// parser without duplicating it.
-pub fn parse_custom(src: &str) -> Result<AstModule, String> {
-    // Bind the expression to a public name (no leading underscore)
-    // — starlark hides any module global whose name starts with `_`.
-    let wrapped = format!("result = ({src})\n");
-    AstModule::parse("filter.custom", wrapped, &Dialect::Standard).map_err(|e| e.to_string())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn syntax_error_at_validate_time() {
-        let f = Filter {
-            custom: Some("likes >>".into()),
-            ..Default::default()
-        };
-        assert!(f.validate().is_err());
-    }
 
     #[test]
     fn min_greater_than_max_rejected() {

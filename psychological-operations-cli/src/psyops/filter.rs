@@ -1,32 +1,32 @@
 //! Runtime evaluation against live [`Tweet`] rows. The `Filter`
 //! struct + publish-time `validate` live in
 //! `psychological_operations_sdk::cli::psyops::filter`; this file
-//! is purely the evaluator (uses Starlark to run the operator's
-//! `custom` expression against a tweet's metrics).
+//! is purely the evaluator — it runs the operator's `custom` Python
+//! expression (via the `python` command) against a tweet's metrics.
 
-use starlark::environment::{Globals, Module};
-use starlark::eval::Evaluator;
-use starlark::values::ValueLike;
+use psychological_operations_sdk::cli::psyops::filter::Filter;
 
-use psychological_operations_sdk::cli::psyops::filter::{Filter, parse_custom};
-
+use crate::error::Error;
 use crate::tweet::Tweet;
 
 /// Returns `Ok(true)` iff every static `min_*` / `max_*` gate
-/// passes AND, when present, the `custom` Starlark expression
+/// passes AND, when present, the `custom` Python expression
 /// evaluates to `True`. Returns `Ok(false)` if any static gate
-/// rejects. Returns `Err` on Starlark parse / eval / type
-/// errors.
+/// rejects. Returns `Err` on Python eval / type errors.
 ///
 /// Static gates run first (cheap) so a tweet that's already
-/// rejected on engagement counts never pays the Starlark cost.
-pub fn evaluate(f: &Filter, t: &Tweet) -> Result<bool, String> {
+/// rejected on engagement counts never pays the Python cost.
+pub async fn evaluate(
+    f: &Filter,
+    t: &Tweet,
+    ctx: &crate::context::Context,
+) -> Result<bool, Error> {
     if !static_pass(f, t) {
         return Ok(false);
     }
     match &f.custom {
         None => Ok(true),
-        Some(src) => evaluate_custom(src, t),
+        Some(src) => evaluate_custom(src, t, ctx).await,
     }
 }
 
@@ -125,29 +125,22 @@ fn static_pass(f: &Filter, t: &Tweet) -> bool {
     true
 }
 
-fn evaluate_custom(src: &str, t: &Tweet) -> Result<bool, String> {
-    let ast = parse_custom(src)?;
-    let module = Module::new();
-    {
-        let heap = module.heap();
-        module.set("likes", heap.alloc(t.likes as i64));
-        module.set("retweets", heap.alloc(t.retweets as i64));
-        module.set("replies", heap.alloc(t.replies as i64));
-        module.set("impressions", heap.alloc(t.impressions as i64));
-        module.set("age", heap.alloc(t.age as i64));
-    }
-    let globals = Globals::standard();
-    {
-        let mut eval = Evaluator::new(&module);
-        eval.eval_module(ast, &globals).map_err(|e| e.to_string())?;
-    }
-    let value = module
-        .get("result")
-        .ok_or_else(|| "custom expression produced no result".to_string())?;
-    value
-        .to_value()
-        .unpack_bool()
-        .ok_or_else(|| "custom expression must evaluate to bool".to_string())
+async fn evaluate_custom(
+    src: &str,
+    t: &Tweet,
+    ctx: &crate::context::Context,
+) -> Result<bool, Error> {
+    let input = serde_json::json!({
+        "likes": t.likes,
+        "retweets": t.retweets,
+        "replies": t.replies,
+        "impressions": t.impressions,
+        "age": t.age,
+    });
+    let result = crate::psyops::pyeval::run(ctx, src, input).await?;
+    result
+        .as_bool()
+        .ok_or_else(|| Error::Other("filter custom expression must evaluate to bool".into()))
 }
 
 #[cfg(test)]
@@ -166,35 +159,18 @@ mod tests {
         }
     }
 
-    #[test]
-    fn custom_passes_and_fails() {
-        let f = Filter {
-            custom: Some("likes > 100".into()),
-            ..Default::default()
-        };
-        assert!(evaluate(&f, &tw(200, 0, 0, 0, 0)).unwrap());
-        assert!(!evaluate(&f, &tw(50, 0, 0, 0, 0)).unwrap());
-    }
+    // The static engagement / ratio gates are sync and host-free, so they
+    // are unit-tested here. The `custom` Python path runs against the host's
+    // python runtime and is exercised by the integration suite.
 
     #[test]
-    fn custom_combines_with_static() {
+    fn static_min_max_gates() {
         let f = Filter {
             min_likes: Some(10),
-            custom: Some("retweets > replies".into()),
             ..Default::default()
         };
-        assert!(evaluate(&f, &tw(20, 5, 1, 0, 0)).unwrap()); // both pass
-        assert!(!evaluate(&f, &tw(20, 1, 5, 0, 0)).unwrap()); // custom fails
-        assert!(!evaluate(&f, &tw(5, 5, 1, 0, 0)).unwrap()); // static fails
-    }
-
-    #[test]
-    fn non_bool_result_is_an_error() {
-        let f = Filter {
-            custom: Some("42".into()),
-            ..Default::default()
-        };
-        assert!(evaluate(&f, &tw(0, 0, 0, 0, 0)).is_err());
+        assert!(static_pass(&f, &tw(20, 0, 0, 0, 0)));
+        assert!(!static_pass(&f, &tw(5, 0, 0, 0, 0)));
     }
 
     #[test]
@@ -204,22 +180,10 @@ mod tests {
             min_likes_per_impression: Some(0.05),
             ..Default::default()
         };
-        assert!(evaluate(&f, &tw(60, 0, 0, 1000, 0)).unwrap()); // 6% — pass
-        assert!(!evaluate(&f, &tw(40, 0, 0, 1000, 0)).unwrap()); // 4% — reject
+        assert!(static_pass(&f, &tw(60, 0, 0, 1000, 0))); // 6% — pass
+        assert!(!static_pass(&f, &tw(40, 0, 0, 1000, 0))); // 4% — reject
         // zero impressions: ratio gates are skipped entirely, so this
         // passes despite the positive `min_likes_per_impression`.
-        assert!(evaluate(&f, &tw(10, 0, 0, 0, 0)).unwrap());
-    }
-
-    #[test]
-    fn five_params_all_bind() {
-        let f = Filter {
-            custom: Some(
-                "likes == 1 and retweets == 2 and replies == 3 and impressions == 4 and age == 5"
-                    .into(),
-            ),
-            ..Default::default()
-        };
-        assert!(evaluate(&f, &tw(1, 2, 3, 4, 5)).unwrap());
+        assert!(static_pass(&f, &tw(10, 0, 0, 0, 0)));
     }
 }

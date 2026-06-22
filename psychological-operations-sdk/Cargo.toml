@@ -34,12 +34,6 @@ chrono = { version = "0.4.39", default-features = false, features = ["serde", "c
 humantime = "2"
 psychological-operations-db = { path = "../psychological-operations-db" }
 schemars = "1.2.1"
-# Pinned to 0.13.0 to match the CLI — `cargo add` resolves to
-# 0.14.0 which transitively requires libsqlite3-sys >=0.30
-# (incompatible with rusqlite 0.31's pin at 0.28 under cargo's
-# `links = "sqlite3"` single-version constraint). Bump in lockstep
-# with the CLI's starlark when both can move past sqlite 0.28.
-starlark = "0.13.0"
 # Only the `cli` feature — gives us the type definitions for
 # `Stage` (FullInlineFunction*, Strategy). The default
 # features pull executor / http / env / viewer / mcp which the

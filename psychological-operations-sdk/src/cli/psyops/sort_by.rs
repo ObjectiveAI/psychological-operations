@@ -1,8 +1,6 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use starlark::syntax::{AstModule, Dialect};
-
 /// Tiebreak order applied to query tweets within a priority bucket
 /// (for_you tweets interweave by arrival instead).
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, JsonSchema)]
@@ -13,48 +11,23 @@ pub enum SortBy {
     Replies,
     Newest,
     Oldest,
-    /// Starlark expression. Receives one global, `tweets` — a list of
-    /// dicts mirroring `Tweet` (keys: `id`, `handle`, `created`, `age`,
-    /// `likes`, `retweets`, `replies`, `impressions`), in candidate order.
-    /// Must evaluate to a list of **sort values** positionally aligned to
-    /// `tweets`: element `i` is tweet `i`'s value. Tweets sort **ascending**
+    /// Python expression. The `input` global is a list of dicts mirroring
+    /// `Tweet` (keys: `id`, `handle`, `created`, `age`, `likes`, `retweets`,
+    /// `replies`, `impressions`), in candidate order. Its trailing expression
+    /// must evaluate to a list of **sort values** positionally aligned to
+    /// `input`: element `i` is tweet `i`'s value. Tweets sort **ascending**
     /// by value (equal values keep original order — negate for descending).
     /// An element of `None`, or a position past the end of a short list,
     /// **drops** that tweet; extra elements are ignored. Each element must
     /// be a number or `None`.
-    /// Example: `[t['likes'] if t['likes'] > 5 else None for t in tweets]`.
+    /// Example: `[t['likes'] if t['likes'] > 5 else None for t in input]`.
     Custom(String),
 }
 
 impl SortBy {
-    /// Parse-only check on the Custom variant. Called by
-    /// `PsyOp::validate` so a bad expression is rejected at publish
-    /// time, not at sort time.
+    /// Publish-time check. `Custom` is Python and is not parse-checked
+    /// here — errors surface at sort time.
     pub fn validate(&self) -> Result<(), String> {
-        if let SortBy::Custom(src) = self {
-            parse_custom(src).map(|_| ())?;
-        }
         Ok(())
-    }
-}
-
-/// Parse a SortBy `Custom` Starlark expression into an AST module.
-/// Exposed `pub` so the CLI-side evaluator can re-use the same
-/// parser without duplicating it.
-pub fn parse_custom(src: &str) -> Result<AstModule, String> {
-    // Bind the expression to a public name (no leading underscore)
-    // — starlark hides any module global whose name starts with `_`.
-    let wrapped = format!("result = ({src})\n");
-    AstModule::parse("sort.custom", wrapped, &Dialect::Standard).map_err(|e| e.to_string())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn custom_syntax_error_at_validate() {
-        let s = SortBy::Custom("sorted(tweets,".into());
-        assert!(s.validate().is_err());
     }
 }

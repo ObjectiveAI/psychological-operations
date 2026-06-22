@@ -56,7 +56,7 @@ A **psyop** is an X account paired with a function that scores any tweet against
 The loop has four steps:
 
 1. **Capture** — A Chromium extension running on x.com sends every tweet ID it sees in the For You feed to a local queue (`for_you_queue`). The extension only ever sees IDs; nothing leaves the machine until the next run.
-2. **Hydrate & filter** — `psyops run` drains the queue, fetches tweet metadata via the X v2 API, and applies per-source filters: thresholds on likes/retweets/replies/impressions, age windows, engagement ratios, or arbitrary [Starlark](https://github.com/bazelbuild/starlark) expressions.
+2. **Hydrate & filter** — `psyops run` drains the queue, fetches tweet metadata via the X v2 API, and applies per-source filters: thresholds on likes/retweets/replies/impressions, age windows, engagement ratios, or arbitrary Python expressions.
 3. **Score** — Surviving tweets pass through an N-stage [ObjectiveAI](https://github.com/ObjectiveAI/objectiveai) pipeline. Each stage is a function + profile + threshold; tweets falling below `output_threshold` or outside `output_top` are dropped before the next stage. One stage works fine for cheap functions; multiple stages let you cascade (e.g. cheap heuristic → mid-tier model → expensive swarm vote) so only promising candidates pay the full cost.
 4. **Engage** — The top survivors are liked or retweeted as the psyop's X account via the X API. Authentic engagement is the only signal X's algorithm trusts; consistent on-target likes/retweets train For You to surface more of the same.
 
@@ -79,9 +79,9 @@ Tweets that show up in both sources are deduped; the priority across accepting s
 
 - Numeric: `min_likes` / `max_likes` / `min_retweets` / `max_retweets` / `min_replies` / `max_replies` / `min_impressions` / `max_impressions` / `min_age` / `max_age`.
 - Engagement ratios: `min_likes_per_impression` and friends. Skipped when impressions are zero.
-- `custom`: a Starlark boolean expression with `likes`, `retweets`, `replies`, `impressions`, and `age` in scope — `custom: "likes > 100 and retweets / likes > 0.5"`. AND-combined with everything above.
+- `custom`: a Python boolean expression; the `input` global is a dict with `likes`, `retweets`, `replies`, `impressions`, and `age` — `custom: "input['likes'] > 100 and input['retweets'] / input['likes'] > 0.5"`. AND-combined with everything above. Runs in the host's embedded Python via the `python` command.
 
-**Sort & caps** — `sort` (`newest` / `oldest` / `likes` / `retweets` / `replies` / Starlark `custom`) tiebreaks within priority buckets. `min_posts` is the floor that triggers query backfill if For You alone didn't deliver enough material. `max_posts` is the hard cap before scoring.
+**Sort & caps** — `sort` (`newest` / `oldest` / `likes` / `retweets` / `replies` / Python `custom`) tiebreaks within priority buckets. `min_posts` is the floor that triggers query backfill if For You alone didn't deliver enough material. `max_posts` is the hard cap before scoring.
 
 **Stages** — a non-empty list of scoring stages. Each:
 

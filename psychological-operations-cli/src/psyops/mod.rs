@@ -5,6 +5,7 @@ pub mod run;
 pub mod filter;
 pub mod output_top;
 pub mod psyop;
+pub mod pyeval;
 pub mod sort_by;
 
 // Type definitions + publish-time validators moved to the SDK

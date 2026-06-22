@@ -3,7 +3,7 @@
 //! --psyop-inline '<json>'`.
 //!
 //! Pure data + `validate()` methods. Runtime concerns (db-backed
-//! load/save, Starlark evaluation against live `Tweet` rows) live in
+//! load/save, Python evaluation against live `Tweet` rows) live in
 //! the CLI alongside the scoring pipeline.
 
 pub mod filter;
@@ -22,7 +22,7 @@ pub use psyop::PsyOp;
 pub use query::Query;
 pub use sort_by::SortBy;
 pub use timeline::Timeline;
-pub use stage::{is_vector_function, parse_output_top, OutputTop, Stage, StageBase};
+pub use stage::{is_vector_function, OutputTop, Stage, StageBase};
 
 use serde::{Deserialize, Serialize};
 

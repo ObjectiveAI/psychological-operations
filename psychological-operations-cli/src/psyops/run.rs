@@ -416,10 +416,10 @@ async fn run_scored(
             }
 
             // 3. Filter.
-            let accepted = filter_with_priority(psyop, &cands)?;
+            let accepted = filter_with_priority(ctx, psyop, &cands).await?;
 
             // 4. Priority-bucket sort (for_you interwoven, ahead of queries).
-            let ordered = bucket_sort(psyop, accepted)?;
+            let ordered = bucket_sort(ctx, psyop, accepted).await?;
 
             // 5. De-duplicate (keep first occurrence), BEFORE the cap so
             //    max_posts counts distinct tweets.
@@ -566,7 +566,11 @@ struct Accepted {
     for_you: Option<(String, usize)>,
 }
 
-fn filter_with_priority(psyop: &PsyOp, cands: &[Cand]) -> Result<Vec<Accepted>, Error> {
+async fn filter_with_priority(
+    ctx: &crate::context::Context,
+    psyop: &PsyOp,
+    cands: &[Cand],
+) -> Result<Vec<Accepted>, Error> {
     let now = chrono::Utc::now();
     let mut out = Vec::new();
     for cand in cands {
@@ -577,7 +581,7 @@ fn filter_with_priority(psyop: &PsyOp, cands: &[Cand]) -> Result<Vec<Accepted>, 
         };
         let tweet = tweet_from_post(&cand.post, &now);
         let passes = match filter {
-            Some(f) => crate::psyops::filter::evaluate(f, &tweet).map_err(Error::Other)?,
+            Some(f) => crate::psyops::filter::evaluate(f, &tweet, ctx).await?,
             None => true,
         };
         if !passes {
@@ -637,7 +641,11 @@ fn origin_lookup<'a>(
 
 // -- sort -----------------------------------------------------------------
 
-fn bucket_sort(psyop: &PsyOp, accepted: Vec<Accepted>) -> Result<Vec<Accepted>, Error> {
+async fn bucket_sort(
+    ctx: &crate::context::Context,
+    psyop: &PsyOp,
+    accepted: Vec<Accepted>,
+) -> Result<Vec<Accepted>, Error> {
     let mut buckets: BTreeMap<u64, Vec<Accepted>> = BTreeMap::new();
     let mut none_bucket: Vec<Accepted> = Vec::new();
     for a in accepted {
@@ -648,15 +656,19 @@ fn bucket_sort(psyop: &PsyOp, accepted: Vec<Accepted>) -> Result<Vec<Accepted>, 
     }
     let mut out = Vec::new();
     for (_p, bucket) in buckets {
-        out.extend(sort_bucket(psyop, bucket)?);
+        out.extend(sort_bucket(ctx, psyop, bucket).await?);
     }
-    out.extend(sort_bucket(psyop, none_bucket)?);
+    out.extend(sort_bucket(ctx, psyop, none_bucket).await?);
     Ok(out)
 }
 
 /// Within one priority bucket: for_you tweets first (interwoven across
 /// agents), then query-only tweets ordered by the psyop's `SortBy`.
-fn sort_bucket(psyop: &PsyOp, bucket: Vec<Accepted>) -> Result<Vec<Accepted>, Error> {
+async fn sort_bucket(
+    ctx: &crate::context::Context,
+    psyop: &PsyOp,
+    bucket: Vec<Accepted>,
+) -> Result<Vec<Accepted>, Error> {
     let (fy, qs): (Vec<Accepted>, Vec<Accepted>) =
         bucket.into_iter().partition(|a| a.for_you.is_some());
 
@@ -702,7 +714,7 @@ fn sort_bucket(psyop: &PsyOp, bucket: Vec<Accepted>) -> Result<Vec<Accepted>, Er
     // evaluator reads each one's tweet — no tweet-ID round-trip). A Custom
     // sort may also drop entries (None values), so this can be shorter.
     let q_ordered =
-        crate::psyops::sort_by::evaluate(&psyop.sort, qs, |a| &a.tweet).map_err(Error::Other)?;
+        crate::psyops::sort_by::evaluate(ctx, &psyop.sort, qs, |a| &a.tweet).await?;
 
     let mut out = fy_ordered;
     out.extend(q_ordered);
@@ -924,9 +936,8 @@ async fn score_pipeline(
             Some(crate::psyops::OutputTop::Fixed(n)) => {
                 after_threshold.into_iter().take(*n as usize).collect()
             }
-            Some(crate::psyops::OutputTop::Starlark(src)) => {
-                let n = super::output_top::evaluate(src, &after_threshold)
-                    .map_err(crate::error::Error::Other)?;
+            Some(crate::psyops::OutputTop::Python(src)) => {
+                let n = super::output_top::evaluate(ctx, src, &after_threshold).await?;
                 after_threshold.into_iter().take(n).collect()
             }
             _ => after_threshold,

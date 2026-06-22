@@ -5,7 +5,6 @@ use objectiveai_sdk::functions::{
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use starlark::syntax::{AstModule, Dialect};
 
 /// The one knob every `Stage` variant has in common: after the
 /// stage produces its scores, narrow the surviving set with an
@@ -89,28 +88,18 @@ pub enum OutputTop {
     /// Keep the top `ceil(N · value)` posts. `value` is in
     /// `[0.0, 1.0]` — e.g. `0.25` = top quarter.
     Fraction(f64),
-    /// Starlark expression. Receives one global, `tweets` — a
-    /// list of dicts mirroring `Tweet` (keys `id`, `handle`,
-    /// `created`, `age`, `likes`, `retweets`, `replies`,
-    /// `impressions`) plus `score: float` (the just-computed
-    /// stage score). Must evaluate to a non-negative integer
-    /// (or a float that round-trips cleanly to one). The result
-    /// is the absolute cap, same semantics as `Fixed`.
-    Starlark(String),
+    /// Python expression. The `input` global is a list of dicts
+    /// mirroring `Tweet` (keys `id`, `handle`, `created`, `age`,
+    /// `likes`, `retweets`, `replies`, `impressions`) plus
+    /// `score: float` (the just-computed stage score). Its trailing
+    /// expression must evaluate to a non-negative integer (or a float
+    /// that round-trips cleanly to one). The result is the absolute
+    /// cap, same semantics as `Fixed`.
+    Python(String),
 }
 
 fn default_true() -> bool {
     true
-}
-
-/// Parse-only check on `OutputTop::Starlark`. Called by
-/// `StageBase::validate` so a bad expression is rejected at
-/// publish time, not at run time. Mirrors `sort_by::parse_custom`
-/// — wrap as `result = (expr)\n` so the CLI-side evaluator can
-/// pull the bound value back out of the module.
-pub fn parse_output_top(src: &str) -> Result<AstModule, String> {
-    let wrapped = format!("result = ({src})\n");
-    AstModule::parse("output_top.starlark", wrapped, &Dialect::Standard).map_err(|e| e.to_string())
 }
 
 impl Stage {
@@ -158,8 +147,8 @@ impl StageBase {
                     // check. Fixed(0) is allowed (means "drop
                     // everything"), matching Fraction(0.0).
                 }
-                OutputTop::Starlark(src) => {
-                    parse_output_top(src).map(|_| ())?;
+                OutputTop::Python(_) => {
+                    // Python; not parse-checked here — errors surface at run time.
                 }
             }
         }
