@@ -29,7 +29,7 @@ pub async fn notify_agent(ctx: &crate::context::Context, agent_tag: &str) -> Res
             agent_tag: agent_tag.to_string(),
         },
         message: RequestMessage::Simple(format!(
-            "The agent \"{agent_tag}\" has {n} tweets in the queue."
+            "<psychological-operations>\nThe agent \"{agent_tag}\" has {n} tweets in the queue.\n</psychological-operations>"
         )),
         key: Some("psychological-operations".to_string()),
         base: Default::default(),
