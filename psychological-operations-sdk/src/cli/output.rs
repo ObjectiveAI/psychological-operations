@@ -37,10 +37,21 @@ pub enum Output {
     /// enabled state.
     PublishedPsyop(PublishedPsyop),
 
+    // ── agents ─────────────────────────────────────────────
+    /// `agents invite discord` — the bot's server-invite URL.
+    DiscordInvite(DiscordInvite),
+
     // ── meta ───────────────────────────────────────────────
     /// `--help` / `--version` / "missing subcommand" rendered
     /// clap text.
     Help(Help),
+}
+
+/// `agents invite discord` — the Discord server-invite URL for an
+/// agent's bot (built from the stored client id).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiscordInvite {
+    pub url: String,
 }
 
 /// Rendered clap text emitted on `--help` / `--version` /

@@ -18,6 +18,7 @@ use clap::Subcommand;
 mod agent_ref;
 pub mod deliver;
 pub mod enqueue;
+pub mod invite;
 pub mod login;
 pub mod notify;
 pub mod quota;
@@ -59,6 +60,13 @@ pub enum Commands {
         #[arg(long)]
         message: String,
     },
+    /// Output an invite link for an agent on a platform: `invite discord`
+    /// prints the bot's Discord server-invite URL.
+    #[command(name = "invite")]
+    Invite {
+        #[command(subcommand)]
+        command: invite::Commands,
+    },
     /// Quota management for an agent (`grant`).
     #[command(name = "quota")]
     Quota {
@@ -89,6 +97,7 @@ impl Commands {
                 tweet_id,
                 message,
             } => enqueue::run(&agent_tag, &tweet_id, &message, ctx).await,
+            Commands::Invite { command } => command.handle(ctx).await,
             Commands::Quota { command } => command.handle(ctx).await,
             Commands::Deliver => deliver::run(ctx).await,
         }
