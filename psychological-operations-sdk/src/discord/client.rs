@@ -17,51 +17,14 @@
 use psychological_operations_db::Db;
 use serenity::all::{EventHandler, GatewayIntents};
 
+use super::error::Error;
+
 /// Discord client. See module docs.
 #[derive(Debug, Clone)]
 pub struct Client {
     /// The single persistence layer — holds each agent's `discord_auth` row.
     /// Cheap to clone (the pool is `Arc` internally).
     db: Db,
-}
-
-/// Errors from resolving auth or building a serenity client.
-#[derive(Debug)]
-pub enum Error {
-    /// No `discord_auth` row for the agent, or the row has no `bot_token`.
-    /// The agent must complete `agents login discord` first.
-    NotAuthed(String),
-    /// A database error while reading the agent's auth.
-    Db(psychological_operations_db::Error),
-    /// A serenity error building the gateway client.
-    Serenity(serenity::Error),
-}
-
-impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Error::NotAuthed(tag) => write!(
-                f,
-                "agent '{tag}' has no Discord bot token — run `agents login discord` first"
-            ),
-            Error::Db(e) => write!(f, "discord auth db error: {e}"),
-            Error::Serenity(e) => write!(f, "serenity error: {e}"),
-        }
-    }
-}
-
-impl std::error::Error for Error {}
-
-impl From<psychological_operations_db::Error> for Error {
-    fn from(e: psychological_operations_db::Error) -> Self {
-        Error::Db(e)
-    }
-}
-
-impl From<serenity::Error> for Error {
-    fn from(e: serenity::Error) -> Self {
-        Error::Serenity(e)
-    }
 }
 
 impl Client {
