@@ -257,6 +257,7 @@ pub async fn score_function(
     profile: &InlineProfileOrRemoteCommitOptional,
     strategy: &Strategy,
     invert: bool,
+    text: bool,
     images: bool,
     videos: bool,
     posts: Vec<Post>,
@@ -276,7 +277,7 @@ pub async fn score_function(
 
     let items: Vec<PostInputValue> = scored
         .iter()
-        .map(|s| new_post_input_value(&s.post, images, videos))
+        .map(|s| new_post_input_value(&s.post, text, images, videos))
         .collect();
 
     let (input_value, split) = if is_vector {

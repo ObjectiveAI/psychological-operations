@@ -56,6 +56,12 @@ pub enum Stage {
         #[serde(default)]
         invert: bool,
         /// If `false`, scored posts are sent to the function
+        /// with an empty `text` string regardless of what was
+        /// ingested (`tweet_id` is always included). Defaults to
+        /// `true`.
+        #[serde(default = "default_true")]
+        text: bool,
+        /// If `false`, scored posts are sent to the function
         /// with an empty `images` array regardless of what was
         /// ingested. Defaults to `true`.
         #[serde(default = "default_true")]

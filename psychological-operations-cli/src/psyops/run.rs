@@ -908,12 +908,14 @@ async fn score_pipeline(
                 profile,
                 strategy,
                 invert,
+                text,
                 images,
                 videos,
                 output_threshold,
             } => {
                 let scored: Vec<ScoredPost> = score::score_function(
-                    function, profile, strategy, *invert, *images, *videos, current, seed, ctx,
+                    function, profile, strategy, *invert, *text, *images, *videos, current, seed,
+                    ctx,
                 )
                 .await?;
                 let after_threshold: Vec<ScoredPost> = match output_threshold {

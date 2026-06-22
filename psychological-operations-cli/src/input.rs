@@ -3,6 +3,9 @@ use serde::Serialize;
 
 #[derive(Debug, Serialize)]
 pub struct PostInputValue {
+    /// The tweet's numeric ID. Always included so the function can key on
+    /// the specific post regardless of the text/image/video flags.
+    pub tweet_id: String,
     pub text: String,
     pub images: Vec<ImagePart>,
     pub videos: Vec<VideoPart>,
@@ -27,11 +30,17 @@ pub struct PostsInputValue {
 
 pub fn new_post_input_value(
     post: &Post,
+    include_text: bool,
     include_images: bool,
     include_videos: bool,
 ) -> PostInputValue {
     PostInputValue {
-        text: post.text.clone(),
+        tweet_id: post.id.clone(),
+        text: if include_text {
+            post.text.clone()
+        } else {
+            String::new()
+        },
         images: if include_images {
             post.images
                 .iter()
