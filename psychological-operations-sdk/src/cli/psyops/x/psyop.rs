@@ -7,6 +7,7 @@ use super::query::Query;
 use super::sort_by::SortBy;
 use super::stage::Stage;
 use super::timeline::Timeline;
+use super::trigger::Trigger;
 
 /// Psyop family discriminator. Today the only family is X (tweets);
 /// serializes / deserializes as the static string `"x"`. Lets the untagged
@@ -51,12 +52,9 @@ pub struct PsyOp {
     #[serde(default, skip_serializing_if = "skip_for_you")]
     pub for_you: Option<Vec<ForYou>>,
 
-    /// Minimum wall-clock time between runs, as a humantime duration
-    /// string (e.g. `"1h 30m"`). `psyops run` records each psyop's
-    /// last successful run and skips the psyop (exit 0, with a
-    /// warning event) until the interval has elapsed. Validated at
-    /// publish time via [`humantime::parse_duration`]; must be > 0.
-    pub interval: String,
+    /// What causes this psyop to run — `manual` or `interval` (a humantime
+    /// cadence). See [`Trigger`].
+    pub trigger: Trigger,
 
     /// Tiebreak ordering applied across the deduped candidate union.
     /// Combines with per-source `priority` (priority is primary,
@@ -152,19 +150,8 @@ impl PsyOp {
     /// Publish-time consistency check. Returns a free-form error
     /// string; CLI callers wrap with their own `Error::InvalidPsyop`
     /// variant.
-    /// Parsed form of [`interval`](Self::interval). `Err` carries
-    /// the same message `validate()` rejects with — callers that
-    /// have already validated can safely unwrap.
-    pub fn interval_duration(&self) -> Result<std::time::Duration, String> {
-        humantime::parse_duration(&self.interval)
-            .map_err(|e| format!("interval: invalid humantime duration: {e}"))
-    }
-
     pub fn validate(&self) -> Result<(), String> {
-        let interval = self.interval_duration()?;
-        if interval.is_zero() {
-            return Err("interval: must be > 0".into());
-        }
+        self.trigger.validate().map_err(|e| format!("trigger: {e}"))?;
 
         if let Some(qs) = &self.queries {
             for (i, q) in qs.iter().enumerate() {

@@ -14,6 +14,7 @@ pub mod query;
 pub mod sort_by;
 pub mod stage;
 pub mod timeline;
+pub mod trigger;
 
 pub use filter::Filter;
 pub use for_you::ForYou;
@@ -22,6 +23,7 @@ pub use psyop::{PsyOp, PsyopType};
 pub use query::Query;
 pub use sort_by::SortBy;
 pub use timeline::Timeline;
+pub use trigger::Trigger;
 pub use stage::{is_vector_function, OutputTop, Stage, StageBase};
 
 use serde::{Deserialize, Serialize};

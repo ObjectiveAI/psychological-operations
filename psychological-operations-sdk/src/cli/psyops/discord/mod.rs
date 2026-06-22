@@ -7,7 +7,9 @@
 pub mod psyop;
 pub mod sort_by;
 pub mod stage;
+pub mod trigger;
 
 pub use psyop::{PsyOp, PsyopType};
 pub use sort_by::SortBy;
+pub use trigger::Trigger;
 pub use stage::{is_vector_function, OutputTop, Stage, StageBase};

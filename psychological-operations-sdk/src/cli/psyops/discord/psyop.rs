@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use super::sort_by::SortBy;
 use super::stage::Stage;
+use super::trigger::Trigger;
 
 /// Psyop family discriminator for the Discord family. Serializes /
 /// deserializes as the static string `"discord"`, letting the untagged
@@ -23,10 +24,9 @@ pub struct PsyOp {
     #[serde(rename = "type", default)]
     pub psyop_type: PsyopType,
 
-    /// Minimum wall-clock time between runs, as a humantime duration
-    /// string (e.g. `"1h 30m"`). Validated at publish time via
-    /// [`humantime::parse_duration`]; must be > 0.
-    pub interval: String,
+    /// What causes this psyop to run — `manual` or `interval` (a humantime
+    /// cadence). See [`Trigger`].
+    pub trigger: Trigger,
 
     /// Tiebreak ordering applied across the deduped candidate union.
     pub sort: SortBy,
@@ -57,19 +57,9 @@ fn skip_stages(s: &Option<Vec<Stage>>) -> bool {
 }
 
 impl PsyOp {
-    /// Parsed form of [`interval`](Self::interval). `Err` carries the same
-    /// message `validate()` rejects with.
-    pub fn interval_duration(&self) -> Result<std::time::Duration, String> {
-        humantime::parse_duration(&self.interval)
-            .map_err(|e| format!("interval: invalid humantime duration: {e}"))
-    }
-
     /// Publish-time consistency check.
     pub fn validate(&self) -> Result<(), String> {
-        let interval = self.interval_duration()?;
-        if interval.is_zero() {
-            return Err("interval: must be > 0".into());
-        }
+        self.trigger.validate().map_err(|e| format!("trigger: {e}"))?;
         self.sort.validate().map_err(|e| format!("sort: {e}"))?;
         if let Some(stages) = &self.stages {
             for (i, s) in stages.iter().enumerate() {
