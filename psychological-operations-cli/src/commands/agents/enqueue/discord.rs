@@ -45,8 +45,8 @@ async fn run_inner(
         .await
         .map_err(|e| Error::Other(format!("discord queue enqueue: {e}")))?;
 
-    // Auto-notify the agent of its new pending Discord-queue count.
-    super::super::notify::notify_agent_discord(ctx, agent_tag).await?;
+    // Auto-notify the agent of its new pending counts (both queues).
+    super::super::notify::notify_agent(ctx, agent_tag).await?;
 
     Ok(Output::Ok)
 }
