@@ -2,14 +2,12 @@
 //!
 //! Parent command nesting one subcommand per platform: `x` (the X OAuth
 //! 2.0 PKCE authorize flow) and `discord` (the Discord bot-creation
-//! wizard). Both select their agent via the shared [`AgentRef`] group.
+//! wizard). Both select their agent by `--agent-tag`.
 
 use clap::Subcommand;
 
 pub mod discord;
 pub mod x;
-
-use super::agent_ref::AgentRef;
 
 #[derive(Subcommand)]
 pub enum Commands {
@@ -21,8 +19,9 @@ pub enum Commands {
     /// CEF profile) and re-logs in.
     #[command(name = "x")]
     X {
-        #[command(flatten)]
-        agent: AgentRef,
+        /// Agent tag, used verbatim as the name.
+        #[arg(long)]
+        agent_tag: String,
         /// Wipe any existing X persona state for this agent before signing
         /// in. Required when re-logging in for an agent that already has a
         /// session or stored tokens.
@@ -35,8 +34,9 @@ pub enum Commands {
     /// drops the agent's stored bot token for a clean re-run.
     #[command(name = "discord")]
     Discord {
-        #[command(flatten)]
-        agent: AgentRef,
+        /// Agent tag, used verbatim as the name.
+        #[arg(long)]
+        agent_tag: String,
         /// Drop this agent's stored Discord bot token before re-running.
         #[arg(long)]
         dangerously_reset: bool,
@@ -47,19 +47,13 @@ impl Commands {
     pub async fn handle(self, ctx: &crate::context::Context) -> bool {
         match self {
             Commands::X {
-                agent,
+                agent_tag,
                 dangerously_reset,
-            } => {
-                let name = agent.resolve_raw(&ctx.config);
-                x::run(&name, dangerously_reset, ctx).await
-            }
+            } => x::run(&agent_tag, dangerously_reset, ctx).await,
             Commands::Discord {
-                agent,
+                agent_tag,
                 dangerously_reset,
-            } => {
-                let name = agent.resolve_raw(&ctx.config);
-                discord::run(&name, dangerously_reset, ctx).await
-            }
+            } => discord::run(&agent_tag, dangerously_reset, ctx).await,
         }
     }
 }

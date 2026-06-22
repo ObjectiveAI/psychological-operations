@@ -6,24 +6,21 @@
 //! logged-in user (the twid-conflict guard does not fire) and have
 //! no scrape mode.
 //!
-//! `login` / `browser` select their agent via the shared
-//! [`agent_ref::AgentRef`] argument group; they're thin dispatches into
-//! `crate::login::run` / `crate::persona_browser::run` with
-//! `PersonaKind::Agent`. `enqueue` (by `--agent-tag`) parks a tweet in an
-//! agent's queue and auto-notifies; `notify` is the shared
+//! Every agent-addressing subcommand (`login`, `browser`, `invite`,
+//! `enqueue`, `quota`) selects its agent by `--agent-tag`, used verbatim as
+//! the name. `login` / `browser` are thin dispatches into `crate::login::run`
+//! / `crate::persona_browser::run` with `PersonaKind::Agent`. `enqueue` parks
+//! a tweet in an agent's queue and auto-notifies; `notify` is the shared
 //! count-notification helper it (and `psyops run`) call into.
 
 use clap::Subcommand;
 
-mod agent_ref;
 pub mod deliver;
 pub mod enqueue;
 pub mod invite;
 pub mod login;
 pub mod notify;
 pub mod quota;
-
-use agent_ref::AgentRef;
 
 #[derive(Subcommand)]
 pub enum Commands {
@@ -43,8 +40,9 @@ pub enum Commands {
     /// not signed in.
     #[command(name = "browser")]
     Browser {
-        #[command(flatten)]
-        agent: AgentRef,
+        /// Agent tag, used verbatim as the name.
+        #[arg(long)]
+        agent_tag: String,
     },
     /// Enqueue a tweet into an agent's per-agent queue (by tag), then
     /// auto-notify the agent of its new pending count.
@@ -83,11 +81,10 @@ impl Commands {
     pub async fn handle(self, ctx: &crate::context::Context) -> bool {
         match self {
             Commands::Login { command } => command.handle(ctx).await,
-            Commands::Browser { agent } => {
-                let name = agent.resolve_raw(&ctx.config);
+            Commands::Browser { agent_tag } => {
                 crate::persona_browser::run(
                     psychological_operations_sdk::browser::auth_json::PersonaKind::Agent,
-                    &name,
+                    &agent_tag,
                     ctx,
                 )
                 .await
