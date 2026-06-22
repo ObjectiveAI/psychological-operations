@@ -196,11 +196,12 @@ CREATE INDEX IF NOT EXISTS discord_quota_grants_account_dir_exp
 -- ── psyops (was git repos + psyop.json) ──────────────────────────────
 
 CREATE TABLE IF NOT EXISTS psyops (
-    name        TEXT  PRIMARY KEY,
-    definition  JSONB NOT NULL,
-    disabled    BOOLEAN NOT NULL DEFAULT false,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+    name          TEXT  PRIMARY KEY,
+    definition    JSONB NOT NULL,
+    disabled      BOOLEAN NOT NULL DEFAULT false,
+    interval_secs BIGINT,            -- NULL = manual trigger (never auto-run)
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 -- ── X-App scraped credential HTML (was x_app.json + html) ────────────

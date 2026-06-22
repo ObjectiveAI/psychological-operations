@@ -27,6 +27,14 @@ pub async fn save(
     ctx: &crate::context::Context,
 ) -> Result<(), crate::error::Error> {
     let value = serde_json::to_value(psyop)?;
-    ctx.db.psyop_upsert(name, &value).await?;
+    // Denormalize the trigger interval (seconds) into its own column so the
+    // daemon scheduler can compute the next-due time in SQL. Manual triggers
+    // (and, defensively, an unparseable interval that validation should already
+    // have rejected) store NULL — never auto-run.
+    let interval_secs = match psyop.trigger_interval() {
+        Ok(Some(d)) => Some(d.as_secs() as i64),
+        _ => None,
+    };
+    ctx.db.psyop_upsert(name, &value, interval_secs).await?;
     Ok(())
 }

@@ -16,15 +16,27 @@ impl Db {
     /// untouched on update (it's managed independently via
     /// [`Self::psyop_set_disabled`]); a fresh insert defaults it to
     /// `false`. Bumps `updated_at`.
-    pub async fn psyop_upsert(&self, name: &str, definition: &Value) -> Result<(), Error> {
+    ///
+    /// `interval_secs` is the psyop's trigger interval in seconds (extracted
+    /// from the definition by the caller), or `None` for a manual trigger. It's
+    /// a denormalized scheduling hint — the daemon reads it to know when to wake
+    /// — kept in sync on every upsert.
+    pub async fn psyop_upsert(
+        &self,
+        name: &str,
+        definition: &Value,
+        interval_secs: Option<i64>,
+    ) -> Result<(), Error> {
         sqlx::query(
-            "INSERT INTO psyops (name, definition) VALUES ($1, $2) \
+            "INSERT INTO psyops (name, definition, interval_secs) VALUES ($1, $2, $3) \
              ON CONFLICT (name) DO UPDATE SET \
                  definition = excluded.definition, \
+                 interval_secs = excluded.interval_secs, \
                  updated_at = now()",
         )
         .bind(name)
         .bind(definition)
+        .bind(interval_secs)
         .execute(&self.pool)
         .await?;
         Ok(())

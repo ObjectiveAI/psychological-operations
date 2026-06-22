@@ -22,7 +22,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use clap::Subcommand;
 use objectiveai_sdk::cli::command::plugin::PluginExecutor;
@@ -30,9 +30,15 @@ use objectiveai_sdk::cli::command::python::{self, Path as PyPath, Request};
 use psychological_operations_sdk::cli::Output as CliOutput;
 use psychological_operations_sdk::discord::{self, serenity};
 use serenity::all::{Context as SerenityContext, Event, RawEventHandler};
-use tokio::sync::RwLock;
+use tokio::sync::{Notify, RwLock};
 
 use crate::error::Error;
+
+/// Minimum gap between scheduler-launched `psyops run` invocations. Bounds how
+/// often a perpetually-due psyop (one that keeps failing/skipping and so never
+/// advances its last-run stamp) is re-attempted; healthy psyops run on their
+/// own interval, far above this.
+const MIN_CYCLE: Duration = Duration::from_secs(30);
 
 #[derive(Subcommand)]
 pub enum Commands {
@@ -172,32 +178,88 @@ async fn begin(ctx: &crate::context::Context) -> Result<CliOutput, Error> {
     // Subscribe BEFORE the initial load, so a change racing between LISTEN and
     // the load is never lost — at worst it yields one redundant, idempotent
     // reload below.
-    let mut listener = ctx
+    let listener = ctx
         .db
         .reload_listener()
         .await
         .map_err(|e| Error::Other(format!("subscribe to daemon_reload: {e}")))?;
 
+    // Pump the listener in its own task: sqlx's `try_recv` is not cancel-safe,
+    // so it must never sit in a `select!` arm (a dropped receive can lose a
+    // notification). Instead each notification pokes a cancel-safe `Notify`
+    // that the scheduler loop selects on. Coalescing is fine — the daemon
+    // re-queries everything on any signal.
+    let reload = Arc::new(Notify::new());
+    {
+        let reload = reload.clone();
+        let mut listener = listener;
+        tokio::spawn(async move {
+            loop {
+                match listener.next_reload().await {
+                    Ok(()) => reload.notify_one(),
+                    Err(e) => {
+                        eprintln!("discord daemon: listener error: {e}");
+                        tokio::time::sleep(Duration::from_secs(1)).await;
+                    }
+                }
+            }
+        });
+    }
+
     // Initial load.
     do_reload(&ctx.db, &ctx.executor, &store, &client).await?;
     eprintln!("discord daemon: initial load complete; subscribed to daemon_reload");
 
-    // Reload on every notification, forever. Reloads stay serial (one
-    // `next_reload` at a time), so the store swap never races. A reload error
-    // is logged and the daemon keeps serving; a listener error gets a short
-    // backoff before retrying (the connection reconnects transparently).
+    // The scheduler + reload loop (keeps the process alive). Each iteration:
+    // compute when the next interval psyop is due, then race that timer against
+    // a reload poke.
+    //   * reload poke  → re-load hooks/auth AND restart the scheduler (the loop
+    //     recomputes the next-due time); psyops/hooks/auth changes all land here.
+    //   * timer fires  → a bare `psyops run` (no names: runs every due psyop,
+    //     manual ones skipped); the result is ignored.
+    // With no interval psyops, the timer is `pending()` and only a reload wakes
+    // the loop, so the daemon idles.
+    let mut last_run_started: Option<Instant> = None;
     loop {
-        match listener.next_reload().await {
-            Ok(()) => {
+        let next_due = match ctx.db.psyops_next_due().await {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("discord daemon: next-due query: {e}");
+                None
+            }
+        };
+        let now = chrono::Utc::now().timestamp();
+        let wait = next_due.map(|due| Duration::from_secs((due - now).max(0) as u64));
+        let timer = async {
+            match wait {
+                Some(d) => tokio::time::sleep(d).await,
+                None => std::future::pending::<()>().await,
+            }
+        };
+
+        tokio::select! {
+            _ = reload.notified() => {
                 if let Err(e) = do_reload(&ctx.db, &ctx.executor, &store, &client).await {
                     eprintln!("discord daemon: reload failed: {e}");
                 } else {
                     eprintln!("discord daemon: reloaded");
                 }
             }
-            Err(e) => {
-                eprintln!("discord daemon: listener error: {e}");
-                tokio::time::sleep(Duration::from_secs(1)).await;
+            _ = timer => {
+                // Spin guard: a psyop that fails (or is skipped for auth/lock)
+                // never advances its last-run stamp, so it stays "due" forever.
+                // Don't launch runs closer together than MIN_CYCLE. Healthy
+                // psyops are unaffected — their inter-run gap is the interval,
+                // far above MIN_CYCLE.
+                if let Some(prev) = last_run_started {
+                    let elapsed = prev.elapsed();
+                    if elapsed < MIN_CYCLE {
+                        tokio::time::sleep(MIN_CYCLE - elapsed).await;
+                    }
+                }
+                last_run_started = Some(Instant::now());
+                // Bare psyops run; the result is intentionally ignored.
+                let _ = crate::psyops::run::run_all(Vec::new(), None, ctx).await;
             }
         }
     }
