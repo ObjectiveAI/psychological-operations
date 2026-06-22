@@ -6,7 +6,7 @@
 //! sorts touch no ID at all, and de-duplication is irrelevant: identical
 //! items just sort adjacently.
 //!
-//! The `Custom` variant runs the operator's Python expression (via the
+//! The `Python` variant runs the operator's Python expression (via the
 //! `python` command). Its `input` global is the list of tweet dicts (in
 //! candidate order) and its trailing expression returns a list of **sort
 //! values** positionally aligned to `input`: element `i` is the value for
@@ -21,7 +21,7 @@ use crate::tweet::{tweet_json, Tweet};
 
 /// Reorder `items` per the variant's rule, sorting the items themselves
 /// (`tweet_of` projects each to the `Tweet` the rule reads). Built-ins are
-/// a stable sort over all items. `Custom` sorts by the operator's
+/// a stable sort over all items. `Python` sorts by the operator's
 /// per-tweet sort values and may also drop items, so its output can be
 /// shorter than the input.
 pub async fn evaluate<T>(
@@ -31,12 +31,12 @@ pub async fn evaluate<T>(
     tweet_of: impl Fn(&T) -> &Tweet,
 ) -> Result<Vec<T>, Error> {
     match s {
-        SortBy::Custom(src) => evaluate_custom(ctx, src, items, tweet_of).await,
+        SortBy::Python(src) => evaluate_python(ctx, src, items, tweet_of).await,
         builtin => Ok(sort_builtin(builtin, items, tweet_of)),
     }
 }
 
-/// The five built-in stable sorts (no host needed). The `Custom` arm is
+/// The five built-in stable sorts (no host needed). The `Python` arm is
 /// unreachable — [`evaluate`] routes it away — and returns the input as-is.
 fn sort_builtin<T>(s: &SortBy, mut items: Vec<T>, tweet_of: impl Fn(&T) -> &Tweet) -> Vec<T> {
     match s {
@@ -55,12 +55,12 @@ fn sort_builtin<T>(s: &SortBy, mut items: Vec<T>, tweet_of: impl Fn(&T) -> &Twee
         SortBy::Oldest => {
             items.sort_by(|a, b| tweet_of(a).created.cmp(&tweet_of(b).created));
         }
-        SortBy::Custom(_) => {}
+        SortBy::Python(_) => {}
     }
     items
 }
 
-async fn evaluate_custom<T>(
+async fn evaluate_python<T>(
     ctx: &crate::context::Context,
     src: &str,
     items: Vec<T>,
@@ -122,9 +122,8 @@ mod tests {
         ts.iter().map(|t| t.id.as_str()).collect()
     }
 
-    // Built-in sorts are sync + host-free; the `Custom` Python path runs
-    // against the host's python runtime and is exercised by the integration
-    // suite.
+    // Built-in sorts are sync + host-free; the `Python` path runs against the
+    // host's python runtime and is exercised by the integration suite.
     fn sort(s: &SortBy, v: Vec<Tweet>) -> Vec<Tweet> {
         sort_builtin(s, v, |t| t)
     }

@@ -21,11 +21,11 @@ pub enum SortBy {
     /// **drops** that tweet; extra elements are ignored. Each element must
     /// be a number or `None`.
     /// Example: `[t['likes'] if t['likes'] > 5 else None for t in input]`.
-    Custom(String),
+    Python(String),
 }
 
 impl SortBy {
-    /// Publish-time check. `Custom` is Python and is not parse-checked
+    /// Publish-time check. The `Python` variant is not parse-checked
     /// here — errors surface at sort time.
     pub fn validate(&self) -> Result<(), String> {
         Ok(())

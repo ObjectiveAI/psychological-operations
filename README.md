@@ -81,7 +81,7 @@ Tweets that show up in both sources are deduped; the priority across accepting s
 - Engagement ratios: `min_likes_per_impression` and friends. Skipped when impressions are zero.
 - `custom`: a Python boolean expression; the `input` global is a dict with `likes`, `retweets`, `replies`, `impressions`, and `age` — `custom: "input['likes'] > 100 and input['retweets'] / input['likes'] > 0.5"`. AND-combined with everything above. Runs in the host's embedded Python via the `python` command.
 
-**Sort & caps** — `sort` (`newest` / `oldest` / `likes` / `retweets` / `replies` / Python `custom`) tiebreaks within priority buckets. `min_posts` is the floor that triggers query backfill if For You alone didn't deliver enough material. `max_posts` is the hard cap before scoring.
+**Sort & caps** — `sort` (`newest` / `oldest` / `likes` / `retweets` / `replies` / `python`) tiebreaks within priority buckets. `min_posts` is the floor that triggers query backfill if For You alone didn't deliver enough material. `max_posts` is the hard cap before scoring.
 
 **Stages** — a non-empty list of scoring stages. Each:
 

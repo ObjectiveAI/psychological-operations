@@ -27,7 +27,7 @@ pub struct Tweet {
 }
 
 /// Convert a `&Tweet` into a JSON dict with stable string keys — the
-/// element shape the `SortBy::Custom` Python expression sees in its
+/// element shape the `SortBy::Python` Python expression sees in its
 /// `input` list.
 pub fn tweet_json(t: &Tweet) -> serde_json::Value {
     serde_json::json!({
@@ -46,7 +46,7 @@ pub fn tweet_json(t: &Tweet) -> serde_json::Value {
 /// [`tweet_json`] plus `score`. The post is the `db::Post` shape (no
 /// precomputed `age`), so we recompute age against the supplied `now` using
 /// the same helper db hydration uses — keeps `age` semantics consistent with
-/// what `SortBy::Custom` sees.
+/// what `SortBy::Python` sees.
 pub fn post_with_score_json(
     p: &crate::db::Post,
     score: f64,
