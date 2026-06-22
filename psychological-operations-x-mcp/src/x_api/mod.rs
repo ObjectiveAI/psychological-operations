@@ -307,7 +307,7 @@ impl PsychologicalOperationsXApiMcp {
         let cutoff = now - state.quota_interval as i64;
         let (counts, grants) = tokio::join!(
             self.db.tool_invocation_counts_since(&state.tag, cutoff),
-            self.db.active_quota_grants(&state.tag, dir_str, now),
+            self.db.active_x_quota_grants(&state.tag, dir_str, now),
         );
         let counts = counts.map_err(quota_db_err)?;
         let grants = grants.map_err(quota_db_err)?.max(0) as u64;

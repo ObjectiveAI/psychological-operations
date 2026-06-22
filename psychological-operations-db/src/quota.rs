@@ -53,7 +53,7 @@ impl Db {
     /// Record a time-bounded additive quota grant for `account` in one
     /// `direction` (`"read"` / `"write"`). `amount` is added to that
     /// direction's available quota while `granted_at <= now < expires_at`.
-    pub async fn grant_quota(
+    pub async fn grant_x_quota(
         &self,
         account: &str,
         direction: &str,
@@ -62,7 +62,7 @@ impl Db {
         expires_at: i64,
     ) -> Result<(), Error> {
         sqlx::query(
-            "INSERT INTO quota_grants \
+            "INSERT INTO x_quota_grants \
              (account, direction, amount, granted_at, expires_at) \
              VALUES ($1, $2, $3, $4, $5)",
         )
@@ -77,7 +77,7 @@ impl Db {
     }
 
     /// Record a time-bounded additive Discord-quota grant. Same shape as
-    /// [`grant_quota`](Self::grant_quota) but for the Discord MCP's separate
+    /// [`grant_x_quota`](Self::grant_x_quota) but for the Discord MCP's separate
     /// budget (`discord_quota_grants`).
     pub async fn grant_discord_quota(
         &self,
@@ -104,7 +104,7 @@ impl Db {
 
     /// Total of all grants for `account` + `direction` in effect at `now`
     /// (unix seconds). Active grants stack; `0` when none.
-    pub async fn active_quota_grants(
+    pub async fn active_x_quota_grants(
         &self,
         account: &str,
         direction: &str,
@@ -115,7 +115,7 @@ impl Db {
         // types; Rust type i64 (INT8) is not compatible with SQL type
         // NUMERIC" on every quota-checked tool call once any grant exists).
         let total: i64 = sqlx::query_scalar(
-            "SELECT COALESCE(SUM(amount), 0)::bigint FROM quota_grants \
+            "SELECT COALESCE(SUM(amount), 0)::bigint FROM x_quota_grants \
              WHERE account = $1 AND direction = $2 \
                AND granted_at <= $3 AND expires_at > $3",
         )

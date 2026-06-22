@@ -145,7 +145,7 @@ CREATE INDEX IF NOT EXISTS tool_invocations_account_time
 -- so multiple active grants stack (sum). The MCP adds the active total to
 -- the per-direction limit at enforcement time.
 
-CREATE TABLE IF NOT EXISTS quota_grants (
+CREATE TABLE IF NOT EXISTS x_quota_grants (
     id          BIGSERIAL PRIMARY KEY,
     account     TEXT   NOT NULL,  -- the agent tag (the quota-ledger key)
     direction   TEXT   NOT NULL,  -- 'read' | 'write'
@@ -153,10 +153,10 @@ CREATE TABLE IF NOT EXISTS quota_grants (
     granted_at  BIGINT NOT NULL,  -- unix seconds
     expires_at  BIGINT NOT NULL   -- granted_at + duration, unix seconds
 );
-CREATE INDEX IF NOT EXISTS quota_grants_account_dir_exp
-    ON quota_grants(account, direction, expires_at);
+CREATE INDEX IF NOT EXISTS x_quota_grants_account_dir_exp
+    ON x_quota_grants(account, direction, expires_at);
 
--- Same shape as quota_grants but for the (future) Discord MCP's quota, kept
+-- Same shape as x_quota_grants but for the (future) Discord MCP's quota, kept
 -- separate so an X grant never boosts the Discord budget or vice versa.
 CREATE TABLE IF NOT EXISTS discord_quota_grants (
     id          BIGSERIAL PRIMARY KEY,

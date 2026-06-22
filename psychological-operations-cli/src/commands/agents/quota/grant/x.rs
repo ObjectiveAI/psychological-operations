@@ -30,7 +30,7 @@ async fn run_inner(
     let granted_at = unix_now();
     let expires_at = granted_at + secs;
     ctx.db
-        .grant_quota(agent_tag, mode.as_str(), quantity as i64, granted_at, expires_at)
+        .grant_x_quota(agent_tag, mode.as_str(), quantity as i64, granted_at, expires_at)
         .await
         .map_err(|e| Error::Other(format!("quota grant: {e}")))?;
     Ok(Output::Ok)
