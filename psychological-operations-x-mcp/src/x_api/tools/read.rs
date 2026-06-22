@@ -18,13 +18,15 @@ use psychological_operations_sdk::x::params;
 use psychological_operations_sdk::x::tweets::id as tweets_id;
 use psychological_operations_sdk::x::tweets::search::recent as tweets_search_recent;
 use psychological_operations_sdk::x::types::{
-    PaginationToken32, PaginationToken36, TweetReferencedTweetsItemType, User,
+    PaginationToken32, PaginationToken36, TweetReferencedTweetsItemType, User, UserId,
     UserIdMatchesAuthenticatedUser,
 };
 use psychological_operations_sdk::x::users::by::username::username as users_by_username;
 use psychological_operations_sdk::x::users::id::bookmarks as users_id_bookmarks;
 use psychological_operations_sdk::x::users::id::followers as users_id_followers;
 use psychological_operations_sdk::x::users::id::following as users_id_following;
+use psychological_operations_sdk::x::users::id::mentions as users_id_mentions;
+use psychological_operations_sdk::x::users::id::timelines::reverse_chronological as users_timeline;
 use psychological_operations_sdk::x::users::me as users_me;
 use rmcp::model::{CallToolResult, Content, Extensions};
 use rmcp::{ErrorData, handler::server::wrapper::Parameters, schemars, tool, tool_router};
@@ -84,6 +86,22 @@ pub struct RunQueryRequest {
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct ListMentionsRequest {
+    #[schemars(description = "How many tweets to return (after skipping `offset`; max 100).")]
+    pub count: u32,
+    #[schemars(description = "How many tweets to skip from the start (newest first).")]
+    pub offset: u32,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct ListTimelineRequest {
+    #[schemars(description = "How many tweets to return (after skipping `offset`; max 100).")]
+    pub count: u32,
+    #[schemars(description = "How many tweets to skip from the start (newest first).")]
+    pub offset: u32,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct WhoamiRequest {}
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
@@ -126,6 +144,11 @@ const SEARCH_PAGE: i32 = 100;
 
 /// X's max page size for `/2/users/{id}/bookmarks`.
 const BOOKMARKS_PAGE: i32 = 100;
+
+/// X's max page size for `/2/users/{id}/mentions` and the home timeline
+/// (`/2/users/{id}/timelines/reverse_chronological`). Full pages for the same
+/// fewer-requests / cache reasons.
+const TIMELINE_PAGE: i32 = 100;
 
 /// Cap on the `count` arg for the paginated read tools.
 const MAX_COUNT: u32 = 100;
@@ -409,6 +432,185 @@ impl PsychologicalOperationsXApiMcp {
                     }
                     match next {
                         Some(next) => next_token = Some(PaginationToken36(next.0)),
+                        None => break,
+                    }
+                }
+                let note = remaining_note(
+                    projected.len(),
+                    req.offset as usize,
+                    req.count as usize,
+                    has_more,
+                );
+                let sliced: Vec<Tweet> = projected
+                    .into_iter()
+                    .skip(req.offset as usize)
+                    .take(req.count as usize)
+                    .collect();
+                let body = serde_json::to_string(&sliced)?;
+                Ok(CallToolResult::success(vec![
+                    Content::text(body),
+                    Content::text(note),
+                ]))
+            }
+            .await,
+        )
+    }
+
+    #[tool(
+        name = "list_mentions",
+        description = "Fetch tweets mentioning you, newest first."
+    )]
+    async fn list_mentions(
+        &self,
+        Parameters(req): Parameters<ListMentionsRequest>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, ErrorData> {
+        let tag = self.resolve_session(&extensions).await?.tag.clone();
+        finish(
+            async move {
+                let http = self.build_client();
+                let auth = AuthMode::Agent(tag);
+
+                check_count(req.count)?;
+                let user_id = resolve_self_user_id(&http, &auth).await?;
+                let need = req.offset as usize + req.count as usize;
+                let base = users_id_mentions::get::Request {
+                    id: UserId(user_id),
+                    since_id: None,
+                    until_id: None,
+                    max_results: Some(TIMELINE_PAGE),
+                    pagination_token: None,
+                    start_time: None,
+                    end_time: None,
+                    tweet_fields: Some(vec![
+                        params::TweetFields::Attachments,
+                        params::TweetFields::AuthorId,
+                        params::TweetFields::PublicMetrics,
+                        params::TweetFields::ReferencedTweets,
+                        params::TweetFields::Text,
+                    ]),
+                    expansions: Some(vec![
+                        params::TweetExpansions::AttachmentsMediaKeys,
+                        params::TweetExpansions::AuthorId,
+                    ]),
+                    media_fields: Some(vec![
+                        params::MediaFields::Url,
+                        params::MediaFields::Variants,
+                        params::MediaFields::PreviewImageUrl,
+                        params::MediaFields::Type,
+                    ]),
+                    poll_fields: None,
+                    user_fields: Some(vec![params::UserFields::Username]),
+                    place_fields: None,
+                };
+                let mut projected: Vec<Tweet> = Vec::new();
+                let mut pagination_token: Option<PaginationToken36> = None;
+                let mut has_more;
+                loop {
+                    let mut creq = base.clone();
+                    creq.pagination_token = pagination_token.clone();
+                    let resp = users_id_mentions::http::get(&http, &auth, &creq).await?;
+                    let includes = resp.includes;
+                    for t in resp.data.unwrap_or_default().iter() {
+                        projected.push(project_tweet(t, includes.as_ref()));
+                    }
+                    let next = resp.meta.and_then(|m| m.next_token);
+                    has_more = next.is_some();
+                    if projected.len() >= need {
+                        break;
+                    }
+                    match next {
+                        Some(next) => pagination_token = Some(PaginationToken36(next.0)),
+                        None => break,
+                    }
+                }
+                let note = remaining_note(
+                    projected.len(),
+                    req.offset as usize,
+                    req.count as usize,
+                    has_more,
+                );
+                let sliced: Vec<Tweet> = projected
+                    .into_iter()
+                    .skip(req.offset as usize)
+                    .take(req.count as usize)
+                    .collect();
+                let body = serde_json::to_string(&sliced)?;
+                Ok(CallToolResult::success(vec![
+                    Content::text(body),
+                    Content::text(note),
+                ]))
+            }
+            .await,
+        )
+    }
+
+    #[tool(
+        name = "list_timeline",
+        description = "Fetch your home timeline (reverse-chronological), newest first."
+    )]
+    async fn list_timeline(
+        &self,
+        Parameters(req): Parameters<ListTimelineRequest>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, ErrorData> {
+        let tag = self.resolve_session(&extensions).await?.tag.clone();
+        finish(
+            async move {
+                let http = self.build_client();
+                let auth = AuthMode::Agent(tag);
+
+                check_count(req.count)?;
+                let user_id = resolve_self_user_id(&http, &auth).await?;
+                let need = req.offset as usize + req.count as usize;
+                let base = users_timeline::get::Request {
+                    id: UserIdMatchesAuthenticatedUser(user_id),
+                    since_id: None,
+                    until_id: None,
+                    max_results: Some(TIMELINE_PAGE),
+                    pagination_token: None,
+                    exclude: None,
+                    start_time: None,
+                    end_time: None,
+                    tweet_fields: Some(vec![
+                        params::TweetFields::Attachments,
+                        params::TweetFields::AuthorId,
+                        params::TweetFields::PublicMetrics,
+                        params::TweetFields::ReferencedTweets,
+                        params::TweetFields::Text,
+                    ]),
+                    expansions: Some(vec![
+                        params::TweetExpansions::AttachmentsMediaKeys,
+                        params::TweetExpansions::AuthorId,
+                    ]),
+                    media_fields: Some(vec![
+                        params::MediaFields::Url,
+                        params::MediaFields::Variants,
+                        params::MediaFields::PreviewImageUrl,
+                        params::MediaFields::Type,
+                    ]),
+                    poll_fields: None,
+                    user_fields: Some(vec![params::UserFields::Username]),
+                    place_fields: None,
+                };
+                let mut projected: Vec<Tweet> = Vec::new();
+                let mut pagination_token: Option<PaginationToken36> = None;
+                let mut has_more;
+                loop {
+                    let mut creq = base.clone();
+                    creq.pagination_token = pagination_token.clone();
+                    let resp = users_timeline::http::get(&http, &auth, &creq).await?;
+                    let includes = resp.includes;
+                    for t in resp.data.unwrap_or_default().iter() {
+                        projected.push(project_tweet(t, includes.as_ref()));
+                    }
+                    let next = resp.meta.and_then(|m| m.next_token);
+                    has_more = next.is_some();
+                    if projected.len() >= need {
+                        break;
+                    }
+                    match next {
+                        Some(next) => pagination_token = Some(PaginationToken36(next.0)),
                         None => break,
                     }
                 }

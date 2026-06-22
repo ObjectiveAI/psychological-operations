@@ -30,6 +30,8 @@ pub enum ToolName {
     ListBookmarks,
     ListFollowing,
     ListFollowers,
+    ListMentions,
+    ListTimeline,
     Post,
     Reply,
     Quote,
@@ -42,7 +44,7 @@ pub enum ToolName {
 
 impl ToolName {
     /// Every metered tool, in a stable order (clap value list + tests).
-    pub const ALL: [ToolName; 18] = [
+    pub const ALL: [ToolName; 20] = [
         ToolName::ListReplies,
         ToolName::GetBio,
         ToolName::GetProfilePicture,
@@ -53,6 +55,8 @@ impl ToolName {
         ToolName::ListBookmarks,
         ToolName::ListFollowing,
         ToolName::ListFollowers,
+        ToolName::ListMentions,
+        ToolName::ListTimeline,
         ToolName::Post,
         ToolName::Reply,
         ToolName::Quote,
@@ -77,6 +81,8 @@ impl ToolName {
             ListBookmarks => "list_bookmarks",
             ListFollowing => "list_following",
             ListFollowers => "list_followers",
+            ListMentions => "list_mentions",
+            ListTimeline => "list_timeline",
             Post => "post",
             Reply => "reply",
             Quote => "quote",
@@ -99,7 +105,8 @@ impl ToolName {
         use ToolName::*;
         match self {
             ListReplies | GetBio | GetProfilePicture | GetTweet | OpenAttachment | RunQuery
-            | Whoami | ListBookmarks | ListFollowing | ListFollowers => Direction::Read,
+            | Whoami | ListBookmarks | ListFollowing | ListFollowers | ListMentions
+            | ListTimeline => Direction::Read,
             Post | Reply | Quote | Like | Retweet | Bookmark | Follow | Unfollow => {
                 Direction::Write
             }

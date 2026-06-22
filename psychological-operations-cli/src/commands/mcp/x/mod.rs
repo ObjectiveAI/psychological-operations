@@ -78,6 +78,10 @@ pub enum Commands {
         quota_usage_whoami: Option<String>,
         #[arg(long = "quota_usage_list_bookmarks")]
         quota_usage_list_bookmarks: Option<String>,
+        #[arg(long = "quota_usage_list_mentions")]
+        quota_usage_list_mentions: Option<String>,
+        #[arg(long = "quota_usage_list_timeline")]
+        quota_usage_list_timeline: Option<String>,
         #[arg(long = "quota_usage_post")]
         quota_usage_post: Option<String>,
         #[arg(long = "quota_usage_reply")]
