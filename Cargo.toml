@@ -6,7 +6,6 @@ members = [
     "psychological-operations-sdk",
     "psychological-operations-cli",
     "psychological-operations-x-mcp",
-    "psychological-operations-daemon",
     "psychological-operations-tests",
 ]
 
