@@ -2,8 +2,8 @@
 //!
 //! One row per `(psyop, tweet_id)` records that a psyop has output that
 //! tweet for delivery. `psyops run` filters its candidates against this
-//! table (after de-dup, before the `max_posts` cap) so a psyop never
-//! re-delivers a tweet, and writes the survivors here as part of delivery.
+//! table (after de-dup) so a psyop never re-delivers a tweet, and writes
+//! the survivors here as part of delivery.
 
 use std::collections::HashSet;
 

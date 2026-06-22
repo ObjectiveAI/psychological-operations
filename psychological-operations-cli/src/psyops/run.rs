@@ -421,8 +421,7 @@ async fn run_scored(
             // 4. Priority-bucket sort (for_you interwoven, ahead of queries).
             let ordered = bucket_sort(ctx, psyop, accepted).await?;
 
-            // 5. De-duplicate (keep first occurrence), BEFORE the cap so
-            //    max_posts counts distinct tweets.
+            // 5. De-duplicate (keep first occurrence of each tweet).
             let deduped = dedup_keep_first(ordered.into_iter().map(|a| a.post).collect());
 
             // 5b. Drop tweets this psyop has already delivered in a prior run.
@@ -432,13 +431,10 @@ async fn run_scored(
                 .already_delivered(name, &ids)
                 .await
                 .map_err(Error::from)?;
-            let deduped: Vec<Post> = deduped
+            deduped
                 .into_iter()
                 .filter(|p| !already.contains(&p.id))
-                .collect();
-
-            // 6. Trim to max_posts distinct tweets.
-            deduped.into_iter().take(psyop.max_posts as usize).collect()
+                .collect()
         }
     };
 

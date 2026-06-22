@@ -81,7 +81,7 @@ Tweets that show up in both sources are deduped; the priority across accepting s
 - Engagement ratios: `min_likes_per_impression` and friends. Skipped when impressions are zero.
 - `python`: a Python boolean expression; the `input` global is a dict with `likes`, `retweets`, `replies`, `impressions`, and `age` — `python: "input['likes'] > 100 and input['retweets'] / input['likes'] > 0.5"`. AND-combined with everything above. Runs in the host's embedded Python via the `python` command.
 
-**Sort & caps** — `sort` (`newest` / `oldest` / `likes` / `retweets` / `replies` / `python`) tiebreaks within priority buckets. `min_posts` is the floor that triggers query backfill if For You alone didn't deliver enough material. `max_posts` is the hard cap before scoring.
+**Sort** — `sort` (`newest` / `oldest` / `likes` / `retweets` / `replies` / `python`) tiebreaks within priority buckets. To cap how many tweets enter scoring, use a stage's `output_top` (a bare stage exists exactly for this).
 
 **Stages** — a non-empty list of scoring stages. Each:
 
@@ -103,8 +103,6 @@ A minimal example:
   "queries": [
     { "query": "from:vitalikbuterin -is:retweet", "agent_tag": "riddler", "max_posts": 100, "priority": 10 }
   ],
-  "min_posts": 5,
-  "max_posts": 100,
   "sort": "newest",
   "stages": [
     {
