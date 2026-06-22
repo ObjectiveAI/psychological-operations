@@ -11,7 +11,7 @@ use super::trigger::Trigger;
 
 /// Psyop family discriminator for the Discord family. Serializes /
 /// deserializes as the static string `"discord"`, letting the untagged
-/// [`Psyop`](crate::cli::psyops::Psyop) enum tell families apart.
+/// [`PsyOp`](crate::cli::psyops::PsyOp) enum tell families apart.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum PsyopType {

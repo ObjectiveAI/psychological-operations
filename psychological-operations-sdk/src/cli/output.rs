@@ -15,7 +15,8 @@
 use schemars::Schema;
 use serde::{Deserialize, Serialize};
 
-use crate::cli::psyops::x::{PsyOp, PsyopEntry, PublishedPsyop};
+use crate::cli::psyops::x::{PsyopEntry, PublishedPsyop};
+use crate::cli::psyops::PsyOp;
 
 /// Terminal CLI command output. Every variant is typed; no
 /// opaque payloads.
@@ -31,7 +32,7 @@ pub enum Output {
     // ── psyops ─────────────────────────────────────────────
     /// `psyops list` — sorted, paginated entries.
     PsyopList(Vec<PsyopEntry>),
-    /// `psyops get` — full on-disk definition.
+    /// `psyops get` — full on-disk definition (either psyop family).
     Psyop(PsyOp),
     /// `psyops publish` — what was just committed + resolved
     /// enabled state.

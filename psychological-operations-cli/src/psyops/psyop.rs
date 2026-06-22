@@ -7,8 +7,9 @@
 
 use super::PsyOp;
 
-/// Read a psyop's definition by name. Errors with `PsyopNotFound` when
-/// no such psyop exists.
+/// Read a psyop's definition by name as the polymorphic [`PsyOp`] (either
+/// family — the untagged enum picks X vs Discord by the body's `type`).
+/// Errors with `PsyopNotFound` when no such psyop exists.
 pub async fn load(name: &str, ctx: &crate::context::Context) -> Result<PsyOp, crate::error::Error> {
     use crate::error::Error;
     let value = ctx
@@ -19,7 +20,7 @@ pub async fn load(name: &str, ctx: &crate::context::Context) -> Result<PsyOp, cr
     Ok(serde_json::from_value(value)?)
 }
 
-/// Insert or replace a psyop's definition.
+/// Insert or replace a psyop's definition (any family).
 pub async fn save(
     name: &str,
     psyop: &PsyOp,

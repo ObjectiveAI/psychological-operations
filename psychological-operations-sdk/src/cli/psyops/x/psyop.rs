@@ -11,7 +11,7 @@ use super::trigger::Trigger;
 
 /// Psyop family discriminator. Today the only family is X (tweets);
 /// serializes / deserializes as the static string `"x"`. Lets the untagged
-/// [`Psyop`](crate::cli::psyops::Psyop) enum tell families apart as more are
+/// [`PsyOp`](crate::cli::psyops::PsyOp) enum tell families apart as more are
 /// added.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]

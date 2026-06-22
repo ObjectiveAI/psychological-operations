@@ -8,14 +8,15 @@ pub mod psyop;
 pub mod pyeval;
 pub mod sort_by;
 
-// Type definitions + publish-time validators moved to the SDK
-// under `psychological_operations_sdk::cli::psyops`. Re-export at
-// the same shorthand `crate::psyops::*` so call sites that wrote
-// `use crate::psyops::PsyOp;` keep resolving.
+// Type definitions + publish-time validators live in the SDK under
+// `psychological_operations_sdk::cli::psyops`. Re-export at the shorthand
+// `crate::psyops::*`. `PsyOp` is the umbrella enum (X | Discord); the X-family
+// body types come from the `x` submodule.
 pub use psychological_operations_sdk::cli::psyops::x::{
-    Filter, ForYou, Mentions, OutputTop, PsyOp, PsyopEntry, PublishedPsyop, Query, SortBy, Stage,
+    Filter, ForYou, Mentions, OutputTop, PsyopEntry, PublishedPsyop, Query, SortBy, Stage,
     StageBase, Timeline, is_vector_function,
 };
+pub use psychological_operations_sdk::cli::psyops::PsyOp;
 
 use clap::Args;
 use psychological_operations_sdk::cli::Output;
@@ -43,16 +44,22 @@ pub struct PublishArgs {
 pub(crate) async fn list(
     enabled: bool,
     disabled: bool,
+    only_x: bool,
+    only_discord: bool,
     count: Option<usize>,
     offset: Option<usize>,
     ctx: &crate::context::Context,
 ) -> bool {
-    crate::output::emit_result(list_inner(enabled, disabled, count, offset, ctx).await)
+    crate::output::emit_result(
+        list_inner(enabled, disabled, only_x, only_discord, count, offset, ctx).await,
+    )
 }
 
 async fn list_inner(
     enabled: bool,
     disabled: bool,
+    only_x: bool,
+    only_discord: bool,
     count: Option<usize>,
     offset: Option<usize>,
     ctx: &crate::context::Context,
@@ -62,12 +69,20 @@ async fn list_inner(
         .psyop_list()
         .await?
         .into_iter()
-        .filter_map(|(name, _def, is_disabled)| {
+        .filter_map(|(name, def, is_disabled)| {
             let is_enabled = !is_disabled;
             if enabled && !is_enabled {
                 return None;
             }
             if disabled && is_enabled {
+                return None;
+            }
+            // Family from the def's `type` tag — absent means X (its default).
+            let family = def.get("type").and_then(|t| t.as_str()).unwrap_or("x");
+            if only_x && family != "x" {
+                return None;
+            }
+            if only_discord && family != "discord" {
                 return None;
             }
             Some(PsyopEntry {
