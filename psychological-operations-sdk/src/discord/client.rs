@@ -7,7 +7,7 @@
 //! - **REST** ([`Client::http`]) — a `serenity::http::Http` for regular API
 //!   calls (read channel history, send a message, open a DM, …).
 //! - **Gateway** ([`Client::gateway`]) — establishes a live gateway
-//!   connection with the given intents + [`EventHandler`], runs its event
+//!   connection (with **all** intents) + an [`EventHandler`], runs its event
 //!   loop in a background task, and caches the connection's `ShardManager`.
 //!
 //! Each cache is a `DashMap<agent_tag, OnceCell<resource>>`: the per-tag
@@ -94,20 +94,24 @@ impl Client {
 
     /// The agent's live gateway connection's shard manager. On the first call
     /// for that agent this resolves the token, builds the gateway client with
-    /// `intents` + `handler`, spawns its event loop in a background task, and
-    /// caches the resulting `ShardManager`. Later calls return the cached
-    /// handle immediately — **`intents` and `handler` from the first call
-    /// stick; the args on later calls are ignored** (one connection per agent).
+    /// **all** intents + `handler`, spawns its event loop in a background task,
+    /// and caches the resulting `ShardManager`. Later calls return the cached
+    /// handle immediately — **the `handler` from the first call sticks; later
+    /// calls' args are ignored** (one connection per agent).
+    ///
+    /// Uses [`GatewayIntents::all`], which includes the three privileged
+    /// intents (message content, members, presences) — the bot's dev-portal
+    /// toggles for these must be on (the login wizard enables them) or the
+    /// Gateway rejects the connection with "Disallowed intent(s)".
     pub async fn gateway<H: EventHandler + 'static>(
         &self,
         agent_tag: &str,
-        intents: GatewayIntents,
         handler: H,
     ) -> Result<Arc<ShardManager>, Error> {
         let cell = self.inner.gateway.entry(agent_tag.to_string()).or_default().clone();
         cell.get_or_try_init(|| async {
             let token = self.bot_token(agent_tag).await?;
-            let mut client = serenity::Client::builder(&token, intents)
+            let mut client = serenity::Client::builder(&token, GatewayIntents::all())
                 .event_handler(handler)
                 .await?;
             let shard_manager = client.shard_manager.clone();
