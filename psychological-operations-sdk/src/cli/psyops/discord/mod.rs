@@ -1,0 +1,13 @@
+//! The Discord psyop family. Mirrors [`crate::cli::psyops::x`] but for
+//! Discord messages; ingestion sources are not modeled yet, so for now it
+//! carries only the scoring/delivery shape. The stage types are duplicated
+//! from `x` (identical for now) so the family stays self-contained and can
+//! diverge freely.
+
+pub mod psyop;
+pub mod sort_by;
+pub mod stage;
+
+pub use psyop::{PsyOp, PsyopType};
+pub use sort_by::SortBy;
+pub use stage::{is_vector_function, OutputTop, Stage, StageBase};
