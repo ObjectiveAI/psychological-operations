@@ -92,10 +92,18 @@ function uniqueBotToken(): string | null {
 
 // --- header form state ---------------------------------------------------
 type FieldName = "application_id" | "public_key" | "bot_token";
+
+// What THIS overlay has captured, held locally so the pointer logic reads it
+// immediately. We can't rely on getDiscordAuth() for that: Rust only pushes the
+// form back into the overlay (via __psyops_set_panel) on a state *change*, so
+// the overlay's mirror lags or stays null even after a successful capture — the
+// panel webview header has the values but the overlay copy does not.
+const captured: Partial<Record<FieldName, string>> = {};
+
 function value(field: FieldName): string | undefined {
-  return getDiscordAuth()?.[field]?.value;
+  return captured[field] ?? getDiscordAuth()?.[field]?.value;
 }
-/** Still needs capture (not yet in the header form). */
+/** Still needs capture (not yet seen). */
 function pending(field: FieldName): boolean {
   return !value(field);
 }
@@ -106,8 +114,10 @@ const reported = new Set<FieldName>();
 function report(field: FieldName, v: string): void {
   if (value(field) || reported.has(field)) return;
   reported.add(field);
+  captured[field] = v; // optimistic — the pointer logic reads this at once
   invoke("discord_capture", { field, value: v }).catch(() => {
     reported.delete(field); // let a later tick retry
+    delete captured[field];
   });
 }
 
