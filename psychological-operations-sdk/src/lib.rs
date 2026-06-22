@@ -9,4 +9,5 @@
 
 pub mod browser;
 pub mod cli;
+pub mod discord;
 pub mod x;
