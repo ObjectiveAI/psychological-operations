@@ -30,7 +30,7 @@ envconfig = "0.11.1"
 humantime = "2"
 psychological-operations-db = { path = "../psychological-operations-db" }
 psychological-operations-sdk = { path = "../psychological-operations-sdk" }
-psychological-operations-x-api-mcp = { path = "../psychological-operations-x-api-mcp" }
+psychological-operations-x-mcp = { path = "../psychological-operations-x-mcp" }
 schemars = "1.2.1"
 
 [dev-dependencies]

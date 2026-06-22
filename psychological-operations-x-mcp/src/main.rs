@@ -12,7 +12,7 @@ use clap::Parser;
 /// `X-OBJECTIVEAI-ARGUMENTS` JSON-object header on every connect. See
 /// `crate::x_api::session` for the source-resolution contract.
 #[derive(Parser)]
-#[command(name = "psychological-operations-x-api-mcp")]
+#[command(name = "psychological-operations-x-mcp")]
 struct Args {
     /// Root of the remaining on-disk state — the CEF profile tree
     /// (cookie probe) lives under it (the `OBJECTIVEAI_STATE_DIR`
@@ -59,7 +59,7 @@ async fn main() -> std::io::Result<()> {
     let db = psychological_operations_db::Db::connect(&args.postgres_url)
         .await
         .map_err(|e| std::io::Error::other(format!("db connect: {e}")))?;
-    psychological_operations_x_api_mcp::run(
+    psychological_operations_x_mcp::run(
         &args.address,
         args.port,
         args.state_dir,

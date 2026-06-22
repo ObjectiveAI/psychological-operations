@@ -11,7 +11,7 @@ use psychological_operations_sdk::cli::Output;
 use psychological_operations_sdk::x::client::{AuthMode, Client};
 use psychological_operations_sdk::x::params;
 use psychological_operations_sdk::x::users::me as users_me;
-use psychological_operations_x_api_mcp::Mode;
+use psychological_operations_x_mcp::Mode;
 
 use crate::error::Error;
 
@@ -153,7 +153,7 @@ impl Commands {
 
                     // 3. Serve until torn down.
                     let state_dir = ctx.config.state_dir();
-                    psychological_operations_x_api_mcp::run(
+                    psychological_operations_x_mcp::run(
                         "127.0.0.1",
                         0,
                         state_dir,

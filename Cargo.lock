@@ -4515,7 +4515,7 @@ dependencies = [
  "objectiveai-sdk",
  "psychological-operations-db",
  "psychological-operations-sdk",
- "psychological-operations-x-api-mcp",
+ "psychological-operations-x-mcp",
  "rand 0.8.6",
  "reqwest 0.13.4",
  "schemars 1.2.1",
@@ -4585,7 +4585,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "psychological-operations-x-api-mcp"
+name = "psychological-operations-x-mcp"
 version = "0.1.0"
 dependencies = [
  "anyhow",

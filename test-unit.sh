@@ -24,7 +24,7 @@ CRATES=(
   psychological-operations-db
   psychological-operations-sdk
   psychological-operations-cli
-  psychological-operations-x-api-mcp
+  psychological-operations-x-mcp
   psychological-operations-browser
 )
 

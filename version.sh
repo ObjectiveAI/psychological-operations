@@ -39,7 +39,7 @@ CRATES=(
   psychological-operations-db
   psychological-operations-sdk
   psychological-operations-cli
-  psychological-operations-x-api-mcp
+  psychological-operations-x-mcp
   psychological-operations-browser
   psychological-operations-tests
 )
@@ -47,7 +47,7 @@ TOMLS=(
   psychological-operations-db/Cargo.toml
   psychological-operations-sdk/Cargo.toml
   psychological-operations-cli/Cargo.toml
-  psychological-operations-x-api-mcp/Cargo.toml
+  psychological-operations-x-mcp/Cargo.toml
   psychological-operations-browser/src-tauri/Cargo.toml
   psychological-operations-tests/Cargo.toml
 )

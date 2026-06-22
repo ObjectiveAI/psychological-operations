@@ -1,6 +1,6 @@
 //! Psychological Operations X-API MCP server library.
 //!
-//! Other crates can `use psychological_operations_x_api_mcp::{run, setup, serve}`
+//! Other crates can `use psychological_operations_x_mcp::{run, setup, serve}`
 //! and embed the server in-process. The binary at `main.rs` is a
 //! thin clap wrapper that parses args and calls [`run`]. All
 //! configuration is explicit at the function signatures — there

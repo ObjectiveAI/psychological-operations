@@ -267,7 +267,7 @@ pub fn synthetic_initialize_message() -> ClientJsonRpcMessage {
             protocol_version: ProtocolVersion::V_2025_06_18,
             capabilities: ClientCapabilities::default(),
             client_info: Implementation {
-                name: "psychological-operations-x-api-mcp-restore-stub".into(),
+                name: "psychological-operations-x-mcp-restore-stub".into(),
                 title: None,
                 version: "0".into(),
                 description: None,

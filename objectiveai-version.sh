@@ -6,7 +6,7 @@
 #
 # Updates the objectiveai-sdk pin in every workspace crate that depends on it —
 # both the bare `objectiveai-sdk = "X"` (cli) and the table
-# `objectiveai-sdk = { version = "X", … }` (sdk, x-api-mcp, tests) forms — then
+# `objectiveai-sdk = { version = "X", … }` (sdk, x-mcp, tests) forms — then
 # `cargo update`s Cargo.lock to match. (The lock can't just be sed'd like the
 # psychological-operations crates: objectiveai-sdk is a crates.io dep, so its
 # lock entry carries a checksum that must be refetched.)
@@ -30,7 +30,7 @@ cd "$(dirname "$0")"
 TOMLS=(
   psychological-operations-cli/Cargo.toml
   psychological-operations-sdk/Cargo.toml
-  psychological-operations-x-api-mcp/Cargo.toml
+  psychological-operations-x-mcp/Cargo.toml
   psychological-operations-tests/Cargo.toml
 )
 

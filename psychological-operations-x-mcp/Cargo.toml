@@ -1,5 +1,5 @@
 [package]
-name = "psychological-operations-x-api-mcp"
+name = "psychological-operations-x-mcp"
 version = "0.1.0"
 edition = "2024"
 
