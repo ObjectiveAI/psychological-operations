@@ -2,7 +2,7 @@
 //!
 //! The type defs (`PsyOp`, `PsyopSource`, `PublishArgs`, ...), the
 //! run loop, the browse helpers, and the per-command body fns
-//! (`list`, `get`, `set_disabled`, `publish`, `delete`) all stay in
+//! (`list`, `get`, `set_disabled`, `insert`, `delete`) all stay in
 //! `crate::psyops`. This file owns the clap surface and the dispatch
 //! that calls into them.
 
@@ -31,14 +31,14 @@ pub enum Commands {
     /// Print the on-disk JSON definition of a psyop.
     Get { name: String },
     /// Emit the JSON Schema for a PsyOp definition — the shape
-    /// `publish --psyop-inline '<json>'` accepts.
+    /// `insert --psyop-inline '<json>'` accepts.
     Schema,
     /// Mark a psyop as enabled.
     Enable { name: String },
     /// Mark a psyop as disabled.
     Disable { name: String },
-    /// Publish a psyop definition (upserts it by name).
-    Publish {
+    /// Insert a psyop definition (upserts it by name).
+    Insert {
         #[command(flatten)]
         args: PublishArgs,
     },
@@ -69,7 +69,7 @@ impl Commands {
             Commands::Schema => psyops::schema(),
             Commands::Enable { name } => psyops::set_disabled(&name, false, ctx).await,
             Commands::Disable { name } => psyops::set_disabled(&name, true, ctx).await,
-            Commands::Publish { args } => psyops::publish(args, ctx).await,
+            Commands::Insert { args } => psyops::insert(args, ctx).await,
             Commands::Run { name, seed } => psyops::run::run_all(name, seed, ctx).await,
         }
     }

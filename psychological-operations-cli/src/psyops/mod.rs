@@ -92,7 +92,7 @@ async fn list_inner(
 }
 
 /// Emit the JSON Schema for [`PsyOp`] so agents / operators can
-/// see what shape `psyops publish --psyop-inline '<json>'`
+/// see what shape `psyops insert --psyop-inline '<json>'`
 /// accepts. No ctx — pure type derivation.
 pub(crate) fn schema() -> bool {
     crate::output::emit_result((|| -> Result<Output, crate::error::Error> {
@@ -133,11 +133,11 @@ async fn set_disabled_inner(
     Ok(Output::Ok)
 }
 
-pub(crate) async fn publish(args: PublishArgs, ctx: &crate::context::Context) -> bool {
-    crate::output::emit_result(publish_inner(args, ctx).await)
+pub(crate) async fn insert(args: PublishArgs, ctx: &crate::context::Context) -> bool {
+    crate::output::emit_result(insert_inner(args, ctx).await)
 }
 
-async fn publish_inner(
+async fn insert_inner(
     args: PublishArgs,
     ctx: &crate::context::Context,
 ) -> Result<Output, crate::error::Error> {

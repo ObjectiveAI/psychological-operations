@@ -1,11 +1,11 @@
-//! `agents daemon discord hooks {add,list,delete}` — manage the Python hooks
-//! the Discord gateway daemon runs for an agent. A hook has a name +
+//! `agents daemon discord hooks {insert,list,delete}` — manage the Python
+//! hooks the Discord gateway daemon runs for an agent. A hook has a name +
 //! description + Python source; the daemon runs it for every gateway event.
 
 use clap::{Args, Subcommand};
 
-pub mod add;
 pub mod delete;
+pub mod insert;
 pub mod list;
 
 /// Where the hook's Python source comes from — inline or a file. Exactly one.
@@ -37,17 +37,21 @@ impl PythonSource {
 
 #[derive(Subcommand)]
 pub enum Commands {
-    /// Add (or replace) a named hook for an agent.
-    Add {
+    /// Add a named hook for an agent. Replacing an existing hook of the same
+    /// name requires `--overwrite`.
+    Insert {
         /// Agent tag the hook belongs to.
         #[arg(long)]
         agent_tag: String,
-        /// Hook name (unique per agent; re-adding replaces it).
+        /// Hook name (unique per agent).
         #[arg(long)]
         name: String,
         /// Human-readable description of what the hook does.
         #[arg(long)]
         description: String,
+        /// Required to replace a hook that already exists with this name.
+        #[arg(long)]
+        overwrite: bool,
         #[command(flatten)]
         source: PythonSource,
     },
@@ -71,12 +75,13 @@ pub enum Commands {
 impl Commands {
     pub async fn handle(self, ctx: &crate::context::Context) -> bool {
         match self {
-            Commands::Add {
+            Commands::Insert {
                 agent_tag,
                 name,
                 description,
+                overwrite,
                 source,
-            } => add::run(&agent_tag, &name, &description, source, ctx).await,
+            } => insert::run(&agent_tag, &name, &description, overwrite, source, ctx).await,
             Commands::List { agent_tag } => list::run(&agent_tag, ctx).await,
             Commands::Delete { agent_tag, name } => delete::run(&agent_tag, &name, ctx).await,
         }

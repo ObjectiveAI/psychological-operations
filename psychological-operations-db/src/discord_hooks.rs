@@ -44,6 +44,18 @@ impl Db {
         Ok(())
     }
 
+    /// Whether a hook named `name` already exists for `agent_tag`.
+    pub async fn discord_hook_exists(&self, agent_tag: &str, name: &str) -> Result<bool, Error> {
+        let n: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM discord_hooks WHERE agent_tag = $1 AND name = $2",
+        )
+        .bind(agent_tag)
+        .bind(name)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(n > 0)
+    }
+
     /// All hooks for `agent_tag`, name order.
     pub async fn discord_hook_list(&self, agent_tag: &str) -> Result<Vec<DiscordHookEntry>, Error> {
         let rows = sqlx::query(
