@@ -1,7 +1,7 @@
 //! Runtime evaluation against live [`Tweet`] rows. The `Filter`
 //! struct + publish-time `validate` live in
 //! `psychological_operations_sdk::cli::psyops::filter`; this file
-//! is purely the evaluator — it runs the operator's `custom` Python
+//! is purely the evaluator — it runs the operator's `python` boolean
 //! expression (via the `python` command) against a tweet's metrics.
 
 use psychological_operations_sdk::cli::psyops::filter::Filter;
@@ -10,7 +10,7 @@ use crate::error::Error;
 use crate::tweet::Tweet;
 
 /// Returns `Ok(true)` iff every static `min_*` / `max_*` gate
-/// passes AND, when present, the `custom` Python expression
+/// passes AND, when present, the `python` expression
 /// evaluates to `True`. Returns `Ok(false)` if any static gate
 /// rejects. Returns `Err` on Python eval / type errors.
 ///
@@ -24,9 +24,9 @@ pub async fn evaluate(
     if !static_pass(f, t) {
         return Ok(false);
     }
-    match &f.custom {
+    match &f.python {
         None => Ok(true),
-        Some(src) => evaluate_custom(src, t, ctx).await,
+        Some(src) => evaluate_python(src, t, ctx).await,
     }
 }
 
@@ -125,7 +125,7 @@ fn static_pass(f: &Filter, t: &Tweet) -> bool {
     true
 }
 
-async fn evaluate_custom(
+async fn evaluate_python(
     src: &str,
     t: &Tweet,
     ctx: &crate::context::Context,
@@ -140,7 +140,7 @@ async fn evaluate_custom(
     let result = crate::psyops::pyeval::run(ctx, src, input).await?;
     result
         .as_bool()
-        .ok_or_else(|| Error::Other("filter custom expression must evaluate to bool".into()))
+        .ok_or_else(|| Error::Other("filter python expression must evaluate to bool".into()))
 }
 
 #[cfg(test)]
@@ -160,8 +160,8 @@ mod tests {
     }
 
     // The static engagement / ratio gates are sync and host-free, so they
-    // are unit-tested here. The `custom` Python path runs against the host's
-    // python runtime and is exercised by the integration suite.
+    // are unit-tested here. The `python` path runs against the host's python
+    // runtime and is exercised by the integration suite.
 
     #[test]
     fn static_min_max_gates() {

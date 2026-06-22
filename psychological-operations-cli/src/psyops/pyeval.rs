@@ -1,6 +1,6 @@
 //! Run a psyop expression as Python via the in-process plugin executor.
 //!
-//! Each psyop expression (filter `custom`, sort `Custom`, output_top `Python`)
+//! Each psyop expression (filter `python`, sort `python`, output_top `python`)
 //! used to be Starlark evaluated in-process; now the CLI ships the operator's
 //! code + its `input` to the objectiveai host's embedded Python runtime via
 //! the `python` command and reads back the JSON the script produced (its

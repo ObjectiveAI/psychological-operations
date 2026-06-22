@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 /// engagement settle before scoring, `max_age` rejects tweets older
 /// than the cutoff.
 ///
-/// `custom` is an optional Python boolean expression that
+/// `python` is an optional Python boolean expression that
 /// AND-combines with the static gates above. Runtime evaluation
 /// lives in the CLI (it runs the code via the `python` command
 /// against `&Tweet`); only publish-time `validate` lives here.
@@ -64,7 +64,7 @@ pub struct Filter {
     /// evaluate to `bool` — non-bool results are rejected as errors,
     /// not coerced. AND-combines with the static gates above.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub custom: Option<String>,
+    pub python: Option<String>,
 }
 
 impl Filter {
@@ -73,8 +73,7 @@ impl Filter {
     ///     both bounds must be consistent (`min <= max`) when both
     ///     are set.
     ///   - Every `_per_impression` ratio bound must lie in `[0, 1]`.
-    /// (`custom` is Python; it is not parse-checked here — errors
-    /// surface at run time.)
+    /// (`python` is not parse-checked here — errors surface at run time.)
     pub fn validate(&self) -> Result<(), String> {
         check_pair("likes", self.min_likes, self.max_likes)?;
         check_pair("retweets", self.min_retweets, self.max_retweets)?;
