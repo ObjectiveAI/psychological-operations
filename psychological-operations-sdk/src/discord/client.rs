@@ -1,23 +1,29 @@
 //! Discord API client (serenity-backed).
 //!
 //! Multi-agent: every call takes an `agent_tag` and authenticates from that
-//! agent's `discord_auth` row. Two capabilities, both **lazily built + cached
-//! per agent** so repeat calls return the cached instance immediately:
+//! agent's `discord_auth` row. Two capabilities:
 //!
-//! - **REST** ([`Client::http`]) — a `serenity::http::Http` for regular API
-//!   calls (read channel history, send a message, open a DM, …).
+//! - **REST** — typed per-endpoint methods (`get_message`, `send_message`, …).
+//!   Reads are fronted by the shared response cache (`Db::cache_get_or_fetch`:
+//!   single-flight lock, TTL, LRU — same backend as the X client); writes go
+//!   straight through. The underlying `serenity::http::Http` is built + cached
+//!   per agent but kept **private** so all access stays funneled through these
+//!   methods (which is what keeps the cache authoritative). Per-user-keyed reads
+//!   (`get_guilds`, `get_current_user`, `get_channels`, `get_application_emojis`)
+//!   are scoped per agent; the rest are global.
 //! - **Gateway** ([`Client::gateway`]) — establishes a live gateway
 //!   connection (with **all** intents) + an [`EventHandler`], runs its event
 //!   loop in a background task, and caches the connection's `ShardManager`.
 //!
-//! Each cache is a `DashMap<agent_tag, OnceCell<resource>>`: the per-tag
-//! [`tokio::sync::OnceCell`] guarantees the resource is built **exactly once**
-//! per agent even under concurrent calls (so two callers never open duplicate
-//! gateway connections for the same bot). The inner state is `Arc`-shared, so
-//! cloning the `Client` shares the same caches.
+//! The per-agent `Http`/gateway caches are each a `DashMap<agent_tag,
+//! OnceCell<resource>>`: the per-tag [`tokio::sync::OnceCell`] guarantees the
+//! resource is built **exactly once** per agent even under concurrent calls (so
+//! two callers never open duplicate gateway connections for the same bot). The
+//! inner state is `Arc`-shared, so cloning the `Client` shares the same caches.
 //!
-//! Caching means a token change (re-login / reset) is **not** picked up for an
-//! already-cached agent — unlike the per-call [`crate::x::client::Client`].
+//! A bot-token change (re-login / reset) is **not** picked up for an
+//! already-cached agent's `Http`/gateway — unlike the per-call
+//! [`crate::x::client::Client`].
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -477,7 +483,11 @@ impl Client {
 
     /// The agent's REST client, authed as its bot. Built + cached on the first
     /// call for that agent; later calls return the cached `Arc` immediately.
-    pub async fn http(&self, agent_tag: &str) -> Result<Arc<serenity::http::Http>, Error> {
+    ///
+    /// **Private**: all REST goes through the typed read/write methods on this
+    /// `Client` (which front reads with the response cache). Callers never touch
+    /// serenity's `Http` directly — that's what keeps the cache authoritative.
+    async fn http(&self, agent_tag: &str) -> Result<Arc<serenity::http::Http>, Error> {
         // Take (or create) the per-tag cell, then drop the map guard before
         // awaiting on it.
         let cell = self.inner.http.entry(agent_tag.to_string()).or_default().clone();
