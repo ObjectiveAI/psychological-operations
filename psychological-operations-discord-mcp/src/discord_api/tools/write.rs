@@ -2,16 +2,16 @@
 //!
 //! Each tool acts as the session's `tag`, is gated to `Mode::Full` (see
 //! `FULL_ONLY_TOOLS` in `super::super`), and is metered against the write
-//! budget. Bodies run inside [`finish`] so failures classify the same way the
-//! read tools do.
+//! budget. All REST goes through the SDK [`Client`]'s write methods (uncached);
+//! bodies run inside [`finish`] so failures classify the same way the read
+//! tools do.
+//!
+//! [`Client`]: psychological_operations_sdk::discord::Client
 
 use psychological_operations_sdk::discord::serenity;
 use rmcp::model::{CallToolResult, Content, Extensions};
 use rmcp::{ErrorData, handler::server::wrapper::Parameters, schemars, tool, tool_router};
-use serenity::all::{
-    Builder, ChannelId, ChannelType, CreateMessage, CreateThread, EditMessage, MessageId,
-    ReactionType, UserId,
-};
+use serenity::all::{ChannelId, MessageId, ReactionType, UserId};
 
 use super::super::PsychologicalOperationsDiscordMcp;
 use super::super::model::SentMessage;
@@ -81,25 +81,6 @@ pub struct ReactionRequest {
     pub emoji: String,
 }
 
-/// Send `content` to `channel`, optionally as a reply to `reply_to`. Returns the
-/// created message.
-async fn send_to_channel(
-    http: &serenity::http::Http,
-    channel: ChannelId,
-    content: String,
-    reply_to: Option<&str>,
-) -> Result<serenity::all::Message, ToolError> {
-    let mut builder = CreateMessage::new().content(content);
-    if let Some(mid) = reply_to {
-        let message_id: MessageId = mid
-            .parse()
-            .map_err(|_| ToolError::agent(format!("invalid reply_to_message_id: {mid}")))?;
-        // `(channel, message_id)` is a reply reference in this channel.
-        builder = builder.reference_message((channel, message_id));
-    }
-    Ok(builder.execute(http, (channel, None)).await?)
-}
-
 #[tool_router(router = write_tools, vis = "pub")]
 impl PsychologicalOperationsDiscordMcp {
     #[tool(
@@ -115,14 +96,12 @@ impl PsychologicalOperationsDiscordMcp {
         let tag = self.resolve_session(&extensions).await?.tag.clone();
         finish(
             async move {
-                let channel: ChannelId = req
-                    .channel_id
-                    .parse()
-                    .map_err(|_| ToolError::agent(format!("invalid channel id: {}", req.channel_id)))?;
-                let http = self.build_client().http(&tag).await?;
-                let msg =
-                    send_to_channel(&http, channel, req.content, req.reply_to_message_id.as_deref())
-                        .await?;
+                let channel = parse_channel(&req.channel_id)?;
+                let reply_to = parse_opt_message(req.reply_to_message_id.as_deref())?;
+                let msg = self
+                    .build_client()
+                    .send_message(&tag, channel, req.content, reply_to)
+                    .await?;
                 let result = SentMessage {
                     channel_id: channel.to_string(),
                     message_id: msg.id.to_string(),
@@ -151,14 +130,13 @@ impl PsychologicalOperationsDiscordMcp {
                     .user_id
                     .parse()
                     .map_err(|_| ToolError::agent(format!("invalid user id: {}", req.user_id)))?;
-                let http = self.build_client().http(&tag).await?;
-                let dm = user.create_dm_channel(&http).await?;
-                let channel = dm.id;
-                let msg =
-                    send_to_channel(&http, channel, req.content, req.reply_to_message_id.as_deref())
-                        .await?;
+                let reply_to = parse_opt_message(req.reply_to_message_id.as_deref())?;
+                let msg = self
+                    .build_client()
+                    .send_direct_message(&tag, user, req.content, reply_to)
+                    .await?;
                 let result = SentMessage {
-                    channel_id: channel.to_string(),
+                    channel_id: msg.channel_id.to_string(),
                     message_id: msg.id.to_string(),
                 };
                 let body = serde_json::to_string(&result)?;
@@ -180,18 +158,10 @@ impl PsychologicalOperationsDiscordMcp {
         let tag = self.resolve_session(&extensions).await?.tag.clone();
         finish(
             async move {
-                let channel: ChannelId = req
-                    .channel_id
-                    .parse()
-                    .map_err(|_| ToolError::agent(format!("invalid channel id: {}", req.channel_id)))?;
-                let message: MessageId = req
-                    .message_id
-                    .parse()
-                    .map_err(|_| ToolError::agent(format!("invalid message id: {}", req.message_id)))?;
-                let http = self.build_client().http(&tag).await?;
-                EditMessage::new()
-                    .content(req.content)
-                    .execute(&http, (channel, message, None))
+                let channel = parse_channel(&req.channel_id)?;
+                let message = parse_message(&req.message_id)?;
+                self.build_client()
+                    .edit_message(&tag, channel, message, req.content)
                     .await?;
                 Ok(CallToolResult::success(vec![Content::text(
                     serde_json::json!({ "ok": true }).to_string(),
@@ -213,16 +183,11 @@ impl PsychologicalOperationsDiscordMcp {
         let tag = self.resolve_session(&extensions).await?.tag.clone();
         finish(
             async move {
-                let channel: ChannelId = req
-                    .channel_id
-                    .parse()
-                    .map_err(|_| ToolError::agent(format!("invalid channel id: {}", req.channel_id)))?;
-                let message: MessageId = req
-                    .message_id
-                    .parse()
-                    .map_err(|_| ToolError::agent(format!("invalid message id: {}", req.message_id)))?;
-                let http = self.build_client().http(&tag).await?;
-                http.delete_message(channel, message, None).await?;
+                let channel = parse_channel(&req.channel_id)?;
+                let message = parse_message(&req.message_id)?;
+                self.build_client()
+                    .delete_message(&tag, channel, message)
+                    .await?;
                 Ok(CallToolResult::success(vec![Content::text(
                     serde_json::json!({ "ok": true }).to_string(),
                 )]))
@@ -245,27 +210,12 @@ impl PsychologicalOperationsDiscordMcp {
         let tag = self.resolve_session(&extensions).await?.tag.clone();
         finish(
             async move {
-                let channel: ChannelId = req
-                    .channel_id
-                    .parse()
-                    .map_err(|_| ToolError::agent(format!("invalid channel id: {}", req.channel_id)))?;
-                let http = self.build_client().http(&tag).await?;
-                let thread = match req.message_id {
-                    Some(mid) => {
-                        let message: MessageId = mid.parse().map_err(|_| {
-                            ToolError::agent(format!("invalid message id: {mid}"))
-                        })?;
-                        CreateThread::new(req.name)
-                            .execute(&http, (channel, Some(message)))
-                            .await?
-                    }
-                    None => {
-                        CreateThread::new(req.name)
-                            .kind(ChannelType::PublicThread)
-                            .execute(&http, (channel, None))
-                            .await?
-                    }
-                };
+                let channel = parse_channel(&req.channel_id)?;
+                let from = parse_opt_message(req.message_id.as_deref())?;
+                let thread = self
+                    .build_client()
+                    .create_thread(&tag, channel, req.name, from)
+                    .await?;
                 let body = serde_json::json!({ "channel_id": thread.id.to_string() }).to_string();
                 Ok(CallToolResult::success(vec![Content::text(body)]))
             }
@@ -283,8 +233,9 @@ impl PsychologicalOperationsDiscordMcp {
         finish(
             async move {
                 let (channel, message, rt) = parse_reaction(&req)?;
-                let http = self.build_client().http(&tag).await?;
-                http.create_reaction(channel, message, &rt).await?;
+                self.build_client()
+                    .add_reaction(&tag, channel, message, rt)
+                    .await?;
                 Ok(CallToolResult::success(vec![Content::text(
                     serde_json::json!({ "ok": true }).to_string(),
                 )]))
@@ -306,8 +257,9 @@ impl PsychologicalOperationsDiscordMcp {
         finish(
             async move {
                 let (channel, message, rt) = parse_reaction(&req)?;
-                let http = self.build_client().http(&tag).await?;
-                http.delete_reaction_me(channel, message, &rt).await?;
+                self.build_client()
+                    .remove_reaction(&tag, channel, message, rt)
+                    .await?;
                 Ok(CallToolResult::success(vec![Content::text(
                     serde_json::json!({ "ok": true }).to_string(),
                 )]))
@@ -317,16 +269,27 @@ impl PsychologicalOperationsDiscordMcp {
     }
 }
 
+/// Parse a channel snowflake (agent error on bad input).
+fn parse_channel(id: &str) -> Result<ChannelId, ToolError> {
+    id.parse()
+        .map_err(|_| ToolError::agent(format!("invalid channel id: {id}")))
+}
+
+/// Parse a message snowflake (agent error on bad input).
+fn parse_message(id: &str) -> Result<MessageId, ToolError> {
+    id.parse()
+        .map_err(|_| ToolError::agent(format!("invalid message id: {id}")))
+}
+
+/// Parse an optional message snowflake (e.g. a reply target).
+fn parse_opt_message(id: Option<&str>) -> Result<Option<MessageId>, ToolError> {
+    id.map(parse_message).transpose()
+}
+
 /// Parse a [`ReactionRequest`]'s channel / message ids and emoji.
 fn parse_reaction(req: &ReactionRequest) -> Result<(ChannelId, MessageId, ReactionType), ToolError> {
-    let channel: ChannelId = req
-        .channel_id
-        .parse()
-        .map_err(|_| ToolError::agent(format!("invalid channel id: {}", req.channel_id)))?;
-    let message: MessageId = req
-        .message_id
-        .parse()
-        .map_err(|_| ToolError::agent(format!("invalid message id: {}", req.message_id)))?;
+    let channel = parse_channel(&req.channel_id)?;
+    let message = parse_message(&req.message_id)?;
     let rt: ReactionType = req
         .emoji
         .parse()

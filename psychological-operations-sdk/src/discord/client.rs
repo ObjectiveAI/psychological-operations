@@ -27,9 +27,9 @@ use psychological_operations_db::Db;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serenity::all::{
-    ChannelId, CurrentUser, Emoji, EventHandler, GatewayIntents, GuildChannel, GuildId, GuildInfo,
-    Member, Message, MessageId, MessagePagination, RawEventHandler, ReactionType, Role, RoleId,
-    ShardManager, User, UserId,
+    Builder, ChannelId, ChannelType, CreateMessage, CreateThread, CurrentUser, EditMessage, Emoji,
+    EventHandler, GatewayIntents, GuildChannel, GuildId, GuildInfo, Member, Message, MessageId,
+    MessagePagination, RawEventHandler, ReactionType, Role, RoleId, ShardManager, User, UserId,
 };
 use tokio::sync::OnceCell;
 
@@ -338,6 +338,129 @@ impl Client {
                 .await?)
         })
         .await
+    }
+
+    // ── writes (uncached; mutations never touch the cache) ──────────────────
+
+    /// Validate the agent's bot token with a live `/users/@me` call —
+    /// **uncached** (the auth gate must verify the token now, not a cache peek).
+    pub async fn validate_token(&self, agent_tag: &str) -> Result<(), Error> {
+        let http = self.http(agent_tag).await?;
+        http.get_current_user().await?;
+        Ok(())
+    }
+
+    /// Send a message to a channel, optionally as a reply. Returns the created
+    /// message.
+    pub async fn send_message(
+        &self,
+        agent_tag: &str,
+        channel: ChannelId,
+        content: String,
+        reply_to: Option<MessageId>,
+    ) -> Result<Message, Error> {
+        let http = self.http(agent_tag).await?;
+        let mut builder = CreateMessage::new().content(content);
+        if let Some(mid) = reply_to {
+            // `(channel, message_id)` is a reply reference in this channel.
+            builder = builder.reference_message((channel, mid));
+        }
+        Ok(builder.execute(&*http, (channel, None)).await?)
+    }
+
+    /// Open (or reuse) a DM with `user` and send a message there, optionally as
+    /// a reply. Returns the created message (its `channel_id` is the DM).
+    pub async fn send_direct_message(
+        &self,
+        agent_tag: &str,
+        user: UserId,
+        content: String,
+        reply_to: Option<MessageId>,
+    ) -> Result<Message, Error> {
+        let http = self.http(agent_tag).await?;
+        let dm = user.create_dm_channel(&*http).await?;
+        let channel = dm.id;
+        let mut builder = CreateMessage::new().content(content);
+        if let Some(mid) = reply_to {
+            builder = builder.reference_message((channel, mid));
+        }
+        Ok(builder.execute(&*http, (channel, None)).await?)
+    }
+
+    /// Replace the content of one of the bot's own messages.
+    pub async fn edit_message(
+        &self,
+        agent_tag: &str,
+        channel: ChannelId,
+        message: MessageId,
+        content: String,
+    ) -> Result<(), Error> {
+        let http = self.http(agent_tag).await?;
+        EditMessage::new()
+            .content(content)
+            .execute(&*http, (channel, message, None))
+            .await?;
+        Ok(())
+    }
+
+    /// Delete one of the bot's own messages.
+    pub async fn delete_message(
+        &self,
+        agent_tag: &str,
+        channel: ChannelId,
+        message: MessageId,
+    ) -> Result<(), Error> {
+        let http = self.http(agent_tag).await?;
+        http.delete_message(channel, message, None).await?;
+        Ok(())
+    }
+
+    /// Create a thread in `channel`. With `from_message`, start it from that
+    /// message; without, a standalone public thread. Returns the thread channel.
+    pub async fn create_thread(
+        &self,
+        agent_tag: &str,
+        channel: ChannelId,
+        name: String,
+        from_message: Option<MessageId>,
+    ) -> Result<GuildChannel, Error> {
+        let http = self.http(agent_tag).await?;
+        let thread = match from_message {
+            Some(message) => CreateThread::new(name).execute(&*http, (channel, Some(message))).await?,
+            None => {
+                CreateThread::new(name)
+                    .kind(ChannelType::PublicThread)
+                    .execute(&*http, (channel, None))
+                    .await?
+            }
+        };
+        Ok(thread)
+    }
+
+    /// Add the bot's reaction to a message.
+    pub async fn add_reaction(
+        &self,
+        agent_tag: &str,
+        channel: ChannelId,
+        message: MessageId,
+        emoji: ReactionType,
+    ) -> Result<(), Error> {
+        let http = self.http(agent_tag).await?;
+        http.create_reaction(channel, message, &emoji).await?;
+        Ok(())
+    }
+
+    /// Remove the bot's own reaction from a message.
+    pub async fn remove_reaction(
+        &self,
+        agent_tag: &str,
+        channel: ChannelId,
+        message: MessageId,
+        emoji: ReactionType,
+    ) -> Result<(), Error> {
+        let http = self.http(agent_tag).await?;
+        http.delete_reaction_me(channel, message, &emoji).await?;
+        Ok(())
     }
 
     /// Resolve the agent's bot token from the DB. `discord_auth_get(tag)` then

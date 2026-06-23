@@ -114,10 +114,8 @@ impl Commands {
                     if !ctx.config.mock {
                         let client =
                             discord::Client::new(ctx.db.clone(), ctx.cache_max_size, ctx.cache_ttl);
-                        let http = client.http(&tag).await.map_err(|e| {
-                            Error::Other(format!("agent {tag} discord auth: {e}"))
-                        })?;
-                        http.get_current_user().await.map_err(|e| {
+                        // Uncached liveness check — must verify the token now.
+                        client.validate_token(&tag).await.map_err(|e| {
                             Error::Other(format!(
                                 "agent {tag} auth check (discord /users/@me): {e}"
                             ))
