@@ -67,10 +67,6 @@ pub(super) struct MessageSummary {
     /// `get_message`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub replied_to: Option<String>,
-    /// @-mentioned users' global usernames. (Left as bare usernames for now;
-    /// Discord mentions can also target roles / @everyone.)
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub mentions: Vec<String>,
     /// The channel id of the thread started from this message, if any. Read it
     /// with `list_messages`.
     #[serde(skip_serializing_if = "Option::is_none")]

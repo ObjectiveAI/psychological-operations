@@ -59,7 +59,6 @@ pub(super) fn project_message_summary(m: &Message) -> MessageSummary {
         id: m.id.to_string(),
         user: user_ref(&m.author),
         replied_to: replied_to(m),
-        mentions: mentions(m),
         thread_channel_id: thread_id(m),
     }
 }
