@@ -14,8 +14,10 @@
 //! `list_messages` (slim summaries) → `get_message` (full) / `open_attachment`.
 
 use base64::Engine;
+use objectiveai_sdk::agent::completions::message::{File, ImageUrl, RichContentPart, VideoUrl};
+use objectiveai_sdk::mcp::tool::ContentBlock;
 use psychological_operations_sdk::discord::serenity;
-use rmcp::model::{CallToolResult, Content, Extensions};
+use rmcp::model::{CallToolResult, Content, Extensions, RawContent};
 use rmcp::{ErrorData, handler::server::wrapper::Parameters, schemars, tool, tool_router};
 use serenity::all::{ChannelId, GuildId, MessageId, MessagePagination};
 
@@ -100,6 +102,21 @@ fn parse_channel(id: &str) -> Result<ChannelId, ToolError> {
 fn parse_message(id: &str) -> Result<MessageId, ToolError> {
     id.parse()
         .map_err(|_| ToolError::agent(format!("invalid message id: {id}")))
+}
+
+/// Convert an objectiveai [`RichContentPart`] into an rmcp [`Content`] block
+/// via the SDK's `RichContentPart -> ContentBlock` converter, so attachments
+/// are formatted the way the objectiveai system expects (and round-trip back to
+/// the right rich type). The objectiveai `ContentBlock` and rmcp `Content`
+/// share the MCP wire shape, so the bridge is a serde round-trip.
+fn rich_content(part: RichContentPart) -> Result<Content, ToolError> {
+    let block = ContentBlock::from(part);
+    let value = serde_json::to_value(&block)?;
+    let raw: RawContent = serde_json::from_value(value)?;
+    Ok(Content {
+        raw,
+        annotations: None,
+    })
 }
 
 #[tool_router(router = read_tools, vis = "pub")]
@@ -272,15 +289,34 @@ impl PsychologicalOperationsDiscordMcp {
                     .content_type
                     .clone()
                     .unwrap_or_else(|| "application/octet-stream".to_string());
+                let filename = att.filename.clone();
                 let bytes = att.download().await?;
                 let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
-                let content = match kind {
-                    AttachmentKind::Image => Content::image(b64, mime),
-                    AttachmentKind::Video | AttachmentKind::File => {
-                        Content::text(format!("data:{mime};base64,{b64}"))
-                    }
+                // Build the objectiveai RichContentPart, then convert to an MCP
+                // content block via the SDK's converter so the objectiveai
+                // system formats/round-trips it correctly.
+                let part = match kind {
+                    AttachmentKind::Image => RichContentPart::ImageUrl {
+                        image_url: ImageUrl {
+                            url: format!("data:{mime};base64,{b64}"),
+                            detail: None,
+                        },
+                    },
+                    AttachmentKind::Video => RichContentPart::VideoUrl {
+                        video_url: VideoUrl {
+                            url: format!("data:{mime};base64,{b64}"),
+                        },
+                    },
+                    AttachmentKind::File => RichContentPart::File {
+                        file: File {
+                            file_data: Some(b64),
+                            file_id: None,
+                            filename: Some(filename),
+                            file_url: None,
+                        },
+                    },
                 };
-                Ok(CallToolResult::success(vec![content]))
+                Ok(CallToolResult::success(vec![rich_content(part)?]))
             }
             .await,
         )

@@ -13,6 +13,8 @@
 //! failures and bad agent inputs surface as `is_error` tool results.
 
 use base64::Engine;
+use objectiveai_sdk::agent::completions::message::{ImageUrl, RichContentPart, VideoUrl};
+use objectiveai_sdk::mcp::tool::ContentBlock;
 use psychological_operations_sdk::x::client::AuthMode;
 use psychological_operations_sdk::x::params;
 use psychological_operations_sdk::x::tweets::id as tweets_id;
@@ -28,7 +30,7 @@ use psychological_operations_sdk::x::users::id::following as users_id_following;
 use psychological_operations_sdk::x::users::id::mentions as users_id_mentions;
 use psychological_operations_sdk::x::users::id::timelines::reverse_chronological as users_timeline;
 use psychological_operations_sdk::x::users::me as users_me;
-use rmcp::model::{CallToolResult, Content, Extensions};
+use rmcp::model::{CallToolResult, Content, Extensions, RawContent};
 use rmcp::{ErrorData, handler::server::wrapper::Parameters, schemars, tool, tool_router};
 
 use super::super::PsychologicalOperationsXApiMcp;
@@ -191,6 +193,21 @@ fn project_user(u: User) -> ListedUser {
         username: u.username.0,
         name: u.name,
     }
+}
+
+/// Convert an objectiveai [`RichContentPart`] into an rmcp [`Content`] block
+/// via the SDK's `RichContentPart -> ContentBlock` converter, so attachments
+/// are formatted the way the objectiveai system expects (and round-trip back to
+/// the right rich type). The objectiveai `ContentBlock` and rmcp `Content`
+/// share the MCP wire shape, so the bridge is a serde round-trip.
+fn rich_content(part: RichContentPart) -> Result<Content, ToolError> {
+    let block = ContentBlock::from(part);
+    let value = serde_json::to_value(&block)?;
+    let raw: RawContent = serde_json::from_value(value)?;
+    Ok(Content {
+        raw,
+        annotations: None,
+    })
 }
 
 #[tool_router(router = read_tools, vis = "pub")]
@@ -388,13 +405,24 @@ impl PsychologicalOperationsXApiMcp {
                 let bytes = http.fetch_url(&req.url).await?;
                 let fetched = FetchedAttachment { kind, mime, bytes };
                 let b64 = base64::engine::general_purpose::STANDARD.encode(&fetched.bytes);
-                let body = match fetched.kind {
-                    AttachmentKind::Photo => Content::image(b64, fetched.mime),
+                let data_url = format!("data:{};base64,{}", fetched.mime, b64);
+                // Build the objectiveai RichContentPart, then convert to an MCP
+                // content block via the SDK's converter so the objectiveai
+                // system formats/round-trips it correctly.
+                let part = match fetched.kind {
+                    AttachmentKind::Photo => RichContentPart::ImageUrl {
+                        image_url: ImageUrl {
+                            url: data_url,
+                            detail: None,
+                        },
+                    },
                     AttachmentKind::Video | AttachmentKind::AnimatedGif => {
-                        Content::text(format!("data:{};base64,{}", fetched.mime, b64))
+                        RichContentPart::VideoUrl {
+                            video_url: VideoUrl { url: data_url },
+                        }
                     }
                 };
-                Ok(CallToolResult::success(vec![body]))
+                Ok(CallToolResult::success(vec![rich_content(part)?]))
             }
             .await,
         )
