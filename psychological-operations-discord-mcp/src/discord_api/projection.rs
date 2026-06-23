@@ -43,11 +43,6 @@ fn replied_to(m: &Message) -> Option<String> {
         .map(|id| id.to_string())
 }
 
-/// Global usernames of the @-mentioned users.
-fn mentions(m: &Message) -> Vec<String> {
-    m.mentions.iter().map(|u| u.name.clone()).collect()
-}
-
 /// The channel id of the thread started from this message, if any. Carried
 /// inline on the message by `get_messages`/`get_message` — no extra fetch.
 fn thread_id(m: &Message) -> Option<String> {
@@ -70,7 +65,6 @@ pub(super) fn project_message_detail(m: &Message) -> MessageDetail {
         content: m.content.clone(),
         attachments: collect_attachments(m),
         replied_to: replied_to(m),
-        mentions: mentions(m),
         thread_channel_id: thread_id(m),
         created_at: m.timestamp.to_string(),
     }

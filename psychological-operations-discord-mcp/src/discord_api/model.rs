@@ -83,8 +83,6 @@ pub(super) struct MessageDetail {
     /// The id of the message this one replied to, if it's a reply.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub replied_to: Option<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub mentions: Vec<String>,
     /// The channel id of the thread started from this message, if any.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thread_channel_id: Option<String>,
