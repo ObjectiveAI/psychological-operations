@@ -34,6 +34,9 @@ const MAX_COUNT: u32 = 100;
 /// Discord's max page size for `GET /channels/{id}/messages`.
 const MESSAGES_PAGE: usize = 100;
 
+/// Discord's max page size for `GET /guilds/{id}/members`.
+const MEMBERS_PAGE: u64 = 1000;
+
 /// Reject a `count` over [`MAX_COUNT`] with an agent-visible message.
 pub(super) fn check_count(count: u32) -> Result<(), ToolError> {
     if count > MAX_COUNT {
@@ -62,6 +65,16 @@ pub struct ListServersRequest {}
 pub struct ListChannelsRequest {
     #[schemars(description = "The server (guild) snowflake id to list channels for.")]
     pub server_id: String,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct ListUsersRequest {
+    #[schemars(description = "The server (guild) snowflake id to list members of.")]
+    pub server_id: String,
+    #[schemars(description = "How many users to return (after skipping `offset`; max 100).")]
+    pub count: u32,
+    #[schemars(description = "How many users to skip from the start.")]
+    pub offset: u32,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
@@ -180,6 +193,66 @@ impl PsychologicalOperationsDiscordMcp {
                 let infos: Vec<ChannelInfo> = channels.iter().map(channel_info).collect();
                 let body = serde_json::to_string(&infos)?;
                 Ok(CallToolResult::success(vec![Content::text(body)]))
+            }
+            .await,
+        )
+    }
+
+    #[tool(
+        name = "list_users",
+        description = "List a server's members by global username."
+    )]
+    async fn list_users(
+        &self,
+        Parameters(req): Parameters<ListUsersRequest>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, ErrorData> {
+        let tag = self.resolve_session(&extensions).await?.tag.clone();
+        finish(
+            async move {
+                check_count(req.count)?;
+                let guild: GuildId = req
+                    .server_id
+                    .parse()
+                    .map_err(|_| ToolError::agent(format!("invalid server id: {}", req.server_id)))?;
+                let http = self.build_client().http(&tag).await?;
+
+                let need = req.offset as usize + req.count as usize;
+                // Page members via the `after` (user-id) cursor until we have
+                // `need` of them or the guild runs out.
+                let mut users: Vec<String> = Vec::new();
+                let mut after: Option<u64> = None;
+                let mut exhausted = false;
+                while users.len() < need {
+                    let page = http.get_guild_members(guild, Some(MEMBERS_PAGE), after).await?;
+                    if page.is_empty() {
+                        exhausted = true;
+                        break;
+                    }
+                    after = page.last().map(|m| m.user.id.get());
+                    users.extend(page.iter().map(|m| m.user.name.clone()));
+                    if (page.len() as u64) < MEMBERS_PAGE {
+                        exhausted = true;
+                        break;
+                    }
+                }
+
+                let note = remaining_note(
+                    users.len(),
+                    req.offset as usize,
+                    req.count as usize,
+                    !exhausted,
+                );
+                let window: Vec<String> = users
+                    .into_iter()
+                    .skip(req.offset as usize)
+                    .take(req.count as usize)
+                    .collect();
+                let body = serde_json::to_string(&window)?;
+                Ok(CallToolResult::success(vec![
+                    Content::text(body),
+                    Content::text(note),
+                ]))
             }
             .await,
         )

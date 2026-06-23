@@ -59,6 +59,8 @@ pub enum Commands {
         quota_usage_list_servers: Option<String>,
         #[arg(long = "quota_usage_list_channels")]
         quota_usage_list_channels: Option<String>,
+        #[arg(long = "quota_usage_list_users")]
+        quota_usage_list_users: Option<String>,
         #[arg(long = "quota_usage_list_messages")]
         quota_usage_list_messages: Option<String>,
         #[arg(long = "quota_usage_get_message")]
