@@ -28,8 +28,8 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serenity::all::{
     ChannelId, CurrentUser, Emoji, EventHandler, GatewayIntents, GuildChannel, GuildId, GuildInfo,
-    Member, Message, MessageId, MessagePagination, RawEventHandler, Role, RoleId, ShardManager,
-    User, UserId,
+    Member, Message, MessageId, MessagePagination, RawEventHandler, ReactionType, Role, RoleId,
+    ShardManager, User, UserId,
 };
 use tokio::sync::OnceCell;
 
@@ -83,6 +83,20 @@ pub struct GetGuildMembers {
 pub struct GetMessages {
     pub channel: ChannelId,
     pub before: Option<MessageId>,
+}
+
+/// Discord's max page size for `GET /channels/{id}/messages/{id}/reactions/{e}`.
+pub const REACTIONS_PAGE: u8 = 100;
+
+/// Args for [`Client::get_reaction_users`]. The page size is fixed internally
+/// ([`REACTIONS_PAGE`]) so cache keys carry only `(channel, message, emoji,
+/// after)` — page by `after` (the last user id of the previous page).
+#[derive(Debug, Clone)]
+pub struct GetReactionUsers {
+    pub channel: ChannelId,
+    pub message: MessageId,
+    pub emoji: ReactionType,
+    pub after: Option<UserId>,
 }
 
 impl Client {
@@ -289,6 +303,39 @@ impl Client {
         self.cached(key, || async {
             let http = self.http(agent_tag).await?;
             Ok(http.get_emojis(guild).await?)
+        })
+        .await
+    }
+
+    /// One page (up to [`REACTIONS_PAGE`]) of the users who reacted to a message
+    /// with a given emoji, after the `after` cursor. Global cached. Callers
+    /// loop, advancing `after`, until a short/empty page.
+    pub async fn get_reaction_users(
+        &self,
+        agent_tag: &str,
+        req: GetReactionUsers,
+    ) -> Result<Vec<User>, Error> {
+        let GetReactionUsers {
+            channel,
+            message,
+            emoji,
+            after,
+        } = req;
+        let after_bytes = cache::opt_cursor(after.map(|u| u.get()));
+        let key = cache::global_key(
+            "get_reaction_users",
+            &[
+                &channel.get().to_le_bytes(),
+                &message.get().to_le_bytes(),
+                emoji.to_string().as_bytes(),
+                &after_bytes,
+            ],
+        );
+        self.cached(key, || async move {
+            let http = self.http(agent_tag).await?;
+            Ok(http
+                .get_reaction_users(channel, message, &emoji, REACTIONS_PAGE, after.map(|u| u.get()))
+                .await?)
         })
         .await
     }

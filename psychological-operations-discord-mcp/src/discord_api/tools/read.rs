@@ -18,7 +18,7 @@ use objectiveai_sdk::agent::completions::message::{File, ImageUrl, RichContentPa
 use objectiveai_sdk::mcp::tool::ContentBlock;
 use psychological_operations_sdk::discord::serenity;
 use psychological_operations_sdk::discord::{
-    GetGuildMembers, GetMessages, MEMBERS_PAGE, MESSAGES_PAGE,
+    GetGuildMembers, GetMessages, GetReactionUsers, MEMBERS_PAGE, MESSAGES_PAGE, REACTIONS_PAGE,
 };
 use rmcp::model::{CallToolResult, Content, Extensions, RawAudioContent, RawContent};
 use rmcp::{ErrorData, handler::server::wrapper::Parameters, schemars, tool, tool_router};
@@ -667,24 +667,31 @@ impl PsychologicalOperationsDiscordMcp {
                     .emoji
                     .parse()
                     .map_err(|_| ToolError::agent(format!("invalid emoji: {}", req.emoji)))?;
-                let http = self.build_client().http(&tag).await?;
+                let client = self.build_client();
 
                 let need = req.offset as usize + req.count as usize;
                 let mut users: Vec<User> = Vec::new();
-                let mut after: Option<u64> = None;
+                let mut after: Option<UserId> = None;
                 let mut exhausted = false;
                 while users.len() < need {
-                    let want = (need - users.len()).min(100) as u8;
-                    let page = http
-                        .get_reaction_users(channel, message, &rt, want, after)
+                    let page = client
+                        .get_reaction_users(
+                            &tag,
+                            GetReactionUsers {
+                                channel,
+                                message,
+                                emoji: rt.clone(),
+                                after,
+                            },
+                        )
                         .await?;
                     if page.is_empty() {
                         exhausted = true;
                         break;
                     }
-                    after = page.last().map(|u| u.id.get());
+                    after = page.last().map(|u| u.id);
                     users.extend(page.iter().map(user_ref));
-                    if (page.len() as u8) < want {
+                    if (page.len() as u8) < REACTIONS_PAGE {
                         exhausted = true;
                         break;
                     }
