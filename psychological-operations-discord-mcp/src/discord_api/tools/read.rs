@@ -17,12 +17,12 @@ use base64::Engine;
 use objectiveai_sdk::agent::completions::message::{File, ImageUrl, RichContentPart, VideoUrl};
 use objectiveai_sdk::mcp::tool::ContentBlock;
 use psychological_operations_sdk::discord::serenity;
-use psychological_operations_sdk::discord::{GetGuildMembers, MEMBERS_PAGE};
+use psychological_operations_sdk::discord::{
+    GetGuildMembers, GetMessages, MEMBERS_PAGE, MESSAGES_PAGE,
+};
 use rmcp::model::{CallToolResult, Content, Extensions, RawAudioContent, RawContent};
 use rmcp::{ErrorData, handler::server::wrapper::Parameters, schemars, tool, tool_router};
-use serenity::all::{
-    ChannelId, GuildId, MessageId, MessagePagination, ReactionType, RoleId, UserId,
-};
+use serenity::all::{ChannelId, GuildId, MessageId, ReactionType, RoleId, UserId};
 
 use super::super::PsychologicalOperationsDiscordMcp;
 use super::super::model::{
@@ -36,9 +36,6 @@ use super::super::tool_error::{ToolError, finish};
 
 /// Max window size the paginated read tools (and the queue tools) accept.
 const MAX_COUNT: u32 = 100;
-
-/// Discord's max page size for `GET /channels/{id}/messages`.
-const MESSAGES_PAGE: usize = 100;
 
 /// Reject a `count` over [`MAX_COUNT`] with an agent-visible message.
 pub(super) fn check_count(count: u32) -> Result<(), ToolError> {
@@ -540,18 +537,16 @@ impl PsychologicalOperationsDiscordMcp {
             async move {
                 check_count(req.count)?;
                 let channel = parse_channel(&req.channel_id)?;
-                let http = self.build_client().http(&tag).await?;
+                let client = self.build_client();
 
                 let need = req.offset as usize + req.count as usize;
-                // Page the history newest-first via `Before(cursor)` until we
+                // Page the history newest-first via `before` cursor until we
                 // have `need` messages or the channel runs out.
                 let mut collected: Vec<serenity::all::Message> = Vec::new();
                 let mut before: Option<MessageId> = None;
                 let mut exhausted = false;
                 while collected.len() < need {
-                    let want = (need - collected.len()).min(MESSAGES_PAGE) as u8;
-                    let target = before.map(MessagePagination::Before);
-                    let batch = http.get_messages(channel, target, Some(want)).await?;
+                    let batch = client.get_messages(&tag, GetMessages { channel, before }).await?;
                     let got = batch.len();
                     if got == 0 {
                         exhausted = true;
@@ -561,7 +556,7 @@ impl PsychologicalOperationsDiscordMcp {
                     // the cursor for the next (older) page.
                     before = batch.last().map(|m| m.id);
                     collected.extend(batch);
-                    if (got as u8) < want {
+                    if got < MESSAGES_PAGE as usize {
                         exhausted = true;
                         break;
                     }

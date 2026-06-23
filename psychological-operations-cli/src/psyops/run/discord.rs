@@ -34,8 +34,8 @@ use objectiveai_sdk::functions::{
 };
 
 use psychological_operations_sdk::cli::psyops::discord::{OutputTop, PsyOp, SortBy, Stage};
-use psychological_operations_sdk::discord::{self, serenity};
-use serenity::all::{ChannelId, ChannelType, GuildId, Message, MessageId, MessagePagination};
+use psychological_operations_sdk::discord::{self, serenity, GetMessages};
+use serenity::all::{ChannelId, ChannelType, GuildId, Message, MessageId};
 
 use crate::db::{MediaUrl, Post};
 use crate::error::Error;
@@ -105,13 +105,6 @@ async fn run_psyop(
     let mut cands: Vec<Cand> = Vec::new();
     for ch in psyop.channels.iter().flatten() {
         let label = format!("channel {}", ch.channel_id);
-        let http = match client.http(&ch.agent_tag).await {
-            Ok(h) => h,
-            Err(e) => {
-                emit_source_result(name, &label, 0, Some(Error::Other(format!("discord auth: {e}"))));
-                continue;
-            }
-        };
         let cid: ChannelId = match ch.channel_id.parse() {
             Ok(c) => c,
             Err(e) => {
@@ -119,19 +112,13 @@ async fn run_psyop(
                 continue;
             }
         };
-        let (posts, err) = ingest_channel(&http, cid, ch.count).await;
+        // Auth errors surface as the first paged fetch's error.
+        let (posts, err) = ingest_channel(&client, &ch.agent_tag, cid, ch.count).await;
         let kept = push_filtered(ctx, &mut cands, posts, ch.python_filter.as_deref(), ch.priority).await?;
         emit_source_result(name, &label, kept, err);
     }
     for sv in psyop.servers.iter().flatten() {
         let label = format!("server {}", sv.guild_id);
-        let http = match client.http(&sv.agent_tag).await {
-            Ok(h) => h,
-            Err(e) => {
-                emit_source_result(name, &label, 0, Some(Error::Other(format!("discord auth: {e}"))));
-                continue;
-            }
-        };
         let gid: GuildId = match sv.guild_id.parse() {
             Ok(g) => g,
             Err(e) => {
@@ -139,7 +126,7 @@ async fn run_psyop(
                 continue;
             }
         };
-        let (posts, err) = ingest_server(&http, gid, sv.count).await;
+        let (posts, err) = ingest_server(&client, &sv.agent_tag, gid, sv.count).await;
         let kept = push_filtered(ctx, &mut cands, posts, sv.python_filter.as_deref(), sv.priority).await?;
         emit_source_result(name, &label, kept, err);
     }
@@ -290,17 +277,20 @@ async fn filter_passes(
 /// collected or the history runs out. Same partial-keep contract as the X
 /// fetches: a page error stops the loop but keeps everything paged before it.
 async fn ingest_channel(
-    http: &serenity::http::Http,
+    client: &discord::Client,
+    agent_tag: &str,
     channel_id: ChannelId,
     count: u64,
 ) -> (Vec<(Post, String)>, Option<Error>) {
     let mut out: Vec<(Post, String)> = Vec::new();
     let mut before: Option<MessageId> = None;
     while (out.len() as u64) < count {
-        // Discord caps a page at 100; request only as many as we still need.
-        let want = (count - out.len() as u64).min(100) as u8;
-        let target = before.map(MessagePagination::Before);
-        let batch = match http.get_messages(channel_id, target, Some(want)).await {
+        // The cached method fetches full (100-message) pages; we over-fetch the
+        // last page slightly and truncate at the end.
+        let batch = match client
+            .get_messages(agent_tag, GetMessages { channel: channel_id, before })
+            .await
+        {
             Ok(b) => b,
             Err(e) => return (out, Some(Error::Other(format!("get_messages: {e}")))),
         };
@@ -325,11 +315,12 @@ async fn ingest_channel(
 /// Page across a server's text channels, summing toward `count`. Reads only
 /// top-level text-ish channels (archived threads are not fetched).
 async fn ingest_server(
-    http: &serenity::http::Http,
+    client: &discord::Client,
+    agent_tag: &str,
     guild_id: GuildId,
     count: u64,
 ) -> (Vec<(Post, String)>, Option<Error>) {
-    let channels = match http.get_channels(guild_id).await {
+    let channels = match client.get_channels(agent_tag, guild_id).await {
         Ok(c) => c,
         Err(e) => return (Vec::new(), Some(Error::Other(format!("get_channels: {e}")))),
     };
@@ -342,7 +333,7 @@ async fn ingest_server(
             continue;
         }
         let remaining = count - out.len() as u64;
-        let (mut posts, err) = ingest_channel(http, ch.id, remaining).await;
+        let (mut posts, err) = ingest_channel(client, agent_tag, ch.id, remaining).await;
         out.append(&mut posts);
         if let Some(e) = err {
             return (out, Some(e));

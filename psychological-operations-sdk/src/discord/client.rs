@@ -27,8 +27,9 @@ use psychological_operations_db::Db;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serenity::all::{
-    CurrentUser, Emoji, EventHandler, GatewayIntents, GuildChannel, GuildId, GuildInfo, Member,
-    RawEventHandler, Role, RoleId, ShardManager, User, UserId,
+    ChannelId, CurrentUser, Emoji, EventHandler, GatewayIntents, GuildChannel, GuildId, GuildInfo,
+    Member, Message, MessageId, MessagePagination, RawEventHandler, Role, RoleId, ShardManager,
+    User, UserId,
 };
 use tokio::sync::OnceCell;
 
@@ -63,6 +64,9 @@ struct Inner {
 /// Discord's max page size for `GET /guilds/{id}/members`.
 pub const MEMBERS_PAGE: u64 = 1000;
 
+/// Discord's max page size for `GET /channels/{id}/messages`.
+pub const MESSAGES_PAGE: u8 = 100;
+
 /// Args for [`Client::get_guild_members`]. The page size is fixed internally
 /// ([`MEMBERS_PAGE`]) so cache keys never carry a variable limit — page by
 /// `after` (the last user id of the previous page).
@@ -70,6 +74,15 @@ pub const MEMBERS_PAGE: u64 = 1000;
 pub struct GetGuildMembers {
     pub guild: GuildId,
     pub after: Option<UserId>,
+}
+
+/// Args for [`Client::get_messages`]. Newest-first; the page size is fixed
+/// internally ([`MESSAGES_PAGE`]) so cache keys carry only `(channel, before)`
+/// — page by `before` (the oldest id of the previous page).
+#[derive(Debug, Clone, Copy)]
+pub struct GetMessages {
+    pub channel: ChannelId,
+    pub before: Option<MessageId>,
 }
 
 impl Client {
@@ -228,6 +241,26 @@ impl Client {
             Ok(http
                 .get_guild_members(guild, Some(MEMBERS_PAGE), after.map(|u| u.get()))
                 .await?)
+        })
+        .await
+    }
+
+    /// One page (up to [`MESSAGES_PAGE`]) of a channel's messages, newest
+    /// first, older than the `before` cursor. Global cached. Callers loop,
+    /// advancing `before` to the oldest returned id, until a short/empty page.
+    pub async fn get_messages(
+        &self,
+        agent_tag: &str,
+        req: GetMessages,
+    ) -> Result<Vec<Message>, Error> {
+        let GetMessages { channel, before } = req;
+        let before_bytes = cache::opt_cursor(before.map(|m| m.get()));
+        let key =
+            cache::global_key("get_messages", &[&channel.get().to_le_bytes(), &before_bytes]);
+        self.cached(key, || async move {
+            let http = self.http(agent_tag).await?;
+            let target = before.map(MessagePagination::Before);
+            Ok(http.get_messages(channel, target, Some(MESSAGES_PAGE)).await?)
         })
         .await
     }

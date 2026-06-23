@@ -5,7 +5,7 @@ mod cache;
 pub mod client;
 pub mod error;
 
-pub use client::{Client, GetGuildMembers, MEMBERS_PAGE};
+pub use client::{Client, GetGuildMembers, GetMessages, MEMBERS_PAGE, MESSAGES_PAGE};
 pub use error::Error;
 
 // Re-export the serenity crate so callers reach `EventHandler`,
