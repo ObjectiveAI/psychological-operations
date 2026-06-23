@@ -58,7 +58,7 @@ export function PsyopTile({
 
       <dl className={cn("text-sm", "grid", "grid-cols-2", "gap-y-1")}>
         <dt className={cn("opacity-60")}>stages</dt>
-        <dd>{psyop.definition.stages.length}</dd>
+        <dd>{psyop.definition.stages?.length ?? 0}</dd>
         <dt className={cn("opacity-60")}>sort</dt>
         <dd className={cn("truncate")}>{formatSort(psyop.definition.sort)}</dd>
         <dt className={cn("opacity-60")}>commit</dt>
