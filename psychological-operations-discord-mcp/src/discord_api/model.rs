@@ -51,7 +51,7 @@ pub(super) struct MessageSummary {
     /// The channel id of the thread started from this message, if any. Read it
     /// with `list_messages`.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub thread: Option<String>,
+    pub thread_channel_id: Option<String>,
 }
 
 /// Rich `get_message` detail.
@@ -67,6 +67,6 @@ pub(super) struct MessageDetail {
     pub mentions: Vec<String>,
     /// The channel id of the thread started from this message, if any.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub thread: Option<String>,
+    pub thread_channel_id: Option<String>,
     pub created_at: String,
 }

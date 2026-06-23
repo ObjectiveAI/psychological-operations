@@ -52,7 +52,7 @@ pub(super) fn project_message_summary(m: &Message) -> MessageSummary {
         author: m.author.name.clone(),
         replied_to: replied_to(m),
         mentions: mentions(m),
-        thread: thread_id(m),
+        thread_channel_id: thread_id(m),
     }
 }
 
@@ -64,7 +64,7 @@ pub(super) fn project_message_detail(m: &Message) -> MessageDetail {
         attachments: collect_attachments(m),
         replied_to: replied_to(m),
         mentions: mentions(m),
-        thread: thread_id(m),
+        thread_channel_id: thread_id(m),
         created_at: m.timestamp.to_string(),
     }
 }
