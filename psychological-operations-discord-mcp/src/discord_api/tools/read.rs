@@ -146,7 +146,7 @@ fn rich_content(part: RichContentPart) -> Result<Content, ToolError> {
 impl PsychologicalOperationsDiscordMcp {
     #[tool(
         name = "list_servers",
-        description = "List the Discord servers (guilds) the bot is in."
+        description = "List the Discord servers (guilds) you're in."
     )]
     async fn list_servers(
         &self,
@@ -260,8 +260,7 @@ impl PsychologicalOperationsDiscordMcp {
 
     #[tool(
         name = "list_messages",
-        description = "Read a channel's messages, newest first. Returns slim summaries — \
-                       open one with get_message for its full content."
+        description = "Read a channel's messages, newest first."
     )]
     async fn list_messages(
         &self,
@@ -344,7 +343,7 @@ impl PsychologicalOperationsDiscordMcp {
         )
     }
 
-    #[tool(name = "open_attachment", description = "Fetch a message attachment's bytes.")]
+    #[tool(name = "open_attachment", description = "Fetch a message attachment.")]
     async fn open_attachment(
         &self,
         Parameters(req): Parameters<OpenAttachmentRequest>,
