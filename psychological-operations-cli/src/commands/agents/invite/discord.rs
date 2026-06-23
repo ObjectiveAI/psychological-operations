@@ -24,12 +24,13 @@ async fn run_inner(name: &str, ctx: &crate::context::Context) -> Result<CliOutpu
                 "agent '{name}' has no Discord bot client id — run `agents login discord` first"
             ))
         })?;
-    // `permissions=0` — no extra permissions; the bot lands at the @everyone
-    // baseline. Scopes: `bot` to add the bot, `applications.commands` for slash
-    // commands.
+    // `permissions=0` (permissionless; the bot lands at the @everyone baseline).
+    // Scopes: `bot` to add the bot, `applications.commands` for slash commands.
+    // The scope separator MUST be `+` (Discord's authorize endpoint mishandles
+    // a `%20`-encoded space and drops the `bot` scope).
     let url = format!(
         "https://discord.com/oauth2/authorize?client_id={client_id}\
-         &permissions=0&scope=bot%20applications.commands"
+         &permissions=0&scope=bot+applications.commands"
     );
     Ok(CliOutput::DiscordInvite(DiscordInvite { url }))
 }

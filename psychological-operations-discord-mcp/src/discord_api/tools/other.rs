@@ -37,11 +37,13 @@ impl PsychologicalOperationsDiscordMcp {
                             "agent '{tag}' has no Discord client id — it isn't set up yet."
                         ))
                     })?;
-                // permissions=0 — no extra permissions (the bot lands at the
-                // @everyone baseline); scopes add the bot + slash commands.
+                // permissions=0 (permissionless; the bot lands at the @everyone
+                // baseline); scopes add the bot + slash commands. The scope
+                // separator MUST be `+` — a `%20`-encoded space makes Discord
+                // drop the `bot` scope (no add-to-server).
                 let url = format!(
                     "https://discord.com/oauth2/authorize?client_id={client_id}\
-                     &permissions=0&scope=bot%20applications.commands"
+                     &permissions=0&scope=bot+applications.commands"
                 );
                 Ok(CallToolResult::success(vec![Content::text(url)]))
             }
