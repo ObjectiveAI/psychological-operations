@@ -1,9 +1,19 @@
 //! Agent-facing Discord data shapes. Mirrors the X MCP's slim-list /
 //! rich-detail split: the list tools return the tiny [`MessageSummary`];
-//! `get_message` returns the full [`MessageDetail`]. `author` is always the
-//! global Discord username (not the per-server nickname).
+//! `get_message` returns the full [`MessageDetail`]. Every user reference is a
+//! [`User`] (`user_id` + global `username`) so the agent always has the id the
+//! per-user tools (`get_user`, `get_profile_picture`) key off.
 
 use serde::Serialize;
+
+/// A reference to a Discord user: the stable `user_id` plus the global
+/// `username`. Used wherever a user appears (message author, `list_users`),
+/// so the agent can both display the name and call the per-user tools by id.
+#[derive(Debug, Clone, Serialize)]
+pub(super) struct User {
+    pub user_id: String,
+    pub username: String,
+}
 
 #[derive(Debug, Clone, Copy, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -26,6 +36,15 @@ pub(super) struct ServerInfo {
     pub name: String,
 }
 
+/// `get_user` result. `nickname` is the per-server nickname when a `server_id`
+/// was given (falling back to `username` when unset), else just `username`.
+#[derive(Debug, Clone, Serialize)]
+pub(super) struct UserProfile {
+    pub user: User,
+    pub nickname: String,
+    pub bot: bool,
+}
+
 /// `list_channels` item. `kind` is the channel type (`text`, `news`,
 /// `public_thread`, `forum`, …).
 #[derive(Debug, Clone, Serialize)]
@@ -36,16 +55,18 @@ pub(super) struct ChannelInfo {
     pub kind: String,
 }
 
-/// Slim `list_messages` item — id, author, the reply target (if any), the
-/// @-mentioned users, and the thread this message started (if any). Open it
+/// Slim `list_messages` item — id, author (`user`), the reply target (if any),
+/// the @-mentioned users, and the thread this message started (if any). Open it
 /// with `get_message` for the full content; read a started thread with
-/// `list_messages` on its `thread` id.
+/// `list_messages` on its `thread_channel_id`.
 #[derive(Debug, Clone, Serialize)]
 pub(super) struct MessageSummary {
     pub id: String,
-    pub author: String,
+    pub user: User,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub replied_to: Option<String>,
+    /// @-mentioned users' global usernames. (Left as bare usernames for now;
+    /// Discord mentions can also target roles / @everyone.)
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub mentions: Vec<String>,
     /// The channel id of the thread started from this message, if any. Read it
@@ -58,7 +79,7 @@ pub(super) struct MessageSummary {
 #[derive(Debug, Clone, Serialize)]
 pub(super) struct MessageDetail {
     pub id: String,
-    pub author: String,
+    pub user: User,
     pub content: String,
     pub attachments: Vec<Attachment>,
     #[serde(skip_serializing_if = "Option::is_none")]

@@ -6,7 +6,15 @@
 use psychological_operations_sdk::discord::serenity;
 use serenity::all::{GuildChannel, Message};
 
-use super::model::{Attachment, AttachmentKind, ChannelInfo, MessageDetail, MessageSummary};
+use super::model::{Attachment, AttachmentKind, ChannelInfo, MessageDetail, MessageSummary, User};
+
+/// A [`User`] reference (`user_id` + global username) from a serenity user.
+pub(super) fn user_ref(u: &serenity::all::User) -> User {
+    User {
+        user_id: u.id.to_string(),
+        username: u.name.clone(),
+    }
+}
 
 /// Classify a Discord attachment by its `content_type`.
 pub(super) fn attachment_kind(content_type: Option<&str>) -> AttachmentKind {
@@ -49,7 +57,7 @@ fn thread_id(m: &Message) -> Option<String> {
 pub(super) fn project_message_summary(m: &Message) -> MessageSummary {
     MessageSummary {
         id: m.id.to_string(),
-        author: m.author.name.clone(),
+        user: user_ref(&m.author),
         replied_to: replied_to(m),
         mentions: mentions(m),
         thread_channel_id: thread_id(m),
@@ -59,7 +67,7 @@ pub(super) fn project_message_summary(m: &Message) -> MessageSummary {
 pub(super) fn project_message_detail(m: &Message) -> MessageDetail {
     MessageDetail {
         id: m.id.to_string(),
-        author: m.author.name.clone(),
+        user: user_ref(&m.author),
         content: m.content.clone(),
         attachments: collect_attachments(m),
         replied_to: replied_to(m),

@@ -19,12 +19,14 @@ use objectiveai_sdk::mcp::tool::ContentBlock;
 use psychological_operations_sdk::discord::serenity;
 use rmcp::model::{CallToolResult, Content, Extensions, RawAudioContent, RawContent};
 use rmcp::{ErrorData, handler::server::wrapper::Parameters, schemars, tool, tool_router};
-use serenity::all::{ChannelId, GuildId, MessageId, MessagePagination};
+use serenity::all::{ChannelId, GuildId, MessageId, MessagePagination, UserId};
 
 use super::super::PsychologicalOperationsDiscordMcp;
-use super::super::model::{AttachmentKind, ChannelInfo, MessageSummary, ServerInfo};
+use super::super::model::{
+    AttachmentKind, ChannelInfo, MessageSummary, ServerInfo, User, UserProfile,
+};
 use super::super::projection::{
-    attachment_kind, channel_info, project_message_detail, project_message_summary,
+    attachment_kind, channel_info, project_message_detail, project_message_summary, user_ref,
 };
 use super::super::tool_error::{ToolError, finish};
 
@@ -75,6 +77,24 @@ pub struct ListUsersRequest {
     pub count: u32,
     #[schemars(description = "How many users to skip from the start.")]
     pub offset: u32,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct GetUserRequest {
+    #[schemars(description = "The user's snowflake id.")]
+    pub user_id: String,
+    #[schemars(description = "Optional server (guild) id. When given, `nickname` is the user's \
+                             per-server nickname (falling back to their username if unset).")]
+    pub server_id: Option<String>,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct GetProfilePictureRequest {
+    #[schemars(description = "The user's snowflake id.")]
+    pub user_id: String,
+    #[schemars(description = "Optional server (guild) id. When given, returns the user's \
+                             per-server avatar if they set one.")]
+    pub server_id: Option<String>,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
@@ -220,7 +240,7 @@ impl PsychologicalOperationsDiscordMcp {
                 let need = req.offset as usize + req.count as usize;
                 // Page members via the `after` (user-id) cursor until we have
                 // `need` of them or the guild runs out.
-                let mut users: Vec<String> = Vec::new();
+                let mut users: Vec<User> = Vec::new();
                 let mut after: Option<u64> = None;
                 let mut exhausted = false;
                 while users.len() < need {
@@ -230,7 +250,7 @@ impl PsychologicalOperationsDiscordMcp {
                         break;
                     }
                     after = page.last().map(|m| m.user.id.get());
-                    users.extend(page.iter().map(|m| m.user.name.clone()));
+                    users.extend(page.iter().map(|m| user_ref(&m.user)));
                     if (page.len() as u64) < MEMBERS_PAGE {
                         exhausted = true;
                         break;
@@ -243,7 +263,7 @@ impl PsychologicalOperationsDiscordMcp {
                     req.count as usize,
                     !exhausted,
                 );
-                let window: Vec<String> = users
+                let window: Vec<User> = users
                     .into_iter()
                     .skip(req.offset as usize)
                     .take(req.count as usize)
@@ -253,6 +273,88 @@ impl PsychologicalOperationsDiscordMcp {
                     Content::text(body),
                     Content::text(note),
                 ]))
+            }
+            .await,
+        )
+    }
+
+    #[tool(
+        name = "get_user",
+        description = "Look up a user by id. With a server_id, `nickname` is their per-server \
+                       nickname (else their username)."
+    )]
+    async fn get_user(
+        &self,
+        Parameters(req): Parameters<GetUserRequest>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, ErrorData> {
+        let tag = self.resolve_session(&extensions).await?.tag.clone();
+        finish(
+            async move {
+                let uid: UserId = req
+                    .user_id
+                    .parse()
+                    .map_err(|_| ToolError::agent(format!("invalid user id: {}", req.user_id)))?;
+                let http = self.build_client().http(&tag).await?;
+                let profile = match req.server_id {
+                    Some(sid) => {
+                        let guild: GuildId = sid.parse().map_err(|_| {
+                            ToolError::agent(format!("invalid server id: {sid}"))
+                        })?;
+                        let member = http.get_member(guild, uid).await?;
+                        let user = user_ref(&member.user);
+                        let nickname = member.nick.clone().unwrap_or_else(|| user.username.clone());
+                        UserProfile {
+                            user,
+                            nickname,
+                            bot: member.user.bot,
+                        }
+                    }
+                    None => {
+                        let u = http.get_user(uid).await?;
+                        let nickname = u.name.clone();
+                        UserProfile {
+                            user: user_ref(&u),
+                            nickname,
+                            bot: u.bot,
+                        }
+                    }
+                };
+                let body = serde_json::to_string(&profile)?;
+                Ok(CallToolResult::success(vec![Content::text(body)]))
+            }
+            .await,
+        )
+    }
+
+    #[tool(
+        name = "get_profile_picture",
+        description = "Get a user's avatar URL by id. With a server_id, prefers their \
+                       per-server avatar."
+    )]
+    async fn get_profile_picture(
+        &self,
+        Parameters(req): Parameters<GetProfilePictureRequest>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, ErrorData> {
+        let tag = self.resolve_session(&extensions).await?.tag.clone();
+        finish(
+            async move {
+                let uid: UserId = req
+                    .user_id
+                    .parse()
+                    .map_err(|_| ToolError::agent(format!("invalid user id: {}", req.user_id)))?;
+                let http = self.build_client().http(&tag).await?;
+                let url = match req.server_id {
+                    Some(sid) => {
+                        let guild: GuildId = sid.parse().map_err(|_| {
+                            ToolError::agent(format!("invalid server id: {sid}"))
+                        })?;
+                        http.get_member(guild, uid).await?.face()
+                    }
+                    None => http.get_user(uid).await?.face(),
+                };
+                Ok(CallToolResult::success(vec![Content::text(url)]))
             }
             .await,
         )

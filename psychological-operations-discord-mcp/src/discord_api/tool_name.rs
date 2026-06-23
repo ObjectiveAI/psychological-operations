@@ -24,17 +24,21 @@ pub enum ToolName {
     ListUsers,
     ListMessages,
     GetMessage,
+    GetUser,
+    GetProfilePicture,
     OpenAttachment,
 }
 
 impl ToolName {
     /// Every metered tool, in a stable order.
-    pub const ALL: [ToolName; 6] = [
+    pub const ALL: [ToolName; 8] = [
         ToolName::ListServers,
         ToolName::ListChannels,
         ToolName::ListUsers,
         ToolName::ListMessages,
         ToolName::GetMessage,
+        ToolName::GetUser,
+        ToolName::GetProfilePicture,
         ToolName::OpenAttachment,
     ];
 
@@ -47,6 +51,8 @@ impl ToolName {
             ListUsers => "list_users",
             ListMessages => "list_messages",
             GetMessage => "get_message",
+            GetUser => "get_user",
+            GetProfilePicture => "get_profile_picture",
             OpenAttachment => "open_attachment",
         }
     }
@@ -62,8 +68,8 @@ impl ToolName {
     pub fn direction(self) -> Direction {
         use ToolName::*;
         match self {
-            ListServers | ListChannels | ListUsers | ListMessages | GetMessage
-            | OpenAttachment => Direction::Read,
+            ListServers | ListChannels | ListUsers | ListMessages | GetMessage | GetUser
+            | GetProfilePicture | OpenAttachment => Direction::Read,
         }
     }
 }

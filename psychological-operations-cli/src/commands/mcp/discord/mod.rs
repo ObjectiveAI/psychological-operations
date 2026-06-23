@@ -65,6 +65,10 @@ pub enum Commands {
         quota_usage_list_messages: Option<String>,
         #[arg(long = "quota_usage_get_message")]
         quota_usage_get_message: Option<String>,
+        #[arg(long = "quota_usage_get_user")]
+        quota_usage_get_user: Option<String>,
+        #[arg(long = "quota_usage_get_profile_picture")]
+        quota_usage_get_profile_picture: Option<String>,
         #[arg(long = "quota_usage_open_attachment")]
         quota_usage_open_attachment: Option<String>,
     },
