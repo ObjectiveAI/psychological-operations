@@ -15,10 +15,25 @@
 
 use sha2::{Digest, Sha256};
 
+/// Encode an optional snowflake cursor for a cache key: `[0]` for `None`, or
+/// `[1] ‖ id_le` for `Some` — a presence byte so `None` and any `Some` value
+/// produce distinct, unambiguous key parts.
+// Removed once the first paginated (cursor) read method lands.
+#[allow(dead_code)]
+pub fn opt_cursor(id: Option<u64>) -> Vec<u8> {
+    match id {
+        Some(x) => {
+            let mut v = Vec::with_capacity(9);
+            v.push(1);
+            v.extend_from_slice(&x.to_le_bytes());
+            v
+        }
+        None => vec![0],
+    }
+}
+
 /// Global (account-agnostic) key:
 /// `SHA-256(b"discord\0" ‖ method ‖ (\0 ‖ part)…)`.
-// Removed once the first global-keyed read method lands (Phase 2).
-#[allow(dead_code)]
 pub fn global_key(method: &str, parts: &[&[u8]]) -> [u8; 32] {
     let mut h = Sha256::new();
     h.update(b"discord\0");

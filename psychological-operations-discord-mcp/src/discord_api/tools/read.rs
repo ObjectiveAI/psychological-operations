@@ -460,13 +460,13 @@ impl PsychologicalOperationsDiscordMcp {
                     .user_id
                     .parse()
                     .map_err(|_| ToolError::agent(format!("invalid user id: {}", req.user_id)))?;
-                let http = self.build_client().http(&tag).await?;
+                let client = self.build_client();
                 let profile = match req.server_id {
                     Some(sid) => {
                         let guild: GuildId = sid.parse().map_err(|_| {
                             ToolError::agent(format!("invalid server id: {sid}"))
                         })?;
-                        let member = http.get_member(guild, uid).await?;
+                        let member = client.get_member(&tag, guild, uid).await?;
                         let user = user_ref(&member.user);
                         let nickname = member.nick.clone().unwrap_or_else(|| user.username.clone());
                         UserProfile {
@@ -476,7 +476,8 @@ impl PsychologicalOperationsDiscordMcp {
                         }
                     }
                     None => {
-                        let u = http.get_user(uid).await?;
+                        // Global-cached get_user lands next; still via http here.
+                        let u = client.http(&tag).await?.get_user(uid).await?;
                         let nickname = u.name.clone();
                         UserProfile {
                             user: user_ref(&u),
@@ -509,15 +510,16 @@ impl PsychologicalOperationsDiscordMcp {
                     .user_id
                     .parse()
                     .map_err(|_| ToolError::agent(format!("invalid user id: {}", req.user_id)))?;
-                let http = self.build_client().http(&tag).await?;
+                let client = self.build_client();
                 let url = match req.server_id {
                     Some(sid) => {
                         let guild: GuildId = sid.parse().map_err(|_| {
                             ToolError::agent(format!("invalid server id: {sid}"))
                         })?;
-                        http.get_member(guild, uid).await?.face()
+                        client.get_member(&tag, guild, uid).await?.face()
                     }
-                    None => http.get_user(uid).await?.face(),
+                    // Global-cached get_user lands next; still via http here.
+                    None => client.http(&tag).await?.get_user(uid).await?.face(),
                 };
                 Ok(CallToolResult::success(vec![Content::text(url)]))
             }

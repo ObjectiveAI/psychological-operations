@@ -27,8 +27,8 @@ use psychological_operations_db::Db;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serenity::all::{
-    CurrentUser, Emoji, EventHandler, GatewayIntents, GuildChannel, GuildId, GuildInfo,
-    RawEventHandler, ShardManager,
+    CurrentUser, Emoji, EventHandler, GatewayIntents, GuildChannel, GuildId, GuildInfo, Member,
+    RawEventHandler, ShardManager, UserId,
 };
 use tokio::sync::OnceCell;
 
@@ -148,6 +148,25 @@ impl Client {
         self.cached(key, || async {
             let http = self.http(agent_tag).await?;
             Ok(http.get_application_emojis().await?)
+        })
+        .await
+    }
+
+    /// A guild member. Global cached (member data is the same regardless of
+    /// which bot fetched it).
+    pub async fn get_member(
+        &self,
+        agent_tag: &str,
+        guild: GuildId,
+        user: UserId,
+    ) -> Result<Member, Error> {
+        let key = cache::global_key(
+            "get_member",
+            &[&guild.get().to_le_bytes(), &user.get().to_le_bytes()],
+        );
+        self.cached(key, || async {
+            let http = self.http(agent_tag).await?;
+            Ok(http.get_member(guild, user).await?)
         })
         .await
     }

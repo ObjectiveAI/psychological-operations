@@ -202,14 +202,7 @@ impl HookHandler {
         let executor = self.executor.clone();
         let tag = self.agent_tag.clone();
         tokio::spawn(async move {
-            let http = match client.http(&tag).await {
-                Ok(h) => h,
-                Err(e) => {
-                    eprintln!("discord daemon [{tag}]: mention get_member auth: {e}");
-                    return;
-                }
-            };
-            let member = match http.get_member(guild, user_id).await {
+            let member = match client.get_member(&tag, guild, user_id).await {
                 Ok(m) => m,
                 Err(e) => {
                     eprintln!("discord daemon [{tag}]: mention get_member: {e}");
