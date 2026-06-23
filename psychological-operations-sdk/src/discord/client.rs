@@ -27,8 +27,8 @@ use psychological_operations_db::Db;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serenity::all::{
-    CurrentUser, EventHandler, GatewayIntents, GuildChannel, GuildId, GuildInfo, RawEventHandler,
-    ShardManager,
+    CurrentUser, Emoji, EventHandler, GatewayIntents, GuildChannel, GuildId, GuildInfo,
+    RawEventHandler, ShardManager,
 };
 use tokio::sync::OnceCell;
 
@@ -137,6 +137,17 @@ impl Client {
         self.cached(key, || async {
             let http = self.http(agent_tag).await?;
             Ok(http.get_channels(guild).await?)
+        })
+        .await
+    }
+
+    /// The bot's application emojis (usable in any guild). Per-user cached —
+    /// these belong to the calling bot's application.
+    pub async fn get_application_emojis(&self, agent_tag: &str) -> Result<Vec<Emoji>, Error> {
+        let key = cache::user_key(agent_tag, "get_application_emojis", &[]);
+        self.cached(key, || async {
+            let http = self.http(agent_tag).await?;
+            Ok(http.get_application_emojis().await?)
         })
         .await
     }

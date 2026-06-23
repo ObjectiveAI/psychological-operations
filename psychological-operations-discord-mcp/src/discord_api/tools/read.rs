@@ -625,15 +625,16 @@ impl PsychologicalOperationsDiscordMcp {
         finish(
             async move {
                 check_count(req.count)?;
-                let http = self.build_client().http(&tag).await?;
                 let emojis = match req.server_id {
                     Some(sid) => {
                         let guild: GuildId = sid.parse().map_err(|_| {
                             ToolError::agent(format!("invalid server id: {sid}"))
                         })?;
-                        http.get_emojis(guild).await?
+                        // Global-cached get_emojis lands in the global-reads phase;
+                        // still via http for now.
+                        self.build_client().http(&tag).await?.get_emojis(guild).await?
                     }
-                    None => http.get_application_emojis().await?,
+                    None => self.build_client().get_application_emojis(&tag).await?,
                 };
                 let all: Vec<AvailableReaction> = emojis.iter().map(available_reaction).collect();
                 // Full list in hand — `remaining` is exact (no cursor).
