@@ -10,9 +10,13 @@
 //!   `daemon_reload` channel and re-queries hook/auth state on every NOTIFY.
 //!   The triggers fire on `discord_hooks` / `discord_auth` changes from any
 //!   process — there is no reload socket or writer-side kick. Hooks are held in
-//!   a shared live store: a reload swaps the store (running listeners pick up
-//!   new hooks immediately) and starts/stops gateway listeners as agents gain
-//!   or lose eligibility (`gateway_raw` is idempotent per agent).
+//!   a shared live store (resolved at reload from their JSONB definitions): a
+//!   reload swaps the store (running listeners pick up new hooks immediately)
+//!   and starts/stops gateway listeners as agents gain or lose eligibility
+//!   (`gateway_raw` is idempotent per agent). Each hook is either `python` (run
+//!   for every event) or a declarative trigger (`mention` / `reply` / `dm`)
+//!   evaluated against `MESSAGE_CREATE`; a declarative match enqueues the
+//!   message for the agent and notifies it, like `agents enqueue discord`.
 //!
 //! * **Psyop scheduler** (the main loop): repeatedly does a bare `psyops run`
 //!   (every due psyop; manual ones skipped), ignores the result, then sleeps
@@ -28,12 +32,15 @@ use clap::Subcommand;
 use objectiveai_sdk::cli::command::agents::queue::deliver;
 use objectiveai_sdk::cli::command::plugin::PluginExecutor;
 use objectiveai_sdk::cli::command::python::{self, Path as PyPath, Request};
+use psychological_operations_db::{unix_now, Db, DiscordQueueEntry};
+use psychological_operations_sdk::cli::hooks::Hook;
 use psychological_operations_sdk::cli::Output as CliOutput;
 use psychological_operations_sdk::discord::{self, serenity};
 use rand::Rng;
-use serenity::all::{Context as SerenityContext, Event, RawEventHandler};
+use serenity::all::{Context as SerenityContext, Event, Message, RawEventHandler, UserId};
 use tokio::sync::RwLock;
 
+use crate::commands::agents::notify::notify_agent;
 use crate::error::Error;
 
 /// The scheduler sleeps for `max(shortest psyop interval, rand[MIN..=MAX])`
@@ -58,14 +65,27 @@ impl Commands {
     }
 }
 
-/// agent_tag -> the agent's hooks' Python sources. Shared between the gateway
-/// handlers (read on every event) and reload (replaces it wholesale).
-type HookStore = Arc<RwLock<HashMap<String, Arc<Vec<String>>>>>;
+/// A hook resolved for the live store. Declarative `user_id`s are already
+/// filled from the agent's default and parsed to a [`UserId`]; Python carries
+/// its source verbatim.
+enum LiveHook {
+    Python(String),
+    Mention { user_id: UserId, message: String },
+    Reply { user_id: UserId, message: String },
+    Dm { user_id: UserId, message: String },
+}
 
-/// Per-agent raw-event handler: runs every hook for every gateway event,
-/// reading the current hooks from the shared live store.
+/// agent_tag -> the agent's resolved hooks. Shared between the gateway handlers
+/// (read on every event) and reload (replaces it wholesale).
+type HookStore = Arc<RwLock<HashMap<String, Arc<Vec<LiveHook>>>>>;
+
+/// Per-agent raw-event handler: evaluates every hook for every gateway event,
+/// reading the current hooks from the shared live store. Python hooks run on
+/// every event; declarative hooks act only on `MESSAGE_CREATE`.
 struct HookHandler {
     executor: Arc<PluginExecutor>,
+    db: Db,
+    client: discord::Client,
     store: HookStore,
     agent_tag: String,
 }
@@ -74,37 +94,177 @@ struct HookHandler {
 impl RawEventHandler for HookHandler {
     async fn raw_event(&self, _ctx: SerenityContext, ev: Event) {
         // Latest hooks for this agent (cloned out so we don't hold the lock).
-        let Some(codes) = self.store.read().await.get(&self.agent_tag).cloned() else {
+        let Some(hooks) = self.store.read().await.get(&self.agent_tag).cloned() else {
             return;
         };
-        if codes.is_empty() {
+        if hooks.is_empty() {
             return;
         }
-        // The serenity event is the hook's `input`. Serialize once.
-        let input = match serde_json::to_value(&ev) {
-            Ok(v) => v,
-            Err(e) => {
-                eprintln!(
-                    "discord daemon [{}]: failed to serialize event: {e}",
-                    self.agent_tag
-                );
-                return;
+
+        // Python hooks take the serenity event as their `input`. Serialize once,
+        // lazily — only if at least one Python hook is present.
+        let py_input = if hooks.iter().any(|h| matches!(h, LiveHook::Python(_))) {
+            match serde_json::to_value(&ev) {
+                Ok(v) => Some(v),
+                Err(e) => {
+                    eprintln!(
+                        "discord daemon [{}]: failed to serialize event: {e}",
+                        self.agent_tag
+                    );
+                    None
+                }
             }
+        } else {
+            None
         };
-        for code in codes.iter() {
-            // Fire-and-forget: spawn so the gateway loop isn't blocked, and
-            // ignore the result (we only care that it runs).
-            let executor = self.executor.clone();
-            let req = Request {
-                path_type: PyPath::Python,
-                code: code.clone(),
-                input: Some(input.clone()),
-                base: Default::default(),
-            };
-            tokio::spawn(async move {
-                let _ = python::execute(&*executor, req, None).await;
-            });
+
+        // Declarative hooks only act on message creation.
+        let msg: Option<&Message> = match &ev {
+            Event::MessageCreate(mce) => Some(&mce.message),
+            _ => None,
+        };
+
+        for hook in hooks.iter() {
+            match hook {
+                LiveHook::Python(code) => {
+                    // Fire-and-forget: spawn so the gateway loop isn't blocked.
+                    let Some(input) = py_input.clone() else { continue };
+                    let executor = self.executor.clone();
+                    let req = Request {
+                        path_type: PyPath::Python,
+                        code: code.clone(),
+                        input: Some(input),
+                        base: Default::default(),
+                    };
+                    tokio::spawn(async move {
+                        let _ = python::execute(&*executor, req, None).await;
+                    });
+                }
+                LiveHook::Mention { user_id, message } => {
+                    if let Some(msg) = msg {
+                        self.dispatch_mention(msg, *user_id, message);
+                    }
+                }
+                LiveHook::Reply { user_id, message } => {
+                    if let Some(msg) = msg {
+                        // Self-filter: never fire on the watched user's own posts.
+                        if msg.author.id == *user_id {
+                            continue;
+                        }
+                        if msg.referenced_message.as_ref().map(|r| r.author.id) == Some(*user_id) {
+                            self.spawn_enqueue(msg, message);
+                        }
+                    }
+                }
+                LiveHook::Dm { user_id, message } => {
+                    if let Some(msg) = msg {
+                        if msg.author.id == *user_id {
+                            continue;
+                        }
+                        // A DM has no guild.
+                        if msg.guild_id.is_none() {
+                            self.spawn_enqueue(msg, message);
+                        }
+                    }
+                }
+            }
         }
+    }
+}
+
+impl HookHandler {
+    /// Mention match + enqueue. The `@everyone` / direct-mention checks are
+    /// synchronous; a role mention needs one `get_member` fetch, done in a
+    /// spawned task so the gateway loop isn't blocked.
+    fn dispatch_mention(&self, msg: &Message, user_id: UserId, message: &str) {
+        // Self-filter: never fire on the watched user's own posts.
+        if msg.author.id == user_id {
+            return;
+        }
+        if msg.mention_everyone || msg.mentions.iter().any(|u| u.id == user_id) {
+            self.spawn_enqueue(msg, message);
+            return;
+        }
+        // Role mention: the only case that needs a fetch — does `user_id` hold
+        // one of the mentioned roles?
+        if msg.mention_roles.is_empty() {
+            return;
+        }
+        let Some(guild) = msg.guild_id else {
+            return;
+        };
+        let mention_roles = msg.mention_roles.clone();
+        let channel_id = msg.channel_id.to_string();
+        let message_id = msg.id.to_string();
+        let message = message.to_string();
+        let client = self.client.clone();
+        let db = self.db.clone();
+        let executor = self.executor.clone();
+        let tag = self.agent_tag.clone();
+        tokio::spawn(async move {
+            let http = match client.http(&tag).await {
+                Ok(h) => h,
+                Err(e) => {
+                    eprintln!("discord daemon [{tag}]: mention get_member auth: {e}");
+                    return;
+                }
+            };
+            let member = match http.get_member(guild, user_id).await {
+                Ok(m) => m,
+                Err(e) => {
+                    eprintln!("discord daemon [{tag}]: mention get_member: {e}");
+                    return;
+                }
+            };
+            if member.roles.iter().any(|r| mention_roles.contains(r)) {
+                enqueue_and_notify(&db, &executor, &tag, channel_id, message_id, message).await;
+            }
+        });
+    }
+
+    /// Spawn the enqueue + notify for a matched message.
+    fn spawn_enqueue(&self, msg: &Message, message: &str) {
+        let db = self.db.clone();
+        let executor = self.executor.clone();
+        let tag = self.agent_tag.clone();
+        let channel_id = msg.channel_id.to_string();
+        let message_id = msg.id.to_string();
+        let message = message.to_string();
+        tokio::spawn(async move {
+            enqueue_and_notify(&db, &executor, &tag, channel_id, message_id, message).await;
+        });
+    }
+}
+
+/// Enqueue the triggering message for `tag` (with `message` as the note) and
+/// notify the agent — exactly what `agents enqueue discord` does. The queue
+/// upsert is keyed `(agent_tag, channel_id, message_id)`, so re-triggering the
+/// same message is idempotent. Errors are logged, not propagated.
+async fn enqueue_and_notify(
+    db: &Db,
+    executor: &Arc<PluginExecutor>,
+    tag: &str,
+    channel_id: String,
+    message_id: String,
+    message: String,
+) {
+    let entry = DiscordQueueEntry {
+        agent_tag: tag.to_string(),
+        channel_id,
+        message_id,
+        psyop: None,
+        score: None,
+        deliverer_agent_instance_hierarchy: None,
+        message: Some(message),
+        run_id: None,
+        queued_at: unix_now(),
+    };
+    if let Err(e) = db.discord_queue_enqueue(&entry).await {
+        eprintln!("discord daemon [{tag}]: enqueue: {e}");
+        return;
+    }
+    if let Err(e) = notify_agent(db, executor, tag).await {
+        eprintln!("discord daemon [{tag}]: notify: {e}");
     }
 }
 
@@ -112,7 +272,7 @@ impl RawEventHandler for HookHandler {
 /// listener exists for every eligible agent (`gateway_raw` is idempotent, so
 /// existing listeners are no-ops and new agents get a fresh one).
 async fn do_reload(
-    db: &psychological_operations_db::Db,
+    db: &Db,
     executor: &Arc<PluginExecutor>,
     store: &HookStore,
     client: &discord::Client,
@@ -132,16 +292,24 @@ async fn do_reload(
             .collect()
     };
 
-    let mut map: HashMap<String, Arc<Vec<String>>> = HashMap::with_capacity(agents.len());
+    let mut map: HashMap<String, Arc<Vec<LiveHook>>> = HashMap::with_capacity(agents.len());
     for tag in &agents {
-        let codes: Vec<String> = db
+        // The bot's own user id — the default `user_id` for declarative hooks
+        // that omit it — is the stored application/client id (no API call).
+        let default_user_id = db
+            .discord_auth_get(tag)
+            .await
+            .map_err(|e| Error::Other(format!("auth ({tag}): {e}")))?
+            .and_then(|a| a.client_id);
+
+        let live: Vec<LiveHook> = db
             .discord_hook_list(tag)
             .await
             .map_err(|e| Error::Other(format!("list hooks ({tag}): {e}")))?
             .into_iter()
-            .map(|h| h.python)
+            .filter_map(|h| to_live_hook(h.definition, default_user_id.as_deref(), tag, &h.name))
             .collect();
-        map.insert(tag.clone(), Arc::new(codes));
+        map.insert(tag.clone(), Arc::new(live));
     }
     *store.write().await = map;
 
@@ -153,6 +321,8 @@ async fn do_reload(
     for tag in agents {
         let handler = HookHandler {
             executor: executor.clone(),
+            db: db.clone(),
+            client: client.clone(),
             store: store.clone(),
             agent_tag: tag.clone(),
         };
@@ -162,6 +332,61 @@ async fn do_reload(
             .map_err(|e| Error::Other(format!("gateway ({tag}): {e}")))?;
     }
     Ok(())
+}
+
+/// Deserialize a stored hook definition and resolve it for the live store.
+/// Returns `None` (after an `eprintln!`) on a malformed definition, an
+/// unresolvable default `user_id`, or an unparseable `user_id`.
+fn to_live_hook(
+    definition: serde_json::Value,
+    default_user_id: Option<&str>,
+    tag: &str,
+    name: &str,
+) -> Option<LiveHook> {
+    let hook: Hook = match serde_json::from_value(definition) {
+        Ok(h) => h,
+        Err(e) => {
+            eprintln!("discord daemon [{tag}]: hook '{name}' malformed: {e}");
+            return None;
+        }
+    };
+    // Resolve a declarative hook's `user_id`: explicit, else the bot's own id.
+    let resolve = |user_id: Option<String>| -> Option<UserId> {
+        let raw = match user_id.or_else(|| default_user_id.map(str::to_string)) {
+            Some(s) => s,
+            None => {
+                eprintln!(
+                    "discord daemon [{tag}]: hook '{name}' omits user_id and the bot's \
+                     client_id is unknown — skipping"
+                );
+                return None;
+            }
+        };
+        match raw.parse::<UserId>() {
+            Ok(id) => Some(id),
+            Err(_) => {
+                eprintln!(
+                    "discord daemon [{tag}]: hook '{name}' has invalid user_id '{raw}' — skipping"
+                );
+                None
+            }
+        }
+    };
+    match hook {
+        Hook::Python { code } => Some(LiveHook::Python(code)),
+        Hook::Mention { user_id, message } => Some(LiveHook::Mention {
+            user_id: resolve(user_id)?,
+            message,
+        }),
+        Hook::Reply { user_id, message } => Some(LiveHook::Reply {
+            user_id: resolve(user_id)?,
+            message,
+        }),
+        Hook::Dm { user_id, message } => Some(LiveHook::Dm {
+            user_id: resolve(user_id)?,
+            message,
+        }),
+    }
 }
 
 async fn begin(ctx: &crate::context::Context) -> Result<CliOutput, Error> {

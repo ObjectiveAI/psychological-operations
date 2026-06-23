@@ -4,6 +4,7 @@
 //! to emit the same wire shape) don't need to depend on the CLI
 //! crate. Today: just the `Ok`-side [`Output`] enum.
 
+pub mod hooks;
 pub mod output;
 pub mod psyops;
 

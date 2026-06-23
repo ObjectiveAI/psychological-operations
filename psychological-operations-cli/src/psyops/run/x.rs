@@ -443,7 +443,7 @@ async fn deliver_to_agent(
             .await
             .map_err(Error::from)?;
     }
-    crate::commands::agents::notify::notify_agent(ctx, agent_tag).await
+    crate::commands::agents::notify::notify_agent(&ctx.db, &ctx.executor, agent_tag).await
 }
 
 // -- filter ---------------------------------------------------------------

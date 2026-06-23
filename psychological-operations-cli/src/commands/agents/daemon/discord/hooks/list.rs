@@ -1,5 +1,5 @@
-//! `agents daemon discord hooks list` — list an agent's hooks (name +
-//! description; the Python source is not surfaced).
+//! `agents daemon discord hooks list` — list an agent's hooks (name + type +
+//! description; the definition body is not surfaced).
 
 use psychological_operations_sdk::cli::Output as CliOutput;
 use psychological_operations_sdk::cli::output::DiscordHookEntry;
@@ -20,6 +20,13 @@ async fn run_inner(agent_tag: &str, ctx: &crate::context::Context) -> Result<Cli
         .into_iter()
         .map(|h| DiscordHookEntry {
             name: h.name,
+            // The hook's `type` discriminator lives inside the JSONB definition.
+            hook_type: h
+                .definition
+                .get("type")
+                .and_then(|t| t.as_str())
+                .unwrap_or("unknown")
+                .to_string(),
             description: h.description,
         })
         .collect();

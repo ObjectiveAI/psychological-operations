@@ -111,7 +111,9 @@ CREATE TABLE IF NOT EXISTS discord_hooks (
     agent_tag   TEXT   NOT NULL,
     name        TEXT   NOT NULL,
     description TEXT   NOT NULL,
-    python      TEXT   NOT NULL,
+    -- Typed hook definition (python | mention | reply | dm), internally tagged
+    -- by `type`. Kept opaque here; the `Hook` enum lives in the SDK.
+    definition  JSONB  NOT NULL,
     updated_at  BIGINT NOT NULL,
     PRIMARY KEY (agent_tag, name)
 );

@@ -15,6 +15,7 @@
 use schemars::Schema;
 use serde::{Deserialize, Serialize};
 
+use crate::cli::hooks::Hook;
 use crate::cli::psyops::x::{PsyopEntry, PublishedPsyop};
 use crate::cli::psyops::PsyOp;
 
@@ -42,8 +43,10 @@ pub enum Output {
     /// `agents invite discord` — the bot's server-invite URL.
     DiscordInvite(DiscordInvite),
     /// `agents daemon discord hooks list` — the agent's hooks
-    /// (name + description; the Python source is not surfaced).
+    /// (name + type + description; the definition body is not surfaced).
     DiscordHookList(Vec<DiscordHookEntry>),
+    /// `agents daemon discord hooks get` — one hook's full typed definition.
+    DiscordHook(DiscordHookFull),
 
     // ── meta ───────────────────────────────────────────────
     /// `--help` / `--version` / "missing subcommand" rendered
@@ -58,12 +61,23 @@ pub struct DiscordInvite {
     pub url: String,
 }
 
-/// One `agents daemon discord hooks list` row — a hook's name + description.
-/// The Python source is intentionally omitted from the listing.
+/// One `agents daemon discord hooks list` row — a hook's name, type
+/// (`python` / `mention` / `reply` / `dm`), and description. The definition
+/// body is intentionally omitted from the listing.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DiscordHookEntry {
     pub name: String,
+    pub hook_type: String,
     pub description: String,
+}
+
+/// `agents daemon discord hooks get` — a hook's name, description, and full
+/// typed definition (the SDK `Hook` enum, internally tagged by `type`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiscordHookFull {
+    pub name: String,
+    pub description: String,
+    pub definition: Hook,
 }
 
 /// Rendered clap text emitted on `--help` / `--version` /
