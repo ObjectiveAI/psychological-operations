@@ -35,11 +35,12 @@ fn collect_attachments(m: &Message) -> Vec<Attachment> {
         .collect()
 }
 
-/// The user this message replied to, if it's a reply — taken from the resolved
-/// referenced message (which `get_messages`/`get_message` carry inline). `None`
-/// when not a reply, or when the referenced message wasn't resolved/was deleted.
-fn replied_to(m: &Message) -> Option<User> {
-    m.referenced_message.as_ref().map(|r| user_ref(&r.author))
+/// The id of the message this one replies to, if it's a reply.
+fn replied_to(m: &Message) -> Option<String> {
+    m.message_reference
+        .as_ref()
+        .and_then(|r| r.message_id)
+        .map(|id| id.to_string())
 }
 
 /// Global usernames of the @-mentioned users.

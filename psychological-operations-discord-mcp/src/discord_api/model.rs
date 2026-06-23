@@ -63,10 +63,10 @@ pub(super) struct ChannelInfo {
 pub(super) struct MessageSummary {
     pub id: String,
     pub user: User,
-    /// The user this message replied to, if it's a reply (from the resolved
-    /// referenced message; absent when not a reply or the target is unresolved).
+    /// The id of the message this one replied to, if it's a reply. Fetch it with
+    /// `get_message`.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub replied_to: Option<User>,
+    pub replied_to: Option<String>,
     /// @-mentioned users' global usernames. (Left as bare usernames for now;
     /// Discord mentions can also target roles / @everyone.)
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -84,9 +84,9 @@ pub(super) struct MessageDetail {
     pub user: User,
     pub content: String,
     pub attachments: Vec<Attachment>,
-    /// The user this message replied to, if it's a reply.
+    /// The id of the message this one replied to, if it's a reply.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub replied_to: Option<User>,
+    pub replied_to: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub mentions: Vec<String>,
     /// The channel id of the thread started from this message, if any.
