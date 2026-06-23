@@ -365,8 +365,7 @@ impl PsychologicalOperationsDiscordMcp {
                     .role_id
                     .parse()
                     .map_err(|_| ToolError::agent(format!("invalid role id: {}", req.role_id)))?;
-                let http = self.build_client().http(&tag).await?;
-                let role = http.get_guild_role(guild, role_id).await?;
+                let role = self.build_client().get_guild_role(&tag, guild, role_id).await?;
                 let body = serde_json::to_string(&role_info(&role))?;
                 Ok(CallToolResult::success(vec![Content::text(body)]))
             }

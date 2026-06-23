@@ -28,7 +28,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serenity::all::{
     CurrentUser, Emoji, EventHandler, GatewayIntents, GuildChannel, GuildId, GuildInfo, Member,
-    RawEventHandler, ShardManager, User, UserId,
+    RawEventHandler, Role, RoleId, ShardManager, User, UserId,
 };
 use tokio::sync::OnceCell;
 
@@ -177,6 +177,24 @@ impl Client {
         self.cached(key, || async {
             let http = self.http(agent_tag).await?;
             Ok(http.get_user(user).await?)
+        })
+        .await
+    }
+
+    /// A role in a guild. Global cached.
+    pub async fn get_guild_role(
+        &self,
+        agent_tag: &str,
+        guild: GuildId,
+        role: RoleId,
+    ) -> Result<Role, Error> {
+        let key = cache::global_key(
+            "get_guild_role",
+            &[&guild.get().to_le_bytes(), &role.get().to_le_bytes()],
+        );
+        self.cached(key, || async {
+            let http = self.http(agent_tag).await?;
+            Ok(http.get_guild_role(guild, role).await?)
         })
         .await
     }
