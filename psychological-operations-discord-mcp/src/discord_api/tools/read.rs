@@ -17,7 +17,7 @@ use base64::Engine;
 use objectiveai_sdk::agent::completions::message::{File, ImageUrl, RichContentPart, VideoUrl};
 use objectiveai_sdk::mcp::tool::ContentBlock;
 use psychological_operations_sdk::discord::serenity;
-use rmcp::model::{CallToolResult, Content, Extensions, RawContent};
+use rmcp::model::{CallToolResult, Content, Extensions, RawAudioContent, RawContent};
 use rmcp::{ErrorData, handler::server::wrapper::Parameters, schemars, tool, tool_router};
 use serenity::all::{ChannelId, GuildId, MessageId, MessagePagination};
 
@@ -107,16 +107,26 @@ fn parse_message(id: &str) -> Result<MessageId, ToolError> {
 /// Convert an objectiveai [`RichContentPart`] into an rmcp [`Content`] block
 /// via the SDK's `RichContentPart -> ContentBlock` converter, so attachments
 /// are formatted the way the objectiveai system expects (and round-trip back to
-/// the right rich type). The objectiveai `ContentBlock` and rmcp `Content`
-/// share the MCP wire shape, so the bridge is a serde round-trip.
+/// the right rich type). The `ContentBlock` carriers map directly onto rmcp's
+/// `RawContent` (the converter only ever yields Text / Image / Audio).
 fn rich_content(part: RichContentPart) -> Result<Content, ToolError> {
-    let block = ContentBlock::from(part);
-    let value = serde_json::to_value(&block)?;
-    let raw: RawContent = serde_json::from_value(value)?;
-    Ok(Content {
-        raw,
-        annotations: None,
-    })
+    match ContentBlock::from(part) {
+        ContentBlock::Text(t) => Ok(Content::text(t.text)),
+        ContentBlock::Image(i) => Ok(Content::image(i.data, i.mime_type)),
+        ContentBlock::Audio(a) => Ok(Content {
+            raw: RawContent::Audio(RawAudioContent {
+                data: a.data,
+                mime_type: a.mime_type,
+            }),
+            annotations: None,
+        }),
+        ContentBlock::ResourceLink(_) | ContentBlock::EmbeddedResource(_) => Err(
+            ToolError::System(ErrorData::internal_error(
+                "unexpected resource content block from attachment".to_string(),
+                None,
+            )),
+        ),
+    }
 }
 
 #[tool_router(router = read_tools, vis = "pub")]
