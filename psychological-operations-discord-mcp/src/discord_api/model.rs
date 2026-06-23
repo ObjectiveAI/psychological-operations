@@ -36,8 +36,10 @@ pub(super) struct ChannelInfo {
     pub kind: String,
 }
 
-/// Slim `list_messages` item — id, author, the reply target (if any), and the
-/// @-mentioned users. Open it with `get_message` for the full content.
+/// Slim `list_messages` item — id, author, the reply target (if any), the
+/// @-mentioned users, and the thread this message started (if any). Open it
+/// with `get_message` for the full content; read a started thread with
+/// `list_messages` on its `thread` id.
 #[derive(Debug, Clone, Serialize)]
 pub(super) struct MessageSummary {
     pub id: String,
@@ -46,6 +48,10 @@ pub(super) struct MessageSummary {
     pub replied_to: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub mentions: Vec<String>,
+    /// The channel id of the thread started from this message, if any. Read it
+    /// with `list_messages`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thread: Option<String>,
 }
 
 /// Rich `get_message` detail.
@@ -59,5 +65,8 @@ pub(super) struct MessageDetail {
     pub replied_to: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub mentions: Vec<String>,
+    /// The channel id of the thread started from this message, if any.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thread: Option<String>,
     pub created_at: String,
 }

@@ -40,12 +40,19 @@ fn mentions(m: &Message) -> Vec<String> {
     m.mentions.iter().map(|u| u.name.clone()).collect()
 }
 
+/// The channel id of the thread started from this message, if any. Carried
+/// inline on the message by `get_messages`/`get_message` — no extra fetch.
+fn thread_id(m: &Message) -> Option<String> {
+    m.thread.as_ref().map(|t| t.id.to_string())
+}
+
 pub(super) fn project_message_summary(m: &Message) -> MessageSummary {
     MessageSummary {
         id: m.id.to_string(),
         author: m.author.name.clone(),
         replied_to: replied_to(m),
         mentions: mentions(m),
+        thread: thread_id(m),
     }
 }
 
@@ -57,6 +64,7 @@ pub(super) fn project_message_detail(m: &Message) -> MessageDetail {
         attachments: collect_attachments(m),
         replied_to: replied_to(m),
         mentions: mentions(m),
+        thread: thread_id(m),
         created_at: m.timestamp.to_string(),
     }
 }
