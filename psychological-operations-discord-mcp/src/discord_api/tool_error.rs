@@ -10,6 +10,7 @@
 //! Mirrors the X MCP's `tool_error`, minus the X-client `From` impl (the
 //! Discord-client `From` will be added with the read/write tools).
 
+use psychological_operations_sdk::discord::{self, serenity};
 use rmcp::ErrorData;
 use rmcp::model::{CallToolResult, Content};
 
@@ -39,6 +40,29 @@ impl From<psychological_operations_db::Error> for ToolError {
     /// A persistence-layer failure (postgres) — infra, not the agent's doing.
     fn from(e: psychological_operations_db::Error) -> Self {
         ToolError::System(ErrorData::internal_error(format!("db: {e}"), None))
+    }
+}
+
+impl From<discord::Error> for ToolError {
+    /// Classify a Discord client error: a missing/unusable bot token or a db
+    /// read is infra (system); an actual serenity API outcome is the
+    /// authorized request's own result (agent-actionable).
+    fn from(e: discord::Error) -> Self {
+        let msg = e.to_string();
+        match e {
+            discord::Error::NotAuthed(_) | discord::Error::Db(_) => {
+                ToolError::System(ErrorData::internal_error(msg, None))
+            }
+            discord::Error::Serenity(_) => ToolError::Agent(msg),
+        }
+    }
+}
+
+impl From<serenity::Error> for ToolError {
+    /// The authorized Discord request's own outcome (permissions, not found,
+    /// rate limit, …) — agent-actionable.
+    fn from(e: serenity::Error) -> Self {
+        ToolError::Agent(e.to_string())
     }
 }
 

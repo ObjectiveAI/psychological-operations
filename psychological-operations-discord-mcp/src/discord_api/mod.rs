@@ -12,6 +12,8 @@
 //! [`crate::header_session_manager::HeaderSessionManager`] into
 //! [`session::SessionRegistry`] keyed by `Mcp-Session-Id`.
 
+mod model;
+mod projection;
 pub mod session;
 mod tool_error;
 pub mod tool_name;

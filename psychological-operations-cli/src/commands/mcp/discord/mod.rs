@@ -55,6 +55,16 @@ pub enum Commands {
         quota_write: Option<String>,
         #[arg(long = "quota_interval")]
         quota_interval: Option<String>,
+        #[arg(long = "quota_usage_list_servers")]
+        quota_usage_list_servers: Option<String>,
+        #[arg(long = "quota_usage_list_channels")]
+        quota_usage_list_channels: Option<String>,
+        #[arg(long = "quota_usage_list_messages")]
+        quota_usage_list_messages: Option<String>,
+        #[arg(long = "quota_usage_get_message")]
+        quota_usage_get_message: Option<String>,
+        #[arg(long = "quota_usage_open_attachment")]
+        quota_usage_open_attachment: Option<String>,
     },
 }
 
