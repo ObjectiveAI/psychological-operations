@@ -67,6 +67,10 @@ pub enum Commands {
         quota_usage_list_role_members: Option<String>,
         #[arg(long = "quota_usage_get_role")]
         quota_usage_get_role: Option<String>,
+        #[arg(long = "quota_usage_list_available_reactions")]
+        quota_usage_list_available_reactions: Option<String>,
+        #[arg(long = "quota_usage_get_message_reactions_by_user")]
+        quota_usage_get_message_reactions_by_user: Option<String>,
         #[arg(long = "quota_usage_list_messages")]
         quota_usage_list_messages: Option<String>,
         #[arg(long = "quota_usage_get_message")]

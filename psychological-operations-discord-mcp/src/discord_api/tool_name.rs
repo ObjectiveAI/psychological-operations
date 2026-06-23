@@ -28,6 +28,8 @@ pub enum ToolName {
     GetUser,
     GetProfilePicture,
     GetRole,
+    ListAvailableReactions,
+    GetMessageReactionsByUser,
     OpenAttachment,
     SendMessage,
     SendDirectMessage,
@@ -35,7 +37,7 @@ pub enum ToolName {
 
 impl ToolName {
     /// Every metered tool, in a stable order.
-    pub const ALL: [ToolName; 13] = [
+    pub const ALL: [ToolName; 15] = [
         ToolName::Whoami,
         ToolName::ListServers,
         ToolName::ListChannels,
@@ -46,6 +48,8 @@ impl ToolName {
         ToolName::GetUser,
         ToolName::GetProfilePicture,
         ToolName::GetRole,
+        ToolName::ListAvailableReactions,
+        ToolName::GetMessageReactionsByUser,
         ToolName::OpenAttachment,
         ToolName::SendMessage,
         ToolName::SendDirectMessage,
@@ -65,6 +69,8 @@ impl ToolName {
             GetUser => "get_user",
             GetProfilePicture => "get_profile_picture",
             GetRole => "get_role",
+            ListAvailableReactions => "list_available_reactions",
+            GetMessageReactionsByUser => "get_message_reactions_by_user",
             OpenAttachment => "open_attachment",
             SendMessage => "send_message",
             SendDirectMessage => "send_direct_message",
@@ -83,9 +89,8 @@ impl ToolName {
         use ToolName::*;
         match self {
             Whoami | ListServers | ListChannels | ListUsers | ListRoleMembers | ListMessages
-            | GetMessage | GetUser | GetProfilePicture | GetRole | OpenAttachment => {
-                Direction::Read
-            }
+            | GetMessage | GetUser | GetProfilePicture | GetRole | ListAvailableReactions
+            | GetMessageReactionsByUser | OpenAttachment => Direction::Read,
             SendMessage | SendDirectMessage => Direction::Write,
         }
     }

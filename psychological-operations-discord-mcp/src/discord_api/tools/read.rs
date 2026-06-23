@@ -19,15 +19,17 @@ use objectiveai_sdk::mcp::tool::ContentBlock;
 use psychological_operations_sdk::discord::serenity;
 use rmcp::model::{CallToolResult, Content, Extensions, RawAudioContent, RawContent};
 use rmcp::{ErrorData, handler::server::wrapper::Parameters, schemars, tool, tool_router};
-use serenity::all::{ChannelId, GuildId, MessageId, MessagePagination, RoleId, UserId};
+use serenity::all::{
+    ChannelId, GuildId, MessageId, MessagePagination, ReactionType, RoleId, UserId,
+};
 
 use super::super::PsychologicalOperationsDiscordMcp;
 use super::super::model::{
-    AttachmentKind, ChannelInfo, MessageSummary, ServerInfo, User, UserProfile,
+    AttachmentKind, AvailableReaction, ChannelInfo, MessageSummary, ServerInfo, User, UserProfile,
 };
 use super::super::projection::{
-    attachment_kind, channel_info, project_message_detail, project_message_summary, role_info,
-    user_ref,
+    attachment_kind, available_reaction, channel_info, project_message_detail,
+    project_message_summary, role_info, user_ref,
 };
 use super::super::tool_error::{ToolError, finish};
 
@@ -133,6 +135,32 @@ pub struct ListMessagesRequest {
                              Newest first.")]
     pub count: u32,
     #[schemars(description = "How many messages to skip from the start (newest first).")]
+    pub offset: u32,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct ListAvailableReactionsRequest {
+    #[schemars(description = "Optional server (guild) id. Without it, lists the bot's globally \
+                             usable emojis; with it, that server's custom emojis only.")]
+    pub server_id: Option<String>,
+    #[schemars(description = "How many emojis to return (after skipping `offset`; max 100).")]
+    pub count: u32,
+    #[schemars(description = "How many emojis to skip from the start.")]
+    pub offset: u32,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct GetMessageReactionsByUserRequest {
+    #[schemars(description = "The channel (snowflake) the message is in.")]
+    pub channel_id: String,
+    #[schemars(description = "The message's snowflake id.")]
+    pub message_id: String,
+    #[schemars(description = "The emoji to list reactors for: a unicode emoji (e.g. 👍) or a \
+                             custom emoji as name:id.")]
+    pub emoji: String,
+    #[schemars(description = "How many users to return (after skipping `offset`; max 100).")]
+    pub count: u32,
+    #[schemars(description = "How many users to skip from the start.")]
     pub offset: u32,
 }
 
@@ -617,6 +645,113 @@ impl PsychologicalOperationsDiscordMcp {
                 let detail = project_message_detail(&m);
                 let body = serde_json::to_string(&detail)?;
                 Ok(CallToolResult::success(vec![Content::text(body)]))
+            }
+            .await,
+        )
+    }
+
+    #[tool(
+        name = "list_available_reactions",
+        description = "List custom emojis the bot can react with. Without server_id: the bot's \
+                       globally-usable emojis. With server_id: that server's custom emojis only. \
+                       React with one by its name:id."
+    )]
+    async fn list_available_reactions(
+        &self,
+        Parameters(req): Parameters<ListAvailableReactionsRequest>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, ErrorData> {
+        let tag = self.resolve_session(&extensions).await?.tag.clone();
+        finish(
+            async move {
+                check_count(req.count)?;
+                let http = self.build_client().http(&tag).await?;
+                let emojis = match req.server_id {
+                    Some(sid) => {
+                        let guild: GuildId = sid.parse().map_err(|_| {
+                            ToolError::agent(format!("invalid server id: {sid}"))
+                        })?;
+                        http.get_emojis(guild).await?
+                    }
+                    None => http.get_application_emojis().await?,
+                };
+                let all: Vec<AvailableReaction> = emojis.iter().map(available_reaction).collect();
+                // Full list in hand — `remaining` is exact (no cursor).
+                let note =
+                    remaining_note(all.len(), req.offset as usize, req.count as usize, false);
+                let window: Vec<AvailableReaction> = all
+                    .into_iter()
+                    .skip(req.offset as usize)
+                    .take(req.count as usize)
+                    .collect();
+                let body = serde_json::to_string(&window)?;
+                Ok(CallToolResult::success(vec![
+                    Content::text(body),
+                    Content::text(note),
+                ]))
+            }
+            .await,
+        )
+    }
+
+    #[tool(
+        name = "get_message_reactions_by_user",
+        description = "List the users who reacted to a message with a given emoji."
+    )]
+    async fn get_message_reactions_by_user(
+        &self,
+        Parameters(req): Parameters<GetMessageReactionsByUserRequest>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, ErrorData> {
+        let tag = self.resolve_session(&extensions).await?.tag.clone();
+        finish(
+            async move {
+                check_count(req.count)?;
+                let channel = parse_channel(&req.channel_id)?;
+                let message = parse_message(&req.message_id)?;
+                let rt: ReactionType = req
+                    .emoji
+                    .parse()
+                    .map_err(|_| ToolError::agent(format!("invalid emoji: {}", req.emoji)))?;
+                let http = self.build_client().http(&tag).await?;
+
+                let need = req.offset as usize + req.count as usize;
+                let mut users: Vec<User> = Vec::new();
+                let mut after: Option<u64> = None;
+                let mut exhausted = false;
+                while users.len() < need {
+                    let want = (need - users.len()).min(100) as u8;
+                    let page = http
+                        .get_reaction_users(channel, message, &rt, want, after)
+                        .await?;
+                    if page.is_empty() {
+                        exhausted = true;
+                        break;
+                    }
+                    after = page.last().map(|u| u.id.get());
+                    users.extend(page.iter().map(user_ref));
+                    if (page.len() as u8) < want {
+                        exhausted = true;
+                        break;
+                    }
+                }
+
+                let note = remaining_note(
+                    users.len(),
+                    req.offset as usize,
+                    req.count as usize,
+                    !exhausted,
+                );
+                let window: Vec<User> = users
+                    .into_iter()
+                    .skip(req.offset as usize)
+                    .take(req.count as usize)
+                    .collect();
+                let body = serde_json::to_string(&window)?;
+                Ok(CallToolResult::success(vec![
+                    Content::text(body),
+                    Content::text(note),
+                ]))
             }
             .await,
         )

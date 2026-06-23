@@ -7,7 +7,8 @@ use psychological_operations_sdk::discord::serenity;
 use serenity::all::{GuildChannel, Message};
 
 use super::model::{
-    Attachment, AttachmentKind, ChannelInfo, MessageDetail, MessageSummary, RoleInfo, User,
+    Attachment, AttachmentKind, AvailableReaction, ChannelInfo, MessageDetail, MessageSummary,
+    ReactionSummary, RoleInfo, User,
 };
 
 /// A [`User`] reference (`user_id` + global username) from a serenity user.
@@ -45,6 +46,19 @@ fn replied_to(m: &Message) -> Option<String> {
         .map(|id| id.to_string())
 }
 
+/// The reactions present on a message: each emoji's string form, count, and
+/// whether the bot reacted.
+fn reactions(m: &Message) -> Vec<ReactionSummary> {
+    m.reactions
+        .iter()
+        .map(|r| ReactionSummary {
+            emoji: r.reaction_type.to_string(),
+            count: r.count,
+            me: r.me,
+        })
+        .collect()
+}
+
 /// The channel id of the thread started from this message, if any. Carried
 /// inline on the message by `get_messages`/`get_message` — no extra fetch.
 fn thread_id(m: &Message) -> Option<String> {
@@ -68,7 +82,16 @@ pub(super) fn project_message_detail(m: &Message) -> MessageDetail {
         attachments: collect_attachments(m),
         replied_to: replied_to(m),
         thread_channel_id: thread_id(m),
+        reactions: reactions(m),
         created_at: m.timestamp.to_string(),
+    }
+}
+
+pub(super) fn available_reaction(e: &serenity::all::Emoji) -> AvailableReaction {
+    AvailableReaction {
+        name: e.name.clone(),
+        id: e.id.to_string(),
+        animated: e.animated,
     }
 }
 

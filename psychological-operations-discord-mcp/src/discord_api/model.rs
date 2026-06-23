@@ -29,6 +29,24 @@ pub(super) struct Attachment {
     pub url: String,
 }
 
+/// `list_available_reactions` item — a custom emoji the bot can react with.
+/// React with it by `name:id`.
+#[derive(Debug, Clone, Serialize)]
+pub(super) struct AvailableReaction {
+    pub name: String,
+    pub id: String,
+    pub animated: bool,
+}
+
+/// One reaction present on a message: the emoji (unicode char or custom
+/// `name:id` form), how many reacted, and whether the bot did.
+#[derive(Debug, Clone, Serialize)]
+pub(super) struct ReactionSummary {
+    pub emoji: String,
+    pub count: u64,
+    pub me: bool,
+}
+
 /// `list_servers` item.
 #[derive(Debug, Clone, Serialize)]
 pub(super) struct ServerInfo {
@@ -109,5 +127,9 @@ pub(super) struct MessageDetail {
     /// The channel id of the thread started from this message, if any.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thread_channel_id: Option<String>,
+    /// Reactions present on the message (per emoji: count + whether the bot
+    /// reacted). See `get_message_reactions_by_user` for who reacted.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub reactions: Vec<ReactionSummary>,
     pub created_at: String,
 }
