@@ -19,6 +19,7 @@ pub enum Direction {
 /// `#[tool(name = …)]` registrations exactly.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ToolName {
+    Whoami,
     ListServers,
     ListChannels,
     ListUsers,
@@ -33,7 +34,8 @@ pub enum ToolName {
 
 impl ToolName {
     /// Every metered tool, in a stable order.
-    pub const ALL: [ToolName; 10] = [
+    pub const ALL: [ToolName; 11] = [
+        ToolName::Whoami,
         ToolName::ListServers,
         ToolName::ListChannels,
         ToolName::ListUsers,
@@ -50,6 +52,7 @@ impl ToolName {
     pub fn as_name(self) -> &'static str {
         use ToolName::*;
         match self {
+            Whoami => "whoami",
             ListServers => "list_servers",
             ListChannels => "list_channels",
             ListUsers => "list_users",
@@ -74,7 +77,7 @@ impl ToolName {
     pub fn direction(self) -> Direction {
         use ToolName::*;
         match self {
-            ListServers | ListChannels | ListUsers | ListRoleMembers | ListMessages
+            Whoami | ListServers | ListChannels | ListUsers | ListRoleMembers | ListMessages
             | GetMessage | GetUser | GetProfilePicture | GetRole | OpenAttachment => {
                 Direction::Read
             }

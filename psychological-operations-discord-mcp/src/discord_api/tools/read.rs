@@ -65,6 +65,9 @@ pub(super) fn remaining_note(
 pub struct ListServersRequest {}
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct WhoamiRequest {}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct ListChannelsRequest {
     #[schemars(description = "The server (guild) snowflake id to list channels for.")]
     pub server_id: String,
@@ -207,6 +210,27 @@ impl PsychologicalOperationsDiscordMcp {
                     })
                     .collect();
                 let body = serde_json::to_string(&servers)?;
+                Ok(CallToolResult::success(vec![Content::text(body)]))
+            }
+            .await,
+        )
+    }
+
+    #[tool(
+        name = "whoami",
+        description = "Get the bot's own Discord identity (the agent acts as this user)."
+    )]
+    async fn whoami(
+        &self,
+        Parameters(_req): Parameters<WhoamiRequest>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, ErrorData> {
+        let tag = self.resolve_session(&extensions).await?.tag.clone();
+        finish(
+            async move {
+                let http = self.build_client().http(&tag).await?;
+                let me = http.get_current_user().await?;
+                let body = serde_json::to_string(&user_ref(&me))?;
                 Ok(CallToolResult::success(vec![Content::text(body)]))
             }
             .await,
