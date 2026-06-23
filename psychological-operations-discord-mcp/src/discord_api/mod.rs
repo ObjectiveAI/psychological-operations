@@ -45,6 +45,8 @@ use tool_name::{Direction, ToolName};
 const FULL_ONLY_TOOLS: &[&str] = &[
     "send_message",
     "send_direct_message",
+    "edit_message",
+    "delete_message",
     "add_reaction",
     "remove_reaction",
 ];

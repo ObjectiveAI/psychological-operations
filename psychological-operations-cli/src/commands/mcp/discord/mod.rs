@@ -85,6 +85,10 @@ pub enum Commands {
         quota_usage_send_message: Option<String>,
         #[arg(long = "quota_usage_send_direct_message")]
         quota_usage_send_direct_message: Option<String>,
+        #[arg(long = "quota_usage_edit_message")]
+        quota_usage_edit_message: Option<String>,
+        #[arg(long = "quota_usage_delete_message")]
+        quota_usage_delete_message: Option<String>,
         #[arg(long = "quota_usage_add_reaction")]
         quota_usage_add_reaction: Option<String>,
         #[arg(long = "quota_usage_remove_reaction")]

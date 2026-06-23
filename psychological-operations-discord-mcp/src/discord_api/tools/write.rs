@@ -8,7 +8,9 @@
 use psychological_operations_sdk::discord::serenity;
 use rmcp::model::{CallToolResult, Content, Extensions};
 use rmcp::{ErrorData, handler::server::wrapper::Parameters, schemars, tool, tool_router};
-use serenity::all::{Builder, ChannelId, CreateMessage, MessageId, ReactionType, UserId};
+use serenity::all::{
+    Builder, ChannelId, CreateMessage, EditMessage, MessageId, ReactionType, UserId,
+};
 
 use super::super::PsychologicalOperationsDiscordMcp;
 use super::super::model::SentMessage;
@@ -36,6 +38,24 @@ pub struct SendDirectMessageRequest {
     #[schemars(description = "Optional: the id of a message in the DM to reply to. When set, \
                              the message is sent as a reply.")]
     pub reply_to_message_id: Option<String>,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct EditMessageRequest {
+    #[schemars(description = "The channel (snowflake) the message is in.")]
+    pub channel_id: String,
+    #[schemars(description = "The id of the bot's own message to edit.")]
+    pub message_id: String,
+    #[schemars(description = "The new message text (replaces the existing content).")]
+    pub content: String,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct DeleteMessageRequest {
+    #[schemars(description = "The channel (snowflake) the message is in.")]
+    pub channel_id: String,
+    #[schemars(description = "The id of the bot's own message to delete.")]
+    pub message_id: String,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
@@ -131,6 +151,69 @@ impl PsychologicalOperationsDiscordMcp {
                 };
                 let body = serde_json::to_string(&result)?;
                 Ok(CallToolResult::success(vec![Content::text(body)]))
+            }
+            .await,
+        )
+    }
+
+    #[tool(
+        name = "edit_message",
+        description = "Edit one of the bot's own messages (replaces its content)."
+    )]
+    async fn edit_message(
+        &self,
+        Parameters(req): Parameters<EditMessageRequest>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, ErrorData> {
+        let tag = self.resolve_session(&extensions).await?.tag.clone();
+        finish(
+            async move {
+                let channel: ChannelId = req
+                    .channel_id
+                    .parse()
+                    .map_err(|_| ToolError::agent(format!("invalid channel id: {}", req.channel_id)))?;
+                let message: MessageId = req
+                    .message_id
+                    .parse()
+                    .map_err(|_| ToolError::agent(format!("invalid message id: {}", req.message_id)))?;
+                let http = self.build_client().http(&tag).await?;
+                EditMessage::new()
+                    .content(req.content)
+                    .execute(&http, (channel, message, None))
+                    .await?;
+                Ok(CallToolResult::success(vec![Content::text(
+                    serde_json::json!({ "ok": true }).to_string(),
+                )]))
+            }
+            .await,
+        )
+    }
+
+    #[tool(
+        name = "delete_message",
+        description = "Delete one of the bot's own messages."
+    )]
+    async fn delete_message(
+        &self,
+        Parameters(req): Parameters<DeleteMessageRequest>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, ErrorData> {
+        let tag = self.resolve_session(&extensions).await?.tag.clone();
+        finish(
+            async move {
+                let channel: ChannelId = req
+                    .channel_id
+                    .parse()
+                    .map_err(|_| ToolError::agent(format!("invalid channel id: {}", req.channel_id)))?;
+                let message: MessageId = req
+                    .message_id
+                    .parse()
+                    .map_err(|_| ToolError::agent(format!("invalid message id: {}", req.message_id)))?;
+                let http = self.build_client().http(&tag).await?;
+                http.delete_message(channel, message, None).await?;
+                Ok(CallToolResult::success(vec![Content::text(
+                    serde_json::json!({ "ok": true }).to_string(),
+                )]))
             }
             .await,
         )

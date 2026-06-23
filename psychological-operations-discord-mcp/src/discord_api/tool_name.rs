@@ -33,13 +33,15 @@ pub enum ToolName {
     OpenAttachment,
     SendMessage,
     SendDirectMessage,
+    EditMessage,
+    DeleteMessage,
     AddReaction,
     RemoveReaction,
 }
 
 impl ToolName {
     /// Every metered tool, in a stable order.
-    pub const ALL: [ToolName; 17] = [
+    pub const ALL: [ToolName; 19] = [
         ToolName::Whoami,
         ToolName::ListServers,
         ToolName::ListChannels,
@@ -55,6 +57,8 @@ impl ToolName {
         ToolName::OpenAttachment,
         ToolName::SendMessage,
         ToolName::SendDirectMessage,
+        ToolName::EditMessage,
+        ToolName::DeleteMessage,
         ToolName::AddReaction,
         ToolName::RemoveReaction,
     ];
@@ -78,6 +82,8 @@ impl ToolName {
             OpenAttachment => "open_attachment",
             SendMessage => "send_message",
             SendDirectMessage => "send_direct_message",
+            EditMessage => "edit_message",
+            DeleteMessage => "delete_message",
             AddReaction => "add_reaction",
             RemoveReaction => "remove_reaction",
         }
@@ -97,7 +103,8 @@ impl ToolName {
             Whoami | ListServers | ListChannels | ListUsers | ListRoleMembers | ListMessages
             | GetMessage | GetUser | GetProfilePicture | GetRole | ListAvailableReactions
             | GetMessageReactionsByUser | OpenAttachment => Direction::Read,
-            SendMessage | SendDirectMessage | AddReaction | RemoveReaction => Direction::Write,
+            SendMessage | SendDirectMessage | EditMessage | DeleteMessage | AddReaction
+            | RemoveReaction => Direction::Write,
         }
     }
 }
