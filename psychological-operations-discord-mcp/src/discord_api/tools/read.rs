@@ -70,9 +70,6 @@ pub struct ListServersRequest {}
 pub struct WhoamiRequest {}
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
-pub struct InviteLinkRequest {}
-
-#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct ListChannelsRequest {
     #[schemars(description = "The server (guild) snowflake id to list channels for.")]
     pub server_id: String,
@@ -263,40 +260,6 @@ impl PsychologicalOperationsDiscordMcp {
                 let me = http.get_current_user().await?;
                 let body = serde_json::to_string(&user_ref(&me))?;
                 Ok(CallToolResult::success(vec![Content::text(body)]))
-            }
-            .await,
-        )
-    }
-
-    #[tool(
-        name = "invite_link",
-        description = "Generate the bot's Discord invite URL. Send it to people so they can add you to their own server. Quota-free."
-    )]
-    async fn invite_link(
-        &self,
-        Parameters(_req): Parameters<InviteLinkRequest>,
-        extensions: Extensions,
-    ) -> Result<CallToolResult, ErrorData> {
-        let tag = self.resolve_session(&extensions).await?.tag.clone();
-        finish(
-            async move {
-                let client_id = self
-                    .db
-                    .discord_auth_get(&tag)
-                    .await?
-                    .and_then(|a| a.client_id)
-                    .ok_or_else(|| {
-                        ToolError::agent(format!(
-                            "agent '{tag}' has no Discord client id — it isn't set up yet."
-                        ))
-                    })?;
-                // permissions=0 — no extra permissions (the bot lands at the
-                // @everyone baseline); scopes add the bot + slash commands.
-                let url = format!(
-                    "https://discord.com/oauth2/authorize?client_id={client_id}\
-                     &permissions=0&scope=bot%20applications.commands"
-                );
-                Ok(CallToolResult::success(vec![Content::text(url)]))
             }
             .await,
         )

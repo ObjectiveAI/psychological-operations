@@ -93,7 +93,10 @@ impl PsychologicalOperationsDiscordMcp {
     pub fn new(sessions: Arc<SessionRegistry>, db: Db) -> Self {
         let client = Client::new(db.clone());
         Self {
-            tool_router: Self::read_tools() + Self::write_tools() + Self::queue_tools(),
+            tool_router: Self::read_tools()
+                + Self::write_tools()
+                + Self::queue_tools()
+                + Self::other_tools(),
             sessions,
             db,
             client,
