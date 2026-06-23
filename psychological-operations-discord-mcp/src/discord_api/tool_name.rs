@@ -33,11 +33,13 @@ pub enum ToolName {
     OpenAttachment,
     SendMessage,
     SendDirectMessage,
+    AddReaction,
+    RemoveReaction,
 }
 
 impl ToolName {
     /// Every metered tool, in a stable order.
-    pub const ALL: [ToolName; 15] = [
+    pub const ALL: [ToolName; 17] = [
         ToolName::Whoami,
         ToolName::ListServers,
         ToolName::ListChannels,
@@ -53,6 +55,8 @@ impl ToolName {
         ToolName::OpenAttachment,
         ToolName::SendMessage,
         ToolName::SendDirectMessage,
+        ToolName::AddReaction,
+        ToolName::RemoveReaction,
     ];
 
     /// The MCP tool name, matching its `#[tool(name = …)]`.
@@ -74,6 +78,8 @@ impl ToolName {
             OpenAttachment => "open_attachment",
             SendMessage => "send_message",
             SendDirectMessage => "send_direct_message",
+            AddReaction => "add_reaction",
+            RemoveReaction => "remove_reaction",
         }
     }
 
@@ -91,7 +97,7 @@ impl ToolName {
             Whoami | ListServers | ListChannels | ListUsers | ListRoleMembers | ListMessages
             | GetMessage | GetUser | GetProfilePicture | GetRole | ListAvailableReactions
             | GetMessageReactionsByUser | OpenAttachment => Direction::Read,
-            SendMessage | SendDirectMessage => Direction::Write,
+            SendMessage | SendDirectMessage | AddReaction | RemoveReaction => Direction::Write,
         }
     }
 }

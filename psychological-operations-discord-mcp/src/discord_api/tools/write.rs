@@ -8,7 +8,7 @@
 use psychological_operations_sdk::discord::serenity;
 use rmcp::model::{CallToolResult, Content, Extensions};
 use rmcp::{ErrorData, handler::server::wrapper::Parameters, schemars, tool, tool_router};
-use serenity::all::{Builder, ChannelId, CreateMessage, MessageId, UserId};
+use serenity::all::{Builder, ChannelId, CreateMessage, MessageId, ReactionType, UserId};
 
 use super::super::PsychologicalOperationsDiscordMcp;
 use super::super::model::SentMessage;
@@ -36,6 +36,17 @@ pub struct SendDirectMessageRequest {
     #[schemars(description = "Optional: the id of a message in the DM to reply to. When set, \
                              the message is sent as a reply.")]
     pub reply_to_message_id: Option<String>,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct ReactionRequest {
+    #[schemars(description = "The channel (snowflake) the message is in.")]
+    pub channel_id: String,
+    #[schemars(description = "The message's snowflake id.")]
+    pub message_id: String,
+    #[schemars(description = "The emoji to react with: a unicode emoji (e.g. 👍) or a custom \
+                             emoji as name:id (see list_available_reactions).")]
+    pub emoji: String,
 }
 
 /// Send `content` to `channel`, optionally as a reply to `reply_to`. Returns the
@@ -124,4 +135,64 @@ impl PsychologicalOperationsDiscordMcp {
             .await,
         )
     }
+
+    #[tool(name = "add_reaction", description = "Add the bot's reaction to a message.")]
+    async fn add_reaction(
+        &self,
+        Parameters(req): Parameters<ReactionRequest>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, ErrorData> {
+        let tag = self.resolve_session(&extensions).await?.tag.clone();
+        finish(
+            async move {
+                let (channel, message, rt) = parse_reaction(&req)?;
+                let http = self.build_client().http(&tag).await?;
+                http.create_reaction(channel, message, &rt).await?;
+                Ok(CallToolResult::success(vec![Content::text(
+                    serde_json::json!({ "ok": true }).to_string(),
+                )]))
+            }
+            .await,
+        )
+    }
+
+    #[tool(
+        name = "remove_reaction",
+        description = "Remove the bot's own reaction from a message."
+    )]
+    async fn remove_reaction(
+        &self,
+        Parameters(req): Parameters<ReactionRequest>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, ErrorData> {
+        let tag = self.resolve_session(&extensions).await?.tag.clone();
+        finish(
+            async move {
+                let (channel, message, rt) = parse_reaction(&req)?;
+                let http = self.build_client().http(&tag).await?;
+                http.delete_reaction_me(channel, message, &rt).await?;
+                Ok(CallToolResult::success(vec![Content::text(
+                    serde_json::json!({ "ok": true }).to_string(),
+                )]))
+            }
+            .await,
+        )
+    }
+}
+
+/// Parse a [`ReactionRequest`]'s channel / message ids and emoji.
+fn parse_reaction(req: &ReactionRequest) -> Result<(ChannelId, MessageId, ReactionType), ToolError> {
+    let channel: ChannelId = req
+        .channel_id
+        .parse()
+        .map_err(|_| ToolError::agent(format!("invalid channel id: {}", req.channel_id)))?;
+    let message: MessageId = req
+        .message_id
+        .parse()
+        .map_err(|_| ToolError::agent(format!("invalid message id: {}", req.message_id)))?;
+    let rt: ReactionType = req
+        .emoji
+        .parse()
+        .map_err(|_| ToolError::agent(format!("invalid emoji: {}", req.emoji)))?;
+    Ok((channel, message, rt))
 }
