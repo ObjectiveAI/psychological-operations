@@ -265,6 +265,24 @@ impl Client {
         .await
     }
 
+    /// A single message in full. Global cached.
+    pub async fn get_message(
+        &self,
+        agent_tag: &str,
+        channel: ChannelId,
+        message: MessageId,
+    ) -> Result<Message, Error> {
+        let key = cache::global_key(
+            "get_message",
+            &[&channel.get().to_le_bytes(), &message.get().to_le_bytes()],
+        );
+        self.cached(key, || async {
+            let http = self.http(agent_tag).await?;
+            Ok(http.get_message(channel, message).await?)
+        })
+        .await
+    }
+
     /// Resolve the agent's bot token from the DB. `discord_auth_get(tag)` then
     /// the row's `bot_token`; [`Error::NotAuthed`] if there's no row or no
     /// token.

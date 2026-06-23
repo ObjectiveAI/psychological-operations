@@ -596,8 +596,7 @@ impl PsychologicalOperationsDiscordMcp {
             async move {
                 let channel = parse_channel(&req.channel_id)?;
                 let message = parse_message(&req.message_id)?;
-                let http = self.build_client().http(&tag).await?;
-                let m = http.get_message(channel, message).await?;
+                let m = self.build_client().get_message(&tag, channel, message).await?;
                 let detail = project_message_detail(&m);
                 let body = serde_json::to_string(&detail)?;
                 Ok(CallToolResult::success(vec![Content::text(body)]))
@@ -725,8 +724,9 @@ impl PsychologicalOperationsDiscordMcp {
             async move {
                 let channel = parse_channel(&req.channel_id)?;
                 let message = parse_message(&req.message_id)?;
-                let http = self.build_client().http(&tag).await?;
-                let m = http.get_message(channel, message).await?;
+                // get_message is cached; the attachment download below uses
+                // serenity's own client, bypassing our cache (large bytes).
+                let m = self.build_client().get_message(&tag, channel, message).await?;
                 let att = m
                     .attachments
                     .iter()
