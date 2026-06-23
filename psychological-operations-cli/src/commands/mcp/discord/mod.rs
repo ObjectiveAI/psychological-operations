@@ -77,6 +77,10 @@ pub enum Commands {
         quota_usage_get_profile_picture: Option<String>,
         #[arg(long = "quota_usage_open_attachment")]
         quota_usage_open_attachment: Option<String>,
+        #[arg(long = "quota_usage_send_message")]
+        quota_usage_send_message: Option<String>,
+        #[arg(long = "quota_usage_send_direct_message")]
+        quota_usage_send_direct_message: Option<String>,
     },
 }
 

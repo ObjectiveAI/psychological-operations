@@ -41,9 +41,8 @@ use session::{SessionRegistry, SessionState};
 use tool_name::{Direction, ToolName};
 
 /// Tools only listed + callable when the session's mode is `Mode::Full`.
-/// Empty for now (queue tools are exposed in both modes); the write tools add
-/// their names here.
-const FULL_ONLY_TOOLS: &[&str] = &[];
+/// (Read + queue tools are exposed in both modes.)
+const FULL_ONLY_TOOLS: &[&str] = &["send_message", "send_direct_message"];
 
 fn is_hidden_for(mode: Mode, tool_name: &str) -> bool {
     matches!(mode, Mode::Readonly) && FULL_ONLY_TOOLS.contains(&tool_name)

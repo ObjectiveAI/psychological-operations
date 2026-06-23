@@ -9,7 +9,6 @@
 
 /// Which budget a tool's cost counts against.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)] // `Write` is unused until the write tools land.
 pub enum Direction {
     Read,
     Write,
@@ -30,11 +29,13 @@ pub enum ToolName {
     GetProfilePicture,
     GetRole,
     OpenAttachment,
+    SendMessage,
+    SendDirectMessage,
 }
 
 impl ToolName {
     /// Every metered tool, in a stable order.
-    pub const ALL: [ToolName; 11] = [
+    pub const ALL: [ToolName; 13] = [
         ToolName::Whoami,
         ToolName::ListServers,
         ToolName::ListChannels,
@@ -46,6 +47,8 @@ impl ToolName {
         ToolName::GetProfilePicture,
         ToolName::GetRole,
         ToolName::OpenAttachment,
+        ToolName::SendMessage,
+        ToolName::SendDirectMessage,
     ];
 
     /// The MCP tool name, matching its `#[tool(name = …)]`.
@@ -63,6 +66,8 @@ impl ToolName {
             GetProfilePicture => "get_profile_picture",
             GetRole => "get_role",
             OpenAttachment => "open_attachment",
+            SendMessage => "send_message",
+            SendDirectMessage => "send_direct_message",
         }
     }
 
@@ -81,6 +86,7 @@ impl ToolName {
             | GetMessage | GetUser | GetProfilePicture | GetRole | OpenAttachment => {
                 Direction::Read
             }
+            SendMessage | SendDirectMessage => Direction::Write,
         }
     }
 }

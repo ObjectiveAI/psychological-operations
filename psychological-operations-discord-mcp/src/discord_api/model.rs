@@ -45,6 +45,15 @@ pub(super) struct UserProfile {
     pub bot: bool,
 }
 
+/// Result of `send_message` / `send_direct_message` — the ids needed for any
+/// follow-up (read it back, reply again, …). For `send_direct_message`,
+/// `channel_id` is the resolved DM channel.
+#[derive(Debug, Clone, Serialize)]
+pub(super) struct SentMessage {
+    pub channel_id: String,
+    pub message_id: String,
+}
+
 /// `get_role` result. `color` is a `#RRGGBB` hex string (`#000000` = no color).
 #[derive(Debug, Clone, Serialize)]
 pub(super) struct RoleInfo {
