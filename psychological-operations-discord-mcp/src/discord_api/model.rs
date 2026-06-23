@@ -45,6 +45,20 @@ pub(super) struct UserProfile {
     pub bot: bool,
 }
 
+/// `get_role` result. `color` is a `#RRGGBB` hex string (`#000000` = no color).
+#[derive(Debug, Clone, Serialize)]
+pub(super) struct RoleInfo {
+    pub id: String,
+    pub name: String,
+    pub color: String,
+    pub position: u16,
+    /// Whether members with this role are shown separately in the member list.
+    pub hoist: bool,
+    pub mentionable: bool,
+    /// Whether the role is managed by an integration/bot (not manually editable).
+    pub managed: bool,
+}
+
 /// `list_channels` item. `kind` is the channel type (`text`, `news`,
 /// `public_thread`, `forum`, …).
 #[derive(Debug, Clone, Serialize)]

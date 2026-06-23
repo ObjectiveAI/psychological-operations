@@ -19,14 +19,15 @@ use objectiveai_sdk::mcp::tool::ContentBlock;
 use psychological_operations_sdk::discord::serenity;
 use rmcp::model::{CallToolResult, Content, Extensions, RawAudioContent, RawContent};
 use rmcp::{ErrorData, handler::server::wrapper::Parameters, schemars, tool, tool_router};
-use serenity::all::{ChannelId, GuildId, MessageId, MessagePagination, UserId};
+use serenity::all::{ChannelId, GuildId, MessageId, MessagePagination, RoleId, UserId};
 
 use super::super::PsychologicalOperationsDiscordMcp;
 use super::super::model::{
     AttachmentKind, ChannelInfo, MessageSummary, ServerInfo, User, UserProfile,
 };
 use super::super::projection::{
-    attachment_kind, channel_info, project_message_detail, project_message_summary, user_ref,
+    attachment_kind, channel_info, project_message_detail, project_message_summary, role_info,
+    user_ref,
 };
 use super::super::tool_error::{ToolError, finish};
 
@@ -73,6 +74,26 @@ pub struct ListChannelsRequest {
 pub struct ListUsersRequest {
     #[schemars(description = "The server (guild) snowflake id to list members of.")]
     pub server_id: String,
+    #[schemars(description = "How many users to return (after skipping `offset`; max 100).")]
+    pub count: u32,
+    #[schemars(description = "How many users to skip from the start.")]
+    pub offset: u32,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct GetRoleRequest {
+    #[schemars(description = "The server (guild) snowflake id.")]
+    pub server_id: String,
+    #[schemars(description = "The role's snowflake id.")]
+    pub role_id: String,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct ListRoleMembersRequest {
+    #[schemars(description = "The server (guild) snowflake id.")]
+    pub server_id: String,
+    #[schemars(description = "The role's snowflake id.")]
+    pub role_id: String,
     #[schemars(description = "How many users to return (after skipping `offset`; max 100).")]
     pub count: u32,
     #[schemars(description = "How many users to skip from the start.")]
@@ -264,6 +285,101 @@ impl PsychologicalOperationsDiscordMcp {
                     !exhausted,
                 );
                 let window: Vec<User> = users
+                    .into_iter()
+                    .skip(req.offset as usize)
+                    .take(req.count as usize)
+                    .collect();
+                let body = serde_json::to_string(&window)?;
+                Ok(CallToolResult::success(vec![
+                    Content::text(body),
+                    Content::text(note),
+                ]))
+            }
+            .await,
+        )
+    }
+
+    #[tool(name = "get_role", description = "Get a role's info in a server.")]
+    async fn get_role(
+        &self,
+        Parameters(req): Parameters<GetRoleRequest>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, ErrorData> {
+        let tag = self.resolve_session(&extensions).await?.tag.clone();
+        finish(
+            async move {
+                let guild: GuildId = req
+                    .server_id
+                    .parse()
+                    .map_err(|_| ToolError::agent(format!("invalid server id: {}", req.server_id)))?;
+                let role_id: RoleId = req
+                    .role_id
+                    .parse()
+                    .map_err(|_| ToolError::agent(format!("invalid role id: {}", req.role_id)))?;
+                let http = self.build_client().http(&tag).await?;
+                let role = http.get_guild_role(guild, role_id).await?;
+                let body = serde_json::to_string(&role_info(&role))?;
+                Ok(CallToolResult::success(vec![Content::text(body)]))
+            }
+            .await,
+        )
+    }
+
+    #[tool(
+        name = "list_role_members",
+        description = "List the users who have a given role in a server."
+    )]
+    async fn list_role_members(
+        &self,
+        Parameters(req): Parameters<ListRoleMembersRequest>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, ErrorData> {
+        let tag = self.resolve_session(&extensions).await?.tag.clone();
+        finish(
+            async move {
+                check_count(req.count)?;
+                let guild: GuildId = req
+                    .server_id
+                    .parse()
+                    .map_err(|_| ToolError::agent(format!("invalid server id: {}", req.server_id)))?;
+                let role_id: RoleId = req
+                    .role_id
+                    .parse()
+                    .map_err(|_| ToolError::agent(format!("invalid role id: {}", req.role_id)))?;
+                let http = self.build_client().http(&tag).await?;
+
+                let need = req.offset as usize + req.count as usize;
+                // No "members with role X" endpoint — page all members and keep
+                // the ones that carry the role, until we have `need` or run out.
+                let mut matched: Vec<User> = Vec::new();
+                let mut after: Option<u64> = None;
+                let mut exhausted = false;
+                while matched.len() < need {
+                    let page = http.get_guild_members(guild, Some(MEMBERS_PAGE), after).await?;
+                    if page.is_empty() {
+                        exhausted = true;
+                        break;
+                    }
+                    after = page.last().map(|m| m.user.id.get());
+                    let full_page = (page.len() as u64) == MEMBERS_PAGE;
+                    for m in &page {
+                        if m.roles.contains(&role_id) {
+                            matched.push(user_ref(&m.user));
+                        }
+                    }
+                    if !full_page {
+                        exhausted = true;
+                        break;
+                    }
+                }
+
+                let note = remaining_note(
+                    matched.len(),
+                    req.offset as usize,
+                    req.count as usize,
+                    !exhausted,
+                );
+                let window: Vec<User> = matched
                     .into_iter()
                     .skip(req.offset as usize)
                     .take(req.count as usize)

@@ -6,7 +6,9 @@
 use psychological_operations_sdk::discord::serenity;
 use serenity::all::{GuildChannel, Message};
 
-use super::model::{Attachment, AttachmentKind, ChannelInfo, MessageDetail, MessageSummary, User};
+use super::model::{
+    Attachment, AttachmentKind, ChannelInfo, MessageDetail, MessageSummary, RoleInfo, User,
+};
 
 /// A [`User`] reference (`user_id` + global username) from a serenity user.
 pub(super) fn user_ref(u: &serenity::all::User) -> User {
@@ -75,5 +77,17 @@ pub(super) fn channel_info(c: &GuildChannel) -> ChannelInfo {
         id: c.id.to_string(),
         name: c.name.clone(),
         kind: c.kind.name().to_string(),
+    }
+}
+
+pub(super) fn role_info(r: &serenity::all::Role) -> RoleInfo {
+    RoleInfo {
+        id: r.id.to_string(),
+        name: r.name.clone(),
+        color: format!("#{}", r.colour.hex()),
+        position: r.position,
+        hoist: r.hoist,
+        mentionable: r.mentionable,
+        managed: r.managed,
     }
 }
