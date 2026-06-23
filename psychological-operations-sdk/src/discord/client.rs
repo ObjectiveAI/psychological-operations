@@ -60,6 +60,18 @@ struct Inner {
     gateway: Cache<ShardManager>,
 }
 
+/// Discord's max page size for `GET /guilds/{id}/members`.
+pub const MEMBERS_PAGE: u64 = 1000;
+
+/// Args for [`Client::get_guild_members`]. The page size is fixed internally
+/// ([`MEMBERS_PAGE`]) so cache keys never carry a variable limit — page by
+/// `after` (the last user id of the previous page).
+#[derive(Debug, Clone, Copy)]
+pub struct GetGuildMembers {
+    pub guild: GuildId,
+    pub after: Option<UserId>,
+}
+
 impl Client {
     /// Build a Discord client. **Infallible** and **synchronous** — no I/O
     /// happens here. Tokens + resources are resolved lazily, per agent, on the
@@ -195,6 +207,27 @@ impl Client {
         self.cached(key, || async {
             let http = self.http(agent_tag).await?;
             Ok(http.get_guild_role(guild, role).await?)
+        })
+        .await
+    }
+
+    /// One page (up to [`MEMBERS_PAGE`]) of a guild's members, after the
+    /// `after` cursor. Global cached. Callers loop, advancing `after` to the
+    /// last returned member's id, until a short/empty page.
+    pub async fn get_guild_members(
+        &self,
+        agent_tag: &str,
+        req: GetGuildMembers,
+    ) -> Result<Vec<Member>, Error> {
+        let GetGuildMembers { guild, after } = req;
+        let after_bytes = cache::opt_cursor(after.map(|u| u.get()));
+        let key =
+            cache::global_key("get_guild_members", &[&guild.get().to_le_bytes(), &after_bytes]);
+        self.cached(key, || async move {
+            let http = self.http(agent_tag).await?;
+            Ok(http
+                .get_guild_members(guild, Some(MEMBERS_PAGE), after.map(|u| u.get()))
+                .await?)
         })
         .await
     }

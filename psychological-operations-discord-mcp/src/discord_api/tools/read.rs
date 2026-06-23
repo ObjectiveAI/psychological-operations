@@ -17,6 +17,7 @@ use base64::Engine;
 use objectiveai_sdk::agent::completions::message::{File, ImageUrl, RichContentPart, VideoUrl};
 use objectiveai_sdk::mcp::tool::ContentBlock;
 use psychological_operations_sdk::discord::serenity;
+use psychological_operations_sdk::discord::{GetGuildMembers, MEMBERS_PAGE};
 use rmcp::model::{CallToolResult, Content, Extensions, RawAudioContent, RawContent};
 use rmcp::{ErrorData, handler::server::wrapper::Parameters, schemars, tool, tool_router};
 use serenity::all::{
@@ -38,9 +39,6 @@ const MAX_COUNT: u32 = 100;
 
 /// Discord's max page size for `GET /channels/{id}/messages`.
 const MESSAGES_PAGE: usize = 100;
-
-/// Discord's max page size for `GET /guilds/{id}/members`.
-const MEMBERS_PAGE: u64 = 1000;
 
 /// Reject a `count` over [`MAX_COUNT`] with an agent-visible message.
 pub(super) fn check_count(count: u32) -> Result<(), ToolError> {
@@ -305,21 +303,23 @@ impl PsychologicalOperationsDiscordMcp {
                     .server_id
                     .parse()
                     .map_err(|_| ToolError::agent(format!("invalid server id: {}", req.server_id)))?;
-                let http = self.build_client().http(&tag).await?;
+                let client = self.build_client();
 
                 let need = req.offset as usize + req.count as usize;
                 // Page members via the `after` (user-id) cursor until we have
                 // `need` of them or the guild runs out.
                 let mut users: Vec<User> = Vec::new();
-                let mut after: Option<u64> = None;
+                let mut after: Option<UserId> = None;
                 let mut exhausted = false;
                 while users.len() < need {
-                    let page = http.get_guild_members(guild, Some(MEMBERS_PAGE), after).await?;
+                    let page = client
+                        .get_guild_members(&tag, GetGuildMembers { guild, after })
+                        .await?;
                     if page.is_empty() {
                         exhausted = true;
                         break;
                     }
-                    after = page.last().map(|m| m.user.id.get());
+                    after = page.last().map(|m| m.user.id);
                     users.extend(page.iter().map(|m| user_ref(&m.user)));
                     if (page.len() as u64) < MEMBERS_PAGE {
                         exhausted = true;
@@ -394,21 +394,23 @@ impl PsychologicalOperationsDiscordMcp {
                     .role_id
                     .parse()
                     .map_err(|_| ToolError::agent(format!("invalid role id: {}", req.role_id)))?;
-                let http = self.build_client().http(&tag).await?;
+                let client = self.build_client();
 
                 let need = req.offset as usize + req.count as usize;
                 // No "members with role X" endpoint — page all members and keep
                 // the ones that carry the role, until we have `need` or run out.
                 let mut matched: Vec<User> = Vec::new();
-                let mut after: Option<u64> = None;
+                let mut after: Option<UserId> = None;
                 let mut exhausted = false;
                 while matched.len() < need {
-                    let page = http.get_guild_members(guild, Some(MEMBERS_PAGE), after).await?;
+                    let page = client
+                        .get_guild_members(&tag, GetGuildMembers { guild, after })
+                        .await?;
                     if page.is_empty() {
                         exhausted = true;
                         break;
                     }
-                    after = page.last().map(|m| m.user.id.get());
+                    after = page.last().map(|m| m.user.id);
                     let full_page = (page.len() as u64) == MEMBERS_PAGE;
                     for m in &page {
                         if m.roles.contains(&role_id) {

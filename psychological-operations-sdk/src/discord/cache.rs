@@ -18,8 +18,6 @@ use sha2::{Digest, Sha256};
 /// Encode an optional snowflake cursor for a cache key: `[0]` for `None`, or
 /// `[1] ‖ id_le` for `Some` — a presence byte so `None` and any `Some` value
 /// produce distinct, unambiguous key parts.
-// Removed once the first paginated (cursor) read method lands.
-#[allow(dead_code)]
 pub fn opt_cursor(id: Option<u64>) -> Vec<u8> {
     match id {
         Some(x) => {
