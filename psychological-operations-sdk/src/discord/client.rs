@@ -26,7 +26,9 @@ use dashmap::DashMap;
 use psychological_operations_db::Db;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use serenity::all::{CurrentUser, EventHandler, GatewayIntents, RawEventHandler, ShardManager};
+use serenity::all::{
+    CurrentUser, EventHandler, GatewayIntents, GuildInfo, RawEventHandler, ShardManager,
+};
 use tokio::sync::OnceCell;
 
 use super::cache;
@@ -108,6 +110,17 @@ impl Client {
         self.cached(key, || async {
             let http = self.http(agent_tag).await?;
             Ok(http.get_current_user().await?)
+        })
+        .await
+    }
+
+    /// The guilds (servers) the bot is in. Per-user cached (visibility is
+    /// per-bot).
+    pub async fn get_guilds(&self, agent_tag: &str) -> Result<Vec<GuildInfo>, Error> {
+        let key = cache::user_key(agent_tag, "get_guilds", &[]);
+        self.cached(key, || async {
+            let http = self.http(agent_tag).await?;
+            Ok(http.get_guilds(None, None).await?)
         })
         .await
     }

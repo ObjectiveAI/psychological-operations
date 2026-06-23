@@ -228,8 +228,7 @@ impl PsychologicalOperationsDiscordMcp {
         let tag = self.resolve_session(&extensions).await?.tag.clone();
         finish(
             async move {
-                let http = self.build_client().http(&tag).await?;
-                let guilds = http.get_guilds(None, None).await?;
+                let guilds = self.build_client().get_guilds(&tag).await?;
                 let servers: Vec<ServerInfo> = guilds
                     .iter()
                     .map(|g| ServerInfo {
