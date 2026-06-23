@@ -20,12 +20,16 @@
 //! already-cached agent — unlike the per-call [`crate::x::client::Client`].
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use dashmap::DashMap;
 use psychological_operations_db::Db;
-use serenity::all::{EventHandler, GatewayIntents, RawEventHandler, ShardManager};
+use serde::Serialize;
+use serde::de::DeserializeOwned;
+use serenity::all::{CurrentUser, EventHandler, GatewayIntents, RawEventHandler, ShardManager};
 use tokio::sync::OnceCell;
 
+use super::cache;
 use super::error::Error;
 
 /// A per-agent cache cell: built once, then shared.
@@ -38,8 +42,14 @@ pub struct Client {
 }
 
 struct Inner {
-    /// The single persistence layer — holds each agent's `discord_auth` row.
+    /// The single persistence layer — holds each agent's `discord_auth` row,
+    /// and backs the response cache (`cache_get_or_fetch`).
     db: Db,
+    /// Response-cache byte budget, forwarded to `Db::cache_get_or_fetch`. 0
+    /// means no eviction cap.
+    cache_max_size: u64,
+    /// Response-cache per-entry TTL, forwarded to `Db::cache_get_or_fetch`.
+    cache_ttl: Duration,
     /// Lazily-built REST clients, one per agent tag.
     http: Cache<serenity::http::Http>,
     /// Lazily-established gateway connections' shard managers, one per agent
@@ -50,11 +60,14 @@ struct Inner {
 impl Client {
     /// Build a Discord client. **Infallible** and **synchronous** — no I/O
     /// happens here. Tokens + resources are resolved lazily, per agent, on the
-    /// first `http` / `gateway` call for that agent.
-    pub fn new(db: Db) -> Self {
+    /// first call for that agent. `cache_max_size` / `cache_ttl` are the
+    /// response cache's budget + per-entry TTL (same knobs as the X client).
+    pub fn new(db: Db, cache_max_size: u64, cache_ttl: Duration) -> Self {
         Self {
             inner: Arc::new(Inner {
                 db,
+                cache_max_size,
+                cache_ttl,
                 http: DashMap::new(),
                 gateway: DashMap::new(),
             }),
@@ -64,6 +77,39 @@ impl Client {
     /// The shared persistence handle.
     pub fn db(&self) -> &Db {
         &self.inner.db
+    }
+
+    /// Run a read through the shared response cache: on a hit, deserialize the
+    /// stored JSON body into `T`; on a miss, run `fetch`, store its
+    /// JSON-serialized result, and return it. Single-flight + TTL + LRU are
+    /// handled by `Db::cache_get_or_fetch`. The serenity model `T` round-trips
+    /// through JSON (it's modeled from Discord JSON). Reads use this; writes
+    /// call `http()` directly and never touch the cache.
+    async fn cached<T, F, Fut>(&self, key: [u8; 32], fetch: F) -> Result<T, Error>
+    where
+        T: Serialize + DeserializeOwned,
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = Result<T, Error>>,
+    {
+        let bytes = self
+            .inner
+            .db
+            .cache_get_or_fetch(&key, self.inner.cache_max_size, self.inner.cache_ttl, || async {
+                let value = fetch().await?;
+                Ok::<Vec<u8>, Error>(serde_json::to_vec(&value)?)
+            })
+            .await?;
+        Ok(serde_json::from_slice(&bytes)?)
+    }
+
+    /// The bot's own Discord identity. Per-user cached (`get_current_user`).
+    pub async fn get_current_user(&self, agent_tag: &str) -> Result<CurrentUser, Error> {
+        let key = cache::user_key(agent_tag, "get_current_user", &[]);
+        self.cached(key, || async {
+            let http = self.http(agent_tag).await?;
+            Ok(http.get_current_user().await?)
+        })
+        .await
     }
 
     /// Resolve the agent's bot token from the DB. `discord_auth_get(tag)` then

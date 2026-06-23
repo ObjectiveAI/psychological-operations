@@ -402,7 +402,7 @@ async fn begin(ctx: &crate::context::Context) -> Result<CliOutput, Error> {
     .ok_or_else(|| Error::Other("the Discord daemon is already running".into()))?;
 
     let store: HookStore = Arc::new(RwLock::new(HashMap::new()));
-    let client = discord::Client::new(ctx.db.clone());
+    let client = discord::Client::new(ctx.db.clone(), ctx.cache_max_size, ctx.cache_ttl);
 
     // Subscribe BEFORE the initial load, so a hook/auth change racing between
     // LISTEN and the load is never lost — at worst it yields one redundant,

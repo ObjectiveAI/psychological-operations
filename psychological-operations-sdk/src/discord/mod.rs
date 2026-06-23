@@ -1,6 +1,7 @@
 //! Discord API surface — a serenity-backed client supporting gateway listening
 //! and regular REST calls, authenticated per-agent from the database.
 
+mod cache;
 pub mod client;
 pub mod error;
 

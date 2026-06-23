@@ -53,7 +53,7 @@ pub(super) async fn run_batch(
     if psyops.is_empty() {
         return;
     }
-    let client = discord::Client::new(ctx.db.clone());
+    let client = discord::Client::new(ctx.db.clone(), ctx.cache_max_size, ctx.cache_ttl);
     let mut inflight: FuturesUnordered<_> = psyops
         .iter()
         .map(|(name, psyop)| {

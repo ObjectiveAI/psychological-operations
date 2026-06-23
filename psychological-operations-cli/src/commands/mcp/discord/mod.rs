@@ -112,7 +112,8 @@ impl Commands {
                     //    it via `/users/@me`. Any error aborts before the server
                     //    binds (mock mode skips the network check).
                     if !ctx.config.mock {
-                        let client = discord::Client::new(ctx.db.clone());
+                        let client =
+                            discord::Client::new(ctx.db.clone(), ctx.cache_max_size, ctx.cache_ttl);
                         let http = client.http(&tag).await.map_err(|e| {
                             Error::Other(format!("agent {tag} discord auth: {e}"))
                         })?;
@@ -143,9 +144,15 @@ impl Commands {
                     let _ = tags_apply::execute(&*ctx.executor, apply, None).await;
 
                     // 3. Serve until torn down.
-                    psychological_operations_discord_mcp::run("127.0.0.1", 0, ctx.db.clone())
-                        .await
-                        .map_err(|e| Error::Other(format!("mcp run: {e}")))?;
+                    psychological_operations_discord_mcp::run(
+                        "127.0.0.1",
+                        0,
+                        ctx.db.clone(),
+                        ctx.cache_max_size,
+                        ctx.cache_ttl,
+                    )
+                    .await
+                    .map_err(|e| Error::Other(format!("mcp run: {e}")))?;
                     Ok(Output::Ok)
                 }
             }

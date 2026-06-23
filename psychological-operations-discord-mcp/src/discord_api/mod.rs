@@ -93,8 +93,13 @@ impl std::fmt::Debug for PsychologicalOperationsDiscordMcp {
 }
 
 impl PsychologicalOperationsDiscordMcp {
-    pub fn new(sessions: Arc<SessionRegistry>, db: Db) -> Self {
-        let client = Client::new(db.clone());
+    pub fn new(
+        sessions: Arc<SessionRegistry>,
+        db: Db,
+        cache_max_size: u64,
+        cache_ttl: std::time::Duration,
+    ) -> Self {
+        let client = Client::new(db.clone(), cache_max_size, cache_ttl);
         Self {
             tool_router: Self::read_tools()
                 + Self::write_tools()

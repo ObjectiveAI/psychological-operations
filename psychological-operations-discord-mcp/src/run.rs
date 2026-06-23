@@ -11,6 +11,7 @@
 //! restart is transparent to the upstream.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use objectiveai_sdk::cli::command::plugins::run::{Mcp, McpType};
 use objectiveai_sdk::cli::plugins::Output;
@@ -26,10 +27,13 @@ pub async fn setup(
     address: &str,
     port: u16,
     db: Db,
+    cache_max_size: u64,
+    cache_ttl: Duration,
 ) -> std::io::Result<(tokio::net::TcpListener, axum::Router)> {
     let registry = Arc::new(SessionRegistry::new());
 
-    let server = PsychologicalOperationsDiscordMcp::new(registry.clone(), db);
+    let server =
+        PsychologicalOperationsDiscordMcp::new(registry.clone(), db, cache_max_size, cache_ttl);
 
     let session_manager = Arc::new(HeaderSessionManager::new(registry.clone(), server.clone()));
     let ct = CancellationToken::new();
@@ -63,8 +67,14 @@ pub async fn serve(listener: tokio::net::TcpListener, app: axum::Router) -> std:
 /// and dials the MCP through the same pipeline a manifest `mcp_servers` entry
 /// would. No per-session values in the announcement — clients pin
 /// `tag` / `mode` / `quota_*` via the `X-OBJECTIVEAI-ARGUMENTS` header.
-pub async fn run(address: &str, port: u16, db: Db) -> std::io::Result<()> {
-    let (listener, app) = setup(address, port, db).await?;
+pub async fn run(
+    address: &str,
+    port: u16,
+    db: Db,
+    cache_max_size: u64,
+    cache_ttl: Duration,
+) -> std::io::Result<()> {
+    let (listener, app) = setup(address, port, db, cache_max_size, cache_ttl).await?;
     let addr = listener.local_addr()?;
     let announcement = Output::Mcp(Mcp {
         r#type: McpType::Mcp,

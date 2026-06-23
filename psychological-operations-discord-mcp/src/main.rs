@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use clap::Parser;
 
 /// Discord MCP server. Drives a streamable-HTTP MCP backed by the
@@ -15,6 +17,12 @@ struct Args {
     /// `OBJECTIVEAI_POSTGRES_URL` value).
     #[arg(long, env = "OBJECTIVEAI_POSTGRES_URL")]
     postgres_url: String,
+    /// Response-cache budget in bytes.
+    #[arg(long)]
+    cache_max_size: u64,
+    /// Per-entry response-cache TTL in seconds.
+    #[arg(long)]
+    cache_ttl: u64,
     /// Bind address — hidden; supervisor-internal.
     #[arg(long, default_value = "127.0.0.1", hide = true)]
     address: String,
@@ -38,5 +46,12 @@ async fn main() -> std::io::Result<()> {
     let db = psychological_operations_db::Db::connect(&args.postgres_url)
         .await
         .map_err(|e| std::io::Error::other(format!("db connect: {e}")))?;
-    psychological_operations_discord_mcp::run(&args.address, args.port, db).await
+    psychological_operations_discord_mcp::run(
+        &args.address,
+        args.port,
+        db,
+        args.cache_max_size,
+        Duration::from_secs(args.cache_ttl),
+    )
+    .await
 }

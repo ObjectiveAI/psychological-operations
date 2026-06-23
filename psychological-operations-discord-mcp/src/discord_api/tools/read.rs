@@ -256,8 +256,7 @@ impl PsychologicalOperationsDiscordMcp {
         let tag = self.resolve_session(&extensions).await?.tag.clone();
         finish(
             async move {
-                let http = self.build_client().http(&tag).await?;
-                let me = http.get_current_user().await?;
+                let me = self.build_client().get_current_user(&tag).await?;
                 let body = serde_json::to_string(&user_ref(&me))?;
                 Ok(CallToolResult::success(vec![Content::text(body)]))
             }

@@ -50,7 +50,7 @@ impl From<discord::Error> for ToolError {
     fn from(e: discord::Error) -> Self {
         let msg = e.to_string();
         match e {
-            discord::Error::NotAuthed(_) | discord::Error::Db(_) => {
+            discord::Error::NotAuthed(_) | discord::Error::Db(_) | discord::Error::Serde(_) => {
                 ToolError::System(ErrorData::internal_error(msg, None))
             }
             discord::Error::Serenity(_) => ToolError::Agent(msg),

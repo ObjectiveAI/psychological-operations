@@ -16,4 +16,9 @@ pub enum Error {
     /// A serenity error building the gateway client.
     #[error("serenity error: {0}")]
     Serenity(#[from] serenity::Error),
+
+    /// (De)serializing a cached response body (serenity model ⇄ JSON bytes in
+    /// the response cache).
+    #[error("discord cache (de)serialize error: {0}")]
+    Serde(#[from] serde_json::Error),
 }
