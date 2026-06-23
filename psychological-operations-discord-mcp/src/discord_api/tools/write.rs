@@ -9,7 +9,8 @@ use psychological_operations_sdk::discord::serenity;
 use rmcp::model::{CallToolResult, Content, Extensions};
 use rmcp::{ErrorData, handler::server::wrapper::Parameters, schemars, tool, tool_router};
 use serenity::all::{
-    Builder, ChannelId, CreateMessage, EditMessage, MessageId, ReactionType, UserId,
+    Builder, ChannelId, ChannelType, CreateMessage, CreateThread, EditMessage, MessageId,
+    ReactionType, UserId,
 };
 
 use super::super::PsychologicalOperationsDiscordMcp;
@@ -56,6 +57,17 @@ pub struct DeleteMessageRequest {
     pub channel_id: String,
     #[schemars(description = "The id of the bot's own message to delete.")]
     pub message_id: String,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct CreateThreadRequest {
+    #[schemars(description = "The parent channel (snowflake) to create the thread in.")]
+    pub channel_id: String,
+    #[schemars(description = "The thread's name.")]
+    pub name: String,
+    #[schemars(description = "Optional: a message id (any author) to start the thread from. \
+                             Without it, a standalone public thread is created.")]
+    pub message_id: Option<String>,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
@@ -214,6 +226,48 @@ impl PsychologicalOperationsDiscordMcp {
                 Ok(CallToolResult::success(vec![Content::text(
                     serde_json::json!({ "ok": true }).to_string(),
                 )]))
+            }
+            .await,
+        )
+    }
+
+    #[tool(
+        name = "create_thread",
+        description = "Create a thread in a channel. With message_id, it's started from that \
+                       message (any author); without, a standalone public thread. Returns the \
+                       thread's channel_id."
+    )]
+    async fn create_thread(
+        &self,
+        Parameters(req): Parameters<CreateThreadRequest>,
+        extensions: Extensions,
+    ) -> Result<CallToolResult, ErrorData> {
+        let tag = self.resolve_session(&extensions).await?.tag.clone();
+        finish(
+            async move {
+                let channel: ChannelId = req
+                    .channel_id
+                    .parse()
+                    .map_err(|_| ToolError::agent(format!("invalid channel id: {}", req.channel_id)))?;
+                let http = self.build_client().http(&tag).await?;
+                let thread = match req.message_id {
+                    Some(mid) => {
+                        let message: MessageId = mid.parse().map_err(|_| {
+                            ToolError::agent(format!("invalid message id: {mid}"))
+                        })?;
+                        CreateThread::new(req.name)
+                            .execute(&http, (channel, Some(message)))
+                            .await?
+                    }
+                    None => {
+                        CreateThread::new(req.name)
+                            .kind(ChannelType::PublicThread)
+                            .execute(&http, (channel, None))
+                            .await?
+                    }
+                };
+                let body = serde_json::json!({ "channel_id": thread.id.to_string() }).to_string();
+                Ok(CallToolResult::success(vec![Content::text(body)]))
             }
             .await,
         )

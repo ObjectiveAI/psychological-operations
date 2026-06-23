@@ -47,6 +47,7 @@ const FULL_ONLY_TOOLS: &[&str] = &[
     "send_direct_message",
     "edit_message",
     "delete_message",
+    "create_thread",
     "add_reaction",
     "remove_reaction",
 ];
