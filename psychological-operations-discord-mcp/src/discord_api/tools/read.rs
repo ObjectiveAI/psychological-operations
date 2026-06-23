@@ -476,8 +476,7 @@ impl PsychologicalOperationsDiscordMcp {
                         }
                     }
                     None => {
-                        // Global-cached get_user lands next; still via http here.
-                        let u = client.http(&tag).await?.get_user(uid).await?;
+                        let u = client.get_user(&tag, uid).await?;
                         let nickname = u.name.clone();
                         UserProfile {
                             user: user_ref(&u),
@@ -518,8 +517,7 @@ impl PsychologicalOperationsDiscordMcp {
                         })?;
                         client.get_member(&tag, guild, uid).await?.face()
                     }
-                    // Global-cached get_user lands next; still via http here.
-                    None => client.http(&tag).await?.get_user(uid).await?.face(),
+                    None => client.get_user(&tag, uid).await?.face(),
                 };
                 Ok(CallToolResult::success(vec![Content::text(url)]))
             }
