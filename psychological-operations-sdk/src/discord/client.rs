@@ -27,7 +27,8 @@ use psychological_operations_db::Db;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serenity::all::{
-    CurrentUser, EventHandler, GatewayIntents, GuildInfo, RawEventHandler, ShardManager,
+    CurrentUser, EventHandler, GatewayIntents, GuildChannel, GuildId, GuildInfo, RawEventHandler,
+    ShardManager,
 };
 use tokio::sync::OnceCell;
 
@@ -121,6 +122,21 @@ impl Client {
         self.cached(key, || async {
             let http = self.http(agent_tag).await?;
             Ok(http.get_guilds(None, None).await?)
+        })
+        .await
+    }
+
+    /// A guild's channels. Per-user cached — channel visibility is
+    /// permission-filtered per bot.
+    pub async fn get_channels(
+        &self,
+        agent_tag: &str,
+        guild: GuildId,
+    ) -> Result<Vec<GuildChannel>, Error> {
+        let key = cache::user_key(agent_tag, "get_channels", &[&guild.get().to_le_bytes()]);
+        self.cached(key, || async {
+            let http = self.http(agent_tag).await?;
+            Ok(http.get_channels(guild).await?)
         })
         .await
     }

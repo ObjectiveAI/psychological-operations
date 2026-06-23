@@ -279,8 +279,7 @@ impl PsychologicalOperationsDiscordMcp {
                     .server_id
                     .parse()
                     .map_err(|_| ToolError::agent(format!("invalid server id: {}", req.server_id)))?;
-                let http = self.build_client().http(&tag).await?;
-                let channels = http.get_channels(guild).await?;
+                let channels = self.build_client().get_channels(&tag, guild).await?;
                 let infos: Vec<ChannelInfo> = channels.iter().map(channel_info).collect();
                 let body = serde_json::to_string(&infos)?;
                 Ok(CallToolResult::success(vec![Content::text(body)]))
