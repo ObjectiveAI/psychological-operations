@@ -283,6 +283,16 @@ impl Client {
         .await
     }
 
+    /// A guild's custom emojis. Global cached.
+    pub async fn get_emojis(&self, agent_tag: &str, guild: GuildId) -> Result<Vec<Emoji>, Error> {
+        let key = cache::global_key("get_emojis", &[&guild.get().to_le_bytes()]);
+        self.cached(key, || async {
+            let http = self.http(agent_tag).await?;
+            Ok(http.get_emojis(guild).await?)
+        })
+        .await
+    }
+
     /// Resolve the agent's bot token from the DB. `discord_auth_get(tag)` then
     /// the row's `bot_token`; [`Error::NotAuthed`] if there's no row or no
     /// token.

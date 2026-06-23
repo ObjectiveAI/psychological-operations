@@ -625,9 +625,7 @@ impl PsychologicalOperationsDiscordMcp {
                         let guild: GuildId = sid.parse().map_err(|_| {
                             ToolError::agent(format!("invalid server id: {sid}"))
                         })?;
-                        // Global-cached get_emojis lands in the global-reads phase;
-                        // still via http for now.
-                        self.build_client().http(&tag).await?.get_emojis(guild).await?
+                        self.build_client().get_emojis(&tag, guild).await?
                     }
                     None => self.build_client().get_application_emojis(&tag).await?,
                 };
