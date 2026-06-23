@@ -22,9 +22,7 @@
 
 use psychological_operations_sdk::browser::output::Output;
 use psychological_operations_sdk::browser::reset;
-use psychological_operations_sdk::browser::x_app_credentials::{
-    OAuthPopup, PostCreateDialog, OAUTH_POPUP_KIND, POST_CREATE_DIALOG_KIND,
-};
+use psychological_operations_sdk::browser::x_app_credentials::{OAuthPopup, PostCreateDialog};
 use psychological_operations_sdk::cli::Output as CliOutput;
 
 use crate::browser::{browser_binary, launch, stream};
@@ -134,21 +132,22 @@ async fn run_inner(
     })
     .emit();
 
-    // Persist the captured credential HTML CLI-side (the browser is DB-free).
+    // Parse the captured HTML up-front and persist the *values* CLI-side (the
+    // browser is DB-free, and we no longer hoard raw HTML).
     let (handle, post_create_dialog, oauth_popup) = outcome.map_err(Error::Other)?;
-    ctx.db
-        .x_app_html_set(&handle, POST_CREATE_DIALOG_KIND, &post_create_dialog)
+    PostCreateDialog::parse(&post_create_dialog)
+        .to_db(&ctx.db, &handle)
         .await?;
-    ctx.db
-        .x_app_html_set(&handle, OAUTH_POPUP_KIND, &oauth_popup)
+    OAuthPopup::parse(&oauth_popup)
+        .to_db(&ctx.db, &handle)
         .await?;
     Ok(CliOutput::Ok)
 }
 
 /// `true` iff a captured X-App is present (the active twid from
-/// `x_app_html`) AND both captured HTML snapshots parse to complete
-/// structs. Reads the DB, not cookies — same end condition the
-/// browser-side panel uses to land on `PanelState::Hidden`.
+/// `x_app_credentials`) AND both stored credential sets are complete.
+/// Reads the DB, not cookies — same end condition the browser-side panel
+/// uses to land on `PanelState::Hidden`.
 async fn is_fully_set_up(ctx: &crate::context::Context) -> Result<bool, Error> {
     let Some(x_app_twid) = ctx.db.x_app_twid_active().await? else {
         return Ok(false);

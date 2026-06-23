@@ -12,18 +12,15 @@
 //! [`PostCreateDialog::is_complete`] / [`OAuthPopup::is_complete`]
 //! to ask "did every field land".
 //!
-//! Snapshots are persisted in the db crate's `x_app_html` table, keyed
-//! by `(handle, kind)` where `kind` is one of [`POST_CREATE_DIALOG_KIND`]
-//! / [`OAUTH_POPUP_KIND`]. Consumers fetch + parse via the `from_db`
-//! constructors; the browser writes via `Db::x_app_html_set`.
+//! The parsed *values* (not the raw HTML) are persisted in the db crate's
+//! `x_app_credentials` table, one row per handle. Capture parses up-front and
+//! stores via [`PostCreateDialog::to_db`] / [`OAuthPopup::to_db`]; consumers
+//! read the stored values back via the `from_db` constructors. `parse()`
+//! remains the in-memory HTML→struct step (run at the write site, and by the
+//! browser for its live green-dot count).
 
 use psychological_operations_db::Db;
 use scraper::{ElementRef, Html, Node, Selector};
-
-/// `x_app_html.kind` value for the post-create dialog snapshot.
-pub const POST_CREATE_DIALOG_KIND: &str = "post_create_dialog";
-/// `x_app_html.kind` value for the OAuth 2.0 settings popup snapshot.
-pub const OAUTH_POPUP_KIND: &str = "oauth_popup";
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct PostCreateDialog {
@@ -66,16 +63,34 @@ impl PostCreateDialog {
         out
     }
 
-    /// Fetch + parse the stored snapshot for `handle`. `Ok(None)` when
-    /// no snapshot has been captured yet.
+    /// Store these parsed values for `handle` (post-create-dialog columns).
+    pub async fn to_db(
+        &self,
+        db: &Db,
+        handle: &str,
+    ) -> Result<(), psychological_operations_db::Error> {
+        db.x_app_post_create_set(
+            handle,
+            self.consumer_key.as_deref(),
+            self.secret_key.as_deref(),
+            self.bearer_token.as_deref(),
+        )
+        .await
+    }
+
+    /// Read the stored values for `handle`. `Ok(None)` when no row exists yet.
     pub async fn from_db(
         db: &Db,
         handle: &str,
     ) -> Result<Option<Self>, psychological_operations_db::Error> {
         Ok(db
-            .x_app_html_get(handle, POST_CREATE_DIALOG_KIND)
+            .x_app_post_create_get(handle)
             .await?
-            .map(|html| Self::parse(&html)))
+            .map(|(consumer_key, secret_key, bearer_token)| Self {
+                consumer_key,
+                secret_key,
+                bearer_token,
+            }))
     }
 
     /// True iff all three fields parsed successfully.
@@ -116,16 +131,25 @@ impl OAuthPopup {
         out
     }
 
-    /// Fetch + parse the stored snapshot for `handle`. `Ok(None)` when
-    /// no snapshot has been captured yet.
+    /// Store these parsed values for `handle` (OAuth-popup columns).
+    pub async fn to_db(
+        &self,
+        db: &Db,
+        handle: &str,
+    ) -> Result<(), psychological_operations_db::Error> {
+        db.x_app_oauth_set(handle, self.client_id.as_deref(), self.client_secret.as_deref())
+            .await
+    }
+
+    /// Read the stored values for `handle`. `Ok(None)` when no row exists yet.
     pub async fn from_db(
         db: &Db,
         handle: &str,
     ) -> Result<Option<Self>, psychological_operations_db::Error> {
-        Ok(db
-            .x_app_html_get(handle, OAUTH_POPUP_KIND)
-            .await?
-            .map(|html| Self::parse(&html)))
+        Ok(db.x_app_oauth_get(handle).await?.map(|(client_id, client_secret)| Self {
+            client_id,
+            client_secret,
+        }))
     }
 
     pub fn is_complete(&self) -> bool {

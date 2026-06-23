@@ -206,14 +206,20 @@ CREATE TABLE IF NOT EXISTS psyops (
     updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- ── X-App scraped credential HTML (was x_app.json + html) ────────────
+-- ── X-App parsed credentials (was raw scraped HTML) ──────────────────
+-- One row per handle; the credential values parsed from the two
+-- developer-console surfaces (post-create dialog + OAuth popup) at
+-- `x-app setup`. All value columns are nullable — a partial parse leaves
+-- its fields NULL (callers gate on "all present" before use).
 
-CREATE TABLE IF NOT EXISTS x_app_html (
-    handle    TEXT NOT NULL,  -- normalized X handle / numeric twid
-    kind      TEXT NOT NULL,  -- 'post_create_dialog' | 'oauth_popup'
-    html      TEXT NOT NULL,
-    saved_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-    PRIMARY KEY (handle, kind)
+CREATE TABLE IF NOT EXISTS x_app_credentials (
+    handle        TEXT PRIMARY KEY,  -- normalized X handle / numeric twid
+    consumer_key  TEXT,              -- post-create dialog
+    secret_key    TEXT,
+    bearer_token  TEXT,
+    client_id     TEXT,              -- OAuth 2.0 settings popup
+    client_secret TEXT,
+    saved_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 -- ── persona identity: persona (agent/psyop) → the X account it operates ──

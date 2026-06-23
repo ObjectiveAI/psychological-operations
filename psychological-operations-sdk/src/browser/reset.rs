@@ -67,9 +67,9 @@ fn rm_rf_optional(path: &Path) -> std::io::Result<()> {
 /// Used by `x-app setup --dangerously-reset` before relaunching, which
 /// recaptures fresh snapshots.
 pub async fn wipe_x_app(db: &Db, state_dir: &Path) -> Result<(), String> {
-    db.x_app_html_clear()
+    db.x_app_credentials_clear()
         .await
-        .map_err(|e| format!("clear x_app html: {e}"))?;
+        .map_err(|e| format!("clear x_app credentials: {e}"))?;
     db.account_auth_delete_all()
         .await
         .map_err(|e| format!("delete all account tokens: {e}"))?;
