@@ -31,6 +31,8 @@ TOMLS=(
   psychological-operations-cli/Cargo.toml
   psychological-operations-sdk/Cargo.toml
   psychological-operations-x-mcp/Cargo.toml
+  psychological-operations-discord-mcp/Cargo.toml
+  psychological-operations-browser/src-tauri/Cargo.toml
   psychological-operations-tests/Cargo.toml
 )
 
