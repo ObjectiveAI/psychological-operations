@@ -93,10 +93,12 @@ impl PsychologicalOperationsDiscordMcp {
         Parameters(req): Parameters<SendMessageRequest>,
         extensions: Extensions,
     ) -> Result<CallToolResult, ErrorData> {
-        let tag = self.resolve_session(&extensions).await?.tag.clone();
+        let state = self.resolve_session(&extensions).await?;
+        let tag = state.tag.clone();
+        let max_len = state.max_message_length;
         finish(
             async move {
-                check_message_length(&req.content)?;
+                check_message_length(&req.content, max_len)?;
                 let channel = parse_channel(&req.channel_id)?;
                 let reply_to = parse_opt_message(req.reply_to_message_id.as_deref())?;
                 let msg = self
@@ -124,10 +126,12 @@ impl PsychologicalOperationsDiscordMcp {
         Parameters(req): Parameters<SendDirectMessageRequest>,
         extensions: Extensions,
     ) -> Result<CallToolResult, ErrorData> {
-        let tag = self.resolve_session(&extensions).await?.tag.clone();
+        let state = self.resolve_session(&extensions).await?;
+        let tag = state.tag.clone();
+        let max_len = state.max_message_length;
         finish(
             async move {
-                check_message_length(&req.content)?;
+                check_message_length(&req.content, max_len)?;
                 let user: UserId = req
                     .user_id
                     .parse()
@@ -157,10 +161,12 @@ impl PsychologicalOperationsDiscordMcp {
         Parameters(req): Parameters<EditMessageRequest>,
         extensions: Extensions,
     ) -> Result<CallToolResult, ErrorData> {
-        let tag = self.resolve_session(&extensions).await?.tag.clone();
+        let state = self.resolve_session(&extensions).await?;
+        let tag = state.tag.clone();
+        let max_len = state.max_message_length;
         finish(
             async move {
-                check_message_length(&req.content)?;
+                check_message_length(&req.content, max_len)?;
                 let channel = parse_channel(&req.channel_id)?;
                 let message = parse_message(&req.message_id)?;
                 self.build_client()
@@ -272,19 +278,15 @@ impl PsychologicalOperationsDiscordMcp {
     }
 }
 
-/// Discord's standard message character limit. Content over this is rejected by
-/// Discord; we reject proactively with an agent-visible message so the agent
-/// shortens (or splits) its text instead of erroring later.
-const MESSAGE_CHAR_LIMIT: usize = 2000;
-
-/// Reject message content that exceeds the Discord character limit. Counts
-/// Unicode scalar values. Surfaces as an agent-visible error result so the
-/// model can shorten and retry. (Mirrors the X MCP's `check_tweet_length`.)
-fn check_message_length(content: &str) -> Result<(), ToolError> {
+/// Reject message content that exceeds the session's `max_message_length`
+/// (defaults to Discord's 2000 limit; see [`crate::discord_api::session`]).
+/// Counts Unicode scalar values. Surfaces as an agent-visible error result so
+/// the model can shorten and retry. (Mirrors the X MCP's `check_tweet_length`.)
+fn check_message_length(content: &str, max: usize) -> Result<(), ToolError> {
     let n = content.chars().count();
-    if n > MESSAGE_CHAR_LIMIT {
+    if n > max {
         return Err(ToolError::agent(format!(
-            "content is {n} characters, over the {MESSAGE_CHAR_LIMIT}-character limit — shorten it and try again."
+            "content is {n} characters, over the {max}-character limit — shorten it and try again."
         )));
     }
     Ok(())

@@ -27,11 +27,12 @@ pub enum Commands {
     /// Only then does it bind a random localhost port, emit one JSONL line
     /// with the URL, and serve until the process is killed.
     ///
-    /// The per-session `mode` + optional `quota_*` overrides are supplied by
-    /// the client on connect via the `X-OBJECTIVEAI-ARGUMENTS` header (which
-    /// also re-carries `tag`); the flags below exist so the conduit's
-    /// `mcp discord begin --<arg> <value>` launch parses. `--tag` is consumed
-    /// at startup; `--mode` + `--quota_*` are DISCARDED here, validated at
+    /// The per-session `mode` + optional `max_message_length` / `quota_*`
+    /// overrides are supplied by the client on connect via the
+    /// `X-OBJECTIVEAI-ARGUMENTS` header (which also re-carries `tag`); the flags
+    /// below exist so the conduit's `mcp discord begin --<arg> <value>` launch
+    /// parses. `--tag` is consumed at startup; `--mode` +
+    /// `--max_message_length` + `--quota_*` are DISCARDED here, validated at
     /// connect-time in the header parser.
     Begin {
         /// DISCARDED (header-sourced). Kept as a `Mode` value-enum so a launch
@@ -43,6 +44,11 @@ pub enum Commands {
         /// (auth check + tag binding) before the server serves.
         #[arg(long)]
         tag: String,
+
+        /// DISCARDED (header-sourced). Max message length; parsed + validated
+        /// per session from the header (defaults to 2000).
+        #[arg(long = "max_message_length")]
+        max_message_length: Option<String>,
 
         // Optional per-session quota overrides. Accepted as opaque strings
         // (NOT validated here) only so the conduit's `begin --<k> <v>` launch

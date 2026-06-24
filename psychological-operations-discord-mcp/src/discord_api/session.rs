@@ -19,8 +19,13 @@ use super::tool_name::ToolName;
 use crate::Mode;
 
 /// HTTP header objectiveai stamps with a JSON object of per-URL arguments. We
-/// look for `tag`, `mode`, and the `quota_*` keys case-insensitively.
+/// look for `tag`, `mode`, `max_message_length`, and the `quota_*` keys
+/// case-insensitively.
 pub const HEADER_ARGUMENTS: &str = "X-OBJECTIVEAI-ARGUMENTS";
+
+/// Default `max_message_length` (Discord's standard message char limit) when the
+/// `max_message_length` argument is absent.
+pub const DEFAULT_MAX_MESSAGE_LENGTH: u64 = 2000;
 
 /// The values pulled from the request HTTP headers and pinned to the rmcp
 /// session in memory.
@@ -30,6 +35,10 @@ pub struct SessionState {
     /// identity every tool authenticates as, and the quota-ledger key.
     pub tag: String,
     pub mode: Mode,
+    /// Max characters a sent/edited message may have (`max_message_length`;
+    /// defaults to [`DEFAULT_MAX_MESSAGE_LENGTH`]). Enforced by the write tools
+    /// before hitting Discord.
+    pub max_message_length: usize,
     /// Per-session read-budget limit (`quota_read`; default-backed).
     pub quota_read: u64,
     /// Per-session write-budget limit (`quota_write`; default-backed).

@@ -42,7 +42,9 @@ use psychological_operations_db::quota::{
 use crate::Mode;
 use crate::PsychologicalOperationsDiscordMcp;
 use crate::ToolName;
-use crate::discord_api::session::{HEADER_ARGUMENTS, SessionRegistry, SessionState};
+use crate::discord_api::session::{
+    DEFAULT_MAX_MESSAGE_LENGTH, HEADER_ARGUMENTS, SessionRegistry, SessionState,
+};
 
 #[derive(Debug, Clone)]
 pub struct HeaderSessionManager {
@@ -251,6 +253,9 @@ fn extract_session_state(message: &ClientJsonRpcMessage) -> Result<SessionState,
     let tag = lookup_string_ci(&args, "tag")
         .ok_or_else(|| format!("missing tag: {HEADER_ARGUMENTS}[\"tag\"] absent or empty"))?;
 
+    let max_message_length =
+        parse_u64_arg(&args, "max_message_length")?.unwrap_or(DEFAULT_MAX_MESSAGE_LENGTH) as usize;
+
     let quota_read = parse_u64_arg(&args, "quota_read")?.unwrap_or(DEFAULT_READ_LIMIT);
     let quota_write = parse_u64_arg(&args, "quota_write")?.unwrap_or(DEFAULT_WRITE_LIMIT);
     let quota_interval =
@@ -270,6 +275,7 @@ fn extract_session_state(message: &ClientJsonRpcMessage) -> Result<SessionState,
     Ok(SessionState {
         tag,
         mode,
+        max_message_length,
         quota_read,
         quota_write,
         quota_interval,
