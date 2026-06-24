@@ -1,108 +1,116 @@
 # psychological-operations
 
-> **Note:** This repo is being transformed into an `objectiveai` plugin rather than a standalone binary. It does not work at the moment.
+An [ObjectiveAI](https://github.com/ObjectiveAI/objectiveai) **plugin** that runs
+autonomous persona **agents** on **X (Twitter)** and **Discord**. Each agent is
+an X account plus a Discord bot, addressed by a `tag`. The plugin gives every
+agent:
 
-Teach X's [For You](https://x.com) algorithm to surface tweets that match a function you define. Each psyop is an X account paired with a multi-stage scoring pipeline; the run loop captures, scores, and likes/retweets on-target tweets, training the algorithm to surface more of the same. Scoring is powered by [ObjectiveAI](https://github.com/ObjectiveAI/objectiveai).
+- **Tool-mediated presence** on both platforms — two MCP servers (`x` and
+  `discord`) the agent uses to read and act (post, reply, like, DM, react, …).
+- **Psyops** — scheduled pipelines that ingest posts/messages from X and/or
+  Discord, score them through an ObjectiveAI LLM swarm, and deliver the survivors
+  to agents' work queues.
+- **Event-driven wake-ups** — a resident daemon that listens to Discord's
+  gateway and wakes an agent when it's mentioned, replied to, or DM'd.
 
-## Install
+ObjectiveAI supplies the agent runtime and the scoring; this plugin supplies the
+platforms, the pipelines, and the persistence.
 
-psychological-operations shells out to the [`objectiveai`](https://github.com/ObjectiveAI/objectiveai) CLI for all scoring API calls, so it must be installed and on `PATH`. Install both:
+---
 
-### 1. ObjectiveAI CLI (prerequisite)
+## Core concepts
 
-Install the pre-built binary with one command:
+- **Agent / persona** — a `tag` (e.g. `dr-strange`) bound to an X account (via
+  OAuth) and/or a Discord bot. Every tool call, queued item, and hook is scoped
+  to a tag; the agent acts *as* that identity.
+- **MCP servers** (`x`, `discord`) — the agent's hands on each platform. Each
+  session carries a `mode` (`readonly` / `full`), a per-tag rate **quota**, and a
+  postgres-backed **response cache**. The Discord server also honors a
+  `max_message_length` (default 2000).
+- **Psyop** — an ingest → filter → score → deliver pipeline. A psyop is either an
+  X psyop or a Discord psyop; it runs `manual`ly or on an `interval`.
+- **Daemon** — one resident process that (a) holds a Discord gateway connection
+  per eligible agent and fires that agent's **hooks**, and (b) schedules due
+  psyop runs.
+- **Hooks** — per-agent rules that wake an agent on a Discord event.
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/ObjectiveAI/objectiveai/main/install.sh | bash
-. "$HOME/.objectiveai/env"
-```
+---
 
-Leaner, no-viewer build:
+## Agent tools (MCP)
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/ObjectiveAI/objectiveai/main/install.sh | bash -s -- --no-viewer
-. "$HOME/.objectiveai/env"
-```
+Agents reach the platforms exclusively through these tools. Read/write split
+maps to the session `mode`; write tools are hidden in `readonly`.
 
-Sourcing `~/.objectiveai/env` puts `objectiveai` on `PATH` for the current shell. New shells pick it up automatically (the installer wires `~/.bashrc` / `~/.zshrc` to source the same file).
+### `x` server
 
-Supported platforms: Linux x86_64, Linux aarch64 (Raspberry Pi 4+, Graviton), macOS x86_64, macOS aarch64 (Apple Silicon), Windows x86_64. The installer drops the binary at `~/.objectiveai/objectiveai`; the CLI self-updates on startup from [GitHub Releases](https://github.com/ObjectiveAI/objectiveai/releases).
+| group | tools |
+|---|---|
+| read | `run_query`, `list_timeline`, `list_mentions`, `list_replies`, `list_bookmarks`, `list_following`, `list_followers`, `get_tweet`, `get_bio`, `get_profile_picture`, `open_attachment`, `whoami` |
+| write | `post`, `reply`, `quote`, `like`, `retweet`, `bookmark`, `follow`, `unfollow` |
+| queue | `read_queue`, `mark_handled` |
 
-### 2. psychological-operations CLI
+### `discord` server
 
-Install the pre-built binary with one command:
+| group | tools |
+|---|---|
+| read | `list_servers`, `list_channels`, `list_users`, `list_role_members`, `get_role`, `get_user`, `get_profile_picture`, `list_messages`, `get_message`, `list_available_reactions`, `get_message_reactions_by_user`, `open_attachment`, `whoami` |
+| write | `send_message`, `send_direct_message`, `edit_message`, `delete_message`, `create_thread`, `add_reaction`, `remove_reaction` |
+| queue | `read_queue`, `mark_handled` |
+| other | `invite_link` |
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/WiggidyW/psychological-operations/main/install.sh | bash
-. "$HOME/.psychological-operations/env"
-```
+Reads are served from a shared response cache (per-user for identity/visibility
+calls like `whoami` / `list_servers` / `list_channels`; global for content like
+messages, users, and roles). Writes always go straight through. Outgoing Discord
+content is length-checked up front against `max_message_length` so the agent gets
+a clear "shorten it" error instead of a Discord rejection.
 
-Sourcing `~/.psychological-operations/env` puts `psychological-operations` on `PATH` for the current shell. New shells pick it up automatically (the installer wires `~/.bashrc` / `~/.zshrc` to source the same file).
+---
 
-Supported platforms: Linux x86_64, macOS x86_64, macOS aarch64 (Apple Silicon), Windows x86_64. The installer drops the binary at `~/.psychological-operations/psychological-operations`, fetched from [GitHub Releases](https://github.com/WiggidyW/psychological-operations/releases).
+## Psyops
 
-#### From source
+A psyop ingests candidates, filters and ranks them, optionally scores them
+through ObjectiveAI, and delivers the survivors to one or more agents' queues —
+which the agents then work through their MCP `read_queue` / `mark_handled` tools.
 
-```bash
-git clone https://github.com/WiggidyW/psychological-operations.git
-cd psychological-operations
-bash psychological-operations-cli/install.sh
-```
+**Sources** (at least one required; each names the `agent_tag` whose auth it
+reads as, plus an optional `priority` and per-source filter):
 
-## How it works
+- **X** — `queries` (X v2 recent search), `timeline` (an agent's reverse-chron
+  home timeline), `mentions` (an agent's mentions), `for_you` (the algorithmic
+  feed). String/numeric `filter` (engagement thresholds, age windows, ratios) or
+  a Python boolean expression.
+- **Discord** — `channels` (a channel's recent messages) and `servers` (across a
+  guild's text channels). Each takes a `count` and an optional `python_filter`.
 
-A **psyop** is an X account paired with a function that scores any tweet against the question "is this what I want in my feed?". Run the psyop on a schedule and X's recommendation algorithm converges that account's For You feed toward the function's high-scoring distribution.
+**Pipeline knobs:**
 
-The loop has four steps:
+- `trigger` — `manual` (runs only when named) or `interval` (a humantime cadence
+  the daemon scheduler honors).
+- `sort` — tiebreak ordering within priority buckets (`newest` / `oldest` /
+  engagement / a Python expression).
+- `stages` — an optional N-stage ObjectiveAI scoring pipeline. Each stage is a
+  function + profile + strategy with `output_threshold` / `output_top` narrowing;
+  stage *k*'s survivors feed stage *k+1*. No stages ⇒ every survivor passes at a
+  flat score.
+- `agent_tags` — deliver survivors to these agents' queues and notify them. Empty
+  ⇒ score-only (rank, deliver nothing).
+- `message` — a note delivered alongside the queued items so the agent knows what
+  the run is for.
 
-1. **Capture** — A Chromium extension running on x.com sends every tweet ID it sees in the For You feed to a local queue (`for_you_queue`). The extension only ever sees IDs; nothing leaves the machine until the next run.
-2. **Hydrate & filter** — `psyops run` drains the queue, fetches tweet metadata via the X v2 API, and applies per-source filters: thresholds on likes/retweets/replies/impressions, age windows, engagement ratios, or arbitrary Python expressions.
-3. **Score** — Surviving tweets pass through an N-stage [ObjectiveAI](https://github.com/ObjectiveAI/objectiveai) pipeline. Each stage is a function + profile + threshold; tweets falling below `output_threshold` or outside `output_top` are dropped before the next stage. One stage works fine for cheap functions; multiple stages let you cascade (e.g. cheap heuristic → mid-tier model → expensive swarm vote) so only promising candidates pay the full cost.
-4. **Engage** — The top survivors are liked or retweeted as the psyop's X account via the X API. Authentic engagement is the only signal X's algorithm trusts; consistent on-target likes/retweets train For You to surface more of the same.
+**Manage:** `psyops insert` (upsert from inline JSON or a file), `psyops get`,
+`psyops list [--x|--discord]`, `psyops enable|disable`, `psyops run [--name …]`,
+and `psyops schema` (emits the exact JSON Schema `insert` accepts).
 
-The next run captures a more on-target For You feed than the last. After a few cycles, the feed converges. The function defines the destination; the loop drives the algorithm there.
-
-## Anatomy of a psyop
-
-Each psyop is a `psyop.json` published into a git repo (the commit SHA is part of the psyop's identity, so different versions of the same psyop coexist). Fields:
-
-**Sources** — where candidate tweets come from.
-
-- `for_you` — the algorithmic timeline. Captured passively by the Chromium extension as the psyop's account browses x.com. Optional `priority` and `filter`.
-- `queries` — a list of X v2 search-operator strings (e.g. `from:user has:media -is:retweet`), each hitting `/2/tweets/search/recent` (the 7-day window, all X access tiers). Each query requires an `agent_tag` (whose auth it scrapes as) and a `max_posts` (how many to paginate up to), plus optional `priority` and `filter`.
-- `timeline` — per-agent home-timeline reads (`/2/users/{id}/timelines/reverse_chronological`, posts from accounts the agent follows). Each requires `agent_tag` + `max_posts` (paginated, count-capped), plus optional `priority`/`filter`. Sorts like a query (via `sort`).
-- `mentions` — per-agent mentions reads (`/2/users/{id}/mentions`). Same shape as `timeline`. Sorts like a query.
-
-Tweets that show up in both sources are deduped; the priority across accepting sources wins.
-
-**Filters** — per-source eligibility gates.
-
-- Numeric: `min_likes` / `max_likes` / `min_retweets` / `max_retweets` / `min_replies` / `max_replies` / `min_impressions` / `max_impressions` / `min_age` / `max_age`.
-- Engagement ratios: `min_likes_per_impression` and friends. Skipped when impressions are zero.
-- `python`: a Python boolean expression; the `input` global is a dict with `likes`, `retweets`, `replies`, `impressions`, and `age` — `python: "input['likes'] > 100 and input['retweets'] / input['likes'] > 0.5"`. AND-combined with everything above. Runs in the host's embedded Python via the `python` command.
-
-**Sort** — `sort` (`newest` / `oldest` / `likes` / `retweets` / `replies` / `python`) tiebreaks within priority buckets. To cap how many tweets enter scoring, use a stage's `output_top` (a bare stage exists exactly for this).
-
-**Stages** — a non-empty list of scoring stages. Each:
-
-- `function`, `profile`, `strategy` — ObjectiveAI scoring config (function defines the question; profile defines the learned weights; strategy is `default` or `swiss-system`).
-- `invert` — flip the score (useful when the function is more naturally framed as "how off-target is this?").
-- `images` / `videos` — toggle whether media goes into the scoring input.
-- `output_threshold` — drop tweets scoring below `[0.0, 1.0]`.
-- `output_top` — keep only the top fraction of survivors (e.g. `0.25` = top quarter).
-
-Stage k's survivors become stage k+1's input.
-
-**Cost knob** — `fetch_when_for_you_queued` (default `true`). Set to `false` to skip the X-API fetch sources (`queries`, `timeline`, `mentions`) whenever `for_you` already produced candidates; useful in steady state to avoid burning API calls when the feedback loop is already self-sustaining.
-
-A minimal example:
+A minimal X psyop (run `psyops schema` for the full shape; Discord psyops are
+symmetric, swapping `queries`/etc. for `channels`/`servers`):
 
 ```json
 {
-  "for_you": { "filter": { "min_impressions": 1000 } },
+  "type": "x",
   "queries": [
     { "query": "from:vitalikbuterin -is:retweet", "agent_tag": "riddler", "max_posts": 100, "priority": 10 }
   ],
+  "trigger": { "type": "interval", "interval": "1h" },
   "sort": "newest",
   "stages": [
     {
@@ -111,46 +119,106 @@ A minimal example:
       "strategy": { "type": "default" },
       "output_top": 0.2
     }
-  ]
+  ],
+  "agent_tags": ["riddler"],
+  "message": "On-topic takes worth engaging with."
 }
 ```
 
-## Multi-account model & shared billing
+Items can also be queued by hand: `agents enqueue x --agent-tag T --tweet-id ID
+--message M` or `agents enqueue discord --agent-tag T --channel-id C --message-id
+M --message MSG`.
 
-Each psyop is a separate X account.
+---
 
-- **One X developer app, shared billing.** All psyops authenticate against a single X Project + App. Credentials live in `~/.psychological-operations/x_app.json` and are captured once via the Chromium extension's setup flow. Every API call — search, hydrate, like, retweet, regardless of which psyop initiated it — deducts from this one credit pool.
-- **One OAuth user-context token per psyop.** `psychological-operations psyops browse <name>` opens an embedded Chromium with a profile dedicated to that psyop. Sign into X with whichever account the psyop should act as. `psychological-operations psyops login <name>` then runs a PKCE handshake against a localhost callback and writes per-psyop tokens to `~/.psychological-operations/tokens/<name>.json`. From that point on, the psyop's likes and retweets come from that X account.
-- **Why the split?** It lets one developer account fund actions across many real X accounts (alts, brand handles, persona accounts), each with its own follower graph and its own For You algorithm to train. The feedback loop runs independently per psyop; the bill consolidates.
+## Hooks
 
-## Delivery
+Hooks wake an agent on Discord gateway events. The daemon evaluates them per
+event for every eligible agent. Four types:
 
-A psyop's `agent_tags` list names the agents that should receive its survivors. After a run scores its tweets, each surviving tweet is written into every listed agent's queue and the agent is notified of its new pending count. The agent works its queue through the `x` MCP server, marking tweets handled as it acts on them. A psyop with no `agent_tags` is score-only — it ranks tweets without delivering them anywhere.
+| type | fires when |
+|---|---|
+| `python` | every gateway event (operator Python runs with the raw event as input) |
+| `mention` | a message `@everyone`s, mentions the agent, or mentions a role the agent holds |
+| `reply` | someone replies to the agent's message |
+| `dm` | the agent receives a direct message |
 
-Tweets can also be placed on an agent's queue by hand with `agents enqueue --agent-tag <tag> --tweet-id <id> --message <msg>`, which notifies the agent the same way.
+The declarative types (`mention` / `reply` / `dm`) carry an optional `user_id`
+(defaulting to the bot's own id) and a `message`. On a match the daemon enqueues
+the triggering message to the agent and notifies it — and a built-in self-filter
+means an agent never triggers its own hooks.
 
-## Profile improvement
+**Manage:** `agents daemon discord hooks insert <python|mention|reply|dm> …`,
+plus `hooks list`, `hooks get`, `hooks delete`.
 
-Functions are *invented* — generated by an ObjectiveAI agent from a description of what you want to find. Profiles are *trained* — given a labeled dataset of tweets the function scored, ObjectiveAI's profile-computation endpoint refines the swarm weights so future runs converge on the labeled ground truth. As you tag results good or bad over time, the profile sharpens and the feedback loop tightens.
+---
+
+## Auth & onboarding
+
+Set up once, then per agent:
+
+1. **Master X App** — `x-app setup` captures the X developer App credentials via
+   the embedded browser (stored in `x_app_credentials`). Shared by every agent's
+   X calls.
+2. **Per-agent X login** — `agents login x --agent-tag T` runs the X OAuth 2.0
+   PKCE flow in a browser profile dedicated to that agent.
+3. **Per-agent Discord bot** — `agents login discord --agent-tag T` walks the
+   Discord developer-portal bot-creation wizard and stores the bot token
+   (`discord_auth`).
+4. **Invite the bot** — `agents invite discord --agent-tag T` prints the bot's
+   server-invite URL.
+
+`--dangerously-reset` on the login commands wipes an agent's existing state for a
+clean re-login. Per-agent rate budgets can be topped up with `agents quota grant
+x|discord --mode read|write --agent-tag T --quantity N --duration D`.
+
+---
 
 ## Architecture
 
-- **`psychological-operations-cli`** — Rust CLI. Owns the run loop, persistent state (`posts`, `contents`, `sources`, `scores`, `for_you_queue`, agent `queue`), the X v2 client (auto-generated from the OpenAPI spec), per-psyop OAuth, and shells out to the `objectiveai` CLI for scoring.
-- **`psychological-operations-chromium-extension-read`** — MV3 Chromium extension loaded by `psyops browse`. Walks the For You DOM on `x.com` and pipes tweet IDs to the CLI over Chromium native-messaging.
-- **`psychological-operations-chromium-extension-auth`** — MV3 Chromium extension loaded by `x-app setup`. 5-field credential form on `developer.x.com` / `console.x.com` that pipes the master X-App credentials to the CLI for `~/.psychological-operations/x_app.json`.
-- **`psychological-operations-chromium`** — Bundles a pinned upstream Chromium snapshot + packed/signed CRX3s of both extensions; embedded into the CLI binary at compile time and extracted into per-psyop profile directories at runtime.
-- **`crx-pack`** — Build-time tool that packs an unpacked extension into a signed CRX3 with a deterministic key, so the same extension ID is reproduced across builds.
+A Rust workspace plus a JS viewer, packaged as one ObjectiveAI plugin.
 
-## System requirements
+- **`psychological-operations-cli`** — the plugin binary. Owns the command tree
+  (`psyops`, `agents`, `x-app`, `mcp`, `daemon`) and the psyop run pipeline.
+- **`psychological-operations-x-mcp`** / **`psychological-operations-discord-mcp`**
+  — the two MCP servers (tools, per-session quota, mode gating, response cache).
+- **`psychological-operations-sdk`** — shared types and the X & Discord clients
+  (response caching, the dev-console credential parsers, serenity-backed Discord
+  REST + gateway).
+- **`psychological-operations-db`** — the single postgres/sqlx layer: per-plugin
+  schema, the per-agent work queues, hooks, auth stores, and the response cache.
+- **`psychological-operations-browser`** — a CEF-based browser that drives the
+  interactive flows (`x-app setup`, `agents login x|discord`, `agents browser`).
+- **`psychological-operations-viewer`** — a separate web app for inspecting
+  psyops (wired via the manifest's `viewer_routes`).
 
-- **Rust** toolchain (stable) — only needed for the from-source install.
-- **Windows**: Windows 10 build 17063 or later.
-- **macOS / Linux**: any modern version.
-- **`objectiveai` CLI** — see [Install](#install).
+---
 
-## Funding
+## Build, install & run
 
-Two billing pools, independent of each other:
+This is a plugin, not a standalone tool — it runs inside an ObjectiveAI host,
+which provides the agent runtime, a per-state postgres, and the scoring backend.
 
-- **LLM swarm** — pays for scoring. Every stage is a function execution against a swarm of LLMs. Configure via the `objectiveai` CLI; swarm calls can be funded through OpenRouter credits, an Anthropic API key, or — when running a local ObjectiveAI API server — an Anthropic Pro/Max subscription.
-- **X API credits** — pay for hydrate / search / like / retweet calls. Single dev-app pool shared across every psyop.
+**Build + install from source** (into `~/.objectiveai/…/<version>/`):
+
+```bash
+bash install.sh --from-source           # debug build
+bash install.sh --from-source-release   # release build
+```
+
+`install.sh` runs `build.sh` (which builds the CLI + bundled CEF browser and the
+viewer in parallel and zips them) and installs the result into the objectiveai
+plugin tree. `--dir <dir>` overrides the target.
+
+**Running** — the ObjectiveAI host launches everything; you don't invoke the
+binary directly:
+
+- one-shot plugin commands → `objectiveai plugins run --owner ObjectiveAI --name
+  psychological-operations --version <v> --args '["psyops","list"]'`
+- the resident daemon (gateway hooks + psyop scheduler) → `objectiveai daemon
+  spawn` (kill with `objectiveai daemon kill`)
+- the MCP servers → launched on demand by the host's MCP conduit
+- agents → `objectiveai agents spawn --agent-tag T --simple "…"`
+
+The manifest (`objectiveai.json`) declares `daemon: true` and the two MCP
+servers (`x`, `discord`).

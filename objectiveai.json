@@ -2,7 +2,7 @@
   "owner": "ObjectiveAI",
   "name": "psychological-operations",
   "version": "0.1.0",
-  "description": "Teach X's For You algorithm to surface tweets that match a function you define.",
+  "description": "Run autonomous persona agents on X and Discord — platform tool access, scored ingestion pipelines, and event-driven wake-ups.",
   "daemon": true,
   "exec": {
     "windows": ["./psychological-operations.exe"],
