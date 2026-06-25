@@ -3998,9 +3998,9 @@ dependencies = [
 
 [[package]]
 name = "objectiveai-sdk"
-version = "2.2.6"
+version = "2.2.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c48e4acd58b7a95468ee386fe9efaf6b28d590193784a667b1310467f539a335"
+checksum = "3d1ddccb4b9d5261bc45e4064502f760ddc9d617983a942883a5b449211ffa35"
 dependencies = [
  "anyhow",
  "arbitrary",
@@ -4026,6 +4026,7 @@ dependencies = [
  "regex",
  "reqwest 0.12.28",
  "reqwest-eventsource",
+ "rmcp 1.8.0",
  "rust_decimal",
  "schemars 1.2.1",
  "serde",
@@ -4043,9 +4044,9 @@ dependencies = [
 
 [[package]]
 name = "objectiveai-sdk-macros"
-version = "2.2.6"
+version = "2.2.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e5884569e53ee83f32bc94e24ef11cd08c8722d9e3d31e07c387ced3baa132e7"
+checksum = "437e7ba7122d4f8cd4b8045055c77fb29636f65ecd73d46d01edd31689aa233d"
 
 [[package]]
 name = "once_cell"
@@ -4573,7 +4574,7 @@ dependencies = [
  "objectiveai-sdk",
  "psychological-operations-db",
  "psychological-operations-sdk",
- "rmcp",
+ "rmcp 0.16.0",
  "schemars 1.2.1",
  "serde",
  "serde_json",
@@ -4639,7 +4640,7 @@ dependencies = [
  "psychological-operations-db",
  "psychological-operations-sdk",
  "reqwest 0.13.4",
- "rmcp",
+ "rmcp 0.16.0",
  "schemars 1.2.1",
  "serde",
  "serde_json",
@@ -5135,6 +5136,24 @@ dependencies = [
  "tower-service",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "rmcp"
+version = "1.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1d1f571c72940a19d9532fe52dbea8bc9912bf1d766c2970bb824056b86f3f59"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "futures",
+ "pin-project-lite",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-util",
+ "tracing",
 ]
 
 [[package]]

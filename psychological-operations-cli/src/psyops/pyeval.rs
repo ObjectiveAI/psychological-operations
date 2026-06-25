@@ -21,6 +21,7 @@ pub async fn run(
         path_type: Path::Python,
         code: code.to_string(),
         input: Some(input),
+        no_objectiveai: None,
         base: Default::default(),
     };
     python::execute(&*ctx.executor, req, None)

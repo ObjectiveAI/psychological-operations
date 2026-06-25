@@ -134,6 +134,7 @@ impl RawEventHandler for HookHandler {
                         path_type: PyPath::Python,
                         code: code.clone(),
                         input: Some(input),
+                        no_objectiveai: None,
                         base: Default::default(),
                     };
                     tokio::spawn(async move {
@@ -463,6 +464,9 @@ async fn begin(ctx: &crate::context::Context) -> Result<CliOutput, Error> {
         // safe and the listener reaps the pending entry on the next response.
         let deliver = deliver::Request {
             path_type: deliver::Path::AgentsQueueDeliver,
+            // Only deliver our own parked psyop/hook notifications (the key
+            // `notify_agent` enqueues under), not unrelated pending messages.
+            keys: Some(vec![crate::commands::agents::notify::NOTIFY_KEY.to_string()]),
             dangerous_advanced: None,
             base: Default::default(),
         };

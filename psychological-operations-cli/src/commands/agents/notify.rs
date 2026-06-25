@@ -17,6 +17,12 @@ use psychological_operations_db::Db;
 
 use crate::error::Error;
 
+/// The objectiveai-queue `key` every psyop/hook notification is parked under.
+/// Re-notifying replaces the prior count (idempotent), and the daemon's
+/// `agents queue deliver` scopes to exactly this key so it only delivers our
+/// own parked notifications.
+pub const NOTIFY_KEY: &str = "psychological-operations";
+
 /// Park an `agents enqueue` notification for `agent_tag` reporting its current
 /// pending counts across both queues. Counts are queried in parallel; if both
 /// are zero, nothing is parked. The message lists only the non-empty queues.
@@ -55,7 +61,7 @@ pub async fn notify_agent(
             agent_tag: agent_tag.to_string(),
         },
         message: RequestMessage::Simple(message),
-        key: Some("psychological-operations".to_string()),
+        key: Some(NOTIFY_KEY.to_string()),
         base: Default::default(),
     };
     agents_enqueue::execute(&**executor, request, None)
