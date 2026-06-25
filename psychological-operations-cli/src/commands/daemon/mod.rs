@@ -259,7 +259,18 @@ async fn enqueue_and_notify(
     }
     if let Err(e) = notify_agent(db, executor, tag).await {
         eprintln!("discord daemon [{tag}]: notify: {e}");
+        return;
     }
+    // Deliver immediately rather than waiting for the next psyop-scheduler
+    // cycle — a hook match should wake the agent now. Scoped to our notify key
+    // (same deliver the scheduler runs); fire-and-forget like the scheduler's.
+    let deliver = deliver::Request {
+        path_type: deliver::Path::AgentsQueueDeliver,
+        keys: Some(vec![crate::commands::agents::notify::NOTIFY_KEY.to_string()]),
+        dangerous_advanced: None,
+        base: Default::default(),
+    };
+    let _ = deliver::execute(&**executor, deliver, None).await;
 }
 
 /// Re-query the DB and apply: swap the hook store, then ensure a gateway
