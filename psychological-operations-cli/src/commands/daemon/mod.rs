@@ -16,13 +16,16 @@
 //!   (`gateway_raw` is idempotent per agent). Each hook is either `python` (run
 //!   for every event) or a declarative trigger (`mention` / `reply` / `dm`)
 //!   evaluated against `MESSAGE_CREATE`; a declarative match enqueues the
-//!   message for the agent and notifies it, like `agents enqueue discord`.
+//!   message for the agent and notifies it. All declarative hooks for one
+//!   gateway event are evaluated, then a SINGLE `agents queue deliver` wakes the
+//!   agent — one delivery across every hook that matched, not one per match.
 //!
 //! * **Psyop scheduler** (the main loop): repeatedly does a bare `psyops run`
 //!   (every due psyop; manual ones skipped), ignores the result, then sleeps
-//!   `max(shortest psyop interval, rand[30..=600]s)`. It is independent of
-//!   reloads — psyop changes do not notify, and a hook/auth reload never
-//!   disturbs scheduling.
+//!   `max(shortest psyop interval, rand[30..=600]s)`. `run_all` self-delivers
+//!   once at the end of each run, so the scheduler issues no deliver of its own.
+//!   It is independent of reloads — psyop changes do not notify, and a hook/auth
+//!   reload never disturbs scheduling.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -124,6 +127,11 @@ impl RawEventHandler for HookHandler {
             _ => None,
         };
 
+        // Track whether any declarative hook enqueued+notified this event, so
+        // we issue exactly ONE deliver at the end (across all matched hooks)
+        // rather than one per match.
+        let mut any_matched = false;
+
         for hook in hooks.iter() {
             match hook {
                 LiveHook::Python(code) => {
@@ -143,97 +151,105 @@ impl RawEventHandler for HookHandler {
                 }
                 LiveHook::Mention { user_id, message } => {
                     if let Some(msg) = msg {
-                        self.dispatch_mention(msg, *user_id, message);
+                        // Awaited inline (not spawned): the single end-of-event
+                        // deliver needs to know whether this hook matched.
+                        any_matched |= self.dispatch_mention(msg, *user_id, message).await;
                     }
                 }
                 LiveHook::Reply { user_id, message } => {
                     if let Some(msg) = msg {
                         // Self-filter: never fire on the watched user's own posts.
-                        if msg.author.id == *user_id {
-                            continue;
-                        }
-                        if msg.referenced_message.as_ref().map(|r| r.author.id) == Some(*user_id) {
-                            self.spawn_enqueue(msg, message);
+                        if msg.author.id != *user_id
+                            && msg.referenced_message.as_ref().map(|r| r.author.id)
+                                == Some(*user_id)
+                        {
+                            any_matched |= self.enqueue(msg, message).await;
                         }
                     }
                 }
                 LiveHook::Dm { user_id, message } => {
                     if let Some(msg) = msg {
-                        if msg.author.id == *user_id {
-                            continue;
-                        }
-                        // A DM has no guild.
-                        if msg.guild_id.is_none() {
-                            self.spawn_enqueue(msg, message);
+                        // A DM has no guild; never fire on the watched user's own.
+                        if msg.author.id != *user_id && msg.guild_id.is_none() {
+                            any_matched |= self.enqueue(msg, message).await;
                         }
                     }
                 }
             }
         }
+
+        // One deliver across ALL hooks that matched this event — wake the agent
+        // now rather than waiting for the next scheduler cycle. Scoped to our
+        // notify key; fire-and-forget (`execute()` writes the command before it
+        // returns, so we drop the response stream — see the scheduler note).
+        if any_matched {
+            let deliver = deliver::Request {
+                path_type: deliver::Path::AgentsQueueDeliver,
+                keys: Some(vec![crate::commands::agents::notify::NOTIFY_KEY.to_string()]),
+                dangerous_advanced: None,
+                base: Default::default(),
+            };
+            let _ = deliver::execute(&*self.executor, deliver, None).await;
+        }
     }
 }
 
 impl HookHandler {
-    /// Mention match + enqueue. The `@everyone` / direct-mention checks are
-    /// synchronous; a role mention needs one `get_member` fetch, done in a
-    /// spawned task so the gateway loop isn't blocked.
-    fn dispatch_mention(&self, msg: &Message, user_id: UserId, message: &str) {
+    /// Mention match + enqueue; returns whether it enqueued+notified. The
+    /// `@everyone` / direct-mention checks are synchronous; a role mention needs
+    /// one `get_member` fetch, awaited inline so the caller learns the outcome
+    /// (the per-event deliver is issued once, after every hook is evaluated).
+    async fn dispatch_mention(&self, msg: &Message, user_id: UserId, message: &str) -> bool {
         // Self-filter: never fire on the watched user's own posts.
         if msg.author.id == user_id {
-            return;
+            return false;
         }
         if msg.mention_everyone || msg.mentions.iter().any(|u| u.id == user_id) {
-            self.spawn_enqueue(msg, message);
-            return;
+            return self.enqueue(msg, message).await;
         }
         // Role mention: the only case that needs a fetch — does `user_id` hold
         // one of the mentioned roles?
         if msg.mention_roles.is_empty() {
-            return;
+            return false;
         }
         let Some(guild) = msg.guild_id else {
-            return;
+            return false;
         };
-        let mention_roles = msg.mention_roles.clone();
-        let channel_id = msg.channel_id.to_string();
-        let message_id = msg.id.to_string();
-        let message = message.to_string();
-        let client = self.client.clone();
-        let db = self.db.clone();
-        let executor = self.executor.clone();
-        let tag = self.agent_tag.clone();
-        tokio::spawn(async move {
-            let member = match client.get_member(&tag, guild, user_id).await {
-                Ok(m) => m,
-                Err(e) => {
-                    eprintln!("discord daemon [{tag}]: mention get_member: {e}");
-                    return;
-                }
-            };
-            if member.roles.iter().any(|r| mention_roles.contains(r)) {
-                enqueue_and_notify(&db, &executor, &tag, channel_id, message_id, message).await;
+        let member = match self.client.get_member(&self.agent_tag, guild, user_id).await {
+            Ok(m) => m,
+            Err(e) => {
+                eprintln!("discord daemon [{}]: mention get_member: {e}", self.agent_tag);
+                return false;
             }
-        });
+        };
+        if member.roles.iter().any(|r| msg.mention_roles.contains(r)) {
+            return self.enqueue(msg, message).await;
+        }
+        false
     }
 
-    /// Spawn the enqueue + notify for a matched message.
-    fn spawn_enqueue(&self, msg: &Message, message: &str) {
-        let db = self.db.clone();
-        let executor = self.executor.clone();
-        let tag = self.agent_tag.clone();
-        let channel_id = msg.channel_id.to_string();
-        let message_id = msg.id.to_string();
-        let message = message.to_string();
-        tokio::spawn(async move {
-            enqueue_and_notify(&db, &executor, &tag, channel_id, message_id, message).await;
-        });
+    /// Enqueue + notify for a matched message; returns whether it succeeded.
+    /// Awaited inline by `raw_event` so the single end-of-event deliver knows
+    /// whether anything was parked.
+    async fn enqueue(&self, msg: &Message, message: &str) -> bool {
+        enqueue_and_notify(
+            &self.db,
+            &self.executor,
+            &self.agent_tag,
+            msg.channel_id.to_string(),
+            msg.id.to_string(),
+            message.to_string(),
+        )
+        .await
     }
 }
 
 /// Enqueue the triggering message for `tag` (with `message` as the note) and
-/// notify the agent — exactly what `agents enqueue discord` does. The queue
-/// upsert is keyed `(agent_tag, channel_id, message_id)`, so re-triggering the
-/// same message is idempotent. Errors are logged, not propagated.
+/// notify the agent — the same enqueue+notify `agents enqueue discord` does
+/// (minus the wake, which `raw_event` batches into one deliver per event). The
+/// queue upsert is keyed `(agent_tag, channel_id, message_id)`, so re-triggering
+/// the same message is idempotent. Returns `true` once both the enqueue and the
+/// notify succeed; errors are logged, not propagated.
 async fn enqueue_and_notify(
     db: &Db,
     executor: &Arc<PluginExecutor>,
@@ -241,7 +257,7 @@ async fn enqueue_and_notify(
     channel_id: String,
     message_id: String,
     message: String,
-) {
+) -> bool {
     let entry = DiscordQueueEntry {
         agent_tag: tag.to_string(),
         channel_id,
@@ -255,22 +271,13 @@ async fn enqueue_and_notify(
     };
     if let Err(e) = db.discord_queue_enqueue(&entry).await {
         eprintln!("discord daemon [{tag}]: enqueue: {e}");
-        return;
+        return false;
     }
     if let Err(e) = notify_agent(db, executor, tag).await {
         eprintln!("discord daemon [{tag}]: notify: {e}");
-        return;
+        return false;
     }
-    // Deliver immediately rather than waiting for the next psyop-scheduler
-    // cycle — a hook match should wake the agent now. Scoped to our notify key
-    // (same deliver the scheduler runs); fire-and-forget like the scheduler's.
-    let deliver = deliver::Request {
-        path_type: deliver::Path::AgentsQueueDeliver,
-        keys: Some(vec![crate::commands::agents::notify::NOTIFY_KEY.to_string()]),
-        dangerous_advanced: None,
-        base: Default::default(),
-    };
-    let _ = deliver::execute(&**executor, deliver, None).await;
+    true
 }
 
 /// Re-query the DB and apply: swap the hook store, then ensure a gateway
@@ -461,27 +468,10 @@ async fn begin(ctx: &crate::context::Context) -> Result<CliOutput, Error> {
     // interval psyops, it's just the random duration. Reloads do not affect
     // this loop.
     loop {
-        // Bare psyops run; the result is intentionally ignored.
+        // Bare psyops run; the result is intentionally ignored. `run_all`
+        // self-delivers once at the end (waking every agent it notified), so
+        // the scheduler no longer issues its own `agents queue deliver`.
         let _ = crate::psyops::run::run_all(Vec::new(), None, ctx).await;
-
-        // Wake queued agents to deliver whatever the run just enqueued.
-        // Fire-and-forget through the plugin executor, exactly like the hook
-        // handler's `python::execute`: `execute()` writes the command line
-        // before it returns, so the host runs the delivery independently — we
-        // drop the response stream and ignore the result. We deliberately do
-        // NOT drain the stream to its end: the host only writes a nested
-        // command's completion terminator after our stdout EOFs (process
-        // exit), so awaiting stream end would block forever; dropping it is
-        // safe and the listener reaps the pending entry on the next response.
-        let deliver = deliver::Request {
-            path_type: deliver::Path::AgentsQueueDeliver,
-            // Only deliver our own parked psyop/hook notifications (the key
-            // `notify_agent` enqueues under), not unrelated pending messages.
-            keys: Some(vec![crate::commands::agents::notify::NOTIFY_KEY.to_string()]),
-            dangerous_advanced: None,
-            base: Default::default(),
-        };
-        let _ = deliver::execute(&*ctx.executor, deliver, None).await;
 
         let min_interval = match ctx.db.psyops_min_interval().await {
             Ok(v) => v,

@@ -1,6 +1,6 @@
 //! `agents enqueue x --agent-tag <tag> --tweet-id <id> --message <msg>` —
-//! the operator flags a tweet for an agent's X queue, then the agent is
-//! auto-notified of its new pending count.
+//! the operator flags a tweet for an agent's X queue, then the agent is woken
+//! immediately (`agents message`) with its new pending count.
 //!
 //! The queue is per-agent (caller-agnostic). Row shape: `message =
 //! Some(msg)`, the caller's `deliverer_agent_instance_hierarchy` (from
@@ -43,8 +43,9 @@ async fn run_inner(
         .await
         .map_err(|e| Error::Other(format!("x queue enqueue: {e}")))?;
 
-    // Auto-notify the agent of its new pending count.
-    super::super::notify::notify_agent(&ctx.db, &ctx.executor, agent_tag).await?;
+    // Wake the agent now with its new pending counts (manual enqueue → instant
+    // `agents message`, not the batched park-then-deliver path).
+    super::super::notify::message_agent(&ctx.db, &ctx.executor, agent_tag).await?;
 
     Ok(Output::Ok)
 }

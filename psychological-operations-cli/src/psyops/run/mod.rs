@@ -24,6 +24,7 @@
 pub mod discord;
 pub mod x;
 
+use objectiveai_sdk::cli::command::agents::queue::deliver;
 use psychological_operations_sdk::cli::Output;
 use psychological_operations_sdk::cli::psyops::PsyOp;
 
@@ -177,6 +178,22 @@ async fn run_all_inner(
     for claim in claims {
         let _ = claim.release();
     }
+
+    // One deliver across EVERY psyop this run completed: wake all agents whose
+    // queues the run just notified (`notify_agent` parked under `NOTIFY_KEY`).
+    // Doing it here means any `psyops run` — scheduler or manual — self-delivers
+    // exactly once, so callers never have to follow up with their own deliver.
+    // Fire-and-forget: `execute()` writes the command before returning and the
+    // host runs the delivery independently; we drop the response stream (the
+    // host only writes a nested command's terminator after our stdout EOFs, so
+    // awaiting stream end would block — see the daemon scheduler note).
+    let deliver = deliver::Request {
+        path_type: deliver::Path::AgentsQueueDeliver,
+        keys: Some(vec![crate::commands::agents::notify::NOTIFY_KEY.to_string()]),
+        dangerous_advanced: None,
+        base: Default::default(),
+    };
+    let _ = deliver::execute(&*ctx.executor, deliver, None).await;
 
     Ok(Output::Ok)
 }

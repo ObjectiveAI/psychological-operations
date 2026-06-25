@@ -1,16 +1,22 @@
 //! Agent queue-count notification.
 //!
-//! After delivering to an agent's queues (psyops run, or a manual
-//! `agents enqueue`), we park an objectiveai `agents enqueue` message telling
-//! the agent how many items are now waiting across both the X and Discord
-//! queues. The row is keyed `"psychological-operations"` so re-notifying
-//! replaces the prior count rather than stacking duplicates; it parks the
-//! notification without spawning the agent. The agent is addressed by its tag.
+//! After delivering to an agent's queues (psyops run, or a daemon hook match),
+//! we tell the agent how many items are now waiting across both the X and
+//! Discord queues. Two delivery shapes share one summary builder:
+//!
+//! * [`notify_agent`] parks an `agents enqueue` message keyed
+//!   `"psychological-operations"` (re-notifying replaces the prior count rather
+//!   than stacking) **without** spawning the agent — the batched psyop/hook
+//!   path, woken later by a single `agents queue deliver --key …`.
+//! * [`message_agent`] delivers via `agents message`, waking the agent
+//!   immediately — the manual `agents enqueue x|discord` path.
+//!
+//! The agent is addressed by its tag in both cases.
 
 use std::sync::Arc;
 
 use objectiveai_sdk::cli::command::agents::enqueue as agents_enqueue;
-use objectiveai_sdk::cli::command::agents::message::RequestMessage;
+use objectiveai_sdk::cli::command::agents::message::{self as agents_message, RequestMessage};
 use objectiveai_sdk::cli::command::agents::selector::AgentSelector;
 use objectiveai_sdk::cli::command::plugin::PluginExecutor;
 use psychological_operations_db::Db;
@@ -36,24 +42,9 @@ pub async fn notify_agent(
     executor: &Arc<PluginExecutor>,
     agent_tag: &str,
 ) -> Result<(), Error> {
-    let (x, discord) = tokio::try_join!(
-        db.x_queue_count(agent_tag),
-        db.discord_queue_count(agent_tag),
-    )
-    .map_err(|e| Error::Other(format!("queue count: {e}")))?;
-
-    if x == 0 && discord == 0 {
+    let Some(message) = pending_summary(db, agent_tag).await? else {
         return Ok(());
-    }
-
-    let mut lines = String::new();
-    if x > 0 {
-        lines.push_str(&format!("[x] {x} tweets in the queue.\n"));
-    }
-    if discord > 0 {
-        lines.push_str(&format!("[discord] {discord} messages in the queue.\n"));
-    }
-    let message = format!("<psychological-operations>\n{lines}</psychological-operations>");
+    };
 
     let request = agents_enqueue::Request {
         path_type: agents_enqueue::Path::AgentsEnqueue,
@@ -68,4 +59,61 @@ pub async fn notify_agent(
         .await
         .map_err(|e| Error::Other(format!("notify {agent_tag}: {e}")))?;
     Ok(())
+}
+
+/// Deliver the same pending-count summary to `agent_tag` via `agents message`
+/// — waking the agent **now** (continue its live hierarchy, or spawn it if its
+/// tag is grouped/dormant) instead of parking a keyed notification for a later
+/// `agents queue deliver`. Used by the manual `agents enqueue x|discord` path,
+/// which wants an immediate one-shot wake rather than batched delivery. If both
+/// queues are empty, nothing is sent.
+pub async fn message_agent(
+    db: &Db,
+    executor: &Arc<PluginExecutor>,
+    agent_tag: &str,
+) -> Result<(), Error> {
+    let Some(message) = pending_summary(db, agent_tag).await? else {
+        return Ok(());
+    };
+
+    let request = agents_message::Request {
+        path_type: agents_message::Path::AgentsMessage,
+        agent: AgentSelector::Tag {
+            agent_tag: agent_tag.to_string(),
+        },
+        message: RequestMessage::Simple(message),
+        dangerous_advanced: None,
+        base: Default::default(),
+    };
+    agents_message::execute(&**executor, request, None)
+        .await
+        .map_err(|e| Error::Other(format!("message {agent_tag}: {e}")))?;
+    Ok(())
+}
+
+/// Build the pending-count summary for `agent_tag`: query both queues in
+/// parallel and render `<psychological-operations>`-wrapped lines for the
+/// non-empty ones. Returns `None` when both queues are empty (caller sends
+/// nothing). Shared by [`notify_agent`] (park) and [`message_agent`] (wake).
+async fn pending_summary(db: &Db, agent_tag: &str) -> Result<Option<String>, Error> {
+    let (x, discord) = tokio::try_join!(
+        db.x_queue_count(agent_tag),
+        db.discord_queue_count(agent_tag),
+    )
+    .map_err(|e| Error::Other(format!("queue count: {e}")))?;
+
+    if x == 0 && discord == 0 {
+        return Ok(None);
+    }
+
+    let mut lines = String::new();
+    if x > 0 {
+        lines.push_str(&format!("[x] {x} tweets in the queue.\n"));
+    }
+    if discord > 0 {
+        lines.push_str(&format!("[discord] {discord} messages in the queue.\n"));
+    }
+    Ok(Some(format!(
+        "<psychological-operations>\n{lines}</psychological-operations>"
+    )))
 }

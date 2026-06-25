@@ -1,6 +1,7 @@
 //! `agents enqueue discord --agent-tag <tag> --channel-id <c> --message-id <m>
 //! --message <msg>` — the operator flags a Discord message for an agent's
-//! Discord queue, then the agent is auto-notified of its new pending count.
+//! Discord queue, then the agent is woken immediately (`agents message`) with
+//! its new pending count.
 //!
 //! A Discord message is fully keyed by `(channel_id, message_id)`. Row shape
 //! mirrors the X enqueue: `message = Some(msg)`, the caller's
@@ -45,8 +46,9 @@ async fn run_inner(
         .await
         .map_err(|e| Error::Other(format!("discord queue enqueue: {e}")))?;
 
-    // Auto-notify the agent of its new pending counts (both queues).
-    super::super::notify::notify_agent(&ctx.db, &ctx.executor, agent_tag).await?;
+    // Wake the agent now with its new pending counts (manual enqueue → instant
+    // `agents message`, not the batched park-then-deliver path).
+    super::super::notify::message_agent(&ctx.db, &ctx.executor, agent_tag).await?;
 
     Ok(Output::Ok)
 }
