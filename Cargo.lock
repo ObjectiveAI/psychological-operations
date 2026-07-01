@@ -4530,6 +4530,7 @@ dependencies = [
  "psychological-operations-db",
  "psychological-operations-discord-mcp",
  "psychological-operations-sdk",
+ "psychological-operations-twitch-mcp",
  "psychological-operations-x-mcp",
  "rand 0.8.6",
  "reqwest 0.13.4",
@@ -4622,6 +4623,30 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+]
+
+[[package]]
+name = "psychological-operations-twitch-mcp"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "chrono",
+ "clap",
+ "futures",
+ "http",
+ "humantime",
+ "objectiveai-sdk",
+ "psychological-operations-db",
+ "psychological-operations-sdk",
+ "rmcp 0.16.0",
+ "schemars 1.2.1",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

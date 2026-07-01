@@ -19,6 +19,7 @@
 use clap::Subcommand;
 
 pub mod discord;
+pub mod twitch;
 pub mod x;
 
 #[derive(Subcommand)]
@@ -38,6 +39,13 @@ pub enum Commands {
         #[command(subcommand)]
         command: discord::Commands,
     },
+    /// Twitch MCP server commands. Nested under the server's name (`<name>` =
+    /// `twitch`) so the host's `mcp <name> begin` launch resolves here.
+    #[command(name = "twitch")]
+    Twitch {
+        #[command(subcommand)]
+        command: twitch::Commands,
+    },
 }
 
 impl Commands {
@@ -45,6 +53,7 @@ impl Commands {
         match self {
             Commands::X { command } => command.handle(ctx).await,
             Commands::Discord { command } => command.handle(ctx).await,
+            Commands::Twitch { command } => command.handle(ctx).await,
         }
     }
 }

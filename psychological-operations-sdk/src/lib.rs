@@ -10,4 +10,5 @@
 pub mod browser;
 pub mod cli;
 pub mod discord;
+pub mod twitch;
 pub mod x;

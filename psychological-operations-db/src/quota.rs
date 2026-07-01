@@ -102,6 +102,32 @@ impl Db {
         Ok(())
     }
 
+    /// Record a time-bounded additive Twitch-quota grant. Same shape as
+    /// [`grant_x_quota`](Self::grant_x_quota) but for the Twitch MCP's separate
+    /// budget (`twitch_quota_grants`).
+    pub async fn grant_twitch_quota(
+        &self,
+        account: &str,
+        direction: &str,
+        amount: i64,
+        granted_at: i64,
+        expires_at: i64,
+    ) -> Result<(), Error> {
+        sqlx::query(
+            "INSERT INTO twitch_quota_grants \
+             (account, direction, amount, granted_at, expires_at) \
+             VALUES ($1, $2, $3, $4, $5)",
+        )
+        .bind(account)
+        .bind(direction)
+        .bind(amount)
+        .bind(granted_at)
+        .bind(expires_at)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
     /// Total of all grants for `account` + `direction` in effect at `now`
     /// (unix seconds). Active grants stack; `0` when none.
     pub async fn active_x_quota_grants(
@@ -138,6 +164,28 @@ impl Db {
     ) -> Result<i64, Error> {
         let total: i64 = sqlx::query_scalar(
             "SELECT COALESCE(SUM(amount), 0)::bigint FROM discord_quota_grants \
+             WHERE account = $1 AND direction = $2 \
+               AND granted_at <= $3 AND expires_at > $3",
+        )
+        .bind(account)
+        .bind(direction)
+        .bind(now)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(total)
+    }
+
+    /// Twitch twin of [`Self::active_x_quota_grants`]: total of all grants for
+    /// `account` + `direction` in effect at `now` (unix seconds), against the
+    /// `twitch_quota_grants` table. Active grants stack; `0` when none.
+    pub async fn active_twitch_quota_grants(
+        &self,
+        account: &str,
+        direction: &str,
+        now: i64,
+    ) -> Result<i64, Error> {
+        let total: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(SUM(amount), 0)::bigint FROM twitch_quota_grants \
              WHERE account = $1 AND direction = $2 \
                AND granted_at <= $3 AND expires_at > $3",
         )
