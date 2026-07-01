@@ -34,6 +34,8 @@ pub mod quota;
 pub mod reload;
 pub mod reply_queue;
 pub mod retry;
+pub mod twitch;
+pub mod twitch_queue;
 pub mod x_app;
 pub mod x_queue;
 
@@ -44,6 +46,8 @@ pub use discord_queue::DiscordQueueEntry;
 pub use locker::LockGuard;
 pub use posts::{MediaUrl, Origin, Post};
 pub use reload::ReloadListener;
+pub use twitch::{TwitchApp, TwitchAuth, TwitchMessage};
+pub use twitch_queue::TwitchQueueEntry;
 pub use x_queue::XQueueEntry;
 pub use reply_queue::ReplyQuoteEntry;
 

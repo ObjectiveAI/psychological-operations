@@ -266,6 +266,98 @@ CREATE TABLE IF NOT EXISTS discord_auth (
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- ── Twitch master app credentials (browser-scraped) ─────────────────
+-- The one registered Twitch application funding every agent's OAuth. Its
+-- client_id + client_secret are scraped from the dev console at
+-- `twitch-app setup`; `redirect_uri` is the fixed localhost callback we
+-- register there and the per-agent OAuth flow binds. Keyed by client_id;
+-- `twitch_app_active()` = the most-recently-saved row.
+
+CREATE TABLE IF NOT EXISTS twitch_app_credentials (
+    client_id     TEXT PRIMARY KEY,
+    client_secret TEXT,
+    redirect_uri  TEXT,
+    saved_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- ── per-agent Twitch user OAuth token ────────────────────────────────
+-- Written by `agents login twitch` after the browser OAuth authorize.
+-- `access_token` (+ `refresh_token`) are the user credentials the daemon's
+-- IRC listener and the MCP's Helix calls act as; `user_id`/`login` identify
+-- the agent's Twitch account. Keyed by agent tag — one account per agent.
+
+CREATE TABLE IF NOT EXISTS twitch_auth (
+    agent_tag     TEXT PRIMARY KEY,
+    user_id       TEXT,
+    login         TEXT,
+    access_token  TEXT,
+    refresh_token TEXT,
+    scope         TEXT,
+    expires_at    BIGINT,           -- unix seconds; NULL = unknown
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- ── which Twitch channels the daemon JOINs per agent ─────────────────
+-- Twitch has no chat-history API, so the daemon holds a live IRC connection
+-- per agent and JOINs these channels; every message it hears is buffered into
+-- twitch_messages. The MCP reads that buffer. Operator-managed via
+-- `agents twitch channels add/remove`.
+
+CREATE TABLE IF NOT EXISTS twitch_channels (
+    agent_tag     TEXT NOT NULL,
+    channel_login TEXT NOT NULL,    -- lowercase Twitch login (the #channel)
+    added_at      BIGINT NOT NULL,  -- unix seconds
+    PRIMARY KEY (agent_tag, channel_login)
+);
+
+-- ── rolling Twitch chat buffer (daemon-filled, MCP-read) ─────────────
+-- The daemon inserts every PRIVMSG it hears on a joined channel; the buffer
+-- is pruned to the newest N per (agent, channel) on insert. `sent_at` is the
+-- daemon's receive time (unix seconds). This is the ONLY source the MCP
+-- `list_messages` tool reads — it never polls Twitch.
+
+CREATE TABLE IF NOT EXISTS twitch_messages (
+    agent_tag     TEXT   NOT NULL,
+    channel_login TEXT   NOT NULL,
+    message_id    TEXT   NOT NULL,  -- IRCv3 `id` tag
+    user_id       TEXT   NOT NULL,  -- `user-id` tag
+    user_login    TEXT   NOT NULL,  -- IRC nick
+    content       TEXT   NOT NULL,
+    sent_at       BIGINT NOT NULL,  -- unix seconds (receive time)
+    PRIMARY KEY (agent_tag, channel_login, message_id)
+);
+CREATE INDEX IF NOT EXISTS twitch_messages_chan_time
+    ON twitch_messages(agent_tag, channel_login, sent_at);
+
+-- ── per-agent Twitch (message) queue ─────────────────────────────────
+-- Parallel to discord_queue, keyed by (channel_login, message_id). Unused
+-- until Twitch psyops/delivery exist; created now for symmetry.
+
+CREATE TABLE IF NOT EXISTS twitch_queue (
+    agent_tag                          TEXT   NOT NULL,
+    channel_login                      TEXT   NOT NULL,
+    message_id                         TEXT   NOT NULL,
+    psyop                              TEXT,
+    score                              DOUBLE PRECISION,
+    deliverer_agent_instance_hierarchy TEXT,
+    message                            TEXT,
+    run_id                             TEXT,
+    queued_at                          BIGINT NOT NULL,
+    PRIMARY KEY (agent_tag, channel_login, message_id)
+);
+
+-- Same shape as discord_quota_grants but for the Twitch MCP's quota budget.
+CREATE TABLE IF NOT EXISTS twitch_quota_grants (
+    id          BIGSERIAL PRIMARY KEY,
+    account     TEXT   NOT NULL,
+    direction   TEXT   NOT NULL,  -- 'read' | 'write'
+    amount      BIGINT NOT NULL,
+    granted_at  BIGINT NOT NULL,
+    expires_at  BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS twitch_quota_grants_account_dir_exp
+    ON twitch_quota_grants(account, direction, expires_at);
+
 -- ── daemon reload notifications ──────────────────────────────────────
 -- The resident Discord daemon subscribes (LISTEN) to the `daemon_reload`
 -- channel and re-queries its hook/auth state whenever those tables change —
@@ -300,4 +392,16 @@ CREATE TRIGGER daemon_reload_discord_hooks
 DROP TRIGGER IF EXISTS daemon_reload_discord_auth ON discord_auth;
 CREATE TRIGGER daemon_reload_discord_auth
     AFTER INSERT OR UPDATE OR DELETE ON discord_auth
+    FOR EACH STATEMENT EXECUTE FUNCTION notify_daemon_reload();
+
+-- Twitch auth / channel changes drive the daemon's IRC listener the same way
+-- (start/stop per-agent connections, JOIN/PART channels).
+DROP TRIGGER IF EXISTS daemon_reload_twitch_auth ON twitch_auth;
+CREATE TRIGGER daemon_reload_twitch_auth
+    AFTER INSERT OR UPDATE OR DELETE ON twitch_auth
+    FOR EACH STATEMENT EXECUTE FUNCTION notify_daemon_reload();
+
+DROP TRIGGER IF EXISTS daemon_reload_twitch_channels ON twitch_channels;
+CREATE TRIGGER daemon_reload_twitch_channels
+    AFTER INSERT OR UPDATE OR DELETE ON twitch_channels
     FOR EACH STATEMENT EXECUTE FUNCTION notify_daemon_reload();
