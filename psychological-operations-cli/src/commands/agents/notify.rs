@@ -1,8 +1,8 @@
 //! Agent queue-count notification.
 //!
 //! After delivering to an agent's queues (psyops run, or a daemon hook match),
-//! we tell the agent how many items are now waiting across both the X and
-//! Discord queues. Two delivery shapes share one summary builder:
+//! we tell the agent how many items are now waiting across the X, Discord, and
+//! Twitch queues. Two delivery shapes share one summary builder:
 //!
 //! * [`notify_agent`] parks an `agents enqueue` message keyed
 //!   `"psychological-operations"` (re-notifying replaces the prior count rather
@@ -30,7 +30,7 @@ use crate::error::Error;
 pub const NOTIFY_KEY: &str = "psychological-operations";
 
 /// Park an `agents enqueue` notification for `agent_tag` reporting its current
-/// pending counts across both queues. Counts are queried in parallel; if both
+/// pending counts across all queues. Counts are queried in parallel; if all
 /// are zero, nothing is parked. The message lists only the non-empty queues.
 /// Idempotent-replace (keyed `"psychological-operations"`).
 ///
@@ -65,7 +65,7 @@ pub async fn notify_agent(
 /// — waking the agent **now** (continue its live hierarchy, or spawn it if its
 /// tag is grouped/dormant) instead of parking a keyed notification for a later
 /// `agents queue deliver`. Used by the manual `agents enqueue x|discord` path,
-/// which wants an immediate one-shot wake rather than batched delivery. If both
+/// which wants an immediate one-shot wake rather than batched delivery. If all
 /// queues are empty, nothing is sent.
 pub async fn message_agent(
     db: &Db,
@@ -91,18 +91,19 @@ pub async fn message_agent(
     Ok(())
 }
 
-/// Build the pending-count summary for `agent_tag`: query both queues in
+/// Build the pending-count summary for `agent_tag`: query all queues in
 /// parallel and render `<psychological-operations>`-wrapped lines for the
-/// non-empty ones. Returns `None` when both queues are empty (caller sends
+/// non-empty ones. Returns `None` when all queues are empty (caller sends
 /// nothing). Shared by [`notify_agent`] (park) and [`message_agent`] (wake).
 async fn pending_summary(db: &Db, agent_tag: &str) -> Result<Option<String>, Error> {
-    let (x, discord) = tokio::try_join!(
+    let (x, discord, twitch) = tokio::try_join!(
         db.x_queue_count(agent_tag),
         db.discord_queue_count(agent_tag),
+        db.twitch_queue_count(agent_tag),
     )
     .map_err(|e| Error::Other(format!("queue count: {e}")))?;
 
-    if x == 0 && discord == 0 {
+    if x == 0 && discord == 0 && twitch == 0 {
         return Ok(None);
     }
 
@@ -112,6 +113,9 @@ async fn pending_summary(db: &Db, agent_tag: &str) -> Result<Option<String>, Err
     }
     if discord > 0 {
         lines.push_str(&format!("[discord] {discord} messages in the queue.\n"));
+    }
+    if twitch > 0 {
+        lines.push_str(&format!("[twitch] {twitch} messages in the queue.\n"));
     }
     Ok(Some(format!(
         "<psychological-operations>\n{lines}</psychological-operations>"

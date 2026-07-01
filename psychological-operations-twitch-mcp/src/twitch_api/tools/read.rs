@@ -16,17 +16,28 @@ use super::super::model::{MessageSummary, WhoAmI};
 use super::super::projection::message_summary;
 use super::super::tool_error::{ToolError, finish};
 
-/// Max window size the paginated read tools accept.
+/// Max window size the paginated read tools (and the queue tools) accept.
 const MAX_COUNT: u32 = 100;
 
 /// Reject a `count` over [`MAX_COUNT`] with an agent-visible message.
-fn check_count(count: u32) -> Result<(), ToolError> {
+pub(super) fn check_count(count: u32) -> Result<(), ToolError> {
     if count > MAX_COUNT {
         return Err(ToolError::agent(format!(
             "count is {count}, over the {MAX_COUNT} max — request {MAX_COUNT} or fewer."
         )));
     }
     Ok(())
+}
+
+/// A short "N remaining" note appended to a windowed list result.
+pub(super) fn remaining_note(
+    total_fetched: usize,
+    offset: usize,
+    count: usize,
+    has_more: bool,
+) -> String {
+    let remaining = total_fetched.saturating_sub(offset + count);
+    format!("{}{remaining} remaining", if has_more { "over " } else { "" })
 }
 
 /// Normalize a Twitch channel reference to its canonical login: trim

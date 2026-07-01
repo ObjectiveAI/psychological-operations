@@ -15,7 +15,7 @@
 use schemars::Schema;
 use serde::{Deserialize, Serialize};
 
-use crate::cli::hooks::Hook;
+use crate::cli::hooks::{Hook, TwitchHook};
 use crate::cli::psyops::x::{PsyopEntry, PublishedPsyop};
 use crate::cli::psyops::PsyOp;
 
@@ -50,6 +50,11 @@ pub enum Output {
     /// `agents twitch channels list` — the channel logins the daemon JOINs
     /// (and buffers chat from) for an agent.
     TwitchChannelList(Vec<String>),
+    /// `agents daemon twitch hooks list` — the agent's hooks
+    /// (name + type + description; the definition body is not surfaced).
+    TwitchHookList(Vec<TwitchHookEntry>),
+    /// `agents daemon twitch hooks get` — one hook's full typed definition.
+    TwitchHook(TwitchHookFull),
 
     // ── meta ───────────────────────────────────────────────
     /// `--help` / `--version` / "missing subcommand" rendered
@@ -81,6 +86,25 @@ pub struct DiscordHookFull {
     pub name: String,
     pub description: String,
     pub definition: Hook,
+}
+
+/// One `agents daemon twitch hooks list` row — a hook's name, type
+/// (`python` / `mention`), and description. The definition body is
+/// intentionally omitted from the listing.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TwitchHookEntry {
+    pub name: String,
+    pub hook_type: String,
+    pub description: String,
+}
+
+/// `agents daemon twitch hooks get` — a hook's name, description, and full
+/// typed definition (the SDK `TwitchHook` enum, internally tagged by `type`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TwitchHookFull {
+    pub name: String,
+    pub description: String,
+    pub definition: TwitchHook,
 }
 
 /// Rendered clap text emitted on `--help` / `--version` /

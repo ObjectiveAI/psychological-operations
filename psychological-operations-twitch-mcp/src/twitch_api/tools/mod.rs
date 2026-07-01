@@ -7,6 +7,8 @@
 //!   channel-join set; metered against the read budget).
 //! - `write` — Twitch chat send via Helix (metered against the write budget,
 //!   full-only).
+//! - `queue` — the per-agent ingest queue (DB-only, quota-free).
 
+pub mod queue;
 pub mod read;
 pub mod write;

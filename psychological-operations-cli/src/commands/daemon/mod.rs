@@ -447,7 +447,7 @@ async fn begin(ctx: &crate::context::Context) -> Result<CliOutput, Error> {
         // single-owner). They reconcile on the SAME `daemon_reload` NOTIFY —
         // the `twitch_auth` / `twitch_channels` triggers fire it — so a Twitch
         // change re-JOINs / (re)connects without disturbing anything else.
-        let mut twitch = twitch::TwitchListeners::new(ctx.db.clone());
+        let mut twitch = twitch::TwitchListeners::new(ctx.db.clone(), ctx.executor.clone());
         tokio::spawn(async move {
             twitch.reload().await;
             eprintln!("twitch daemon: initial reconcile complete");

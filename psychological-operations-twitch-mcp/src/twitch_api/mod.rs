@@ -2,11 +2,11 @@
 //!
 //! Mirrors `psychological-operations-discord-mcp`'s server. It exposes the read
 //! tools (`whoami`, `list_channels`, `list_messages`) and the write tool
-//! (`send_message`), all metered against the per-agent quota. The Twitch SDK
-//! client ([`psychological_operations_sdk::twitch::Client`]) needs only the
-//! `db` handle, so the server struct is slim (no reqwest / state_dir / cache /
-//! mock). There's no ingest queue here yet (Twitch has no delivery), so — unlike
-//! Discord — there are no queue tools.
+//! (`send_message`), all metered against the per-agent quota, plus the queue
+//! tools (`read_queue`, `mark_handled`) over the per-agent ingest queue (DB-only,
+//! quota-free). The Twitch SDK client
+//! ([`psychological_operations_sdk::twitch::Client`]) needs only the `db`
+//! handle, so the server struct is slim (no reqwest / state_dir / cache / mock).
 //!
 //! `tag`, `mode`, and the per-session `quota_*` overrides land here per
 //! session from the `X-OBJECTIVEAI-ARGUMENTS` header — recorded by
@@ -73,7 +73,7 @@ impl PsychologicalOperationsTwitchMcp {
     ) -> Self {
         let client = Client::new(db.clone(), cache_max_size, cache_ttl);
         Self {
-            tool_router: Self::read_tools() + Self::write_tools(),
+            tool_router: Self::read_tools() + Self::write_tools() + Self::queue_tools(),
             sessions,
             db,
             client,

@@ -310,6 +310,24 @@ CREATE TABLE IF NOT EXISTS twitch_channels (
     PRIMARY KEY (agent_tag, channel_login)
 );
 
+-- ── per-agent Twitch daemon hooks ────────────────────────────────────
+--
+-- A hook is named per agent. The daemon evaluates every hook against each
+-- chat message it buffers (the raw message JSON is fed as the Python `input`
+-- for `python` hooks). The daemon only listens for agents that have BOTH
+-- twitch auth and one or more hooks.
+
+CREATE TABLE IF NOT EXISTS twitch_hooks (
+    agent_tag   TEXT   NOT NULL,
+    name        TEXT   NOT NULL,
+    description TEXT   NOT NULL,
+    -- Typed hook definition (python | mention), internally tagged by `type`.
+    -- Kept opaque here; the `TwitchHook` enum lives in the SDK.
+    definition  JSONB  NOT NULL,
+    updated_at  BIGINT NOT NULL,
+    PRIMARY KEY (agent_tag, name)
+);
+
 -- ── rolling Twitch chat buffer (daemon-filled, MCP-read) ─────────────
 -- The daemon inserts every PRIVMSG it hears on a joined channel; the buffer
 -- is pruned to the newest N per (agent, channel) on insert. `sent_at` is the
@@ -404,4 +422,9 @@ CREATE TRIGGER daemon_reload_twitch_auth
 DROP TRIGGER IF EXISTS daemon_reload_twitch_channels ON twitch_channels;
 CREATE TRIGGER daemon_reload_twitch_channels
     AFTER INSERT OR UPDATE OR DELETE ON twitch_channels
+    FOR EACH STATEMENT EXECUTE FUNCTION notify_daemon_reload();
+
+DROP TRIGGER IF EXISTS daemon_reload_twitch_hooks ON twitch_hooks;
+CREATE TRIGGER daemon_reload_twitch_hooks
+    AFTER INSERT OR UPDATE OR DELETE ON twitch_hooks
     FOR EACH STATEMENT EXECUTE FUNCTION notify_daemon_reload();

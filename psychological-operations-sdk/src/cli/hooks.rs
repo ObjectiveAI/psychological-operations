@@ -81,3 +81,53 @@ impl Hook {
         Ok(())
     }
 }
+
+/// A Twitch daemon hook, internally tagged by `type` (`python` / `mention`).
+///
+/// The daemon evaluates each hook against every chat message it buffers.
+/// `python` runs operator code for every message (raw message JSON as input);
+/// `mention` is a declarative trigger the daemon evaluates in Rust — on a match
+/// it enqueues the triggering message for the agent (with `message` as the note)
+/// and notifies it. Twitch has no reply/DM, so those variants don't exist here.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum TwitchHook {
+    /// Operator Python, run for every chat message with the raw message JSON as
+    /// input.
+    Python { code: String },
+    /// Fires when a chat message's text contains `keyword` (case-insensitive).
+    /// `keyword` defaults (daemon-side) to the bot's own `@<login>`.
+    Mention {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        keyword: Option<String>,
+        message: String,
+    },
+}
+
+impl TwitchHook {
+    /// The hook's `type` tag (matches the serde discriminator).
+    pub fn type_name(&self) -> &'static str {
+        match self {
+            TwitchHook::Python { .. } => "python",
+            TwitchHook::Mention { .. } => "mention",
+        }
+    }
+
+    /// Insert-time validation. Returns a free-form error string; CLI callers
+    /// wrap it with their own error variant.
+    pub fn validate(&self) -> Result<(), String> {
+        match self {
+            TwitchHook::Python { code } => {
+                if code.trim().is_empty() {
+                    return Err("python hook: code must not be empty".into());
+                }
+            }
+            TwitchHook::Mention { message, .. } => {
+                if message.trim().is_empty() {
+                    return Err("hook message must not be empty".into());
+                }
+            }
+        }
+        Ok(())
+    }
+}
