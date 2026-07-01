@@ -2,7 +2,7 @@
   "owner": "ObjectiveAI",
   "name": "psychological-operations",
   "version": "0.1.0",
-  "description": "Run autonomous persona agents on X and Discord — platform tool access, scored ingestion pipelines, and event-driven wake-ups.",
+  "description": "Run autonomous persona agents on X, Discord, and Twitch — platform tool access, scored ingestion pipelines, and event-driven wake-ups.",
   "daemon": true,
   "exec": {
     "windows": ["./psychological-operations.exe"],
