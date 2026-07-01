@@ -57,15 +57,6 @@ pub use reply_queue::ReplyQuoteEntry;
 /// The embedded schema, applied idempotently on [`Db::connect`].
 const SCHEMA: &str = include_str!("schema.sql");
 
-/// Dedicated `pg_advisory_lock` key that serializes schema initialization
-/// across every process sharing this postgres (the ASCII bytes `"psyopsch"`).
-/// A fixed constant in the advisory-lock bigint keyspace; a collision with a
-/// runtime [`locker`] key would only cause harmless extra serialization during
-/// init. Serializing is what makes the otherwise-racy catalog DDL
-/// (`CREATE TABLE IF NOT EXISTS`, `DROP/CREATE TRIGGER`) safe when many agents
-/// start at once.
-const SCHEMA_LOCK_KEY: i64 = 0x7073_796f_7073_6368u64 as i64;
-
 /// Failure modes of any db operation.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -101,18 +92,19 @@ impl Db {
     /// Open the pool against `postgres_url` and apply the schema.
     ///
     /// The pool is small (a plugin/MCP process issues only a handful of
-    /// concurrent queries) so that the ~90 processes an `agents queue deliver`
+    /// concurrent queries) so the ~90 processes an `agents queue deliver`
     /// fan-out spawns don't exhaust the shared cluster's connections. Schema
-    /// init is serialized + skipped-when-current by [`ensure_schema`] — running
-    /// the full DDL concurrently is what previously raced the catalog
-    /// (`pg_type` duplicate key / `tuple concurrently updated`).
+    /// init is gated by [`ensure_schema`] — a FILESYSTEM lock + marker so only
+    /// the first co-located process runs the DDL and everyone else skips it
+    /// without touching postgres (running the DDL concurrently is what raced the
+    /// catalog: `pg_type` duplicate key / `tuple concurrently updated`).
     pub async fn connect(postgres_url: &str) -> Result<Self, Error> {
         let pool = PgPoolOptions::new()
             .max_connections(8)
             .acquire_timeout(Duration::from_secs(30))
             .connect(postgres_url)
             .await?;
-        ensure_schema(&pool).await?;
+        ensure_schema(&pool, postgres_url).await?;
         Ok(Self {
             pool,
             inproc_locks: Arc::new(DashMap::new()),
@@ -125,77 +117,76 @@ impl Db {
     }
 }
 
-/// Apply the embedded schema, made safe for concurrent startup. Only one
-/// process runs the DDL at a time (a dedicated advisory lock), and it's skipped
-/// entirely once a `schema_meta` row records the current schema hash — so a
-/// stampede of agent starts does a ~1ms lock + `SELECT` each rather than racing
-/// the catalog. A `schema.sql` edit changes the hash, so upgrades still
-/// auto-apply on the next connect.
-async fn ensure_schema(pool: &PgPool) -> Result<(), Error> {
+/// Apply the embedded schema exactly once per machine, made safe for concurrent
+/// startup with a FILESYSTEM lock + marker (not a postgres lock): every process
+/// but the first applier skips init WITHOUT touching postgres at all, so the
+/// ~90 processes an `agents queue deliver` fan-out spawns never run the catalog
+/// DDL concurrently (which raced: `pg_type` duplicate key / `tuple concurrently
+/// updated`). The marker records the schema hash, so a `schema.sql` edit
+/// re-applies on the next start.
+///
+/// Machine-local by design — this deployment runs one postgres per machine, and
+/// the marker/lock are keyed by a hash of `postgres_url` (identical across every
+/// process sharing one plugin schema, so they coordinate on the same lock).
+async fn ensure_schema(pool: &PgPool, postgres_url: &str) -> Result<(), Error> {
     let want = schema_hash();
+    let dir = marker_dir(postgres_url);
+    let marker = dir.join("schema.applied");
 
-    // Acquire the init lock with try + backoff, RELEASING the connection
-    // between attempts so waiters don't pin a pool/cluster connection while the
-    // single applier runs the DDL. The lock is guaranteed to free (the holder
-    // releases it, or its session dies and postgres frees it), so this loop
-    // always resolves.
-    loop {
-        let mut conn = pool.acquire().await?;
-        let locked: bool = sqlx::query_scalar("SELECT pg_try_advisory_lock($1)")
-            .bind(SCHEMA_LOCK_KEY)
-            .fetch_one(&mut *conn)
-            .await?;
-        if locked {
-            let result = apply_schema_if_stale(&mut conn, &want).await;
-            // Always release the session lock before the connection returns to
-            // the pool (a pooled session is reused, not closed).
-            let _ = sqlx::query("SELECT pg_advisory_unlock($1)")
-                .bind(SCHEMA_LOCK_KEY)
-                .execute(&mut *conn)
-                .await;
-            return result;
-        }
-        drop(conn);
-        // Jitter off the pid so contenders don't retry in lockstep (no rand dep
-        // here).
-        let backoff = 20 + (std::process::id() as u64 % 60);
-        tokio::time::sleep(Duration::from_millis(backoff)).await;
+    // Fast path — a marker recording the current schema → skip. No postgres, no
+    // lock. This is every process except the single first applier.
+    if marker_is_current(&marker, &want) {
+        return Ok(());
     }
+
+    // Take the cross-process filesystem lock (blocks until the applier, if any,
+    // finishes; crash-safe — the OS frees it if the holder dies). Waiters pin NO
+    // postgres connection while blocked here.
+    let claim = objectiveai_sdk::lockfile::wait_acquire(
+        &dir,
+        "schema-init",
+        &format!("pid {} schema init", std::process::id()),
+    )
+    .await
+    .map_err(|e| Error::Other(format!("acquire schema lock: {e}")))?;
+
+    let result: Result<(), Error> = async {
+        // Re-check under the lock: another process may have applied while we
+        // waited on the lock.
+        if marker_is_current(&marker, &want) {
+            return Ok(());
+        }
+        // Sole applier: run the DDL, then record the marker so everyone skips.
+        sqlx::raw_sql(SCHEMA).execute(pool).await?;
+        std::fs::write(&marker, want.as_bytes())
+            .map_err(|e| Error::Other(format!("write schema marker: {e}")))?;
+        Ok(())
+    }
+    .await;
+
+    let _ = claim.release();
+    result
 }
 
-/// Under the init lock: create the sentinel table, then run the schema DDL only
-/// if the stored hash doesn't match the embedded schema (first boot, or the
-/// first process after a `schema.sql` edit). Cheap no-op on the warm path.
-async fn apply_schema_if_stale(
-    conn: &mut sqlx::pool::PoolConnection<sqlx::Postgres>,
-    want: &str,
-) -> Result<(), Error> {
-    // Safe to `CREATE TABLE IF NOT EXISTS` here without racing the catalog:
-    // this runs under the exclusive advisory lock.
-    sqlx::query(
-        "CREATE TABLE IF NOT EXISTS schema_meta (\
-             only_row boolean PRIMARY KEY DEFAULT true, \
-             hash     text NOT NULL)",
-    )
-    .execute(&mut **conn)
-    .await?;
+/// Machine-local directory for the schema lock + marker, keyed by a hash of the
+/// connection URL (identical across every process sharing one plugin schema, so
+/// they coordinate). Under the OS temp dir — always present and identical for
+/// every co-located process, unlike the per-command env.
+fn marker_dir(postgres_url: &str) -> std::path::PathBuf {
+    use std::hash::Hasher;
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    h.write(postgres_url.as_bytes());
+    std::env::temp_dir()
+        .join("objectiveai-psyop-schema")
+        .join(format!("{:016x}", h.finish()))
+}
 
-    let have: Option<String> = sqlx::query_scalar("SELECT hash FROM schema_meta WHERE only_row")
-        .fetch_optional(&mut **conn)
-        .await?;
-    if have.as_deref() == Some(want) {
-        return Ok(()); // schema already current — skip the DDL entirely.
-    }
-
-    sqlx::raw_sql(SCHEMA).execute(&mut **conn).await?;
-    sqlx::query(
-        "INSERT INTO schema_meta (only_row, hash) VALUES (true, $1) \
-         ON CONFLICT (only_row) DO UPDATE SET hash = excluded.hash",
-    )
-    .bind(want)
-    .execute(&mut **conn)
-    .await?;
-    Ok(())
+/// True iff the marker exists and records the current schema hash. A missing
+/// marker OR a stale hash (schema.sql changed) both mean "must (re)apply".
+fn marker_is_current(marker: &std::path::Path, want: &str) -> bool {
+    std::fs::read_to_string(marker)
+        .map(|s| s.trim() == want)
+        .unwrap_or(false)
 }
 
 /// Deterministic hash of the embedded schema — stable across processes of the
