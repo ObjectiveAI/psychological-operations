@@ -11,7 +11,11 @@
 --     (git + commit versioning was dropped).
 --   * No `locks` table — cross-process mutual exclusion uses postgres
 --     advisory locks (locker.rs).
---   * No `schema_version` table — single idempotent schema file.
+--   * No `schema_version` table — single idempotent schema file. (A tiny
+--     `schema_meta` sentinel IS created in Rust, under a `pg_advisory_lock`, so
+--     concurrent process starts serialize + skip this DDL instead of racing the
+--     catalog — see `Db::connect` / `ensure_schema` in lib.rs. It is not
+--     declared here because it bootstraps the apply.)
 --   * unix-seconds columns are BIGINT; audit timestamps are
 --     TIMESTAMPTZ DEFAULT now(); JSON payloads are JSONB; blobs BYTEA.
 
