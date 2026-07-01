@@ -55,6 +55,17 @@ pub enum Mode {
     /// `name` rides along for bot naming + token storage, not the profile
     /// dir.
     DiscordLogin { name: String },
+    /// Master Twitch application setup. Webview lands on the Twitch dev
+    /// console; the overlay scrapes the app's `client_id` + `client_secret`.
+    /// One operator app funds every agent's OAuth (the X-App analog), so it
+    /// gets its own flat `twitch-app` CEF profile.
+    TwitchApp,
+    /// Per-agent Twitch OAuth-authorize session for `name`. The operator
+    /// signs into the agent's Twitch account; Rust drives the OAuth code flow
+    /// and captures the user access/refresh tokens. Shares the agent's
+    /// `agent-<name>` CEF profile (Twitch cookies coexist with X's — different
+    /// domain).
+    TwitchAuthorize { name: String },
 }
 
 /// Reduce a persona name to a SINGLE filesystem path segment for use as
@@ -89,10 +100,15 @@ impl Mode {
             Mode::AgentRead { name }
             | Mode::AgentAuthorize { name }
             | Mode::AgentBrowser { name }
-            | Mode::AgentDeliver { name } => format!("agent-{}", flat_segment(name)),
+            | Mode::AgentDeliver { name }
+            // Twitch authorize shares the agent's one profile — twitch.tv
+            // cookies coexist with x.com's in the same CEF context.
+            | Mode::TwitchAuthorize { name } => format!("agent-{}", flat_segment(name)),
             // One shared Discord operator profile across all agents — the
             // per-agent thing is the bot + token, not the login session.
             Mode::DiscordLogin { .. } => "discord".to_string(),
+            // Master Twitch app operator profile (the X-App analog).
+            Mode::TwitchApp => "twitch-app".to_string(),
         }
     }
 }

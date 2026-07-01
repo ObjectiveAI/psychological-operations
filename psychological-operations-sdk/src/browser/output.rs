@@ -138,6 +138,44 @@ pub enum Output {
     /// `error` is the human-readable summary. The host reads this to
     /// propagate the error and send a `Request::Shutdown` back.
     DiscordLoginFailed { error: String },
+
+    /// Sole terminating signal on the Twitch app-setup success path
+    /// ([`crate::browser::mode::Mode::TwitchApp`]). Emitted once the overlay
+    /// has scraped the app's `client_id` + `client_secret` from the dev
+    /// console. The CLI's `twitch-app setup` persists them to
+    /// `twitch_app_credentials` and sends a `Request::Shutdown` back.
+    TwitchAppSetupSucceeded {
+        client_id: String,
+        client_secret: String,
+    },
+
+    /// Sole terminating signal on the Twitch app-setup failure path.
+    TwitchAppSetupFailed { error: String },
+
+    /// Sole terminating signal on the Twitch OAuth-success path
+    /// ([`crate::browser::mode::Mode::TwitchAuthorize`]). Carries the agent's
+    /// Twitch account identity + minted user tokens; the CLI's `agents login
+    /// twitch` persists them to `twitch_auth` and sends `Request::Shutdown`.
+    TwitchAuthorizeSucceeded {
+        user_id: String,
+        login: String,
+        tokens: TwitchTokens,
+    },
+
+    /// Sole terminating signal on the Twitch OAuth-failure path.
+    TwitchAuthorizeFailed { error: String },
+}
+
+/// A minted Twitch user OAuth token bundle (the browser's authorize flow
+/// produces it; the CLI persists it to `twitch_auth`). `expires_at` is unix
+/// seconds; `scope` is the space-joined granted scope list.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TwitchTokens {
+    pub access_token: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refresh_token: Option<String>,
+    pub scope: String,
+    pub expires_at: i64,
 }
 
 /// Identifying claims extracted from the auth JWT's payload. All
