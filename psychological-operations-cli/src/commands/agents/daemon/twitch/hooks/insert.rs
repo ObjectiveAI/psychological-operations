@@ -24,9 +24,9 @@ async fn run_inner(hook: InsertHook, ctx: &crate::context::Context) -> Result<Cl
         ),
         InsertHook::Mention {
             common,
-            keyword,
+            user_login,
             message,
-        } => (common, TwitchHook::Mention { keyword, message }),
+        } => (common, TwitchHook::Mention { user_login, message }),
     };
 
     hook.validate().map_err(Error::Other)?;

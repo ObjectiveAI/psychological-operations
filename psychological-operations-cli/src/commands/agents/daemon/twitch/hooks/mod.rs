@@ -56,8 +56,9 @@ pub struct CommonArgs {
 }
 
 /// One hook type to insert. The declarative `mention` type takes an optional
-/// `--keyword` (defaults to the agent's own `@<login>`) and a required
-/// `--message` (the note delivered to the agent on a match).
+/// `--user-login` (whose `@`-mentions to watch for; defaults to the agent's own
+/// login) and a required `--message` (the note delivered to the agent on a
+/// match).
 #[derive(Subcommand)]
 pub enum InsertHook {
     /// Python run for every chat message, with the raw message JSON as input.
@@ -67,14 +68,14 @@ pub enum InsertHook {
         #[command(flatten)]
         source: PythonSource,
     },
-    /// Enqueue when a chat message's text contains the keyword
+    /// Enqueue when a chat message `@`-mentions the watched login
     /// (case-insensitive).
     Mention {
         #[command(flatten)]
         common: CommonArgs,
-        /// Keyword to watch for (default: the agent's own `@<login>`).
+        /// Login whose `@`-mentions to watch for (default: the agent's own).
         #[arg(long)]
-        keyword: Option<String>,
+        user_login: Option<String>,
         /// Note delivered to the agent on a match.
         #[arg(long)]
         message: String,

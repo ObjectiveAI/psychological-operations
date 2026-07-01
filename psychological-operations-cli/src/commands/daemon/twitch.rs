@@ -7,8 +7,8 @@
 //! 1. **Buffers** the message into `twitch_messages` (pruned per channel), which
 //!    the `twitch` MCP's `list_messages` reads.
 //! 2. **Runs the agent's hooks** — `python` (spawned per message, the message
-//!    JSON as input) and `mention` (fires when the chat text contains the hook's
-//!    keyword, defaulting to the bot's own `@<login>`). On a declarative match
+//!    JSON as input) and `mention` (fires when the chat text `@`-mentions the
+//!    watched login, defaulting to the bot's own). On a declarative match
 //!    it enqueues the message into `twitch_queue`, notifies the agent, and fires
 //!    ONE `agents queue deliver` to wake it — the same enqueue→notify→deliver
 //!    path the Discord daemon uses.
@@ -40,13 +40,14 @@ type IrcClient = TwitchIRCClient<SecureTCPTransport, StaticLoginCredentials>;
 /// fresh from the shared store on every message so a reload takes effect at once.
 type HookStore = Arc<RwLock<HashMap<String, Arc<Vec<LiveHook>>>>>;
 
-/// A resolved Twitch hook (the `keyword` default already baked in).
+/// A resolved Twitch hook (the mention watch string `@<login>` already built).
 enum LiveHook {
     /// Operator Python, run for every message with the message JSON as input.
     Python(String),
-    /// Fires when the (lowercased) chat text contains `keyword`; enqueues the
-    /// message with `message` as the note.
-    Mention { keyword: String, message: String },
+    /// Fires when the (lowercased) chat text `@`-mentions the watched login,
+    /// i.e. contains `watch` (an `@<login>` token); enqueues the message with
+    /// `message` as the note.
+    Mention { watch: String, message: String },
 }
 
 /// One agent's live IRC connection: the client handle (for JOIN/PART), the
@@ -304,8 +305,8 @@ async fn process_message(
                     let _ = python::execute(&*executor, req, None).await;
                 });
             }
-            LiveHook::Mention { keyword, message } => {
-                if !is_self && text_lc.contains(keyword) && matched_note.is_none() {
+            LiveHook::Mention { watch, message } => {
+                if !is_self && text_lc.contains(watch) && matched_note.is_none() {
                     matched_note = Some(message.clone());
                 }
             }
@@ -363,21 +364,26 @@ fn to_live_hook(
     };
     match hook {
         TwitchHook::Python { code } => Some(LiveHook::Python(code)),
-        TwitchHook::Mention { keyword, message } => {
-            let keyword = match keyword {
-                Some(k) => k.to_lowercase(),
-                None => match default_login {
-                    Some(login) => format!("@{}", login.to_lowercase()),
-                    None => {
-                        eprintln!(
-                            "twitch daemon [{tag}]: mention hook '{name}' omits keyword and the \
-                             bot's login is unknown — skipping"
-                        );
-                        return None;
-                    }
-                },
+        TwitchHook::Mention {
+            user_login,
+            message,
+        } => {
+            // The login whose @-mentions we watch — an explicit one, else the
+            // bot's own. Matched as the lowercased `@<login>` token.
+            let login = match user_login.or_else(|| default_login.map(str::to_string)) {
+                Some(l) => l,
+                None => {
+                    eprintln!(
+                        "twitch daemon [{tag}]: mention hook '{name}' omits user_login and the \
+                         bot's login is unknown — skipping"
+                    );
+                    return None;
+                }
             };
-            Some(LiveHook::Mention { keyword, message })
+            Some(LiveHook::Mention {
+                watch: format!("@{}", login.to_lowercase()),
+                message,
+            })
         }
     }
 }

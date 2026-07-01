@@ -95,11 +95,12 @@ pub enum TwitchHook {
     /// Operator Python, run for every chat message with the raw message JSON as
     /// input.
     Python { code: String },
-    /// Fires when a chat message's text contains `keyword` (case-insensitive).
-    /// `keyword` defaults (daemon-side) to the bot's own `@<login>`.
+    /// Fires when a chat message `@`-mentions `user_login` (i.e. its text
+    /// contains `@<user_login>`, case-insensitive). `user_login` defaults
+    /// (daemon-side) to the bot's own login.
     Mention {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        keyword: Option<String>,
+        user_login: Option<String>,
         message: String,
     },
 }
@@ -124,7 +125,7 @@ impl TwitchHook {
             }
             TwitchHook::Mention { message, .. } => {
                 if message.trim().is_empty() {
-                    return Err("hook message must not be empty".into());
+                    return Err("mention hook message must not be empty".into());
                 }
             }
         }
