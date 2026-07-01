@@ -56,7 +56,7 @@ pub struct CommonArgs {
 }
 
 /// One hook type to insert. The declarative `mention` type takes an optional
-/// `--user-login` (whose `@`-mentions to watch for; defaults to the agent's own
+/// `--user-login` (whose `@`-mentions to watch for; defaults to the caller's own
 /// login) and a required `--message` (the note delivered to the agent on a
 /// match).
 #[derive(Subcommand)]
@@ -73,7 +73,8 @@ pub enum InsertHook {
     Mention {
         #[command(flatten)]
         common: CommonArgs,
-        /// Login whose `@`-mentions to watch for (default: the agent's own).
+        /// Login whose `@`-mentions to watch for (default: the caller's own,
+        /// else the hook's agent).
         #[arg(long)]
         user_login: Option<String>,
         /// Note delivered to the agent on a match.

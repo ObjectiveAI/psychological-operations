@@ -96,8 +96,9 @@ pub enum TwitchHook {
     /// input.
     Python { code: String },
     /// Fires when a chat message `@`-mentions `user_login` (i.e. its text
-    /// contains `@<user_login>`, case-insensitive). `user_login` defaults
-    /// (daemon-side) to the bot's own login.
+    /// contains `@<user_login>`, case-insensitive). `user_login` defaults to the
+    /// caller's login (baked in at insert), falling back daemon-side to the
+    /// hook's own agent login.
     Mention {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         user_login: Option<String>,
