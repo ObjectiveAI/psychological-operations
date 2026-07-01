@@ -41,6 +41,17 @@ pub enum Mode {
     DiscordLogin {
         name: String,
     },
+    /// Master Twitch application setup (scrape client_id + client_secret off
+    /// the dev console).
+    TwitchApp,
+    /// Per-agent Twitch OAuth authorize for one agent (`name`). The browser
+    /// drives the OAuth code flow with the master app's creds (the CLI reads
+    /// them from the captured Twitch app).
+    TwitchAuthorize {
+        name: String,
+        client_id: String,
+        client_secret: String,
+    },
 }
 
 impl Mode {
@@ -68,6 +79,19 @@ impl Mode {
                 items_json.clone(),
             ],
             Mode::DiscordLogin { name } => vec!["--discord-login".into(), name.clone()],
+            Mode::TwitchApp => vec!["--twitch-app".into()],
+            Mode::TwitchAuthorize {
+                name,
+                client_id,
+                client_secret,
+            } => vec![
+                "--twitch-authorize".into(),
+                name.clone(),
+                "--twitch-client-id".into(),
+                client_id.clone(),
+                "--twitch-client-secret".into(),
+                client_secret.clone(),
+            ],
         }
     }
 }

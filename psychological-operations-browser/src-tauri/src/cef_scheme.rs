@@ -346,6 +346,13 @@ pub async fn dispatch_inner(
                 .map(Value::from)
                 .map_err(DispatchError::Internal)
         }
+        "twitch_capture" => {
+            let args = parse_body::<TwitchCaptureArgs>(body).map_err(DispatchError::BadRequest)?;
+            crate::twitch_app::capture_field(app, args.field, args.value)
+                .await
+                .map(|()| Value::Null)
+                .map_err(DispatchError::Internal)
+        }
         _ => Err(DispatchError::NotFound(format!("unknown command: {cmd}"))),
     }
 }
@@ -420,6 +427,13 @@ struct DeliverReportArgs {
 #[derive(Deserialize)]
 struct DiscordCaptureArgs {
     /// `"application_id"` / `"public_key"` / `"bot_token"`.
+    field: String,
+    value: String,
+}
+
+#[derive(Deserialize)]
+struct TwitchCaptureArgs {
+    /// `"client_id"` / `"client_secret"`.
     field: String,
     value: String,
 }

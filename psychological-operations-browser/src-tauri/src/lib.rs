@@ -10,6 +10,8 @@ mod deliver;
 mod discord_login;
 mod state;
 mod stdio;
+mod twitch_app;
+mod twitch_authorize;
 mod webview;
 
 use std::sync::mpsc;
@@ -196,18 +198,35 @@ pub fn run() {
             } else {
                 // Persona path: the window + the single mode-scoped CEF
                 // browser. X-account modes also run the x.com cookies
-                // watcher; DiscordLogin does NOT (Discord auth is
-                // localStorage, not an x.com cookie) — its overlay wizard
-                // drives sign-in + token scrape over the `psyops://` scheme.
+                // watcher; DiscordLogin and both Twitch modes do NOT (their
+                // auth lives off x.com) — their overlay wizard / OAuth driver
+                // handle sign-in + credential capture themselves.
                 let mode = &initial_mode;
                 webview::create_x_app(handle, mode)?;
-                // Discord runs no x.com cookies watcher — its header auth form
-                // starts empty and accumulates scraped values in memory until
-                // all are present (then commits + closes). Other modes watch.
-                if !matches!(mode, mode::Mode::DiscordLogin { .. }) {
+                // Discord + Twitch run no x.com cookies watcher — Discord's
+                // header auth form and Twitch's app form accumulate scraped
+                // values in memory until complete, and Twitch authorize is a
+                // fully Rust-driven OAuth flow. Other modes watch x.com cookies.
+                if !matches!(
+                    mode,
+                    mode::Mode::DiscordLogin { .. }
+                        | mode::Mode::TwitchApp
+                        | mode::Mode::TwitchAuthorize { .. }
+                ) {
                     let watcher_slot: tauri::State<CookiesWatcherSlot> = handle.state();
                     *watcher_slot.0.lock().expect("watcher slot poisoned") =
                         cookies_watcher::start(handle.clone(), mode);
+                }
+                // Twitch authorize: kick the OAuth flow once, right after the
+                // webview is up. Unlike X's authorize (gated on a signed-in
+                // cookie via the watcher), Twitch presents its own login +
+                // consent when we navigate to the authorize URL, so we fire
+                // immediately.
+                if matches!(mode, mode::Mode::TwitchAuthorize { .. }) {
+                    let handle_for_flow = handle.clone();
+                    tauri::async_runtime::spawn(async move {
+                        twitch_authorize::start_flow(&handle_for_flow).await;
+                    });
                 }
                 stdio::start(handle.clone(), rx);
             }

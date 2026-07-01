@@ -27,6 +27,7 @@ import { installAgentReadHelpers } from "./agent-read-helpers";
 import { installDeliverHelpers } from "./deliver-helpers";
 import { installDiscordLoginHelpers } from "./discord-login-helpers";
 import { installDiscordCreateDialogHelpers } from "./discord-create-dialog-helpers";
+import { installTwitchAppHelpers } from "./twitch-app-helpers";
 // Side-effect: registers `window.__psyops_set_panel` so the first
 // Rust push lands. Imported before any helper module so the setter
 // is in place by the time anyone reads `getPanelState()`.
@@ -48,6 +49,8 @@ type Mode =
   | { type: "agent_browser"; name: string }
   | { type: "agent_deliver"; name: string }
   | { type: "discord_login"; name: string }
+  | { type: "twitch_app" }
+  | { type: "twitch_authorize"; name: string }
   | null;
 
 async function respondOk(response: unknown) {
@@ -143,9 +146,12 @@ async function handleRequest(payload: unknown) {
     } else if (mode?.type === "discord_login") {
       installDiscordLoginHelpers();
       installDiscordCreateDialogHelpers(mode.name);
+    } else if (mode?.type === "twitch_app") {
+      installTwitchAppHelpers();
     }
-    // agent_authorize / agent_browser install no helpers — Rust drives the
-    // OAuth navigation (authorize) or there's nothing custom (browser).
+    // agent_authorize / agent_browser / twitch_authorize install no helpers —
+    // Rust drives the OAuth navigation (authorize / twitch_authorize) or
+    // there's nothing custom (browser).
     console.log("[psyops-overlay] helpers installed for mode", mode?.type ?? "(none)");
   } catch (e) {
     console.error("[psyops-overlay] mount failed:", (e as Error)?.message ?? String(e));

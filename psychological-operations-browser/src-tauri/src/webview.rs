@@ -74,6 +74,10 @@ fn start_url_for(mode: &Mode) -> &'static str {
         | Mode::AgentBrowser { .. }
         | Mode::AgentDeliver { .. } => "https://x.com/",
         Mode::DiscordLogin { .. } => "https://discord.com/developers/applications",
+        Mode::TwitchApp => "https://dev.twitch.tv/console/apps",
+        // Land on twitch.tv; `twitch_authorize::start_flow` immediately
+        // navigates the CEF surface to the OAuth authorize URL.
+        Mode::TwitchAuthorize { .. } => "https://www.twitch.tv/",
     }
 }
 

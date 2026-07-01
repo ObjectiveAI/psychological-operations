@@ -101,6 +101,23 @@ pub struct Facts {
     /// (per-field `saving` → saved). [`derive`] surfaces it as the panel for
     /// the whole Discord session.
     pub discord_auth: DiscordAuthForm,
+    /// TwitchApp mode: the in-memory capture of the two app credentials the
+    /// overlay scrapes from the Twitch dev console. Accumulated until both are
+    /// present, then emitted as `TwitchAppSetupSucceeded`. Browser-local (no
+    /// SDK panel variant) — [`derive`] keeps the panel quiet and the overlay's
+    /// own badges drive the wizard.
+    pub twitch_app: TwitchAppForm,
+}
+
+/// TwitchApp mode's in-memory credential form — the `client_id` +
+/// `client_secret` the overlay scrapes from the Twitch dev console. Mirrors
+/// the DiscordLogin header form's role (accumulate-then-emit) but lives in the
+/// browser crate rather than the SDK panel types (Twitch has no panel-rendered
+/// form). `None` ⇒ not captured yet.
+#[derive(Debug, Default, Clone)]
+pub struct TwitchAppForm {
+    pub client_id: Option<String>,
+    pub client_secret: Option<String>,
 }
 
 // ---------------------------------------------------------------------
@@ -231,6 +248,31 @@ pub fn discord_auth_snapshot() -> DiscordAuthForm {
         .clone()
 }
 
+/// Set a scraped Twitch-app credential (`"client_id"` / `"client_secret"`) in
+/// the in-memory form. No DB write — the wizard accumulates both values, then
+/// [`crate::twitch_app`] emits them once at completion. TwitchApp-only.
+pub fn twitch_field_set(handle: &AppHandle<Wry>, field: &str, value: String) {
+    {
+        let mut facts = facts_slot().lock().expect("facts slot poisoned");
+        match field {
+            "client_id" => facts.twitch_app.client_id = Some(value),
+            "client_secret" => facts.twitch_app.client_secret = Some(value),
+            _ => return,
+        }
+    }
+    recompute_and_publish(handle);
+}
+
+/// A snapshot of the in-memory Twitch-app form — used to test whether both
+/// credentials have been captured (the trigger to emit + finish).
+pub fn twitch_app_snapshot() -> TwitchAppForm {
+    facts_slot()
+        .lock()
+        .expect("facts slot poisoned")
+        .twitch_app
+        .clone()
+}
+
 /// Re-scan the on-disk credentials store under the current
 /// `user_id` and update [`Facts::credentials_complete`] +
 /// [`Facts::oauth_client_complete`]. Both presence checks run
@@ -352,6 +394,10 @@ fn home_url_for_current_mode() -> Option<&'static str> {
         | Mode::AgentBrowser { .. }
         | Mode::AgentDeliver { .. } => Some("https://x.com/"),
         Mode::DiscordLogin { .. } => Some("https://discord.com/developers/applications"),
+        // Twitch modes run no x.com cookies watcher, so this redirect never
+        // fires for them — arms present only to keep the match exhaustive.
+        Mode::TwitchApp => Some("https://dev.twitch.tv/console/apps"),
+        Mode::TwitchAuthorize { .. } => Some("https://www.twitch.tv/"),
     }
 }
 
@@ -542,6 +588,14 @@ pub fn derive(facts: &Facts) -> PanelState {
         // header for the whole session. The in-page "Click here" pointers
         // (overlay) gate on the form's field state, not on the panel.
         Some(Mode::DiscordLogin { .. }) => PanelState::DiscordAuth(facts.discord_auth.clone()),
+        // Twitch app-setup wizard: the overlay's own in-page badges drive the
+        // scrape (client_id + client_secret), so the top panel stays quiet.
+        // There's no SDK panel variant for a Twitch form (unlike Discord).
+        Some(Mode::TwitchApp) => PanelState::Hidden,
+        // Twitch OAuth authorize: Rust auto-navigates to Twitch's own login +
+        // consent pages (no signed-in-cookie gate). Nothing for the panel to
+        // say — like AgentAuthorize once signed in.
+        Some(Mode::TwitchAuthorize { .. }) => PanelState::Hidden,
         None => PanelState::Hidden,
     }
 }

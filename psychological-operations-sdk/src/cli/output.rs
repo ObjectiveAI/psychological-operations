@@ -47,6 +47,9 @@ pub enum Output {
     DiscordHookList(Vec<DiscordHookEntry>),
     /// `agents daemon discord hooks get` — one hook's full typed definition.
     DiscordHook(DiscordHookFull),
+    /// `agents twitch channels list` — the channel logins the daemon JOINs
+    /// (and buffers chat from) for an agent.
+    TwitchChannelList(Vec<String>),
 
     // ── meta ───────────────────────────────────────────────
     /// `--help` / `--version` / "missing subcommand" rendered

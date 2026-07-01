@@ -21,7 +21,7 @@ use psychological_operations_sdk::browser::mode::Mode;
 #[derive(Debug, Parser)]
 #[command(name = "psychological-operations-browser")]
 #[command(about = "Tauri+CEF webview shell for psychological-operations sessions.")]
-#[command(group = ArgGroup::new("mode").required(true).multiple(false).args(["x_app", "agent_read", "agent_authorize", "agent_browser", "agent_deliver", "discord_login"]))]
+#[command(group = ArgGroup::new("mode").required(true).multiple(false).args(["x_app", "agent_read", "agent_authorize", "agent_browser", "agent_deliver", "discord_login", "twitch_app", "twitch_authorize"]))]
 pub struct Args {
     /// Base directory for psych-ops state. Mode-specific CEF session
     /// data (cookies, IndexedDB, cache, ...) lives under
@@ -96,6 +96,43 @@ pub struct Args {
     #[arg(long, group = "mode", value_name = "TAG")]
     pub discord_login: Option<String>,
 
+    /// Launch the master Twitch **app-setup** wizard. Lands on the Twitch dev
+    /// console (`https://dev.twitch.tv/console/apps`) under the flat
+    /// `twitch-app` CEF profile; the overlay read-scrapes the app's
+    /// `client_id` + `client_secret` and emits `TwitchAppSetupSucceeded` for
+    /// the CLI to persist (the X-App analog for Twitch).
+    #[arg(long, group = "mode")]
+    pub twitch_app: bool,
+
+    /// Launch the per-agent Twitch **authorize** wizard for the given agent
+    /// tag. Rust drives Twitch's OAuth code flow (the operator signs into the
+    /// agent's Twitch account + consents on Twitch's own pages) and emits the
+    /// minted user tokens (`TwitchAuthorizeSucceeded`) for the CLI to persist.
+    /// Requires the Twitch app client creds below (the CLI reads them from the
+    /// captured master app).
+    #[arg(long, group = "mode", value_name = "TAG", requires = "twitch_client_id")]
+    pub twitch_authorize: Option<String>,
+
+    /// Twitch app OAuth client id — required with `--twitch-authorize`. Used
+    /// for the token exchange + authorize URL. Supplied by the CLI from the
+    /// captured master Twitch app (the browser no longer reads the DB).
+    #[arg(long, requires = "twitch_authorize")]
+    pub twitch_client_id: Option<String>,
+
+    /// Twitch app OAuth client secret — required with `--twitch-authorize`.
+    /// Twitch's confidential code flow sends it as a form param (not Basic
+    /// auth) during the token exchange.
+    #[arg(long, requires = "twitch_authorize")]
+    pub twitch_client_secret: Option<String>,
+
+    /// OAuth redirect URI for the Twitch authorize flow. Optional — defaults to
+    /// the fixed loopback callback the browser binds
+    /// (`http://localhost:17563/psychological-operations/callback`). Must match
+    /// the redirect URL registered in the Twitch app EXACTLY. Only meaningful
+    /// with `--twitch-authorize`.
+    #[arg(long, requires = "twitch_authorize")]
+    pub twitch_redirect_uri: Option<String>,
+
     /// Bytes — SQLite response-cache size budget passed to
     /// `Client::new` when the browser needs to interact with
     /// the X v2 API (today: the OAuth-mint write under
@@ -129,6 +166,10 @@ impl Args {
             Mode::AgentDeliver { name: name.clone() }
         } else if let Some(name) = self.discord_login.as_ref() {
             Mode::DiscordLogin { name: name.clone() }
+        } else if self.twitch_app {
+            Mode::TwitchApp
+        } else if let Some(name) = self.twitch_authorize.as_ref() {
+            Mode::TwitchAuthorize { name: name.clone() }
         } else {
             unreachable!("clap ArgGroup mode required=true, multiple=false")
         }

@@ -18,6 +18,7 @@ pub mod agents;
 pub mod daemon;
 pub mod mcp;
 pub mod psyops;
+pub mod twitch_app;
 pub mod x_app;
 
 #[derive(Parser)]
@@ -45,6 +46,12 @@ enum Commands {
     XApp {
         #[command(subcommand)]
         command: x_app::Commands,
+    },
+    /// Master Twitch application credentials setup.
+    #[command(name = "twitch-app")]
+    TwitchApp {
+        #[command(subcommand)]
+        command: twitch_app::Commands,
     },
     /// Embedded X-API MCP server: begin (or attach to) a per-agent
     /// supervised instance.
@@ -105,6 +112,7 @@ where
         Commands::Psyops { command } => command.handle(ctx).await,
         Commands::Agents { command } => command.handle(ctx).await,
         Commands::XApp { command } => command.handle(ctx).await,
+        Commands::TwitchApp { command } => command.handle(ctx).await,
         Commands::Mcp { command } => command.handle(ctx).await,
         Commands::Daemon { command } => command.handle(ctx).await,
     }

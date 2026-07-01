@@ -7,6 +7,7 @@
 use clap::Subcommand;
 
 pub mod discord;
+pub mod twitch;
 pub mod x;
 
 #[derive(Subcommand)]
@@ -41,6 +42,21 @@ pub enum Commands {
         #[arg(long)]
         dangerously_reset: bool,
     },
+    /// Sign in an agent's Twitch account. Requires the master Twitch app to
+    /// already be set up (`twitch-app setup`). Opens the embedded browser
+    /// scoped to the agent's CEF profile; Twitch's own login+consent runs, the
+    /// browser exchanges the OAuth code + validates the account, and stores the
+    /// agent's user tokens. `--dangerously-reset` drops the agent's stored
+    /// Twitch token for a clean re-run.
+    #[command(name = "twitch")]
+    Twitch {
+        /// Agent tag, used verbatim as the name.
+        #[arg(long)]
+        agent_tag: String,
+        /// Drop this agent's stored Twitch token before re-running.
+        #[arg(long)]
+        dangerously_reset: bool,
+    },
 }
 
 impl Commands {
@@ -54,6 +70,10 @@ impl Commands {
                 agent_tag,
                 dangerously_reset,
             } => discord::run(&agent_tag, dangerously_reset, ctx).await,
+            Commands::Twitch {
+                agent_tag,
+                dangerously_reset,
+            } => twitch::run(&agent_tag, dangerously_reset, ctx).await,
         }
     }
 }
