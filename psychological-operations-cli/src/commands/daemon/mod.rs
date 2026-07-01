@@ -46,6 +46,8 @@ use tokio::sync::RwLock;
 use crate::commands::agents::notify::notify_agent;
 use crate::error::Error;
 
+mod twitch;
+
 /// The scheduler sleeps for `max(shortest psyop interval, rand[MIN..=MAX])`
 /// between `psyops run` cycles. The random floor keeps the daemon from waking
 /// faster than `MIN_SLEEP_SECS` (no hot-loop on a perpetually-due psyop) and
@@ -441,7 +443,14 @@ async fn begin(ctx: &crate::context::Context) -> Result<CliOutput, Error> {
         let store = store.clone();
         let client = client.clone();
         let mut listener = listener;
+        // The Twitch IRC listeners live entirely inside this task (stateful,
+        // single-owner). They reconcile on the SAME `daemon_reload` NOTIFY —
+        // the `twitch_auth` / `twitch_channels` triggers fire it — so a Twitch
+        // change re-JOINs / (re)connects without disturbing anything else.
+        let mut twitch = twitch::TwitchListeners::new(ctx.db.clone());
         tokio::spawn(async move {
+            twitch.reload().await;
+            eprintln!("twitch daemon: initial reconcile complete");
             loop {
                 match listener.next_reload().await {
                     Ok(()) => {
@@ -450,6 +459,7 @@ async fn begin(ctx: &crate::context::Context) -> Result<CliOutput, Error> {
                         } else {
                             eprintln!("discord daemon: reloaded");
                         }
+                        twitch.reload().await;
                     }
                     Err(e) => {
                         eprintln!("discord daemon: listener error: {e}");

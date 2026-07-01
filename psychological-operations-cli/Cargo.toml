@@ -27,6 +27,9 @@ rand = "0.8"
 base64 = "0.22"
 envconfig = "0.11.1"
 humantime = "2"
+# Twitch chat (daemon IRC listener). rustls transport to avoid openssl on
+# Windows — matches the rest of the workspace's TLS choice.
+twitch-irc = { version = "5", default-features = false, features = ["transport-tcp", "transport-tcp-rustls-webpki-roots"] }
 psychological-operations-db = { path = "../psychological-operations-db" }
 psychological-operations-sdk = { path = "../psychological-operations-sdk" }
 psychological-operations-x-mcp = { path = "../psychological-operations-x-mcp" }
