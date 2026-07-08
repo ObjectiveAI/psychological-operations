@@ -7,7 +7,7 @@ description = "Cross-crate integration tests for psychological-operations. Every
 [dependencies]
 # Drive the objectiveai host: BinaryExecutor (cli-executor) + the
 # `plugins run` command types and cli::Error (cli).
-objectiveai-sdk = { version = "2.2.9", default-features = false, features = ["cli", "cli-executor"] }
+objectiveai-sdk = { version = "2.2.10", default-features = false, features = ["cli", "cli-executor"] }
 # Deserialize the nested inner plugin output (cli::Output + the psyops /
 # targets DTOs) and build inline psyop definitions as typed structs.
 psychological-operations-sdk = { path = "../psychological-operations-sdk" }

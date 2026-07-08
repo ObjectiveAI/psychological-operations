@@ -1,5 +1,4 @@
 pub mod collect;
-pub mod notify;
 pub mod run;
 
 pub mod filter;
@@ -138,13 +137,6 @@ async fn set_disabled_inner(
         return Err(crate::error::Error::PsyopNotFound(name.to_string()));
     }
 
-    // Notify the running viewer (if any) that this psyop's surfaced
-    // entry just changed. The definition is unchanged here, but the
-    // entry's `enabled` flag flips — viewers re-render accordingly.
-    // Best-effort; silent failures.
-    if let Some(body) = full_psyop_body(name, ctx).await {
-        notify::notify("psyop_edited", &body, ctx).await;
-    }
     Ok(Output::Ok)
 }
 
@@ -168,39 +160,12 @@ async fn insert_inner(
         .validate()
         .map_err(crate::error::Error::InvalidPsyop)?;
 
-    // Add vs edit: existence BEFORE the upsert. `psyop_upsert` leaves
-    // the `disabled` flag untouched on edit.
-    let existed_before = ctx.db.psyop_exists(&args.name).await?;
     self::psyop::save(&args.name, &psyop, ctx).await?;
 
     let is_enabled = !ctx.db.psyop_disabled(&args.name).await?;
-    let body = serde_json::json!({
-        "name": &args.name,
-        "enabled": is_enabled,
-        "definition": &psyop,
-    });
-    let sub_type = if existed_before {
-        "psyop_edited"
-    } else {
-        "psyop_added"
-    };
-    notify::notify(sub_type, &body, ctx).await;
 
     Ok(Output::PublishedPsyop(PublishedPsyop {
         name: args.name,
         enabled: is_enabled,
-    }))
-}
-
-/// Build the `PsyopWithDefinition`-shaped notification body for
-/// `psyop_added` / `psyop_edited`. Returns `None` if the psyop can't be
-/// read back — caller drops the notify.
-async fn full_psyop_body(name: &str, ctx: &crate::context::Context) -> Option<serde_json::Value> {
-    let psyop = self::psyop::load(name, ctx).await.ok()?;
-    let is_enabled = !ctx.db.psyop_disabled(name).await.unwrap_or(false);
-    Some(serde_json::json!({
-        "name": name,
-        "enabled": is_enabled,
-        "definition": psyop,
     }))
 }
